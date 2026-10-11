@@ -1,0 +1,70 @@
+{
+ "system": "open-wearables",
+ "version": "0.9.0 (d07f0d53)",
+ "concurrency": 4,
+ "dataset": {
+  "seed": 42,
+  "days": 14,
+  "start": "2026-01-05",
+  "hr_interval": 60,
+  "records": 28560,
+  "requests": 56,
+  "request_bytes": 11326825
+ },
+ "ingest": {
+  "statuses": {
+   "202": 56
+  },
+  "retries_503": 0,
+  "stored": 28560,
+  "expected": 28560,
+  "upload_seconds": 1.0359069610000233,
+  "end_to_end_seconds": 4.704671001000065,
+  "upload_records_per_s": 27570.043522469732,
+  "end_to_end_records_per_s": 6070.562637414825,
+  "upload_latency_ms": {
+   "n": 56,
+   "mean": 73.21549810714397,
+   "p50": 62.05292449999433,
+   "p95": 191.37216474999263,
+   "p99": 205.67444934999918,
+   "max": 214.1847110000299
+  }
+ },
+ "memory_bytes": {
+  "idle": {
+   "redis": 13815808,
+   "api": 250097664,
+   "worker": 253779968,
+   "total": 517693440
+  },
+  "peak": {
+   "redis": 34021376,
+   "api": 271241216,
+   "worker": 311402496,
+   "total": 615055360
+  }
+ },
+ "cpu_seconds": {
+  "redis": 0.09000000000000001,
+  "api": 0.8799999999999999,
+  "worker": 3.72,
+  "postgres": 2.904866447
+ },
+ "read": {
+  "day": "2026-01-12",
+  "rows": 1440,
+  "latency_ms": {
+   "n": 50,
+   "mean": 76.26939016001188,
+   "p50": 59.235290000003715,
+   "p95": 249.3309478500123,
+   "p99": 294.98347437000683,
+   "max": 303.4693370000241
+  }
+ },
+ "storage_bytes": {
+  "database": 18757299,
+  "raw_files": 0
+ }
+}

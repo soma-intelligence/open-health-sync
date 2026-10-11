@@ -1,0 +1,64 @@
+{
+ "system": "open-health-sync",
+ "version": "ohs c8fdf12 (c8fdf12)",
+ "concurrency": 4,
+ "dataset": {
+  "seed": 42,
+  "days": 14,
+  "start": "2026-01-05",
+  "hr_interval": 60,
+  "records": 28560,
+  "requests": 56,
+  "request_bytes": 373567
+ },
+ "ingest": {
+  "statuses": {
+   "200": 56
+  },
+  "retries_503": 0,
+  "stored": 28560,
+  "expected": 28560,
+  "upload_seconds": 0.32366511700001865,
+  "end_to_end_seconds": 1.6443925779999518,
+  "upload_records_per_s": 88239.35141579794,
+  "end_to_end_records_per_s": 17368.115364967816,
+  "upload_latency_ms": {
+   "n": 56,
+   "mean": 22.34976624999417,
+   "p50": 18.044287999998687,
+   "p95": 51.18001675003825,
+   "p99": 66.22047584996837,
+   "max": 70.07208899995021
+  }
+ },
+ "memory_bytes": {
+  "idle": {
+   "server": 23121920,
+   "total": 23121920
+  },
+  "peak": {
+   "server": 47493120,
+   "total": 47493120
+  }
+ },
+ "cpu_seconds": {
+  "server": 2.1700000000000004,
+  "postgres": 2.3744364129999997
+ },
+ "read": {
+  "day": "2026-01-12",
+  "rows": 1440,
+  "latency_ms": {
+   "n": 50,
+   "mean": 29.63173601998733,
+   "p50": 29.211652500009677,
+   "p95": 36.6456324499552,
+   "p99": 37.803709669959744,
+   "max": 38.219679000008
+  }
+ },
+ "storage_bytes": {
+  "database": 40941235,
+  "raw_files": 373567
+ }
+}

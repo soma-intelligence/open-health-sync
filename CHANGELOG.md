@@ -7,6 +7,11 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- A reproducible ingestion benchmark against Open Wearables: `bench/openwearables/` and
+  [the method and results](docs/benchmarks/open-wearables.md).
+
 ## [0.0.2] - 2026-10-11
 
 Usability release. Nothing changes in the data model or the database schema. Read the
