@@ -7,10 +7,12 @@ package etl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -60,6 +62,21 @@ func recordsMap(r connector.RawRecord) (model.MapResult, error) {
 				{Timestamp: start, Latitude: 48.1, Longitude: 2.1, ParentContentHash: hash},
 				{Timestamp: start.Add(time.Minute), Latitude: 48.2, Longitude: 2.2, ParentContentHash: hash},
 			},
+		}, nil
+	case "samples":
+		// A record that only gives samples: one under the id itself, one
+		// under "<id>_<quantity type>", and a category sample "<id>_<suffix>".
+		return model.MapResult{
+			QuantitySamples: []model.QuantitySample{
+				{Provider: r.Provider, ExternalID: id, QuantityType: model.QTStrain, Value: 10, Unit: "index",
+					StartDate: start, EndDate: end, ContentHash: hash + "-strain", Replaceable: true},
+				{Provider: r.Provider, ExternalID: id + "_" + model.QTRestingHeartRate, QuantityType: model.QTRestingHeartRate,
+					Value: 50, Unit: "bpm", StartDate: start, EndDate: end, ContentHash: hash + "-rhr", Replaceable: true},
+			},
+			CategorySamples: []model.CategorySample{{
+				Provider: r.Provider, ExternalID: id + "_note", CategoryType: "mindful_session", StartDate: start, EndDate: end,
+				ContentHash: hash + "-note",
+			}},
 		}, nil
 	case "mindful":
 		return model.MapResult{CategorySamples: []model.CategorySample{{
@@ -161,6 +178,50 @@ func TestDeletion_BeforeTheRecordStillWins(t *testing.T) {
 	assert.Equal(t, 0, e.count("workouts"))
 }
 
+// A deletion whose id matches no stored sleep or workout (a record that only
+// gave samples, or a WHOOP recovery whose sleep is still stored) removes the
+// samples stored under the id or "<id>_<suffix>", whenever they start. Ids
+// that merely share a prefix stay.
+func TestDeletion_SamplesOnlyRecordRemovesStoredSamples(t *testing.T) {
+	e := newEnv(t)
+	e.register("prov", recordsMap)
+	e.process(e.upload(e.tenant, e.user, "prov", "records",
+		rec("sleep", "s-1", deletionBase),
+		rec("samples", "s-1_recovery", deletionBase.Add(9*time.Hour)),
+		// Months away from any parent: no time window may hide them.
+		rec("samples", "r-9", deletionBase.Add(-120*24*time.Hour)),
+		rec("samples", "r-9x", deletionBase), rec("samples", "r-9-2", deletionBase), rec("samples", "r-90", deletionBase)))
+	require.Equal(t, 1+5*2, e.countFor("quantity_samples", e.tenant, e.user))
+	require.Equal(t, 5, e.countFor("category_samples", e.tenant, e.user))
+
+	c := e.process(e.upload(e.tenant, e.user, "prov", "records", del("s-1_recovery"), del("r-9")))
+	assert.Equal(t, TableCount{Written: 2}, c[tDeleted])
+	assert.Equal(t, 1, e.countFor("sleep_sessions", e.tenant, e.user), "the sleep of the recovery stays")
+	rows, err := e.pool.Query(context.Background(), `SELECT external_id FROM ohs_data.quantity_samples
+		WHERE tenant_id = $1 AND user_id = $2 ORDER BY external_id`, e.tenant, e.user)
+	require.NoError(t, err)
+	left, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	assert.Equal(t, []string{"r-9-2", "r-9-2_resting_heart_rate", "r-90", "r-90_resting_heart_rate",
+		"r-9x", "r-9x_resting_heart_rate", "s-1_resting_heart_rate"}, left)
+	rows, err = e.pool.Query(context.Background(), `SELECT external_id FROM ohs_data.category_samples
+		WHERE tenant_id = $1 AND user_id = $2 ORDER BY external_id`, e.tenant, e.user)
+	require.NoError(t, err)
+	left, err = pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	assert.Equal(t, []string{"r-9-2_note", "r-90_note", "r-9x_note"}, left)
+
+	// The lookups use the external id index, not a scan of the hypertable.
+	for _, q := range []string{
+		`EXPLAIN DELETE FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND user_id = $2 AND provider = 'prov'` + deletionExternalMatch("'r-1'", "'r-1_'", "'r-1`'"),
+		`EXPLAIN DELETE FROM ohs_data.category_samples WHERE tenant_id = $1 AND user_id = $2 AND provider = 'prov'` + deletionExternalMatch("'r-1'", "'r-1_'", "'r-1`'"),
+	} {
+		plan := e.explain(q, e.tenant, e.user)
+		assert.Contains(t, plan, "_external on", "uses the external id index: %s", plan)
+		assert.Regexp(t, "Index Cond: .*external_id.* < 'r-1`'", plan, "bounded by the id: %s", plan)
+	}
+}
+
 func TestDeletion_OtherUsersAndProvidersUntouched(t *testing.T) {
 	e := newEnv(t)
 	e.register("prov", recordsMap)
@@ -194,4 +255,19 @@ func TestDeletion_OtherUsersAndProvidersUntouched(t *testing.T) {
 	e.exec(`DELETE FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2`, otherTenant, otherUser)
 	e.process(e.upload(otherTenant, otherUser, "prov", "records", lines[0]))
 	assert.Equal(t, 1, e.countFor("sleep_sessions", otherTenant, otherUser))
+}
+
+// explain returns the plan of q as one string.
+func (e *env) explain(q string, args ...any) string {
+	e.t.Helper()
+	conn, err := e.pool.Acquire(context.Background())
+	require.NoError(e.t, err)
+	defer conn.Release()
+	_, err = conn.Exec(context.Background(), `SET enable_seqscan = off`)
+	require.NoError(e.t, err)
+	rows, err := conn.Query(context.Background(), q, args...)
+	require.NoError(e.t, err)
+	lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(e.t, err)
+	return strings.Join(lines, "\n")
 }

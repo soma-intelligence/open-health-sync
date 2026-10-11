@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -21,11 +20,13 @@ import (
 //  1. a tombstone is inserted into deleted_records (idempotent);
 //  2. the sleep sessions of that id are deleted with their phases, the
 //     workouts with their route points and track summaries;
-//  3. the quantity samples derived from the record are deleted: those whose
-//     external_id is the id or "<id>_<suffix>", starting within a day of a
-//     deleted sleep or workout. The window keeps the delete on the
-//     (tenant_id, user_id, start_date) index of the largest table;
-//  4. the category samples and nutrition logs of that id are deleted.
+//  3. the quantity and category samples of the record are deleted: those
+//     whose external_id is the id or "<id>_<suffix>", whenever they start,
+//     whether or not a sleep or workout of that id was stored (a record that
+//     only gave samples, a WHOOP recovery whose sleep stays). The match is a
+//     range on the (tenant_id, user_id, provider, external_id COLLATE "C")
+//     index (migration 0012), see deletionExternalMatch;
+//  4. the nutrition logs of that id are deleted.
 //
 // Every record of the batch is then checked against the tombstones before it
 // is written (dropTombstoned), so a delete wins whichever arrives first.
@@ -34,34 +35,27 @@ import (
 // tombstones, Skipped the deletions already applied.
 const tDeleted = "deleted_records"
 
-// deletionSampleSlack widens the window of step 3 around a deleted parent:
-// the samples of a sleep or workout start at its start, but a copy whose start
-// later moved may have left samples under the old start.
-const deletionSampleSlack = 24 * time.Hour
-
 var (
 	deletionTombstone = `INSERT INTO ohs_data.deleted_records (tenant_id, user_id, provider, external_id)
 		VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`
 	deletionSleep = `DELETE FROM ohs_data.sleep_sessions
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND external_id = $4
-		RETURNING id, bedtime_start, COALESCE(bedtime_end, bedtime_start)`
+		RETURNING id`
 	deletionPhases = `DELETE FROM ohs_data.sleep_phases
 		WHERE tenant_id = $1 AND user_id = $2 AND session_id = ANY($3)`
 	deletionWorkout = `DELETE FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND external_id = $4
-		RETURNING id, start_date, COALESCE(end_date, start_date)`
+		RETURNING id`
 	deletionRoutes = `DELETE FROM ohs_data.route_points
 		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
 	deletionTracks = `DELETE FROM ohs_data.workout_tracks
 		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
-	// deletionSamples: $4 is the id, $5 the id followed by "_", $6 and $7 the
-	// window on start_date.
+	// deletionSamples and deletionCategory: $4 is the id, $5 the id followed
+	// by "_", $6 the id followed by "`" (see deletionExternalMatch).
 	deletionSamples = `DELETE FROM ohs_data.quantity_samples
-		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
-		  AND start_date >= $6 AND start_date <= $7
-		  AND (external_id = $4 OR starts_with(external_id, $5))`
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6")
 	deletionCategory = `DELETE FROM ohs_data.category_samples
-		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND external_id = $4`
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6")
 	deletionNutrition = `DELETE FROM ohs_data.nutrition_logs
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND external_id = $4`
 	tombstonesAny = `SELECT EXISTS (SELECT 1 FROM ohs_data.deleted_records WHERE tenant_id = $1 AND user_id = $2)`
@@ -69,10 +63,21 @@ var (
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = ANY($3) AND external_id = ANY($4)`
 )
 
-// deletedSpan is the stored span of one deleted parent row.
-type deletedSpan struct {
-	id         int64
-	start, end time.Time
+// deletionExternalMatch is the predicate of the rows stored under a record
+// id or "<id>_<suffix>": id, prefix and upper are the placeholders of the id,
+// the id followed by "_", and the id followed by "`", the byte after "_".
+//
+// external_id is compared in the "C" collation, the one of the index of
+// migration 0012: in byte order every "<id>_..." lies in [id, id + "`"), so
+// the index answers a range scan bounded by the id, and starts_with (never
+// LIKE, so an id holding "%" or "_" is not a pattern) drops the few other ids
+// of that range ("<id>-2", "<id>0"). No time bound is needed, and none is
+// known for a deletion that names only an id: on a hypertable the scan is one
+// index probe per chunk.
+func deletionExternalMatch(id, prefix, upper string) string {
+	return ` AND external_id IS NOT NULL
+		  AND external_id COLLATE "C" >= ` + id + ` AND external_id COLLATE "C" < ` + upper + `
+		  AND (external_id = ` + id + ` OR starts_with(external_id, ` + prefix + `))`
 }
 
 // applyDeletions applies every deletion of the batch. Rows removed are
@@ -117,26 +122,25 @@ func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey) (int, 
 	fresh := tag.RowsAffected() == 1
 	removed := 0
 
-	sleeps, err := deleteSpans(ctx, tx, deletionSleep, sc, k)
+	sleeps, err := deleteParents(ctx, tx, deletionSleep, sc, k)
 	if err != nil {
 		return 0, false, fmt.Errorf("delete sleep session: %w", err)
 	}
 	if len(sleeps) > 0 {
-		tag, err := tx.Exec(ctx, deletionPhases, sc.tenant, sc.user, spanIDs(sleeps))
+		tag, err := tx.Exec(ctx, deletionPhases, sc.tenant, sc.user, sleeps)
 		if err != nil {
 			return 0, false, fmt.Errorf("delete sleep phases: %w", err)
 		}
 		removed += len(sleeps) + int(tag.RowsAffected())
 	}
 
-	workouts, err := deleteSpans(ctx, tx, deletionWorkout, sc, k)
+	workouts, err := deleteParents(ctx, tx, deletionWorkout, sc, k)
 	if err != nil {
 		return 0, false, fmt.Errorf("delete workout: %w", err)
 	}
 	if len(workouts) > 0 {
-		ids := spanIDs(workouts)
 		for _, q := range []string{deletionRoutes, deletionTracks} {
-			tag, err := tx.Exec(ctx, q, sc.tenant, sc.user, ids)
+			tag, err := tx.Exec(ctx, q, sc.tenant, sc.user, workouts)
 			if err != nil {
 				return 0, false, fmt.Errorf("delete workout children: %w", err)
 			}
@@ -145,53 +149,29 @@ func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey) (int, 
 		removed += len(workouts)
 	}
 
-	if spans := append(append([]deletedSpan{}, sleeps...), workouts...); len(spans) > 0 {
-		from, to := spans[0].start, spans[0].end
-		for _, s := range spans[1:] {
-			if s.start.Before(from) {
-				from = s.start
-			}
-			if s.end.After(to) {
-				to = s.end
-			}
-		}
-		tag, err := tx.Exec(ctx, deletionSamples, sc.tenant, sc.user, k.provider, k.id, k.id+"_",
-			from.Add(-deletionSampleSlack), to.Add(deletionSampleSlack))
+	for _, q := range []string{deletionSamples, deletionCategory} {
+		tag, err := tx.Exec(ctx, q, sc.tenant, sc.user, k.provider, k.id, k.id+"_", k.id+"`")
 		if err != nil {
 			return 0, false, fmt.Errorf("delete derived samples: %w", err)
 		}
 		removed += int(tag.RowsAffected())
 	}
 
-	for _, q := range []string{deletionCategory, deletionNutrition} {
-		tag, err := tx.Exec(ctx, q, sc.tenant, sc.user, k.provider, k.id)
-		if err != nil {
-			return 0, false, fmt.Errorf("delete record: %w", err)
-		}
-		removed += int(tag.RowsAffected())
+	tag, err = tx.Exec(ctx, deletionNutrition, sc.tenant, sc.user, k.provider, k.id)
+	if err != nil {
+		return 0, false, fmt.Errorf("delete record: %w", err)
 	}
+	removed += int(tag.RowsAffected())
 	return removed, fresh, nil
 }
 
-// deleteSpans runs a parent DELETE ... RETURNING id, start, end.
-func deleteSpans(ctx context.Context, tx TxLike, q string, sc scope, k recordKey) ([]deletedSpan, error) {
+// deleteParents runs a parent DELETE ... RETURNING id.
+func deleteParents(ctx context.Context, tx TxLike, q string, sc scope, k recordKey) ([]int64, error) {
 	rows, err := tx.Query(ctx, q, sc.tenant, sc.user, k.provider, k.id)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (deletedSpan, error) {
-		var s deletedSpan
-		err := r.Scan(&s.id, &s.start, &s.end)
-		return s, err
-	})
-}
-
-func spanIDs(spans []deletedSpan) []int64 {
-	ids := make([]int64, len(spans))
-	for i, s := range spans {
-		ids[i] = s.id
-	}
-	return ids
+	return pgx.CollectRows(rows, pgx.RowTo[int64])
 }
 
 // recordKey is one provider record: its provider and external id.

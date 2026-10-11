@@ -309,13 +309,14 @@ type MapResult struct {
 }
 
 // Deletion says that a provider removed one of its records: the sleep,
-// workout, category sample or nutrition log stored with ExternalID, and the
-// quantity samples derived from it. Those samples carry the record id as their
+// workout or nutrition log stored with ExternalID, and the quantity and
+// category samples of it. Those samples carry the record id as their
 // ExternalID, or "<record id>_<suffix>" when one record gives several (the
-// Oura and WHOOP convention), and lie within a day of the deleted sleep or
-// workout. A Deletion is applied for the job's tenant and user only, and is
-// final: a later copy of the record (a re-pull, an old raw object processed
-// again) is skipped, whichever arrives first.
+// Oura and WHOOP convention), and are removed whenever they start, whether or
+// not a sleep or workout of that id is stored. A Deletion is applied for the
+// job's tenant and user only, and is final: a later copy of the record (a
+// re-pull, an old raw object processed again) is skipped, whichever arrives
+// first.
 type Deletion struct {
 	// Provider is the integration the record came through. Empty means the
 	// provider of the job.

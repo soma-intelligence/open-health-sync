@@ -36,18 +36,38 @@ func TestDeletionStatementsScopedToTenantAndUser(t *testing.T) {
 		assert.Contains(t, q, "tenant_id = $1 AND user_id = $2", name)
 	}
 	for name, q := range map[string]string{
-		"deletionSleep": deletionSleep, "deletionWorkout": deletionWorkout,
-		"deletionCategory": deletionCategory, "deletionNutrition": deletionNutrition,
+		"deletionSleep": deletionSleep, "deletionWorkout": deletionWorkout, "deletionNutrition": deletionNutrition,
 	} {
 		assert.Contains(t, q, "provider = $3 AND external_id = $4", name)
 	}
-	assert.Contains(t, deletionSamples, "provider = $3")
-	assert.Contains(t, deletionSamples, "start_date >= $6 AND start_date <= $7", "the sample delete stays on the time index")
-	assert.Contains(t, deletionSamples, "external_id = $4 OR starts_with(external_id, $5)")
-	assert.NotContains(t, deletionSamples, "LIKE", "an id holding % or _ must not act as a pattern")
+	for name, q := range map[string]string{"deletionSamples": deletionSamples, "deletionCategory": deletionCategory} {
+		assert.Contains(t, q, "provider = $3", name)
+		assert.NotContains(t, q, "start_date", "%s: no time window, the external id index bounds it", name)
+		assert.Contains(t, q, `external_id COLLATE "C" >= $4 AND external_id COLLATE "C" < $6`, "%s: a range on the index", name)
+		assert.Contains(t, q, "external_id = $4 OR starts_with(external_id, $5)", name)
+		assert.NotContains(t, q, "LIKE", "%s: an id holding %% or _ must not act as a pattern", name)
+	}
 	for _, q := range []string{deletionSleep, deletionWorkout} {
 		assert.True(t, strings.HasPrefix(strings.TrimSpace(q), "DELETE FROM ohs_data."))
-		assert.Contains(t, q, "RETURNING id, ")
+		assert.Contains(t, q, "RETURNING id")
+	}
+}
+
+// The range of deletionExternalMatch holds every "<id>_..." in byte order,
+// which is what the "C" collation compares; starts_with then drops the other
+// ids of the range.
+func TestDeletionPrefixRangeIsByteOrder(t *testing.T) {
+	id := "r-9"
+	lo, hi := id, id+"`"
+	match := func(s string) bool {
+		return s >= lo && s < hi && (s == id || strings.HasPrefix(s, id+"_"))
+	}
+	for _, s := range []string{"r-9", "r-9_", "r-9_strain", "r-9_recovery_resting_heart_rate", "r-9_\xff"} {
+		assert.True(t, s >= lo && s < hi, "in the range: %q", s)
+		assert.True(t, match(s), s)
+	}
+	for _, s := range []string{"r-8_x", "r-9a", "r-9-2_x", "r-90_x", "r-9`", "r-:", "s"} {
+		assert.False(t, match(s), s)
 	}
 }
 
