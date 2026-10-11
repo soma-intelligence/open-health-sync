@@ -32,6 +32,31 @@ release may change the API, the configuration or the database schema.
   exercises, sleep with hypnogram, Nightly Recharge, daily activity, continuous heart rate and
   physical info, and AccessLink webhooks with optional signature verification
   (`OHS_POLAR_WEBHOOK_SECRET`). Not yet verified with a real account.
+- Provider deletions: `Map` can return `model.Deletion` records (`MapResult.Deletions`). The
+  ETL removes the stored sleep sessions, workouts, category samples and nutrition logs of that
+  provider record, with their phases, route points, track summaries and derived quantity
+  samples, scoped to the job's tenant and user, and records a tombstone in the new
+  `ohs_data.deleted_records` table (migration `0010`) so the record is never written again,
+  whichever arrives first.
+- `connector.InboundEvent.Lines`: a notification that a pull cannot fetch back (a delete
+  notice) is stored verbatim as a raw object for every connection of the provider user and
+  queued for the ETL, instead of queueing a pull.
+- WHOOP `sleep.deleted` and `workout.deleted` webhooks and Strava activity `delete` events (with
+  `OHS_STRAVA_SUBSCRIPTION_ID` set) now remove the record.
+- Oura webhooks (optional, `OHS_OURA_VERIFICATION_TOKEN`): the subscription challenge is
+  answered, notifications are verified with `x-oura-signature`, create and update events queue
+  a pull, and deleted sleep periods, workouts and sessions are removed. Subscriptions are
+  created once by the operator; see [docs/connectors/oura.md](docs/connectors/oura.md).
+- Oura daily sleep score (`sleep_score`), daily stress (`stress_high_time`,
+  `recovery_high_time`, in minutes), meditation and breathing sessions (`mindful_session`
+  category samples) and VO2 max (`vo2_max`). Migration `0011` registers the new quantity
+  names. The consent now asks for the `session` scope.
+
+### Changed
+
+- Oura sleep periods of type `deleted` or `rest` (rejected by the user) remove the stored
+  session of that id instead of being skipped. An Oura data endpoint answering 404 is skipped
+  with a warning instead of failing the pull.
 
 ## [0.0.2] - 2026-10-11
 
