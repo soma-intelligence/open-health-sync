@@ -20,8 +20,16 @@ import (
 
 // Pull windows.
 const (
-	// PullEvery is how often every active connection is pulled.
+	// PullEvery is how often a connection is pulled while its provider's
+	// notifications arrive: the pull is only a backstop for a lost one.
 	PullEvery = 6 * time.Hour
+	// PullEveryWithoutPush is how often a connection is pulled when its
+	// provider sends no notifications, or none arrived within PushSilence
+	// (not configured, subscription lost, delivery failing).
+	PullEveryWithoutPush = time.Hour
+	// PushSilence is how long a connection may go without a notification
+	// before its notifications count as not arriving.
+	PushSilence = 24 * time.Hour
 	// BackfillWindow is how far back a new connection is pulled.
 	BackfillWindow = 30 * 24 * time.Hour
 	// BackfillChunk is the span of one backfill pull job.
@@ -142,15 +150,20 @@ func (s *Scheduler) graceCtx(ctx context.Context) (context.Context, context.Canc
 	return jobCtx, func() { stop(); cancelJobs() }
 }
 
-// subscribeLoop subscribes pending push subscriptions on every tick, apart
-// from pull scheduling so a slow provider cannot hold pulls back. Each pass
-// is bounded by subscribePassBudget.
+// subscribeLoop renews silent subscriptions and subscribes pending push
+// subscriptions on every tick, apart from pull scheduling so a slow provider
+// cannot hold pulls back. Each pass is bounded by subscribePassBudget.
 func (s *Scheduler) subscribeLoop(ctx context.Context) {
 	jobCtx, cancel := s.graceCtx(ctx)
 	defer cancel()
 	t := time.NewTicker(s.cfg.Tick)
 	defer t.Stop()
 	for {
+		if n, err := s.RenewSilent(ctx, defaultScheduleBatch); err != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "collect: renew silent subscriptions", "error", err)
+		} else if n > 0 {
+			slog.InfoContext(ctx, "collect: renewing subscriptions that went silent", "count", n)
+		}
 		if _, err := s.subscribePass(ctx, jobCtx, defaultSubscribeBatch); err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "collect: subscribe pending", "error", err)
 		}
@@ -269,11 +282,26 @@ func enqueueBackfill(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID,
 	return nil
 }
 
+// pullEvery is the regular pull interval of a connection: PullEvery while
+// its notifications arrive, PullEveryWithoutPush otherwise.
+func pullEvery(pushHealthy bool) time.Duration {
+	if pushHealthy {
+		return PullEvery
+	}
+	return PullEveryWithoutPush
+}
+
+// pushHealthy reports whether a connection's notifications count as
+// arriving: its provider sends them and one came within PushSilence.
+func pushHealthy(push bool, lastEvent *time.Time, now time.Time) bool {
+	return push && lastEvent != nil && now.Sub(*lastEvent) < PushSilence
+}
+
 // regularWindow is the pull window of the slot ending at slotEnd: the last
-// PullEvery plus an overlap, reaching back to the last successful sync after
-// an outage (at most maxCatchUp).
-func regularWindow(slotEnd time.Time, lastSync *time.Time) (time.Time, time.Time) {
-	from := slotEnd.Add(-PullEvery - pullOverlap)
+// interval (every) plus an overlap, reaching back to the last successful sync
+// after an outage (at most maxCatchUp).
+func regularWindow(slotEnd time.Time, every time.Duration, lastSync *time.Time) (time.Time, time.Time) {
+	from := slotEnd.Add(-every - pullOverlap)
 	if lastSync != nil {
 		if back := lastSync.Add(-pullOverlap); back.Before(from) {
 			from = back
@@ -286,11 +314,13 @@ func regularWindow(slotEnd time.Time, lastSync *time.Time) (time.Time, time.Time
 }
 
 // Schedule runs one scheduling pass and returns the number of connections it
-// enqueued work for. Regular pulls are aligned on PullEvery slots (00:00,
-// 06:00, 12:00, 18:00 UTC): each active connection gets one job whose window
-// ends at the latest slot boundary, once. A connection whose provider is not
-// available on this instance is skipped. Only one instance schedules at a
-// time (advisory lock); the others return 0.
+// enqueued work for. Regular pulls are aligned on slots of the connection's
+// interval: PullEvery slots (00:00, 06:00, 12:00, 18:00 UTC) while its
+// provider's notifications arrive, hourly slots otherwise (see pullEvery).
+// Each active connection gets one job whose window ends at the latest slot
+// boundary, once. A connection whose provider is not available on this
+// instance is skipped. Only one instance schedules at a time (advisory lock);
+// the others return 0.
 func (s *Scheduler) Schedule(ctx context.Context) (int, error) {
 	tx, err := s.d.Pool.Begin(ctx)
 	if err != nil {
@@ -353,6 +383,19 @@ func (s *Scheduler) slugs(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	return out, nil
 }
 
+// pushSlugs keeps the providers of slugs that send notifications.
+func (s *Scheduler) pushSlugs(slugs []string) []string {
+	out := []string{}
+	for _, slug := range slugs {
+		if c, ok := s.d.lookup(slug); ok {
+			if _, push := connector.AsPush(c); push {
+				out = append(out, slug)
+			}
+		}
+	}
+	return out
+}
+
 // scheduleConnections enqueues the backfills and the regular pulls due now.
 // Only active connections of active users are considered. The user rows are
 // held FOR SHARE until tx ends, so a deletion cannot start between the check
@@ -406,32 +449,56 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 		n++
 	}
 
-	// Regular pulls, the least recently synced first.
-	slotEnd := now.UTC().Truncate(PullEvery)
-	due, err := collectKeys(`
-		SELECT c.tenant_id, c.user_id, c.provider, c.last_sync_at FROM ohs_sync.connections c
+	// Regular pulls, the least recently synced first. Each connection's
+	// slot follows its interval: the long one while its notifications
+	// arrive ($7 = providers that send them, $8 = silence cutoff), the
+	// short one otherwise.
+	longSlot, shortSlot := now.UTC().Truncate(PullEvery), now.UTC().Truncate(PullEveryWithoutPush)
+	rows, err := tx.Query(ctx, `
+		SELECT c.tenant_id, c.user_id, c.provider, c.last_sync_at, s.slot_end, s.healthy
+		FROM ohs_sync.connections c
 		JOIN ohs_core.end_users u ON u.tenant_id = c.tenant_id AND u.id = c.user_id AND u.status = 'active'
+		CROSS JOIN LATERAL (
+			SELECT h.healthy,
+			       CASE WHEN h.healthy THEN $1::timestamptz ELSE $9::timestamptz END AS slot_end,
+			       CASE WHEN h.healthy THEN $4::double precision ELSE $10::double precision END AS span
+			FROM (SELECT coalesce(c.provider = ANY($7) AND c.last_event_at > $8, false) AS healthy) h
+		) s
 		WHERE c.status = 'active' AND c.provider = ANY($3)
-		  AND c.initial_backfill_at IS NOT NULL AND c.initial_backfill_at < $1
+		  AND c.initial_backfill_at IS NOT NULL AND c.initial_backfill_at < s.slot_end
 		  AND NOT EXISTS (
 			SELECT 1 FROM ohs_sync.pull_jobs j
 			WHERE j.tenant_id = c.tenant_id AND j.user_id = c.user_id AND j.provider = c.provider
-			  AND (j.to_time = $1
+			  AND (j.to_time = s.slot_end
 			       -- any other job counts only if it covers the whole window
 			       -- regularWindow would pull (catch-up included), e.g. a slot
 			       -- job an inbound burst widened
-			       OR (j.to_time > $1 AND j.from_time <= greatest(
-					$1 - make_interval(secs => $6::double precision),
-					least($1 - make_interval(secs => $4::double precision),
-					      coalesce(c.last_sync_at, $1) - make_interval(secs => $5::double precision))))))
+			       OR (j.to_time > s.slot_end AND j.from_time <= greatest(
+					s.slot_end - make_interval(secs => $6::double precision),
+					least(s.slot_end - make_interval(secs => s.span),
+					      coalesce(c.last_sync_at, s.slot_end) - make_interval(secs => $5::double precision))))))
 		ORDER BY c.last_sync_at NULLS FIRST, c.tenant_id, c.user_id, c.provider
 		LIMIT $2
-		FOR SHARE OF u`, slotEnd, s.cfg.Batch, slugs, (PullEvery + pullOverlap).Seconds(), pullOverlap.Seconds(), maxCatchUp.Seconds())
+		FOR SHARE OF u`, longSlot, s.cfg.Batch, slugs, (PullEvery + pullOverlap).Seconds(), pullOverlap.Seconds(),
+		maxCatchUp.Seconds(), s.pushSlugs(slugs), now.Add(-PushSilence), shortSlot, (PullEveryWithoutPush + pullOverlap).Seconds())
+	if err != nil {
+		return 0, fmt.Errorf("find due connections: %w", err)
+	}
+	type dueConn struct {
+		key
+		slotEnd time.Time
+		healthy bool
+	}
+	due, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (dueConn, error) {
+		var k dueConn
+		err := r.Scan(&k.tenant, &k.user, &k.provider, &k.lastSync, &k.slotEnd, &k.healthy)
+		return k, err
+	})
 	if err != nil {
 		return 0, fmt.Errorf("find due connections: %w", err)
 	}
 	for _, k := range due {
-		from, to := regularWindow(slotEnd, k.lastSync)
+		from, to := regularWindow(k.slotEnd, pullEvery(k.healthy), k.lastSync)
 		if err := queue.EnqueuePull(ctx, tx, queue.PullJob{
 			TenantID: k.tenant, UserID: k.user, Provider: k.provider, From: from, To: to,
 		}); err != nil {
@@ -539,10 +606,15 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 	case cause == nil:
 		err = s.q.Complete(ctx, job)
 		if err == nil {
+			// synced_through only moves forward, and never past now (a
+			// notification may name a window ending later).
+			now := s.d.now()
 			if _, uerr := s.d.Pool.Exec(ctx, `
-				UPDATE ohs_sync.connections SET last_sync_at = $4, updated_at = now()
+				UPDATE ohs_sync.connections SET last_sync_at = $4, last_attempt_at = $4,
+					synced_through = greatest(synced_through, least($5::timestamptz, $4::timestamptz)),
+					last_error = NULL, consecutive_failures = 0, updated_at = now()
 				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
-				job.TenantID, job.UserID, job.Provider, s.d.now()); uerr != nil {
+				job.TenantID, job.UserID, job.Provider, now, job.To); uerr != nil {
 				log.ErrorContext(ctx, "collect: record last sync", "error", uerr)
 			}
 		}
@@ -559,6 +631,15 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 		msg := safeErr(cause)
 		log.WarnContext(ctx, "collect: pull failed", "error", msg)
 		err = s.q.Fail(ctx, job, errors.New(msg))
+		if err == nil {
+			if _, uerr := s.d.Pool.Exec(ctx, `
+				UPDATE ohs_sync.connections SET last_attempt_at = $4, last_error = $5,
+					consecutive_failures = consecutive_failures + 1, updated_at = now()
+				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
+				job.TenantID, job.UserID, job.Provider, s.d.now(), msg); uerr != nil {
+				log.ErrorContext(ctx, "collect: record pull failure", "error", uerr)
+			}
+		}
 	}
 	switch {
 	case errors.Is(err, queue.ErrNotRunning):

@@ -46,7 +46,45 @@ const (
 	// subscribePassBudget bounds one pass, so a slow provider delays the
 	// next tick at most this long.
 	subscribePassBudget = 2 * time.Minute
+	// ResubscribeAfter: a subscription whose connection heard nothing for
+	// PushSilence is renewed at the provider once it is this old, in case
+	// the provider dropped it (some do after failed deliveries, without
+	// telling anyone). At most once per ResubscribeAfter per connection.
+	ResubscribeAfter = 7 * 24 * time.Hour
 )
+
+// RenewSilent puts back to pending up to n subscribed rows of enabled
+// providers whose connection had no notification for PushSilence and that
+// were subscribed more than ResubscribeAfter ago; the subscribe pass then
+// renews them (subscribing again is harmless). attempts is set to 1 so a
+// disconnect meanwhile still unsubscribes the live subscription. It returns
+// how many rows it reset.
+func (s *Scheduler) RenewSilent(ctx context.Context, n int) (int, error) {
+	slugs, err := s.subscribable(ctx, subSubscribed)
+	if err != nil || len(slugs) == 0 {
+		return 0, err
+	}
+	now := s.d.now()
+	tag, err := s.d.Pool.Exec(ctx, `
+		UPDATE ohs_sync.inbound_subscriptions SET status = 'pending', attempts = 1,
+			next_attempt_at = $1, last_error = NULL, updated_at = now()
+		WHERE id IN (
+			SELECT sub.id FROM ohs_sync.inbound_subscriptions sub
+			JOIN ohs_sync.connections c ON c.tenant_id = sub.tenant_id AND c.user_id = sub.user_id
+				AND c.provider = sub.provider AND c.status = 'active'
+			WHERE sub.status = 'subscribed' AND sub.provider = ANY($2)
+			  AND sub.subscribed_at < $3
+			  AND (c.last_event_at IS NULL OR c.last_event_at < $4)
+			ORDER BY sub.subscribed_at
+			LIMIT $5
+			FOR UPDATE OF sub SKIP LOCKED)
+		  AND status = 'subscribed'`,
+		now, slugs, now.Add(-ResubscribeAfter), now.Add(-PushSilence), n)
+	if err != nil {
+		return 0, fmt.Errorf("renew silent subscriptions: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
 
 func (d Deps) subscriber(provider string) (connector.Subscriber, bool) {
 	oc, ok := d.oauth(provider)
@@ -98,7 +136,7 @@ func (s *Scheduler) SubscribePending(ctx context.Context, n int) (int, error) {
 // subscribePass lists under ctx (it stops picking rows once ctx ends) and
 // works under jobCtx, bounded by subscribePassBudget.
 func (s *Scheduler) subscribePass(ctx, jobCtx context.Context, n int) (int, error) {
-	slugs, err := s.subscribable(ctx)
+	slugs, err := s.subscribable(ctx, subPending)
 	if err != nil || len(slugs) == 0 {
 		return 0, err
 	}
@@ -138,11 +176,12 @@ func (s *Scheduler) subscribePass(ctx, jobCtx context.Context, n int) (int, erro
 	return done, nil
 }
 
-// subscribable lists the providers enabled here that take subscriptions.
-func (s *Scheduler) subscribable(ctx context.Context) ([]string, error) {
+// subscribable lists the providers enabled here that take subscriptions:
+// Deps.Slugs when set, else the providers of rows in status.
+func (s *Scheduler) subscribable(ctx context.Context, status string) ([]string, error) {
 	candidates := s.d.Slugs
 	if candidates == nil {
-		rows, err := s.d.Pool.Query(ctx, `SELECT DISTINCT provider FROM ohs_sync.inbound_subscriptions WHERE status = 'pending'`)
+		rows, err := s.d.Pool.Query(ctx, `SELECT DISTINCT provider FROM ohs_sync.inbound_subscriptions WHERE status = $1`, status)
 		if err != nil {
 			return nil, fmt.Errorf("list subscription providers: %w", err)
 		}

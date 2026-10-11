@@ -97,6 +97,7 @@ func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	e.mux = http.NewServeMux()
 	e.mux.Handle("POST /v1/users/{id}/connections/{provider}", tk(h.StartConnection()))
 	e.mux.Handle("GET /v1/users/{id}/connections", tk(h.ListConnections()))
+	e.mux.Handle("GET /v1/users/{id}/freshness", tk(h.Freshness()))
 	e.mux.Handle("DELETE /v1/users/{id}/connections/{provider}", tk(h.DeleteConnection()))
 	e.mux.Handle("GET /oauth/{provider}/callback", h.OAuthCallback())
 	e.mux.Handle("POST /inbound/{provider}", h.Inbound())
@@ -579,13 +580,16 @@ func TestInboundEnqueuesPull(t *testing.T) {
 	assert.Equal(t, 1, e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs WHERE status = 'pending'`))
 }
 
-func TestScheduleEverySixHours(t *testing.T) {
+func TestScheduleEverySixHoursWhileNotificationsArrive(t *testing.T) {
 	e := newConnEnv(t)
 	ctx := context.Background()
 	connectedAt := time.Date(2026, 10, 10, 13, 5, 0, 0, time.UTC)
 	e.setNow(connectedAt)
 	e.connect(t, e.keyA, e.userA, "pu-1")
 	e.drain(t)
+	// A notification arrived recently: the regular pull is a 6 hour backstop.
+	_, err := e.pool.Exec(ctx, `UPDATE ohs_sync.connections SET last_event_at = $1`, connectedAt)
+	require.NoError(t, err)
 
 	// Same slot as the connect: the backfill covers it.
 	n, err := e.sched.Schedule(ctx)

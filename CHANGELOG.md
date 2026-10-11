@@ -7,6 +7,24 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- `GET /v1/users/{id}/freshness`: how up to date each source of a user is (`synced_through`,
+  `lag_seconds`, last notification, next pull, last error, and a `fresh`/`stale`/`failing`
+  state), Apple Health uploads included. `/metrics` gains `ohs_sync_connections` by provider
+  and state, `ohs_sync_max_lag_seconds` and `ohs_sync_push_silent_connections`.
+- Docs: [background sync](docs/background-sync.md), including what the iOS and Android SDKs
+  need to upload in the background.
+
+### Changed
+
+- The backstop pull adapts to notifications: every 6 hours while a connection's provider
+  notifications arrive, every hour when none came for 24 hours or the provider sends none
+  (before: every 6 hours for all).
+- A provider subscription that has heard nothing for 24 hours and is more than 7 days old is
+  renewed at the provider, which repairs a subscription the provider dropped silently.
+- Migration 0008 adds freshness columns to `ohs_sync.connections`.
+
 ## [0.0.2] - 2026-10-11
 
 Usability release. Nothing changes in the data model or the database schema. Read the

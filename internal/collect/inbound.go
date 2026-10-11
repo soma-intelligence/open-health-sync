@@ -170,6 +170,17 @@ func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events [
 			}); err != nil {
 				return err
 			}
+			// A health signal, not data: skip a row another transaction holds
+			// (a token refresh waits on the provider under that lock) rather
+			// than keep the provider's request waiting.
+			if _, err := tx.Exec(ctx, `
+				UPDATE ohs_sync.connections c SET last_event_at = $4
+				WHERE c.ctid = (SELECT ctid FROM ohs_sync.connections
+					WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
+					FOR UPDATE SKIP LOCKED)`,
+				o.tenant, o.user, provider, now); err != nil {
+				return fmt.Errorf("touch connection: %w", err)
+			}
 			if _, err := tx.Exec(ctx, `
 				UPDATE ohs_sync.inbound_subscriptions SET last_received_at = $4
 				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status = 'subscribed'`,

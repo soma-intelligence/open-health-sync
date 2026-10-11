@@ -21,6 +21,7 @@ func (s *server) mountCollect(mux *http.ServeMux) {
 	}
 	tenantKey := auth.Middleware(s.lookup, auth.TenantKey)
 	mux.Handle("GET /v1/users/{id}/connections", tenantKey(h.ListConnections()))
+	mux.Handle("GET /v1/users/{id}/freshness", tenantKey(h.Freshness()))
 	mux.Handle("POST /v1/users/{id}/connections/{provider}", tenantKey(h.StartConnection()))
 	mux.Handle("DELETE /v1/users/{id}/connections/{provider}", tenantKey(h.DeleteConnection()))
 	mux.Handle("GET /oauth/{provider}/callback", h.OAuthCallback())
