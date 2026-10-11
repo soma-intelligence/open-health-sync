@@ -11,6 +11,7 @@ npm ci
 npm run dev      # http://localhost:3000, reloads on change
 npm run build    # static site in out/
 npm start        # serves out/ on http://localhost:3000
+npm run check:links   # every internal link and anchor of out/ resolves
 ```
 
 Node 22 or later.

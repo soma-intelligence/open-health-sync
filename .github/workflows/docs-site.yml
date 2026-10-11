@@ -29,6 +29,7 @@ jobs:
       - run: npm run lint
       - run: npm run types:check
       - run: npm run build
+      - run: npm run check:links
       - name: Keep the static site
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

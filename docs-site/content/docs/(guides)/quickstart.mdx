@@ -113,11 +113,11 @@ printf '{"quantityType":"HKQuantityTypeIdentifierHeartRate","startDate":"%s","en
 ```
 
 ```json title="Response"
-{"key": "raw/.../apple_health/2026-10-11/demo1_0.ndjson.gz", "duplicate": false}
+{"key":"raw/<tenant>/<user>/apple_health/2026-10-11/demo1_0.ndjson.gz","duplicate":false}
 ```
 
 The payload is now in the raw store, verbatim, and a job is queued. Send the same bytes again and
-the answer says `"duplicate": true`.
+the answer says `"duplicate":true`: nothing is stored twice.
 
 </Step>
 <Step>
@@ -125,17 +125,47 @@ the answer says `"duplicate": true`.
 ### Read it back
 
 Processing is asynchronous. The coverage report says when it is done: wait for `pending_jobs` to
-reach 0, then read the sample.
+reach 0.
 
 ```sh
-curl -s "$OHS/v1/users/$USER_ID/coverage" -H "Authorization: Bearer $KEY" | jq .pending_jobs
-curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bearer $KEY" | jq
+curl -s "$OHS/v1/users/$USER_ID/coverage" -H "Authorization: Bearer $KEY" \
+  | jq '{pending_jobs, parked_jobs, rejected_records}'
 ```
 
-The reading comes back as `heart_rate` in `bpm`, with what the provider sent kept in `metadata`
-and its provenance attached:
+```json title="Response"
+{ "pending_jobs": 0, "parked_jobs": 0, "rejected_records": 0 }
+```
 
-<Shot name="samples" alt="A heart_rate sample read back from the API, in bpm, with its metadata and provenance." />
+Then read the sample back:
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bearer $KEY" \
+  | jq '.data[0]'
+```
+
+```json title="Response"
+{
+  "type": "heart_rate",
+  "value": 72,
+  "unit": "bpm",
+  "start_date": "2026-10-11T09:30:00Z",
+  "end_date": "2026-10-11T09:30:00Z",
+  "source_name": "Demo Watch",
+  "metadata": {
+    "timezone": "UTC",
+    "HKTimeZone": "UTC",
+    "sourceName": "Demo Watch",
+    "original_unit": "count/min",
+    "original_value": 72
+  },
+  "provider": "apple_health",
+  "source": "apple_health",
+  "ingested_at": "2026-10-11T09:30:04.820258Z"
+}
+```
+
+`count/min` became `heart_rate` in `bpm`, what Apple Health sent is kept in `metadata`, and the
+record carries its provenance. A few empty fields are left out above.
 
 </Step>
 </Steps>
@@ -149,7 +179,14 @@ each:
 docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
 ```
 
-<Shot name="doctor" alt="ohs doctor output: config, database, raw store, public url and the apple_health connector ok; withings skipped because no keys are set." />
+```text title="Output"
+ok    config
+ok    database
+ok    raw store
+ok    public url (http://localhost:8080)
+skip  connector withings: disabled (no keys)
+ok    connector apple_health
+```
 
 Data lives in the `pgdata` and `raw` volumes; `docker compose ... down` keeps them.
 

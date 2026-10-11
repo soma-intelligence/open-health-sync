@@ -3,6 +3,7 @@ title: "FHIR R4 export"
 description: "Read health data as FHIR R4 resources. Planned, not in this release."
 status: "planned"
 icon: "HeartPulse"
+source: "docs-site/content/fallbacks/fhir.md"
 ---
 
 FHIR R4 output is **planned**: it is not in the current release, and no FHIR route answers

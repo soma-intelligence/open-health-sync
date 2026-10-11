@@ -34,6 +34,8 @@ await generateFiles({
   beforeWrite(files) {
     for (const file of files) {
       file.path = file.path.replace(/[^/]+(?=\.mdx$)/, kebab);
+      // "Edit on GitHub" opens the OpenAPI file, the page's real source.
+      file.content = file.content.replace(/^---\n/, '---\nsource: "api/openapi.yaml"\n');
     }
   },
 });
