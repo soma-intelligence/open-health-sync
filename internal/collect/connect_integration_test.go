@@ -802,6 +802,56 @@ func TestInboundFansOutAcrossTenants(t *testing.T) {
 	assert.Equal(t, 1, e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs WHERE tenant_id = $1 AND status = 'pending'`, e.tenantB))
 }
 
+// An event carrying raw lines is stored raw first, for every connection of
+// the provider user, and queued for the ETL; nothing is pulled. The same
+// notification delivered again is stored once.
+func TestInboundStoresRawLines(t *testing.T) {
+	e := newConnEnv(t)
+	ctx := context.Background()
+	userB, err := e.store.CreateUser(ctx, e.tenantB, "b-1")
+	require.NoError(t, err)
+	e.connect(t, e.keyA, e.userA, "shared")
+	e.connect(t, e.keyB, userB.ID, "shared")
+	e.drain(t)
+	pulls := e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs`)
+	raws := e.scalar(t, `SELECT count(*) FROM ohs_sync.raw_objects`)
+
+	body := []byte(`{"userid":"shared","deleted":"rec-1"}`)
+	for range 2 {
+		req := httptest.NewRequest(http.MethodPost, "/inbound/"+fakeSlug, bytes.NewReader(body))
+		req.Header.Set("X-Fake-Signature", sign(body))
+		rec := httptest.NewRecorder()
+		e.mux.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+	assert.Equal(t, pulls, e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs`), "a stored notice queues no pull")
+	assert.Equal(t, raws+2, e.scalar(t, `SELECT count(*) FROM ohs_sync.raw_objects`), "one object per connection, once")
+	for _, o := range []struct{ tenant, user uuid.UUID }{{e.tenantA, e.userA}, {e.tenantB, userB.ID}} {
+		var key string
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT key FROM ohs_sync.raw_objects
+			WHERE tenant_id = $1 AND user_id = $2 AND data_type = 'deletion'`, o.tenant, o.user).Scan(&key))
+		assert.Equal(t, 1, e.scalar(t, `SELECT count(*) FROM ohs_sync.etl_jobs WHERE tenant_id = $1 AND user_id = $2 AND key = $3`,
+			o.tenant, o.user, key))
+		rc, err := e.deps.Raw.Get(ctx, key)
+		require.NoError(t, err)
+		zr, err := gzip.NewReader(rc)
+		require.NoError(t, err)
+		stored, err := io.ReadAll(zr)
+		require.NoError(t, err)
+		rc.Close()
+		assert.Equal(t, string(body)+"\n", string(stored), "the notification is stored verbatim")
+	}
+
+	// A provider user with no connection: accepted, nothing stored.
+	body = []byte(`{"userid":"nobody","deleted":"rec-2"}`)
+	req := httptest.NewRequest(http.MethodPost, "/inbound/"+fakeSlug, bytes.NewReader(body))
+	req.Header.Set("X-Fake-Signature", sign(body))
+	rec := httptest.NewRecorder()
+	e.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, raws+2, e.scalar(t, `SELECT count(*) FROM ohs_sync.raw_objects`))
+}
+
 func TestInboundTooLargeAndProbe(t *testing.T) {
 	e := newConnEnv(t)
 	body := append([]byte(`{"userid":"pu-1","pad":"`), bytes.Repeat([]byte("x"), 1<<20)...)

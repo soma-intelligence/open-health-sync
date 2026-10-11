@@ -33,8 +33,9 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
 
 ## Pipeline
 
-1. **Capture.** A device upload (`POST /v1/ingest/apple-health`) or a provider pull writes the
-   payload to the raw store, verbatim, as gzip NDJSON, one data type per object. The key is
+1. **Capture.** A device upload (`POST /v1/ingest/apple-health`), a provider pull, or a
+   provider notice a pull cannot fetch back (a deleted record) writes the payload to the raw
+   store, verbatim, as gzip NDJSON, one data type per object. The key is
    `raw/<tenant>/<user>/<provider>/<yyyy-mm-dd>/<batch>_<part>.ndjson.gz`. A raw object is
    never rewritten.
 2. **Queue.** In the same transaction as the `raw_objects` row, an `etl_jobs` row is inserted.

@@ -269,12 +269,17 @@ func (c fakeConnector) HandleInbound(_ context.Context, r *http.Request) ([]conn
 		return nil, errors.New("bad signature")
 	}
 	var n struct {
-		UserID string `json:"userid"`
-		Start  string `json:"startdate"`
-		End    string `json:"enddate"`
+		UserID  string `json:"userid"`
+		Start   string `json:"startdate"`
+		End     string `json:"enddate"`
+		Deleted string `json:"deleted"`
 	}
 	if err := json.Unmarshal(body, &n); err != nil {
 		return nil, err
+	}
+	if n.Deleted != "" {
+		// A deletion notice: stored verbatim, for Map to turn into a deletion.
+		return []connector.InboundEvent{{ProviderUserID: n.UserID, DataType: "deletion", Lines: [][]byte{body}}}, nil
 	}
 	s, _ := strconv.ParseInt(n.Start, 10, 64)
 	e, _ := strconv.ParseInt(n.End, 10, 64)

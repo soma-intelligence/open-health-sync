@@ -68,6 +68,12 @@ So give every record you may later delete a stable `ExternalID`, and its derived
 or `<id>_<suffix>`. A deletion is final for that id: do not emit one for a record that can come
 back.
 
+A deletion that arrives as a notification follows the raw-first rule like everything else:
+`HandleInbound` returns an `InboundEvent` with `Lines` set (usually the notification body,
+verbatim) and a data type of your choosing. The core stores those lines as a raw object for each
+connection of the provider user and queues it for the ETL, and `Map` turns the stored line into
+the `Deletion`. `Map` stays pure, and the raw store keeps the evidence.
+
 ## A minimal device connector
 
 `connectors/example/` holds a complete, compiling connector for a Bluetooth scale whose SDK

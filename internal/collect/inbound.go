@@ -74,7 +74,10 @@ func (h *Handlers) InboundProbe() http.Handler {
 // matched to every active connection holding its provider user id, across
 // tenants (one provider account linked in two tenants feeds both), and a pull
 // job for [From, To] is enqueued for each; events for unknown users are
-// ignored. The answer is 200 with no body.
+// ignored. An event that carries raw lines (connector.InboundEvent.Lines) is
+// stored as one raw object per such connection and queued for the ETL instead
+// of a pull; a failure to store it is a 500, so the provider retries. The
+// answer is 200 with no body.
 func (h *Handlers) Inbound() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -112,7 +115,20 @@ func (h *Handlers) Inbound() http.Handler {
 			auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "the notification could not be verified")
 			return
 		}
-		if err := h.enqueueInbound(ctx, provider, events); err != nil {
+		var pulls, stores []connector.InboundEvent
+		for _, ev := range events {
+			if len(ev.Lines) > 0 {
+				stores = append(stores, ev)
+			} else {
+				pulls = append(pulls, ev)
+			}
+		}
+		if err := h.storeInbound(ctx, provider, stores); err != nil {
+			slog.ErrorContext(ctx, "collect: inbound store", "provider", provider, "error", err)
+			writeInternal(w)
+			return
+		}
+		if err := h.enqueueInbound(ctx, provider, pulls); err != nil {
 			slog.ErrorContext(ctx, "collect: inbound enqueue", "provider", provider, "error", err)
 			writeInternal(w)
 			return
@@ -140,6 +156,65 @@ func inboundWindow(ev connector.InboundEvent, now time.Time) (time.Time, time.Ti
 	return from, to
 }
 
+// inboundOwner is one end user holding an active connection.
+type inboundOwner struct{ tenant, user uuid.UUID }
+
+// inboundOwners lists the active users with an active connection to provider
+// under providerUserID, across tenants.
+func inboundOwners(ctx context.Context, q interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}, provider, providerUserID, lock string) ([]inboundOwner, error) {
+	rows, err := q.Query(ctx, `
+		SELECT c.tenant_id, c.user_id FROM ohs_sync.connections c
+		JOIN ohs_core.end_users u ON u.tenant_id = c.tenant_id AND u.id = c.user_id AND u.status = 'active'
+		WHERE c.provider = $1 AND c.provider_user_id = $2 AND c.status = 'active'`+lock,
+		provider, providerUserID)
+	if err != nil {
+		return nil, fmt.Errorf("find connection: %w", err)
+	}
+	owners, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (inboundOwner, error) {
+		var o inboundOwner
+		err := r.Scan(&o.tenant, &o.user)
+		return o, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("find connection: %w", err)
+	}
+	return owners, nil
+}
+
+// storeInbound stores the raw lines of each event for every active
+// connection of its provider user: one raw object and one ETL job per
+// connection, filed under the day the notification arrived. The batch name
+// carries the arrival time, so two notifications never share a key; the same
+// bytes delivered twice are stored once (storeRaw skips registered bytes). A
+// user being deleted is skipped.
+func (h *Handlers) storeInbound(ctx context.Context, provider string, events []connector.InboundEvent) error {
+	now := h.d.now().UTC()
+	for i, ev := range events {
+		if ev.ProviderUserID == "" || ev.DataType == "" {
+			continue
+		}
+		owners, err := inboundOwners(ctx, h.d.Pool, provider, ev.ProviderUserID, "")
+		if err != nil {
+			return err
+		}
+		for _, o := range owners {
+			_, err := storeRaw(ctx, h.d, rawTarget{
+				tenant: o.tenant, user: o.user, provider: provider, dataType: ev.DataType,
+				day: now, batch: fmt.Sprintf("inbound-%d", now.UnixMicro()), part: i,
+			}, ev.Lines)
+			if errors.Is(err, errInactive) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // enqueueInbound queues a pull per notified connection of an active user. The
 // user rows are held FOR SHARE until the transaction ends, so a deletion
 // cannot start between the check and the inserts.
@@ -157,28 +232,9 @@ func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events [
 		if ev.ProviderUserID == "" {
 			continue
 		}
-		rows, err := tx.Query(ctx, `
-			SELECT c.tenant_id, c.user_id FROM ohs_sync.connections c
-			JOIN ohs_core.end_users u ON u.tenant_id = c.tenant_id AND u.id = c.user_id AND u.status = 'active'
-			WHERE c.provider = $1 AND c.provider_user_id = $2 AND c.status = 'active'
-			FOR SHARE OF u`,
-			provider, ev.ProviderUserID)
+		owners, err := inboundOwners(ctx, tx, provider, ev.ProviderUserID, " FOR SHARE OF u")
 		if err != nil {
-			return fmt.Errorf("find connection: %w", err)
-		}
-		type owner struct{ tenant, user uuid.UUID }
-		var owners []owner
-		for rows.Next() {
-			var o owner
-			if err := rows.Scan(&o.tenant, &o.user); err != nil {
-				rows.Close()
-				return fmt.Errorf("scan connection: %w", err)
-			}
-			owners = append(owners, o)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("find connection: %w", err)
+			return err
 		}
 		from, to := inboundWindow(ev, now)
 		for _, o := range owners {
