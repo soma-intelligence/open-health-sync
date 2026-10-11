@@ -1,8 +1,8 @@
 # Connectors
 
-A connector teaches Open Health Sync one source. Two ship in v0.0.1: [Apple Health](apple-health.md)
-and [Withings](withings.md). Every other source below is **planned**: it is not in this release,
-and no code for it runs today. To build one, start with
+A connector teaches Open Health Sync one source. Three are available: [Apple Health](apple-health.md),
+[Withings](withings.md) and [Oura](oura.md). Every other source below is **planned**: it is not
+built yet, and no code for it runs today. To build one, start with
 [writing a connector](../writing-a-connector.md).
 
 ## Supported and planned sources
@@ -28,7 +28,7 @@ linked tracking issue or the vendor's developer site before you start):
 |---|---|---|---|---|---|
 | Apple Health | Available | On-device (HealthKit). Your iOS app uploads gzip NDJSON parts to `POST /v1/ingest/apple-health` | Quantities, categories, sleep, workouts and routes, nutrition; ECG and heartbeat series stored | No SDK ships yet: your app implements the [upload contract](apple-health.md). A Swift SDK is planned. Data that other apps and devices write to HealthKit arrives this way too | |
 | Withings | Available, not yet verified with a real account | Cloud API, OAuth 2.0, scheduled pulls and push notifications | Body measurements, activity, sleep, workouts, ECG | Bring your own Withings developer app ([guide](withings.md)) | |
-| Oura | Planned | Cloud API v2, OAuth 2.0 | Sleep, readiness, activity, heart rate, SpO2, workouts | Personal access tokens were retired at the end of 2025. Gen3 and later rings need an active Oura Membership for API access. An app needs Oura's approval past its first 10 users | [#5](https://github.com/soma-intelligence/open-health-sync/issues/5) |
+| Oura | Available, not yet verified with a real account | Cloud API v2, OAuth 2.0, scheduled pulls (webhooks not used yet) | Sleep and stages, readiness, daily activity, heart rate, SpO2, workouts | Bring your own Oura API application ([guide](oura.md)). Personal access tokens were retired at the end of 2025. Gen3 and later rings need an active Oura Membership for API access. An app needs Oura's approval past its first 10 users | [#5](https://github.com/soma-intelligence/open-health-sync/issues/5) |
 | Whoop | Planned | Cloud API v2, OAuth 2.0, webhooks (recovery, sleep, workout) | Recovery, sleep, cycles (strain), workouts, body measurements | App registered in the WHOOP Developer Dashboard. The public API has no raw heart rate series or ECG | [#6](https://github.com/soma-intelligence/open-health-sync/issues/6) |
 | Ultrahuman | Planned | Partner program (UltraSignal partner API), OAuth 2.0 | Sleep, HRV, skin temperature, recovery; glucose with the M1 patch | Not self-serve: companies apply and are onboarded. We could not confirm that new partners are accepted | |
 | Garmin | Planned | Partner program (Garmin Connect Developer Program: Health and Activity APIs), OAuth 2.0 with PKCE, Garmin pushes notifications (ping/pull or push) | Daily summaries, sleep, stress, heart rate, activities | For approved business developers only; some data needs a commercial license fee. New access requests have been paused since spring 2026, per Garmin's replies to applicants; no public announcement or reopening date. Not usable by individuals self-hosting ([research notes](garmin.md)) | [#9](https://github.com/soma-intelligence/open-health-sync/issues/9) |

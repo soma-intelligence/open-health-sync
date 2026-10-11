@@ -1,0 +1,23 @@
+{
+  "data": [
+    {
+      "id": "readiness-0001",
+      "contributors": {"activity_balance": 80, "body_temperature": 100, "hrv_balance": 75, "previous_day_activity": 90, "previous_night": 85, "recovery_index": 100, "resting_heart_rate": 95, "sleep_balance": 80},
+      "day": "2026-03-01",
+      "score": 85,
+      "temperature_deviation": -0.2,
+      "temperature_trend_deviation": 0.1,
+      "timestamp": "2026-03-01T00:00:00.000+01:00"
+    },
+    {
+      "id": "readiness-0002",
+      "contributors": {"activity_balance": 70, "body_temperature": 90, "hrv_balance": 60, "previous_day_activity": 80, "previous_night": 75, "recovery_index": 90, "resting_heart_rate": 85, "sleep_balance": 70},
+      "day": "2026-03-02",
+      "score": 75,
+      "temperature_deviation": 0.3,
+      "temperature_trend_deviation": 0.2,
+      "timestamp": "2026-03-02T00:00:00.000+01:00"
+    }
+  ],
+  "next_token": null
+}

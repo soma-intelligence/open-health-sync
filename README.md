@@ -101,7 +101,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 
 ### Sources and outputs
 
-Two sources ship today. Every other one is planned: on the roadmap, not in this release.
+Three sources are available. Every other one is planned: on the roadmap, not built yet.
 Integration paths, vendor programs and tracking issues for each:
 [docs/connectors](docs/connectors/README.md).
 
@@ -109,7 +109,7 @@ Integration paths, vendor programs and tracking issues for each:
 |---|---|---|
 | Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)) |
 | Withings | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
-| Oura | 🛠 Planned ([#5](https://github.com/soma-intelligence/open-health-sync/issues/5)) | cloud API, OAuth |
+| Oura | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls ([guide](docs/connectors/oura.md)) |
 | Whoop | 🛠 Planned ([#6](https://github.com/soma-intelligence/open-health-sync/issues/6)) | cloud API, OAuth, webhooks |
 | Strava | 🛠 Planned ([#7](https://github.com/soma-intelligence/open-health-sync/issues/7)) | cloud API, OAuth, webhooks |
 | Polar | 🛠 Planned ([#8](https://github.com/soma-intelligence/open-health-sync/issues/8)) | cloud API (AccessLink), OAuth |
@@ -340,16 +340,17 @@ other rule depends on how you run it.
 
 **What does it cost?**
 Nothing. The server is free and open source. You pay for wherever you run it, which can be a
-Raspberry Pi 5 with 4 GB. Withings needs your own developer application, registered with
-Withings.
+Raspberry Pi 5 with 4 GB. Withings and Oura each need your own developer application,
+registered with the vendor.
 
 **Which devices does it work with?**
 Anything that writes to Apple Health (Apple Watch, iPhone, and the apps and devices that sync
 into HealthKit), through an iOS app that uploads it. No SDK ships yet: your app implements the
 [upload contract](docs/connectors/apple-health.md). Withings scales, watches and sleep devices
 through the user's Withings account; that connector is available but not yet verified with a
-real account. Oura, Whoop, Garmin, Fitbit, Polar, Strava, Samsung Health through Health Connect
-and more are [planned](docs/connectors/README.md), not available yet, and the
+real account. Oura rings work through the user's Oura account; that connector is also available
+but not yet verified with a real account. Whoop, Garmin, Fitbit, Polar, Strava, Samsung Health through Health
+Connect and more are [planned](docs/connectors/README.md), not available yet, and the
 [connector request form](https://github.com/soma-intelligence/open-health-sync/issues/new/choose)
 is open.
 

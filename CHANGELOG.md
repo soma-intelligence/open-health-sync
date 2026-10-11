@@ -7,6 +7,12 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
+  sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
+  verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
+
 ## [0.0.2] - 2026-10-11
 
 Usability release. Nothing changes in the data model or the database schema. Read the

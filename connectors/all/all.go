@@ -6,5 +6,6 @@ package all
 
 import (
 	_ "github.com/soma-intelligence/open-health-sync/connectors/applehealth"
+	_ "github.com/soma-intelligence/open-health-sync/connectors/oura"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/withings"
 )
