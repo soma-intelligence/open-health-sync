@@ -46,3 +46,14 @@ func TestWrongMethodIs405(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/v1/nothing-here", nil))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+func TestOpenAPIServed(t *testing.T) {
+	h := offlineRouter(t)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/openapi.yaml", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/yaml", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"), "readable by a hosted Swagger UI or Redoc")
+	assert.Contains(t, rec.Body.String(), "openapi: 3.1.0")
+	assert.Contains(t, rec.Body.String(), "/v1/users/{id}/samples:")
+}

@@ -697,6 +697,20 @@ paths:
                 type: object
                 properties:
                   status: { type: string, const: ok }
+  /openapi.yaml:
+    get:
+      tags: [ops]
+      operationId: openapi
+      summary: This OpenAPI description, as served by this version
+      description: Readable from any origin (`Access-Control-Allow-Origin` is `*`), so a hosted
+        Swagger UI, Redoc or Postman can import it by URL.
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI 3.1 document.
+          content:
+            application/yaml:
+              schema: { type: string }
   /readyz:
     get:
       tags: [ops]

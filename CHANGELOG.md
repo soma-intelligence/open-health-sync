@@ -9,6 +9,8 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `GET /openapi.yaml` serves the OpenAPI description of the running version, readable from
+  any origin, to import into Postman, Swagger UI or Redoc.
 - `X-Request-Id` on every API response (the caller's own is kept when well formed), repeated
   as `request_id` in problem bodies and on every log line about the request.
 - `ohs help`, `ohs help <command>`, `-h`/`--help` on every command and `ohs --version`.

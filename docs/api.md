@@ -4,6 +4,12 @@
 response shape. This guide explains how the pieces fit. Examples assume
 `OHS=http://localhost:8080` and a tenant key in `KEY`.
 
+A running server serves the description of its own version at `GET /openapi.yaml`, without
+credentials and readable from any origin. Import `$OHS/openapi.yaml` by URL into Postman
+(Import, Link), Insomnia or [editor.swagger.io](https://editor.swagger.io) (File, Import URL),
+or render a local page with `npx @redocly/cli build-docs $OHS/openapi.yaml`. The server has no
+documentation page of its own, so it never loads third party scripts next to health data.
+
 ## Credentials
 
 Every call carries `Authorization: Bearer <secret>`.

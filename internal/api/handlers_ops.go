@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	apispec "github.com/soma-intelligence/open-health-sync/api"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
 
@@ -16,6 +17,13 @@ func (s *server) mountOps(mux *http.ServeMux) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /readyz", s.readyz)
+	// The OpenAPI description of this build, public like the source. Any
+	// origin may read it, so a hosted Swagger UI or Redoc can load it.
+	mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		_, _ = w.Write(apispec.OpenAPI)
+	})
 	if s.d.Metrics {
 		mux.HandleFunc("GET /metrics", s.metricsHandler)
 	}
