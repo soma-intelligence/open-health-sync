@@ -158,7 +158,9 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 }
 
 // sleepSample is one figure of a night, Replaceable and keyed by the Oura id.
-// Both figures are per minute and stored as "bpm".
+// Its hash leaves the start out, so it is SupersedeMoved: a corrected copy
+// whose start moved replaces the sample stored under the old start. Both
+// figures are per minute and stored as "bpm".
 func sleepSample(userID, ouraID, qt string, v float64, start, end time.Time, md map[string]any) model.QuantitySample {
 	smd := map[string]any{"oura_sleep_id": ouraID}
 	if tz, ok := md["timezone"]; ok {
@@ -178,6 +180,7 @@ func sleepSample(userID, ouraID, qt string, v float64, start, end time.Time, md 
 		EndDate:         end,
 		Metadata:        smd,
 		Replaceable:     true,
+		SupersedeMoved:  true,
 	}
 	s.ContentHash = model.ComputeContentHash(map[string]string{
 		"user_id":       userID,

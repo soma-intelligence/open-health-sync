@@ -565,3 +565,39 @@ func TestProviderIsLowercase(t *testing.T) {
 	res := mustMap(t, DataTypeWorkout, fixture(t, "workouts.json", 0))
 	assert.Equal(t, model.Slug(res.Workouts[0].Provider), res.Workouts[0].Provider)
 }
+
+// Every WHOOP sample is one figure of one record ("<record id>_<quantity>"),
+// so each is SupersedeMoved: a cycle whose start shifted, or a sleep or
+// workout whose start the user edited, replaces its stored samples instead of
+// leaving the old ones under the old start.
+func TestQuantities_SupersedeMoved(t *testing.T) {
+	var all []model.QuantitySample
+	for file, dt := range map[string]string{
+		"cycles.json": DataTypeCycle, "recoveries.json": DataTypeRecovery,
+		"sleeps.json": DataTypeSleep, "workouts.json": DataTypeWorkout,
+	} {
+		for i := 0; ; i++ {
+			var recs struct {
+				Records []json.RawMessage `json:"records"`
+			}
+			require.NoError(t, json.Unmarshal(whoopfake.File(file), &recs))
+			if i >= len(recs.Records) {
+				break
+			}
+			res, err := mapLine(t, dt, string(recs.Records[i]))
+			require.NoError(t, err)
+			all = append(all, res.QuantitySamples...)
+		}
+	}
+	all = append(all, mustMap(t, DataTypeBody,
+		`{"height_meter":1.8,"weight_kilogram":75.5,"snapshot_date":"2026-03-03"}`).QuantitySamples...)
+	require.NotEmpty(t, all)
+	seen := map[[2]string]bool{}
+	for _, s := range all {
+		assert.True(t, s.Replaceable, s.ExternalID)
+		assert.True(t, s.SupersedeMoved, s.ExternalID)
+		k := [2]string{s.ExternalID, s.QuantityType}
+		assert.False(t, seen[k], "one sample per record and quantity: %s", s.ExternalID)
+		seen[k] = true
+	}
+}

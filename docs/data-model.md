@@ -49,6 +49,7 @@ Stored in `ohs_data.quantity_samples`.
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
 | `Replaceable` | `bool` | Writer instruction, not a column: a later value for a still open window replaces the stored one. |
+| `SupersedeMoved` | `bool` | Writer instruction, not a column: the external id names one figure of one record, so a stored copy under another start is deleted. |
 
 ### CategorySample
 

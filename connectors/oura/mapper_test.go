@@ -118,6 +118,7 @@ func TestMapDailyActivity(t *testing.T) {
 	assert.Equal(t, 2500.0, s.Metadata["total_calories"])
 	assert.Equal(t, "2026-03-01_step_count", s.ExternalID)
 	assert.True(t, s.Replaceable)
+	assert.False(t, s.SupersedeMoved, "keyed by the day, not by one record's start")
 	assert.True(t, s.IsPrimarySource)
 }
 
@@ -221,6 +222,8 @@ func TestMapSleep_Night(t *testing.T) {
 	assert.Equal(t, "bpm", m[model.QTRestingHeartRate].Unit)
 	assert.InDelta(t, 15.0, m[model.QTRespiratoryRate].Value, 1e-9)
 	assert.True(t, m[model.QTRestingHeartRate].Replaceable)
+	assert.True(t, m[model.QTRestingHeartRate].SupersedeMoved, "a night whose start moved replaces its samples")
+	assert.True(t, m[model.QTRespiratoryRate].SupersedeMoved)
 	assert.Equal(t, "Etc/GMT-1", m[model.QTRespiratoryRate].Metadata["timezone"])
 	assert.Equal(t, "sleep-0001_resting_heart_rate", m[model.QTRestingHeartRate].ExternalID)
 	_, hasSDNN := m[model.QTHRVSDNN]

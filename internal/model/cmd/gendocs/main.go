@@ -67,6 +67,7 @@ var notes = map[string]string{
 	"QuantitySample.DeviceModel":         "Model of the device that took the reading.",
 	"QuantitySample.WasUserEntered":      "Null when the source does not say.",
 	"QuantitySample.Replaceable":         "Writer instruction, not a column: a later value for a still open window replaces the stored one.",
+	"QuantitySample.SupersedeMoved":      "Writer instruction, not a column: the external id names one figure of one record, so a stored copy under another start is deleted.",
 	"DailySummary.SummaryDate":           "The user's local calendar day.",
 	"DailySummary.Replaceable":           "Writer instruction, not a column: the latest summary for the day wins.",
 	"NutritionLog.Replaceable":           "Writer instruction, not a column.",

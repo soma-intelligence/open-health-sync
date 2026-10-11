@@ -101,7 +101,10 @@ func requireTime(dataType, field, value string) (time.Time, error) {
 // can be re-scored after it was first sent (a recovery recomputed, the
 // current cycle's strain still growing), so the sample is Replaceable and its
 // hash names the record and the quantity, never the value: the newest score
-// replaces the stored one.
+// replaces the stored one. The external id names one figure of one record,
+// so the sample is SupersedeMoved too: a cycle whose start shifted, or a sleep
+// or workout whose start the user edited, replaces the copy stored under the
+// old start.
 func quantity(userID, recordID, qt string, value float64, unit string, start, end time.Time, md map[string]any) model.QuantitySample {
 	s := model.QuantitySample{
 		UserID:          userID,
@@ -117,6 +120,7 @@ func quantity(userID, recordID, qt string, value float64, unit string, start, en
 		EndDate:         end,
 		Metadata:        md,
 		Replaceable:     true,
+		SupersedeMoved:  true,
 	}
 	s.ContentHash = model.ComputeContentHash(map[string]string{
 		"user_id":       userID,

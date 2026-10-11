@@ -53,6 +53,17 @@ type QuantitySample struct {
 	// on conflict the stored value is replaced by this one instead of this one
 	// being skipped as a duplicate. Everything else stays first-write-wins.
 	Replaceable bool
+
+	// SupersedeMoved is an instruction to the writer, not a column. It says
+	// that ExternalID names this one sample of one provider record (a figure
+	// of a sleep, a workout, a cycle), so a stored sample of the same
+	// provider, ExternalID and QuantityType under another StartDate is an
+	// older copy whose start moved (an edited night, a shifted cycle): the
+	// writer deletes it before writing this one. Requires Replaceable and
+	// ExternalID. Never set it on samples that share an ExternalID across
+	// starts (a day's heart rate series under one id, per-day figures keyed
+	// by a device): the writer would keep only one of them.
+	SupersedeMoved bool
 }
 
 // CategorySample represents a categorical health event.
