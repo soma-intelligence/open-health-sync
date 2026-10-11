@@ -101,7 +101,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 
 ### Sources and outputs
 
-Three sources are available. Every other one is planned: on the roadmap, not built yet.
+Four sources are available. Every other one is planned: on the roadmap, not built yet.
 Integration paths, vendor programs and tracking issues for each:
 [docs/connectors](docs/connectors/README.md).
 
@@ -111,7 +111,7 @@ Integration paths, vendor programs and tracking issues for each:
 | Withings | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
 | Oura | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls ([guide](docs/connectors/oura.md)) |
 | Whoop | 🛠 Planned ([#6](https://github.com/soma-intelligence/open-health-sync/issues/6)) | cloud API, OAuth, webhooks |
-| Strava | 🛠 Planned ([#7](https://github.com/soma-intelligence/open-health-sync/issues/7)) | cloud API, OAuth, webhooks |
+| Strava | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
 | Polar | 🛠 Planned ([#8](https://github.com/soma-intelligence/open-health-sync/issues/8)) | cloud API (AccessLink), OAuth |
 | Garmin, Fitbit | 🛠 Planned ([#9](https://github.com/soma-intelligence/open-health-sync/issues/9)) | partner program (Garmin); Fitbit Web API moving to the Google Health API |
 | Ultrahuman, Suunto | 🛠 Planned | partner programs |
@@ -395,7 +395,7 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
 - Connectors: [supported and planned sources](docs/connectors/README.md),
   [Apple Health](docs/connectors/apple-health.md),
-  [Withings](docs/connectors/withings.md), [writing your own](docs/writing-a-connector.md).
+  [Withings](docs/connectors/withings.md), [Strava](docs/connectors/strava.md), [writing your own](docs/writing-a-connector.md).
 
 ## Contributing
 

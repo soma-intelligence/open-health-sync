@@ -125,6 +125,12 @@ type Workout struct {
 	VO2Max           *float64
 	ContentHash      string
 	Metadata         map[string]any
+
+	// Replaceable: see QuantitySample.Replaceable. For a workout the provider
+	// edits after the fact (a Strava activity whose type or figures change),
+	// hashed on its provider id and start: the new copy's figures replace the
+	// stored ones. A figure the re-send omits keeps its stored value.
+	Replaceable bool
 }
 
 // RoutePoint represents a GPS coordinate from a workout route.

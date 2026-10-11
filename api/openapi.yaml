@@ -634,6 +634,24 @@ paths:
   /inbound/{provider}:
     parameters:
       - $ref: "#/components/parameters/Provider"
+    get:
+      tags: [provider-facing]
+      operationId: inboundProbe
+      summary: Notification URL check and subscription challenge
+      security: []
+      description: |
+        Providers check that a notification URL answers before they subscribe it. The answer
+        is 200 with no body, or, for a provider that sends a subscription challenge (Strava's
+        `hub.challenge`), 200 with the provider's expected echo. A challenge whose verify
+        token does not match is 401. HEAD is answered like GET.
+      responses:
+        "200":
+          description: Reachable; the challenge echo when the provider sent one.
+          content:
+            application/json:
+              schema: { type: object }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [provider-facing]
       operationId: inbound

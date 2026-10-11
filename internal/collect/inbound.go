@@ -33,8 +33,10 @@ const inboundDefaultSpan = 24 * time.Hour
 
 // InboundProbe serves HEAD and GET /inbound/{provider}: some providers check
 // that a notification URL answers before they subscribe it. It answers 200
-// with no body for a provider that sends notifications, 404 otherwise.
-// Mount it without auth.
+// with no body for a provider that sends notifications, 404 otherwise. A
+// connector that implements connector.ChallengeResponder answers the request
+// itself (a subscription challenge); its error is a 401. Mount it without
+// auth.
 func (h *Handlers) InboundProbe() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, ok := h.d.lookup(r.PathValue("provider"))
@@ -45,6 +47,21 @@ func (h *Handlers) InboundProbe() http.Handler {
 		if _, ok := connector.AsPush(c); !ok {
 			writeNotFound(w, "this provider does not send notifications")
 			return
+		}
+		if cr, ok := c.(connector.ChallengeResponder); ok {
+			ctype, body, err := cr.AnswerChallenge(r)
+			if err != nil {
+				// Anyone can probe here: DEBUG, like a refused notification.
+				slog.DebugContext(r.Context(), "collect: inbound challenge refused", "provider", r.PathValue("provider"), "error", safeErr(err))
+				auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "the challenge could not be verified")
+				return
+			}
+			if body != nil {
+				w.Header().Set("Content-Type", ctype)
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(body)
+				return
+			}
 		}
 		w.WriteHeader(http.StatusOK)
 	})

@@ -140,6 +140,7 @@ Stored in `ohs_data.workouts`.
 | `VO2Max` | `*float64` |  |
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
+| `Replaceable` | `bool` | Writer instruction, not a column: an edited workout replaces the stored figures. |
 
 ### RoutePoint
 

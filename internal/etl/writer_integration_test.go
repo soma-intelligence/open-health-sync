@@ -304,3 +304,33 @@ func TestWriter_SecondCopyInOneTransactionReusesStaging(t *testing.T) {
 	c := e.write(smallCopy, &model.MapResult{Workouts: ws, RoutePoints: pts})
 	assert.Equal(t, 16, c["route_points"].Written)
 }
+
+func TestWriter_ReplaceableWorkoutLatestWins(t *testing.T) {
+	e := newEnv(t)
+	start := time.Date(2026, 8, 18, 7, 0, 0, 0, time.UTC)
+	d1, d2, kcal := 5000.0, 5200.0, 300.0
+	wk := func(activity string, dist *float64, kcal *float64, replaceable bool, hash string) model.Workout {
+		return model.Workout{Provider: "dev", ActivityType: activity, StartDate: start, EndDate: start.Add(time.Hour),
+			DistanceM: dist, ActiveEnergyKcal: kcal, ContentHash: hash, Replaceable: replaceable}
+	}
+	c := e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("running", &d1, &kcal, true, "edit")}})
+	assert.Equal(t, 1, c["workouts"].Written)
+
+	// The edited copy (new type, new distance, no energy) replaces the figures
+	// it carries and keeps the energy; still one row.
+	c = e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("hiking", &d2, nil, true, "edit")}})
+	assert.Equal(t, 1, c["workouts"].Written)
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+	assert.Equal(t, "hiking", e.scalar(`SELECT activity_type FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+	assert.EqualValues(t, 5200, e.scalar(`SELECT distance_m FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+	assert.EqualValues(t, 300, e.scalar(`SELECT active_energy_kcal FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+
+	// A re-send that changes nothing writes nothing.
+	c = e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("hiking", &d2, nil, true, "edit")}})
+	assert.Equal(t, TableCount{Skipped: 1}, c["workouts"])
+
+	// Not replaceable: first write wins.
+	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("running", &d1, nil, false, "fixed")}})
+	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("cycling", &d2, nil, false, "fixed")}})
+	assert.Equal(t, "running", e.scalar(`SELECT activity_type FROM ohs_data.workouts WHERE content_hash = 'fixed'`))
+}

@@ -206,9 +206,21 @@ var workoutColumns = []string{
 var (
 	workoutInsert = insertHead(tWorkouts, workoutColumns) + placeholders(1, len(workoutColumns)) +
 		doNothing(hyperConflict("start_date")) + " RETURNING id"
+	// workoutReplace is the insert of a Replaceable workout: on conflict the
+	// stored figures are replaced (latestWins); a copy that changes nothing
+	// returns no row and resolves through workoutSelect.
+	workoutReplace = insertHead(tWorkouts, workoutColumns) + placeholders(1, len(workoutColumns)) +
+		latestWins(tWorkouts, hyperConflict("start_date"), workoutFigures) + " RETURNING id"
 	workoutSelect = `SELECT id FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND start_date = $4`
 )
+
+// workoutFigures are the columns a Replaceable workout's new copy replaces.
+var workoutFigures = []string{
+	"activity_type", "end_date", "duration_s",
+	"active_energy_kcal", "distance_m", "avg_heart_rate",
+	"max_heart_rate", "avg_speed_mps", "elevation_gain_m", "vo2_max",
+}
 
 // writeWorkoutsWithRoutes inserts workouts, then their route points. Route
 // points that arrive in their own object are linked to a stored workout by time
@@ -222,7 +234,11 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 
 	for _, wk := range workouts {
 		p := sc.providerOr(wk.Provider)
-		parentID, isNew, err := insertParentWithFallback(ctx, tx, workoutInsert, []any{
+		insert := workoutInsert
+		if wk.Replaceable {
+			insert = workoutReplace
+		}
+		parentID, isNew, err := insertParentWithFallback(ctx, tx, insert, []any{
 			sc.tenant, sc.user, p, sourceSlugOrProvider("", p), wk.ExternalID, wk.ActivityType,
 			wk.StartDate, nullTime(wk.EndDate), wk.DurationS,
 			wk.ActiveEnergyKcal, wk.DistanceM, wk.AvgHeartRate,
