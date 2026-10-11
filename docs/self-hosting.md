@@ -179,9 +179,80 @@ grants and unsubscribe notifications at the provider. Give the provider keys to 
 that runs either role. A process without them cannot call that provider: it logs a warning, and
 a deletion it carries out still deletes the data but leaves the grant valid at the provider.
 
-Back up the Postgres volume and the raw store together, and keep `OHS_ENCRYPTION_KEY` with them:
-without the key, stored OAuth tokens cannot be read and users must connect again. Put a reverse
-proxy with TLS in front of port 8080; the bearer secrets travel in headers.
+Put a reverse proxy with TLS in front of port 8080; the bearer secrets travel in headers.
+
+## Upgrading
+
+Releases are 0.x: any of them may change the API, the configuration or the schema, so read the
+[changelog](../CHANGELOG.md) and the release notes first, and take a backup (below). Then pin
+the new version in `.env` and recreate the container:
+
+```sh
+# .env: OHS_VERSION=0.0.2
+docker compose --env-file .env -f deploy/docker-compose.yml pull ohs
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
+docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs version
+```
+
+The container runs `ohs up`, so pending migrations apply on start; `ohs migrate version` prints
+the schema version. There is no step-by-step downgrade (`ohs migrate down --all` drops
+everything): to go back, run the old version on a restored backup.
+
+## Backup and restore
+
+A backup is three things taken together: the database, the raw store, and `.env` (it holds
+`OHS_ENCRYPTION_KEY`; without the key, stored OAuth tokens cannot be read and users must
+connect again). Raw files can rebuild normalized data, not users, keys or connections, so the
+database matters most. With the bundled compose stack (project `ohs`, so the volume is
+`ohs_raw`; replace `ohs` with your project name):
+
+```sh
+DC="docker compose --env-file .env -f deploy/docker-compose.yml"
+$DC exec -T postgres pg_dump -U ohs -Fc ohs > ohs-$(date +%F).dump
+docker run --rm -v ohs_raw:/raw alpine tar czf - -C /raw . > raw-$(date +%F).tgz
+cp .env env-$(date +%F).backup
+```
+
+With the S3 raw store, back the bucket up with your provider's tools instead. Restore into the
+same version that took the backup, with `ohs` stopped (TimescaleDB needs the pre and post
+restore calls):
+
+```sh
+$DC stop ohs
+$DC exec -T postgres psql -v ON_ERROR_STOP=1 -U ohs -d postgres \
+  -c 'DROP DATABASE ohs' -c 'CREATE DATABASE ohs'
+$DC exec -T postgres psql -v ON_ERROR_STOP=1 -U ohs -d ohs \
+  -c 'CREATE EXTENSION IF NOT EXISTS timescaledb' -c 'SELECT timescaledb_pre_restore()'
+$DC exec -T postgres pg_restore -U ohs -d ohs --no-owner < ohs-2026-10-11.dump
+$DC exec -T postgres psql -U ohs -d ohs -c 'SELECT timescaledb_post_restore()'
+docker run --rm -i -v ohs_raw:/raw alpine tar xzf - -C /raw < raw-2026-10-11.tgz
+$DC start ohs
+```
+
+`pg_dump` warns about circular foreign keys in TimescaleDB's own catalog; the full dump above
+restores despite it. Restore the `.env` of the same date, so the key matches.
+
+## Rotating secrets
+
+- **Tenant API key.** Add a key, move your clients to it, then revoke the old one:
+
+  ```sh
+  $DC exec ohs /ohs admin tenant list
+  $DC exec ohs /ohs admin key create --tenant <tenant id>
+  $DC exec ohs /ohs admin key list --tenant <tenant id>
+  $DC exec ohs /ohs admin key revoke --tenant <tenant id> --key <old prefix>
+  ```
+
+  A user token minted with the old key keeps working until it expires. `key revoke` with a
+  whole user token (`ohs_ut_...`) revokes that token.
+- **`OHS_ENCRYPTION_KEY`.** 0.x has one key and no re-encryption. A new key leaves the stored
+  OAuth tokens unreadable: pulls for those connections fail until each user connects the
+  provider again. Uploads and stored data are not affected. Change it only when the old key is
+  compromised.
+- **Provider secrets.** See the Withings note under operating notes below.
+- **`POSTGRES_PASSWORD`** only applies when the database volume is first created. To change it
+  later, run `ALTER USER ohs PASSWORD '...'` in `psql`, then update `.env` and recreate both
+  containers.
 
 ## Operating notes
 
