@@ -42,6 +42,8 @@ func mapEmitted(t *testing.T, c *Connector, sink *recordingSink, dataType string
 		all.SleepSessions = append(all.SleepSessions, res.SleepSessions...)
 		all.SleepPhases = append(all.SleepPhases, res.SleepPhases...)
 		all.Workouts = append(all.Workouts, res.Workouts...)
+		all.CategorySamples = append(all.CategorySamples, res.CategorySamples...)
+		all.Deletions = append(all.Deletions, res.Deletions...)
 	}
 	return all
 }
@@ -130,7 +132,8 @@ func TestFetchThenMap(t *testing.T) {
 	assert.Len(t, act.QuantitySamples, 6, "steps, active energy, distance for two days")
 
 	sl := mapEmitted(t, c, sink, DataTypeSleep)
-	require.Len(t, sl.SleepSessions, 2, "the night and the nap; the deleted period gives nothing")
+	require.Len(t, sl.SleepSessions, 2, "the night and the nap")
+	assert.Equal(t, []model.Deletion{{Provider: Slug, ExternalID: "sleep-0003"}}, sl.Deletions, "the deleted period")
 	assert.Len(t, sl.SleepPhases, 11+2)
 	assert.Len(t, sl.QuantitySamples, 2, "resting heart rate and respiratory rate of the main sleep only")
 

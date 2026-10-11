@@ -32,8 +32,9 @@
 // its phases), and a copy whose start moved supersedes the stored one. The
 // figures of a main sleep (resting heart rate, respiratory rate) are also
 // emitted as Replaceable samples keyed by the Oura id. A sleep Oura marks as
-// deleted (type "deleted") maps to nothing; a record Oura removes after it
-// was stored stays stored.
+// deleted (type "deleted") or the user rejected (type "rest") maps to a
+// model.Deletion of its Oura id, which removes a stored copy and keeps any
+// later one out.
 package oura
 
 import (

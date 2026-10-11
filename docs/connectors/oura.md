@@ -124,9 +124,10 @@ Notes:
   sleep phases, and a copy whose start moved replaces the stored session or workout of the same
   Oura id. The `resting_heart_rate` and `respiratory_rate` samples of a night follow the
   corrected copy too.
-- **Deletes.** A sleep period Oura marks `deleted` is not stored. A document deleted after it was
-  stored stays stored: the pull only sees what Oura still lists, and the pipeline has no way to
-  remove a record by its provider id.
+- **Deletes.** A sleep period Oura marks `deleted`, or one the user rejected (type `rest`),
+  removes the stored session of that Oura id, with its phases and its `resting_heart_rate` and
+  `respiratory_rate` samples, and a tombstone keeps any later copy of it from being stored. A
+  pull sees such a period as long as Oura still lists it.
 
 ## Errors
 

@@ -13,9 +13,14 @@ import (
 
 // Oura sleep period types.
 const (
-	sleepTypeDeleted   = "deleted"    // removed by the user or by Oura; never stored
+	sleepTypeDeleted   = "deleted"    // removed by the user or by Oura
+	sleepTypeRest      = "rest"       // a period the user rejected as sleep
 	sleepTypeLongSleep = "long_sleep" // the main sleep of a day
 )
+
+// sleepRemoved reports a period type that must not be stored: Oura deleted
+// it, or the user rejected it.
+func sleepRemoved(typ string) bool { return typ == sleepTypeDeleted || typ == sleepTypeRest }
 
 // hypnogramStep is the resolution of sleep_phase_5_min: one character per
 // five minutes from bedtime_start.
@@ -41,9 +46,12 @@ var hypnogramStages = map[byte]string{
 // values, and is Replaceable: a corrected copy of the period replaces the
 // stored figures and its hypnogram replaces the stored phases (a copy whose
 // start moved supersedes the stored one, by the Oura id). The two samples are
-// Replaceable too, hashed on the Oura id, so they follow a corrected night. A
-// period of type "deleted" gives nothing; one deleted after it was stored
-// stays stored.
+// Replaceable too, hashed on the Oura id, so they follow a corrected night.
+//
+// Removed periods. A period of type "deleted" (removed in the Oura app or by
+// Oura) or "rest" (a period the user rejected as sleep) maps to a
+// model.Deletion of its Oura id: a copy stored before is removed with its
+// phases and samples, and no later copy is stored.
 //
 // HRV. Oura's average_hrv is an RMSSD in milliseconds. It fills the session's
 // HRV column, labelled in metadata ("hrv_method": "rmssd"), and is never
@@ -56,8 +64,8 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 	if s.ID == "" {
 		return nil, fmt.Errorf("oura: sleep: missing id")
 	}
-	if s.Type == sleepTypeDeleted {
-		return nil, nil
+	if sleepRemoved(s.Type) {
+		return &model.MapResult{Deletions: []model.Deletion{{Provider: Slug, ExternalID: s.ID}}}, nil
 	}
 	startLocal, err := parseTime(s.BedtimeStart)
 	if err != nil {

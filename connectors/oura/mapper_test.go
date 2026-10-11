@@ -232,14 +232,20 @@ func TestMapSleep_Nap(t *testing.T) {
 	assert.Empty(t, res.QuantitySamples)
 }
 
-// A period Oura marks deleted gives nothing.
-func TestMapSleep_DeletedGivesNothing(t *testing.T) {
+// A period Oura marks deleted, or one the user rejected (rest), maps to the
+// deletion of its Oura id and nothing else.
+func TestMapSleep_DeletedAndRestAreDeletions(t *testing.T) {
 	res := mustMap(t, DataTypeSleep, fixture(t, DataTypeSleep, 0))
-	assert.True(t, res.IsEmpty())
+	assert.Equal(t, []model.Deletion{{Provider: Slug, ExternalID: "sleep-0003"}}, res.Deletions)
+	assert.Equal(t, 1, res.RecordCount())
 
 	night := fixture(t, DataTypeSleep, 1)
-	res = mustMap(t, DataTypeSleep, edit(t, night, map[string]any{"type": "deleted"}))
-	assert.True(t, res.IsEmpty(), "a stored night later marked deleted maps to nothing")
+	for _, typ := range []string{"deleted", "rest"} {
+		res = mustMap(t, DataTypeSleep, edit(t, night, map[string]any{"type": typ}))
+		assert.Equal(t, []model.Deletion{{Provider: Slug, ExternalID: "sleep-0001"}}, res.Deletions, typ)
+		assert.Empty(t, res.SleepSessions, typ)
+		assert.Empty(t, res.QuantitySamples, typ)
+	}
 }
 
 // The same Oura period re-sent with corrected values keeps its identity: no
