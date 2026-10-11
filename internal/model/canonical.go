@@ -301,9 +301,30 @@ type MapResult struct {
 	// Empty for callers that do not track an origin object; the writer must then
 	// skip rather than guess a parent.
 	SourceKey string
+
+	// Deletions are provider records the provider removed. The writer deletes
+	// the stored rows of each one and keeps a tombstone, so a record of that
+	// id is never written again (see Deletion).
+	Deletions []Deletion
 }
 
-// IsEmpty returns true if no canonical records were produced.
+// Deletion says that a provider removed one of its records: the sleep,
+// workout, category sample or nutrition log stored with ExternalID, and the
+// quantity samples derived from it. Those samples carry the record id as their
+// ExternalID, or "<record id>_<suffix>" when one record gives several (the
+// Oura and WHOOP convention), and lie within a day of the deleted sleep or
+// workout. A Deletion is applied for the job's tenant and user only, and is
+// final: a later copy of the record (a re-pull, an old raw object processed
+// again) is skipped, whichever arrives first.
+type Deletion struct {
+	// Provider is the integration the record came through. Empty means the
+	// provider of the job.
+	Provider string
+	// ExternalID is the provider's id of the record. Required.
+	ExternalID string
+}
+
+// IsEmpty returns true if no canonical records and no deletions were produced.
 func (r *MapResult) IsEmpty() bool {
 	return len(r.QuantitySamples) == 0 &&
 		len(r.CategorySamples) == 0 &&
@@ -316,10 +337,12 @@ func (r *MapResult) IsEmpty() bool {
 		len(r.ECGSamples) == 0 &&
 		len(r.HeartbeatSamples) == 0 &&
 		len(r.DailySummaries) == 0 &&
-		len(r.Observations) == 0
+		len(r.Observations) == 0 &&
+		len(r.Deletions) == 0
 }
 
-// RecordCount returns the total number of canonical records in the result.
+// RecordCount returns the total number of canonical records and deletions in
+// the result.
 func (r *MapResult) RecordCount() int {
 	return len(r.QuantitySamples) +
 		len(r.CategorySamples) +
@@ -332,5 +355,6 @@ func (r *MapResult) RecordCount() int {
 		len(r.ECGSamples) +
 		len(r.HeartbeatSamples) +
 		len(r.DailySummaries) +
-		len(r.Observations)
+		len(r.Observations) +
+		len(r.Deletions)
 }

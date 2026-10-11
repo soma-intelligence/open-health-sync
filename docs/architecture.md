@@ -44,7 +44,9 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
 4. **Process.** Units are converted to the storage unit of each quantity name, values are
    validated against plausible ranges (hard bounds reject a record, soft bounds flag it),
    duplicates are dropped by content hash, and sources are attributed.
-5. **Write.** Records go to the `ohs_data` hypertables. Daily totals for step count, energy,
+5. **Write.** A deletion the provider reported (`MapResult.Deletions`) is applied first: the
+   stored rows of that provider record go, and a tombstone in `ohs_data.deleted_records` keeps
+   any later copy of it from being written. Records go to the `ohs_data` hypertables. Daily totals for step count, energy,
    distance and flights are derived per user, provider and local day when the provider sent no
    daily summary of its own. The local day comes from the sample's `timezone` metadata (UTC when
    absent). Where several sources report the same day, the largest per-source sum wins, so a

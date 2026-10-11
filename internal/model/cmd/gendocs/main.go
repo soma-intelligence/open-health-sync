@@ -84,6 +84,7 @@ var notes = map[string]string{
 	"Observation.TypeConcept":            "`device`, `survey`, `ehr` or `derived`.",
 	"MapResult.HighFrequency":            "The result holds high volume data and is written with COPY.",
 	"MapResult.SourceKey":                "Raw object the batch was mapped from. Child records use it to find a parent that arrived in another object.",
+	"MapResult.Deletions":                "Provider records the provider deleted: their stored rows are removed and a tombstone in `ohs_data.deleted_records` keeps them from being written again.",
 }
 
 const header = `# Data model

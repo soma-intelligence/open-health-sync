@@ -48,6 +48,26 @@ Rules that matter:
   without counting a failed attempt.
 - **Never log tokens or health values.**
 
+## Deleted records
+
+When the provider says one of its records is gone (a sleep the user removed, a deleted
+workout), `Map` returns a `model.Deletion{ExternalID: <provider record id>}` in
+`MapResult.Deletions` instead of nothing. The ETL then, in the job's transaction and for the
+job's tenant and user only:
+
+- removes the sleep sessions (with their phases), workouts (with route points and track
+  summaries), category samples and nutrition logs stored with that provider and `ExternalID`;
+- removes the quantity samples derived from the record: `ExternalID` equal to the id or
+  `<id>_<suffix>` (one record giving several samples), starting within a day of the removed
+  sleep or workout;
+- records a tombstone in `ohs_data.deleted_records`. A record whose id is tombstoned is never
+  written again, so a re-pull, an old raw object processed again, or a deletion that arrives
+  before the record cannot bring it back. Applying a deletion twice is harmless.
+
+So give every record you may later delete a stable `ExternalID`, and its derived samples the id
+or `<id>_<suffix>`. A deletion is final for that id: do not emit one for a record that can come
+back.
+
 ## A minimal device connector
 
 `connectors/example/` holds a complete, compiling connector for a Bluetooth scale whose SDK

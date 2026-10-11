@@ -317,6 +317,7 @@ MapResult holds all canonical records produced from a single input record.
 | `Observations` | `[]Observation` |  |
 | `HighFrequency` | `bool` | The result holds high volume data and is written with COPY. |
 | `SourceKey` | `string` | Raw object the batch was mapped from. Child records use it to find a parent that arrived in another object. |
+| `Deletions` | `[]Deletion` | Provider records the provider deleted: their stored rows are removed and a tombstone in `ohs_data.deleted_records` keeps them from being written again. |
 
 ## Quantity names and storage units
 

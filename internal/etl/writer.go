@@ -144,6 +144,7 @@ func Accumulate(dst, src *model.MapResult) {
 	dst.HeartbeatSamples = append(dst.HeartbeatSamples, src.HeartbeatSamples...)
 	dst.DailySummaries = append(dst.DailySummaries, src.DailySummaries...)
 	dst.Observations = append(dst.Observations, src.Observations...)
+	dst.Deletions = append(dst.Deletions, src.Deletions...)
 	dst.HighFrequency = dst.HighFrequency || src.HighFrequency
 	// Every MapResult in one accumulation comes from the same raw object, so the
 	// first non-empty key describes the whole batch.
@@ -153,11 +154,21 @@ func Accumulate(dst, src *model.MapResult) {
 }
 
 // WriteAccumulated writes one flattened batch of canonical records for sc in
-// tx. The caller owns the transaction boundary.
+// tx. The caller owns the transaction boundary. The batch's deletions are
+// applied first, then every record of a tombstoned provider record is dropped
+// (see writer_deletions.go): acc is filtered in place.
 func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) (Counts, error) {
 	c := Counts{}
 	if acc == nil {
 		return c, nil
+	}
+	if len(acc.Deletions) > 0 {
+		if err := applyDeletions(ctx, tx, sc, acc.Deletions, c); err != nil {
+			return nil, fmt.Errorf("apply deletions: %w", err)
+		}
+	}
+	if err := dropTombstoned(ctx, tx, sc, acc, c); err != nil {
+		return nil, err
 	}
 	type step struct {
 		name string

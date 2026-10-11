@@ -19,7 +19,8 @@ var wantTables = map[string][]string{
 		"inbound_subscriptions", "raw_objects", "etl_jobs"},
 	"ohs_data": {"quantity_samples", "category_samples", "sleep_sessions", "workouts", "route_points",
 		"nutrition_logs", "ecg_recordings", "ecg_samples", "heartbeat_samples", "daily_summaries",
-		"observations", "sleep_phases", "workout_tracks", "quantity_codes", "device_aliases", "failed_records"},
+		"observations", "sleep_phases", "workout_tracks", "quantity_codes", "device_aliases", "failed_records",
+		"deleted_records"},
 }
 
 var wantHypertables = []string{
