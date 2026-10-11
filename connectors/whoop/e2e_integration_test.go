@@ -476,6 +476,13 @@ func TestWhoopEndToEnd(t *testing.T) {
 			require.Len(t, rows, 1, "%s %s", when, typ)
 			assert.Equal(t, want, rows[0].ExternalID, "%s %s", when, typ)
 		}
+		// The deleted recovery's figures leave the day's summary; the
+		// cycle's stay.
+		day0 := daily()[tl.localDay(0)]
+		assert.Nil(t, day0.RecoveryScore, when)
+		assert.Nil(t, day0.RestingHR, when)
+		require.NotNil(t, day0.StrainScore, when)
+		assert.InDelta(t, 12.5, *day0.StrainScore, 1e-9, when)
 	}
 	assertAfterDeletion("after the delete webhooks")
 
@@ -508,6 +515,21 @@ func TestWhoopEndToEnd(t *testing.T) {
 		assert.Len(t, samples(typ), n, "after the re-pull: %s", typ)
 	}
 	assert.Len(t, daily(), 2, "one summary per local day")
+
+	// WHOOP deletes the second night's recovery alone (the sleep stays): its
+	// samples and its figures of the day go, the sleep and the cycle's
+	// figures stay.
+	webhook(t, a.base, whoop.EventRecoveryDeleted, sleep2)
+	require.Eventually(t, func() bool {
+		return len(samples("hrv_rmssd")) == 0 && daily()[tl.localDay(1)].RecoveryScore == nil
+	}, 60*time.Second, 250*time.Millisecond, "the recovery goes")
+	assert.Empty(t, samples("resting_heart_rate"))
+	assert.Len(t, samples("respiratory_rate"), 1, "the sleep's own sample stays")
+	assert.Len(t, sleeps(), 2)
+	day1 = daily()[tl.localDay(1)]
+	assert.Nil(t, day1.RestingHR)
+	require.NotNil(t, day1.StepCount)
+	assert.Equal(t, 1200, *day1.StepCount, "the cycle's figures stay")
 	assert.Zero(t, fake.Revocations())
 
 	// Deleting the user revokes the WHOOP grant.

@@ -5,6 +5,7 @@ package etl
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -116,4 +117,52 @@ func TestDropTombstonedRecords(t *testing.T) {
 	assert.Equal(t, TableCount{Skipped: 2}, c[tRoutes])
 	assert.Equal(t, TableCount{Skipped: 1}, c[tCategory])
 	assert.Equal(t, TableCount{Skipped: 1}, c[tQuantity])
+}
+
+// Figure names come from connectors: only the summary figures pass, once
+// each and in a fixed order, so no other text reaches the statement.
+func TestSummaryClearFigures(t *testing.T) {
+	got, unknown := summaryClearFigures([]string{
+		"resting_hr", "recovery_score; DROP TABLE ohs_data.daily_summaries", "recovery_score", "metadata",
+		"tenant_id", "resting_hr", "RECOVERY_SCORE", "",
+	})
+	assert.Equal(t, []string{"recovery_score", "resting_hr"}, got)
+	assert.Equal(t, 5, unknown)
+	got, _ = summaryClearFigures(nil)
+	assert.Empty(t, got)
+
+	q := summaryClearStatement([]string{"recovery_score", "resting_hr"})
+	assert.Contains(t, q, "SET recovery_score = NULL, resting_hr = NULL")
+	assert.Contains(t, q, "(recovery_score IS NOT NULL OR resting_hr IS NOT NULL)")
+	for name, q := range map[string]string{"clear": q, "dropEmpty": summaryDropEmpty} {
+		assert.Contains(t, q, "tenant_id = $1 AND user_id = $2 AND provider = $3 AND summary_date = ANY($4::date[])", name)
+		assert.Contains(t, q, "metadata->>'derived' IS DISTINCT FROM 'true'", "%s: the derived row is the ETL's", name)
+	}
+	for _, f := range dailyFigures {
+		assert.Contains(t, summaryDropEmpty, f+" IS NULL", "only a summary without any figure goes")
+	}
+	assert.Contains(t, deletionSamples, "RETURNING metadata->>'"+model.MetadataSummaryDate+"'")
+}
+
+func TestParseSummaryDays(t *testing.T) {
+	s := func(v string) *string { return &v }
+	got := parseSummaryDays([]*string{s("2026-09-02"), nil, s("2026-09-02"), s("not a day"), s("2026-09-03")})
+	assert.Equal(t, []time.Time{
+		time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC),
+	}, got)
+	assert.Empty(t, parseSummaryDays(nil))
+}
+
+// A summary that carries one record's figures goes with that record's
+// tombstone, or the tombstone of the record it derives from; a summary of the
+// whole day stays.
+func TestDropTombstonedSummaries(t *testing.T) {
+	dead := map[string]bool{"s-1_recovery": true, "s-2": true}
+	acc := &model.MapResult{DailySummaries: []model.DailySummary{
+		{RecordID: "s-1_recovery"}, {RecordID: "s-2_recovery"}, {RecordID: "s-3_recovery"}, {},
+	}}
+	c := Counts{}
+	dropTombstonedRecords(acc, func(_, id string) bool { return dead[id] }, c)
+	assert.Equal(t, []model.DailySummary{{RecordID: "s-3_recovery"}, {}}, acc.DailySummaries)
+	assert.Equal(t, TableCount{Skipped: 2}, c[tDaily])
 }

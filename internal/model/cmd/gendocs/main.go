@@ -70,6 +70,7 @@ var notes = map[string]string{
 	"QuantitySample.SupersedeMoved":      "Writer instruction, not a column: the external id names one figure of one record, so a stored copy under another start is deleted.",
 	"DailySummary.SummaryDate":           "The user's local calendar day.",
 	"DailySummary.Replaceable":           "Writer instruction, not a column: the latest summary for the day wins.",
+	"DailySummary.RecordID":              "Writer instruction, not a column: the provider record whose figures the summary carries; not written once that record is deleted.",
 	"NutritionLog.Replaceable":           "Writer instruction, not a column.",
 	"Workout.Replaceable":                "Writer instruction, not a column: an edited workout replaces the stored figures.",
 	"SleepSession.Replaceable":           "Writer instruction, not a column: a re-scored session replaces the stored figures and phases.",

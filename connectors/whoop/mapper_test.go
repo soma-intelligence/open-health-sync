@@ -251,6 +251,7 @@ func TestMapRecovery(t *testing.T) {
 		assert.Equal(t, "Etc/GMT-1", s.Metadata["timezone"], qt)
 		assert.Equal(t, "93002", s.Metadata["whoop_cycle_id"], qt)
 		assert.Equal(t, true, s.Metadata["user_calibrating"], qt)
+		assert.Equal(t, "2026-03-02", s.Metadata[model.MetadataSummaryDate], "%s: the day whose summary a deletion clears", qt)
 	}
 	_, sdnn := m[model.QTHRVSDNN]
 	assert.False(t, sdnn, "WHOOP's HRV is RMSSD, never hrv_sdnn")
@@ -262,6 +263,8 @@ func TestMapRecovery(t *testing.T) {
 	assert.InDelta(t, 55.0, *d.RestingHR, 1e-9)
 	assert.Nil(t, d.HRVAvgMs, "RMSSD is not written into the generic HRV column")
 	assert.Nil(t, d.StrainScore, "left for the cycle to fill")
+	assert.Equal(t, "aaaaaaaa-0000-4000-8000-000000000003_recovery", d.RecordID,
+		"a tombstoned recovery's figures are not written again")
 
 	cyc := mustMap(t, DataTypeCycle, fixture(t, "cycles.json", 2))
 	assert.Equal(t, cyc.DailySummaries[0].ContentHash, d.ContentHash, "cycle and recovery of a day share the summary row")

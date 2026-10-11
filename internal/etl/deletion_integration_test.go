@@ -6,6 +6,7 @@ package etl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -27,7 +28,13 @@ func recordsMap(r connector.RawRecord) (model.MapResult, error) {
 	id, _ := r.Fields["id"].(string)
 	kind, _ := r.Fields["kind"].(string)
 	if kind == "delete" {
-		return model.MapResult{Deletions: []model.Deletion{{ExternalID: id}}}, nil
+		d := model.Deletion{ExternalID: id}
+		if cl, ok := r.Fields["clear"].([]any); ok {
+			for _, f := range cl {
+				d.ClearSummaryFields = append(d.ClearSummaryFields, f.(string))
+			}
+		}
+		return model.MapResult{Deletions: []model.Deletion{d}}, nil
 	}
 	start, err := time.Parse(time.RFC3339, r.Fields["start"].(string))
 	if err != nil {
@@ -78,6 +85,34 @@ func recordsMap(r connector.RawRecord) (model.MapResult, error) {
 				ContentHash: hash + "-note",
 			}},
 		}, nil
+	case "recovery":
+		// A WHOOP style recovery of the sleep id: samples under
+		// "<id>_recovery_<qt>" naming their summary day, and the recovery
+		// figures of that day's summary.
+		day := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+		md := func() map[string]any { return map[string]any{model.MetadataSummaryDate: day.Format("2006-01-02")} }
+		score, rhr := 60.0, 52.0
+		return model.MapResult{
+			QuantitySamples: []model.QuantitySample{
+				{Provider: r.Provider, ExternalID: id + "_recovery_" + model.QTRestingHeartRate, QuantityType: model.QTRestingHeartRate,
+					Value: rhr, Unit: "bpm", StartDate: start, EndDate: start, ContentHash: hash + "-rhr", Replaceable: true, Metadata: md()},
+				{Provider: r.Provider, ExternalID: id + "_recovery_" + model.QTHRVRMSSD, QuantityType: model.QTHRVRMSSD,
+					Value: 40, Unit: "ms", StartDate: start, EndDate: start, ContentHash: hash + "-hrv", Replaceable: true, Metadata: md()},
+			},
+			DailySummaries: []model.DailySummary{{
+				Provider: r.Provider, SummaryDate: day, RecoveryScore: &score, RestingHR: &rhr, Replaceable: true,
+				RecordID:    id + "_recovery",
+				ContentHash: model.ComputeContentHash(map[string]string{"user_id": r.UserID, "day": day.Format("2006-01-02")}),
+			}},
+		}, nil
+	case "cycle":
+		// The cycle figures of the same day's summary (same identity).
+		day := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+		strain := 12.5
+		return model.MapResult{DailySummaries: []model.DailySummary{{
+			Provider: r.Provider, SummaryDate: day, StrainScore: &strain, Replaceable: true,
+			ContentHash: model.ComputeContentHash(map[string]string{"user_id": r.UserID, "day": day.Format("2006-01-02")}),
+		}}}, nil
 	case "mindful":
 		return model.MapResult{CategorySamples: []model.CategorySample{{
 			Provider: r.Provider, ExternalID: id, CategoryType: "mindful_session", StartDate: start, EndDate: end, ContentHash: hash,
@@ -91,6 +126,28 @@ func rec(kind, id string, start time.Time) string {
 }
 
 func del(id string) string { return line(map[string]any{"kind": "delete", "id": id}) }
+
+// delClear is a deletion that clears daily summary figures.
+func delClear(id string, fields ...string) string {
+	return line(map[string]any{"kind": "delete", "id": id, "clear": fields})
+}
+
+// summaryFigures is the recovery, resting heart rate and strain of the
+// provider's summary of day, nil when there is no row.
+type summaryFigures struct{ recovery, rhr, strain *float64 }
+
+func (e *env) summaryOf(tenant, user any, day time.Time) *summaryFigures {
+	e.t.Helper()
+	var f summaryFigures
+	err := e.pool.QueryRow(context.Background(), `SELECT recovery_score, resting_hr, strain_score
+		FROM ohs_data.daily_summaries WHERE tenant_id = $1 AND user_id = $2 AND provider = 'prov' AND summary_date = $3`,
+		tenant, user, day).Scan(&f.recovery, &f.rhr, &f.strain)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	require.NoError(e.t, err)
+	return &f
+}
 
 // recordCounts is the rows of every table a deletion touches, for one user.
 func (e *env) recordCounts(tenant, user uuid.UUID) map[string]int {
@@ -220,6 +277,71 @@ func TestDeletion_SamplesOnlyRecordRemovesStoredSamples(t *testing.T) {
 		assert.Contains(t, plan, "_external on", "uses the external id index: %s", plan)
 		assert.Regexp(t, "Index Cond: .*external_id.* < 'r-1`'", plan, "bounded by the id: %s", plan)
 	}
+}
+
+// A deletion clears the daily summary figures its record contributed, on the
+// day its samples name, and only those: the other figures of the day, other
+// days, users and tenants stay. A summary left empty goes, and reprocessing
+// the deleted record does not bring its figures back.
+func TestDeletion_ClearsSummaryFigures(t *testing.T) {
+	e := newEnv(t)
+	e.register("prov", recordsMap)
+	day1 := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	day2 := day1.AddDate(0, 0, 1)
+	day3 := day2.AddDate(0, 0, 1)
+	// Cycles and recoveries come in separate objects, as WHOOP data types do.
+	e.process(e.upload(e.tenant, e.user, "prov", "records",
+		rec("cycle", "c-1", day1.Add(time.Hour)), rec("cycle", "c-2", day2.Add(time.Hour))))
+	orig := e.upload(e.tenant, e.user, "prov", "records",
+		rec("sleep", "s-1", day1.Add(-2*time.Hour)), rec("recovery", "s-1", day1.Add(7*time.Hour)),
+		rec("recovery", "s-2", day2.Add(7*time.Hour)), rec("recovery", "s-3", day3.Add(7*time.Hour)))
+	e.process(orig)
+	other := e.newUser(e.tenant)
+	e.process(e.upload(e.tenant, other, "prov", "records", rec("recovery", "s-1", day1.Add(7*time.Hour))))
+	require.NotNil(t, e.summaryOf(e.tenant, e.user, day1))
+	require.NotNil(t, e.summaryOf(e.tenant, e.user, day1).recovery)
+
+	clear := []string{"recovery_score", "resting_hr"}
+	// The recovery of night 1 alone; the sleep of night 1 (which takes its
+	// recovery with it); and the recovery of night 3, the only figures of its day.
+	e.process(e.upload(e.tenant, e.user, "prov", "records",
+		delClear("s-1_recovery", clear...), delClear("s-3", clear...)))
+
+	d1 := e.summaryOf(e.tenant, e.user, day1)
+	require.NotNil(t, d1, "the cycle's figures keep the row")
+	assert.Nil(t, d1.recovery)
+	assert.Nil(t, d1.rhr)
+	require.NotNil(t, d1.strain)
+	assert.InDelta(t, 12.5, *d1.strain, 1e-9)
+	d2 := e.summaryOf(e.tenant, e.user, day2)
+	require.NotNil(t, d2)
+	require.NotNil(t, d2.recovery, "another day stays")
+	assert.Nil(t, e.summaryOf(e.tenant, e.user, day3), "a summary left without figures goes")
+	assert.Equal(t, 1, e.countFor("sleep_sessions", e.tenant, e.user), "the recovery deletion leaves the sleep")
+	require.NotNil(t, e.summaryOf(e.tenant, other, day1).recovery, "another user's summary stays")
+
+	// A re-pull of the deleted recoveries, or the old raw object again, does
+	// not restore their figures; the cycle's still update.
+	e.process(orig)
+	d1 = e.summaryOf(e.tenant, e.user, day1)
+	require.NotNil(t, d1)
+	assert.Nil(t, d1.recovery)
+	assert.Nil(t, e.summaryOf(e.tenant, e.user, day3))
+	assert.NotNil(t, e.summaryOf(e.tenant, e.user, day2).recovery)
+
+	// The sleep's own deletion arriving later has nothing left to clear and
+	// fails nothing; deleting night 2's sleep clears its recovery figures.
+	e.process(e.upload(e.tenant, e.user, "prov", "records", delClear("s-1", clear...), delClear("s-2", clear...)))
+	assert.Nil(t, e.summaryOf(e.tenant, e.user, day2).recovery)
+	assert.NotNil(t, e.summaryOf(e.tenant, e.user, day2).strain)
+
+	// Names outside the summary figures are ignored, never written as SQL.
+	e.process(e.upload(e.tenant, e.user, "prov", "records", rec("recovery", "s-9", day3.Add(7*time.Hour))))
+	e.process(e.upload(e.tenant, e.user, "prov", "records",
+		delClear("s-9_recovery", "recovery_score; DROP TABLE ohs_data.daily_summaries", "metadata", "tenant_id")))
+	d3 := e.summaryOf(e.tenant, e.user, day3)
+	require.NotNil(t, d3)
+	assert.NotNil(t, d3.recovery, "no allowed figure named: nothing cleared")
 }
 
 func TestDeletion_OtherUsersAndProvidersUntouched(t *testing.T) {

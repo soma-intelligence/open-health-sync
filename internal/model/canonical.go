@@ -246,6 +246,15 @@ type DailySummary struct {
 	// Replaceable: see QuantitySample.Replaceable. A figure the re-send omits
 	// keeps its stored value rather than being cleared.
 	Replaceable bool
+
+	// RecordID is an instruction to the writer, not a column: the provider
+	// record whose figures this summary carries, when it carries the figures
+	// of one record only (a WHOOP recovery fills the recovery figures of its
+	// day). A summary whose record, or a record it was derived from (an id
+	// prefix before "_", as for samples), is tombstoned is not written, so
+	// reprocessing an old raw object does not bring a deleted record's figures
+	// back. Empty for a summary of the whole day.
+	RecordID string
 }
 
 // HeartbeatSample represents a single beat-to-beat RR interval measurement.
@@ -334,7 +343,20 @@ type Deletion struct {
 	Provider string
 	// ExternalID is the provider's id of the record. Required.
 	ExternalID string
+	// ClearSummaryFields names the provider daily summary figures the record
+	// contributed, as daily_summaries columns ("recovery_score",
+	// "resting_hr"). They are set to NULL in the provider's summaries of the
+	// days named by the MetadataSummaryDate of the quantity samples the
+	// deletion removes; a summary left without any figure is deleted. Names
+	// outside the summary figures are ignored.
+	ClearSummaryFields []string
 }
+
+// MetadataSummaryDate is the metadata key of a quantity sample whose record
+// also filled figures of a provider daily summary: the summary's day,
+// "YYYY-MM-DD". A Deletion of the record clears its ClearSummaryFields on
+// that day.
+const MetadataSummaryDate = "summary_date"
 
 // IsEmpty returns true if no canonical records and no deletions were produced.
 func (r *MapResult) IsEmpty() bool {

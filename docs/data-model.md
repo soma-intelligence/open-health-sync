@@ -254,6 +254,7 @@ Stored in `ohs_data.daily_summaries`.
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
 | `Replaceable` | `bool` | Writer instruction, not a column: the latest summary for the day wins. |
+| `RecordID` | `string` | Writer instruction, not a column: the provider record whose figures the summary carries; not written once that record is deleted. |
 
 ### HeartbeatSample
 

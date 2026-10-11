@@ -194,8 +194,9 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 }
 
 // mapWebhook turns a stored deletion webhook into the deletion of its sleep,
-// workout or recovery (see deletedRecordID). Any other webhook line gives
-// nothing.
+// workout or recovery (see deletedRecordID), which also clears the recovery
+// figures of the day's summary for a sleep or a recovery. Any other webhook
+// line gives nothing.
 func mapWebhook(line []byte, _ string) (*model.MapResult, error) {
 	var wh webhook
 	if err := decode(DataTypeWebhook, line, &wh); err != nil {
@@ -207,7 +208,15 @@ func mapWebhook(line []byte, _ string) (*model.MapResult, error) {
 	if wh.ID == "" {
 		return nil, fmt.Errorf("whoop: webhook: %s without id", wh.Type)
 	}
-	return &model.MapResult{Deletions: []model.Deletion{{Provider: Slug, ExternalID: deletedRecordID(wh.Type, string(wh.ID))}}}, nil
+	d := model.Deletion{Provider: Slug, ExternalID: deletedRecordID(wh.Type, string(wh.ID))}
+	if wh.Type != EventWorkoutDeleted {
+		// A recovery fills recovery_score and resting_hr of its day's
+		// summary. A sleep's deletion removes its recovery too (WHOOP deletes
+		// it with the sleep, and its samples are stored under the sleep id),
+		// so both clear them, on the day the recovery samples name.
+		d.ClearSummaryFields = recoverySummaryFields
+	}
+	return &model.MapResult{Deletions: []model.Deletion{d}}, nil
 }
 
 // truncate shortens a provider supplied string before it reaches a log line.

@@ -20,6 +20,11 @@ import (
 //     without touching the sleep.
 const recoverySuffix = "_recovery"
 
+// recoverySummaryFields are the daily summary figures a recovery fills. A
+// deletion of the recovery (or of its sleep) clears them on the day its
+// samples name (model.MetadataSummaryDate).
+var recoverySummaryFields = []string{"recovery_score", "resting_hr"}
+
 // recoveryRecordID is the record id of a recovery: "<sleep id>_recovery", or,
 // for a recovery without a sleep id (the API documents it as always present),
 // "cycle-<cycle id>_recovery". "" when it has neither.
@@ -46,6 +51,11 @@ func recoveryRecordID(sleepID, cycleID string) string {
 // It does not change when the recovery is re-scored, so the re-scored copy
 // replaces the stored one. The day of the summary is its cycle's (see
 // cycleDay) when Fetch added the cycle, else the local day of created_at.
+//
+// Deletion. The samples name that day (model.MetadataSummaryDate) and the
+// summary names the recovery (RecordID): a recovery.deleted or sleep.deleted
+// clears the recovery figures of that day, and a later copy of the deleted
+// recovery writes neither samples nor figures.
 func mapRecovery(line []byte, userID string) (*model.MapResult, error) {
 	var r Recovery
 	if err := decode(DataTypeRecovery, line, &r); err != nil {
@@ -83,6 +93,7 @@ func mapRecovery(line []byte, userID string) (*model.MapResult, error) {
 			m["whoop_sleep_id"] = string(r.SleepID)
 		}
 		setIf(m, "user_calibrating", sc.UserCalibrating)
+		m[model.MetadataSummaryDate] = day.Format("2006-01-02")
 		return withTimezone(m, offset, at)
 	}
 
@@ -102,6 +113,7 @@ func mapRecovery(line []byte, userID string) (*model.MapResult, error) {
 		d := dailySummary(userID, day, offset, at)
 		d.RecoveryScore = sc.RecoveryScore
 		d.RestingHR = sc.RestingHeartRate
+		d.RecordID = id
 		res.DailySummaries = append(res.DailySummaries, d)
 	}
 	if res.IsEmpty() {

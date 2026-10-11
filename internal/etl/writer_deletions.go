@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -26,7 +28,12 @@ import (
 //     only gave samples, a WHOOP recovery whose sleep stays). The match is a
 //     range on the (tenant_id, user_id, provider, external_id COLLATE "C")
 //     index (migration 0012), see deletionExternalMatch;
-//  4. the nutrition logs of that id are deleted.
+//  4. the nutrition logs of that id are deleted;
+//  5. when the deletion names ClearSummaryFields, those figures are set to
+//     NULL in the provider's daily summaries of the days the removed quantity
+//     samples name (model.MetadataSummaryDate), and a summary left without
+//     any figure is deleted. The names are resolved against dailyFigures, an
+//     allow-list: no name from a connector reaches the SQL text.
 //
 // Every record of the batch is then checked against the tombstones before it
 // is written (dropTombstoned), so a delete wins whichever arrives first.
@@ -52,8 +59,10 @@ var (
 		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
 	// deletionSamples and deletionCategory: $4 is the id, $5 the id followed
 	// by "_", $6 the id followed by "`" (see deletionExternalMatch).
+	// It returns the summary day each removed sample names, if any.
 	deletionSamples = `DELETE FROM ohs_data.quantity_samples
-		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6")
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6") + `
+		RETURNING metadata->>'` + model.MetadataSummaryDate + `'`
 	deletionCategory = `DELETE FROM ohs_data.category_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6")
 	deletionNutrition = `DELETE FROM ohs_data.nutrition_logs
@@ -84,18 +93,23 @@ func deletionExternalMatch(id, prefix, upper string) string {
 // counted in the log line only; tombstones go to c.
 func applyDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.Deletion, c Counts) error {
 	removed := 0
-	seen := make(map[recordKey]bool, len(dels))
+	var order []recordKey
+	clear := make(map[recordKey][]string, len(dels))
 	for _, d := range dels {
 		if d.ExternalID == "" {
 			continue
 		}
 		k := recordKey{provider: sc.providerOr(d.Provider), id: d.ExternalID}
-		if seen[k] {
+		if _, seen := clear[k]; seen {
 			c.add(tDeleted, 0, 1)
-			continue
+		} else {
+			order = append(order, k)
+			clear[k] = []string{}
 		}
-		seen[k] = true
-		n, fresh, err := applyDeletion(ctx, tx, sc, k)
+		clear[k] = append(clear[k], d.ClearSummaryFields...)
+	}
+	for _, k := range order {
+		n, fresh, err := applyDeletion(ctx, tx, sc, k, clear[k])
 		if err != nil {
 			return err
 		}
@@ -107,14 +121,15 @@ func applyDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.Delet
 		}
 	}
 	if removed > 0 {
-		slog.InfoContext(ctx, "etl: provider deletions applied", "deletions", len(seen), "rows_removed", removed)
+		slog.InfoContext(ctx, "etl: provider deletions applied", "deletions", len(order), "rows_removed", removed)
 	}
 	return nil
 }
 
-// applyDeletion deletes one provider record and its derived rows, and reports
-// the rows removed and whether the tombstone is new.
-func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey) (int, bool, error) {
+// applyDeletion deletes one provider record and its derived rows, clears the
+// summary figures named by clear on the days of its samples, and reports the
+// rows removed or cleared and whether the tombstone is new.
+func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey, clear []string) (int, bool, error) {
 	tag, err := tx.Exec(ctx, deletionTombstone, sc.tenant, sc.user, k.provider, k.id)
 	if err != nil {
 		return 0, false, fmt.Errorf("insert tombstone: %w", err)
@@ -149,12 +164,27 @@ func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey) (int, 
 		removed += len(workouts)
 	}
 
-	for _, q := range []string{deletionSamples, deletionCategory} {
-		tag, err := tx.Exec(ctx, q, sc.tenant, sc.user, k.provider, k.id, k.id+"_", k.id+"`")
+	rows, err := tx.Query(ctx, deletionSamples, sc.tenant, sc.user, k.provider, k.id, k.id+"_", k.id+"`")
+	if err != nil {
+		return 0, false, fmt.Errorf("delete derived samples: %w", err)
+	}
+	summaryDays, err := pgx.CollectRows(rows, pgx.RowTo[*string])
+	if err != nil {
+		return 0, false, fmt.Errorf("delete derived samples: %w", err)
+	}
+	removed += len(summaryDays)
+	tag, err = tx.Exec(ctx, deletionCategory, sc.tenant, sc.user, k.provider, k.id, k.id+"_", k.id+"`")
+	if err != nil {
+		return 0, false, fmt.Errorf("delete derived samples: %w", err)
+	}
+	removed += int(tag.RowsAffected())
+
+	if days := parseSummaryDays(summaryDays); len(days) > 0 && len(clear) > 0 {
+		n, err := clearSummaryFields(ctx, tx, sc, k.provider, clear, days)
 		if err != nil {
-			return 0, false, fmt.Errorf("delete derived samples: %w", err)
+			return 0, false, err
 		}
-		removed += int(tag.RowsAffected())
+		removed += n
 	}
 
 	tag, err = tx.Exec(ctx, deletionNutrition, sc.tenant, sc.user, k.provider, k.id)
@@ -172,6 +202,97 @@ func deleteParents(ctx context.Context, tx TxLike, q string, sc scope, k recordK
 		return nil, err
 	}
 	return pgx.CollectRows(rows, pgx.RowTo[int64])
+}
+
+// parseSummaryDays returns the distinct days of MetadataSummaryDate values
+// ("YYYY-MM-DD"); NULLs and values that do not parse are left out.
+func parseSummaryDays(raw []*string) []time.Time {
+	seen := map[time.Time]bool{}
+	var out []time.Time
+	for _, r := range raw {
+		if r == nil {
+			continue
+		}
+		d, err := time.Parse(time.DateOnly, *r)
+		if err != nil || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
+}
+
+// summaryClearFigures resolves the figure names of a deletion against
+// dailyFigures, in that order and once each. A name not in the list is
+// dropped: the result holds only constants of this package, so it can be
+// written into SQL text.
+func summaryClearFigures(names []string) (figures []string, unknown int) {
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		want[n] = true
+	}
+	for _, f := range dailyFigures {
+		if want[f] {
+			figures = append(figures, f)
+			delete(want, f)
+		}
+	}
+	return figures, len(want)
+}
+
+// summaryScope selects the provider's own summaries ($3) of the days $4 for
+// the job's tenant and user; the derived activity rows are the ETL's, not a
+// record's.
+const summaryScope = `tenant_id = $1 AND user_id = $2 AND provider = $3 AND summary_date = ANY($4::date[])
+		  AND metadata->>'derived' IS DISTINCT FROM 'true'`
+
+// summaryClearStatement is the UPDATE that sets figures to NULL. figures must
+// come from summaryClearFigures.
+func summaryClearStatement(figures []string) string {
+	set := make([]string, len(figures))
+	some := make([]string, len(figures))
+	for i, f := range figures {
+		set[i] = f + " = NULL"
+		some[i] = f + " IS NOT NULL"
+	}
+	return `UPDATE ohs_data.daily_summaries SET ` + strings.Join(set, ", ") + `
+		WHERE ` + summaryScope + ` AND (` + strings.Join(some, " OR ") + `)`
+}
+
+// summaryDropEmpty deletes the summaries of those days left without any
+// figure.
+var summaryDropEmpty = func() string {
+	none := make([]string, len(dailyFigures))
+	for i, f := range dailyFigures {
+		none[i] = f + " IS NULL"
+	}
+	return `DELETE FROM ohs_data.daily_summaries
+		WHERE ` + summaryScope + ` AND ` + strings.Join(none, " AND ")
+}()
+
+// clearSummaryFields clears the named figures of the provider's summaries of
+// days and drops the summaries left empty. It returns the rows changed.
+func clearSummaryFields(ctx context.Context, tx TxLike, sc scope, provider string, names []string, days []time.Time) (int, error) {
+	figures, unknown := summaryClearFigures(names)
+	if unknown > 0 {
+		slog.WarnContext(ctx, "etl: deletion names unknown summary figures, ignored", "provider", provider, "unknown", unknown)
+	}
+	if len(figures) == 0 {
+		return 0, nil
+	}
+	tag, err := tx.Exec(ctx, summaryClearStatement(figures), sc.tenant, sc.user, provider, days)
+	if err != nil {
+		return 0, fmt.Errorf("clear summary figures: %w", err)
+	}
+	n := int(tag.RowsAffected())
+	if n == 0 {
+		return 0, nil
+	}
+	if _, err := tx.Exec(ctx, summaryDropEmpty, sc.tenant, sc.user, provider, days); err != nil {
+		return 0, fmt.Errorf("drop empty summaries: %w", err)
+	}
+	return n, nil
 }
 
 // recordKey is one provider record: its provider and external id.
@@ -221,6 +342,11 @@ func dropTombstoned(ctx context.Context, tx TxLike, sc scope, acc *model.MapResu
 	for _, s := range acc.QuantitySamples {
 		for _, id := range sampleRecordIDs(s.ExternalID) {
 			add(s.Provider, id)
+		}
+	}
+	for _, d := range acc.DailySummaries {
+		for _, id := range sampleRecordIDs(d.RecordID) {
+			add(d.Provider, id)
 		}
 	}
 	if len(candidates) == 0 {
@@ -299,13 +425,21 @@ func dropTombstonedRecords(acc *model.MapResult, isDead func(provider, id string
 		return !isDead(n.Provider, n.ExternalID)
 	})
 	acc.QuantitySamples = filterKeep(acc.QuantitySamples, tQuantity, c, func(s model.QuantitySample) bool {
-		for _, id := range sampleRecordIDs(s.ExternalID) {
-			if isDead(s.Provider, id) {
-				return false
-			}
-		}
-		return true
+		return !anyDead(s.Provider, s.ExternalID, isDead)
 	})
+	acc.DailySummaries = filterKeep(acc.DailySummaries, tDaily, c, func(d model.DailySummary) bool {
+		return !anyDead(d.Provider, d.RecordID, isDead)
+	})
+}
+
+// anyDead reports whether the record id, or a record it derives from, is dead.
+func anyDead(provider, id string, isDead func(provider, id string) bool) bool {
+	for _, r := range sampleRecordIDs(id) {
+		if isDead(provider, r) {
+			return true
+		}
+	}
+	return false
 }
 
 // filterParents drops the parents dead reports, counting them skipped, and

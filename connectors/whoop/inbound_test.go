@@ -72,10 +72,13 @@ func TestHandleInbound_UpdateTypes(t *testing.T) {
 // and for a recovery (named by its sleep) "<sleep id>_recovery".
 func TestHandleInbound_DeletionIsStoredAndMapped(t *testing.T) {
 	c := inboundConnector()
-	for typ, want := range map[string]string{
-		EventSleepDeleted:    "aaaaaaaa-0000-4000-8000-000000000001",
-		EventWorkoutDeleted:  "aaaaaaaa-0000-4000-8000-000000000001",
-		EventRecoveryDeleted: "aaaaaaaa-0000-4000-8000-000000000001_recovery",
+	recoveryFigures := []string{"recovery_score", "resting_hr"}
+	for typ, want := range map[string]model.Deletion{
+		// A sleep's deletion takes its recovery, and the recovery's figures of
+		// the day's summary, with it.
+		EventSleepDeleted:    {Provider: Slug, ExternalID: "aaaaaaaa-0000-4000-8000-000000000001", ClearSummaryFields: recoveryFigures},
+		EventWorkoutDeleted:  {Provider: Slug, ExternalID: "aaaaaaaa-0000-4000-8000-000000000001"},
+		EventRecoveryDeleted: {Provider: Slug, ExternalID: "aaaaaaaa-0000-4000-8000-000000000001_recovery", ClearSummaryFields: recoveryFigures},
 	} {
 		body := event(typ)
 		events, err := c.HandleInbound(context.Background(), webhookAt(testSecret, inboundNow, body))
@@ -90,7 +93,7 @@ func TestHandleInbound_DeletionIsStoredAndMapped(t *testing.T) {
 		require.NoError(t, json.Unmarshal(ev.Lines[0], &fields))
 		res, err := c.Map(connector.RawRecord{UserID: "u-1", Provider: Slug, DataType: DataTypeWebhook, Fields: fields})
 		require.NoError(t, err, typ)
-		assert.Equal(t, []model.Deletion{{Provider: Slug, ExternalID: want}}, res.Deletions, typ)
+		assert.Equal(t, []model.Deletion{want}, res.Deletions, typ)
 		assert.Equal(t, 1, res.RecordCount(), typ)
 	}
 }
