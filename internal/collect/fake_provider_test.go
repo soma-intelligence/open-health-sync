@@ -38,7 +38,9 @@ const inboundSecret = "fake-inbound-secret"
 type fakeProvider struct {
 	srv *httptest.Server
 
-	refreshMode atomic.Value // "ok" | "revoked"
+	refreshMode atomic.Value // "ok" | "revoked" | "keep" (no new refresh token issued)
+	// lastRefresh is the refresh token of the last refresh request.
+	lastRefresh atomic.Value
 	fetchMode   atomic.Value // "ok" | "429" | "revoked" | "500" | "hang"
 
 	// onRefusal, when set, runs on every 401 of the data endpoint with the
@@ -121,11 +123,17 @@ func (f *fakeProvider) token(w http.ResponseWriter, r *http.Request) {
 		f.refreshN.Add(1)
 		// Slow enough that concurrent pulls overlap the refresh.
 		time.Sleep(200 * time.Millisecond)
+		f.lastRefresh.Store(r.Form.Get("refresh_token"))
 		if f.refreshMode.Load() == "revoked" {
 			http.Error(w, `{"error":"invalid_grant"}`, http.StatusUnauthorized)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(f.issue(r.Form.Get("userid")))
+		out := f.issue(r.Form.Get("userid"))
+		if f.refreshMode.Load() == "keep" {
+			// RFC 6749 section 6: the server MAY issue a new refresh token.
+			delete(out, "refresh_token")
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	default:
 		http.Error(w, "bad grant", http.StatusBadRequest)
 	}

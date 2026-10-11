@@ -430,6 +430,50 @@ func TestRefreshRenewsExpiringTokens(t *testing.T) {
 	assert.Equal(t, "Bearer "+string(plain), e.fake.lastAuthorization(), "the pull used the refreshed token")
 }
 
+// RFC 6749 section 6: a refresh response MAY carry a new refresh token, and
+// the client must then discard the old one; when it carries none, the old one
+// stays valid and is kept. A provider that rotates (the fake's default) gets
+// the new token stored; one that does not keeps the stored token, which the
+// next refresh sends again.
+func TestRefreshKeepsRefreshTokenWhenNoneIssued(t *testing.T) {
+	e := newConnEnv(t)
+	ctx := context.Background()
+	e.connect(t, e.keyA, e.userA, "pu-1")
+	aad := []byte(e.tenantA.String() + "|" + e.userA.String() + "|" + fakeSlug)
+	storedRefresh := func() string {
+		t.Helper()
+		var enc []byte
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT refresh_token_enc FROM ohs_sync.connections
+			WHERE tenant_id = $1 AND user_id = $2`, e.tenantA, e.userA).Scan(&enc))
+		plain, err := e.box.OpenFor(enc, aad)
+		require.NoError(t, err)
+		return string(plain)
+	}
+	original := storedRefresh()
+	require.NotEmpty(t, original)
+
+	// The provider refuses the access token and issues no new refresh token.
+	e.fake.refreshMode.Store("keep")
+	e.fake.rejectCurrentTokens()
+	e.drain(t)
+	require.Equal(t, int64(1), e.fake.refreshN.Load())
+	assert.Equal(t, original, e.fake.lastRefresh.Load(), "the refresh spent the stored token")
+	assert.Equal(t, original, storedRefresh(), "no new refresh token: the old one is kept")
+	assert.Equal(t, collect.StatusActive, e.connStatus(t, e.userA))
+
+	// Next time it rotates: the kept token is the one sent, and the new one
+	// replaces it.
+	e.fake.refreshMode.Store("ok")
+	e.fake.rejectCurrentTokens()
+	e.notify(t, "pu-1", 1760000000, 1760003600)
+	e.drain(t)
+	require.Equal(t, int64(2), e.fake.refreshN.Load())
+	assert.Equal(t, original, e.fake.lastRefresh.Load(), "the kept token still works")
+	rotated := storedRefresh()
+	assert.NotEqual(t, original, rotated, "a rotated token replaces the old one")
+	assert.True(t, strings.HasPrefix(rotated, "refresh-secret-"))
+}
+
 func TestRefreshNeedsReauth(t *testing.T) {
 	e := newConnEnv(t)
 	ctx := context.Background()
