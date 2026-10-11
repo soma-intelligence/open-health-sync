@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
 // Webhooks.
@@ -31,12 +32,16 @@ import (
 // replayed later. The caller (collect) must still check that the returned
 // ProviderUserID belongs to an active connection.
 //
-// A webhook names a record, not a time window, and InboundEvent cannot carry
-// a record id: an updated record becomes a pull of the last InboundLookback,
-// which covers the record in all but the rarest cases (an edit to an old
-// night); the scheduled pull covers the rest. A deleted record cannot be
-// applied: the core has no way for a connector to remove one stored record,
-// so a deletion gives no event (see docs/connectors/whoop.md).
+// A webhook names a record, not a time window. An updated record becomes a
+// pull of the last InboundLookback, which covers the record in all but the
+// rarest cases (an edit to an old night); the scheduled pull covers the rest.
+// A deleted sleep or workout (sleep.deleted, workout.deleted) is handed back
+// verbatim as a raw line of DataTypeWebhook: the core stores it for every
+// connection of the WHOOP user, and Map turns it into a model.Deletion of
+// that sleep or workout id, which removes the stored record and its samples
+// and keeps it from coming back. recovery.deleted is acknowledged and not
+// applied: WHOOP names the recovery by its sleep id, while the recovery
+// figures are stored under their cycle id (see docs/connectors/whoop.md).
 
 // ErrBadSignature reports a webhook whose signature is missing, wrong or
 // stale. The inbound route answers it with 401.
@@ -72,6 +77,8 @@ const (
 
 // EventToDataType maps an update event to the data type to pull, or "" for
 // a deletion or an event this connector does not know.
+//
+// Deletions are handled by HandleInbound and mapWebhook instead.
 func EventToDataType(eventType string) string {
 	switch eventType {
 	case EventRecoveryUpdated:
@@ -88,6 +95,12 @@ func EventToDataType(eventType string) string {
 // isDeletion reports a deletion event.
 func isDeletion(eventType string) bool {
 	return eventType == EventRecoveryDeleted || eventType == EventSleepDeleted || eventType == EventWorkoutDeleted
+}
+
+// appliedDeletion reports a deletion event whose id is the external id of a
+// stored record: a sleep or a workout.
+func appliedDeletion(eventType string) bool {
+	return eventType == EventSleepDeleted || eventType == EventWorkoutDeleted
 }
 
 // webhook is the body of a WHOOP webhook.
@@ -107,12 +120,13 @@ func Sign(secret, timestamp string, body []byte) string {
 	return base64.StdEncoding.EncodeToString(m.Sum(nil))
 }
 
-// HandleInbound verifies a WHOOP webhook and returns the pull it asks for.
-// HEAD and GET (a reachability check) give no event and no error. A bad,
-// missing or stale signature gives ErrBadSignature. A deletion, or an event
-// type this connector does not know, gives no event and no error, so the
-// route still answers 200 and WHOOP does not retry. A body that is not the
-// documented JSON gives an error.
+// HandleInbound verifies a WHOOP webhook and returns what it asks for: a pull
+// for an update, the webhook body as a raw line of DataTypeWebhook for a
+// deleted sleep or workout. HEAD and GET (a reachability check) give no event
+// and no error. A bad, missing or stale signature gives ErrBadSignature.
+// recovery.deleted, or an event type this connector does not know, gives no
+// event and no error, so the route still answers 200 and WHOOP does not
+// retry. A body that is not the documented JSON gives an error.
 func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connector.InboundEvent, error) {
 	if r.Method == http.MethodHead || r.Method == http.MethodGet {
 		return nil, nil
@@ -141,10 +155,20 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	if wh.UserID == "" || wh.Type == "" {
 		return nil, errors.New("whoop: webhook body has no user_id or type")
 	}
+	if appliedDeletion(wh.Type) {
+		if wh.ID == "" {
+			return nil, errors.New("whoop: deletion webhook has no id")
+		}
+		return []connector.InboundEvent{{
+			ProviderUserID: string(wh.UserID),
+			DataType:       DataTypeWebhook,
+			Lines:          [][]byte{body},
+		}}, nil
+	}
 	dt := EventToDataType(wh.Type)
 	if dt == "" {
 		if isDeletion(wh.Type) {
-			slog.Info("whoop: deletion webhook not applied, the core cannot remove one stored record",
+			slog.Info("whoop: recovery deletion not applied, recoveries are stored by cycle",
 				"provider", Slug, "event", wh.Type)
 		} else {
 			slog.Info("whoop: webhook of an unknown type ignored", "provider", Slug, "event", wh.Type)
@@ -157,6 +181,22 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 		From:           now.Add(-InboundLookback),
 		To:             now,
 	}}, nil
+}
+
+// mapWebhook turns a stored deletion webhook into the deletion of its sleep
+// or workout. Any other webhook line gives nothing.
+func mapWebhook(line []byte, _ string) (*model.MapResult, error) {
+	var wh webhook
+	if err := decode(DataTypeWebhook, line, &wh); err != nil {
+		return nil, err
+	}
+	if !appliedDeletion(wh.Type) {
+		return nil, nil
+	}
+	if wh.ID == "" {
+		return nil, fmt.Errorf("whoop: webhook: %s without id", wh.Type)
+	}
+	return &model.MapResult{Deletions: []model.Deletion{{Provider: Slug, ExternalID: string(wh.ID)}}}, nil
 }
 
 // verify checks the signature of body and that its timestamp lies within

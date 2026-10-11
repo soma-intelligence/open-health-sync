@@ -26,6 +26,10 @@ const (
 	// current value per user with no date, so the UTC day it was read on is
 	// added as "snapshot_date".
 	DataTypeBody = "body"
+	// DataTypeWebhook: one WHOOP webhook body per line, verbatim, stored by
+	// the inbound route for a deletion (sleep.deleted, workout.deleted). It
+	// is never fetched; Map turns it into a model.Deletion.
+	DataTypeWebhook = "webhook"
 )
 
 // AllDataTypes is every data type Fetch pulls, in the order it pulls them.

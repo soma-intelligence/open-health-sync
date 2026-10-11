@@ -44,6 +44,7 @@ func newMapper() *mapper {
 			DataTypeSleep:    mapSleep,
 			DataTypeWorkout:  mapWorkout,
 			DataTypeBody:     mapBody,
+			DataTypeWebhook:  mapWebhook,
 		},
 		unknownTypes: map[string]int{},
 	}

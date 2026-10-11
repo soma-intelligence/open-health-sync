@@ -90,7 +90,8 @@ or whose timestamp is more than 5 minutes from the server clock, so keep the clo
 | Event | Effect |
 |---|---|
 | `recovery.updated`, `sleep.updated`, `workout.updated` | a pull of the last 3 days for that user |
-| `recovery.deleted`, `sleep.deleted`, `workout.deleted` | acknowledged (200), not applied: see [updates and deletions](#updates-and-deletions) |
+| `sleep.deleted`, `workout.deleted` | the sleep or workout is removed: see [updates and deletions](#updates-and-deletions) |
+| `recovery.deleted` | acknowledged (200), not applied: see [updates and deletions](#updates-and-deletions) |
 | anything else | acknowledged (200), ignored |
 
 A webhook names one record, but a pull job covers a time window, so an update pulls the last 3
@@ -153,6 +154,12 @@ Notes on the mapping:
   re-scored copy replaces the stored figures (a figure it leaves out keeps its stored value),
   along with its strain and respiratory rate samples, and a copy whose start the user edited
   replaces the stored record of the same id instead of adding a second one.
-- Deletions are not applied. The core gives a connector no way to remove one stored record, so
-  a `*.deleted` webhook is acknowledged and logged, and the record stays until the user is
-  deleted.
+- A `sleep.deleted` or `workout.deleted` webhook is stored verbatim as a raw object (data type
+  `webhook`) for every connection of that WHOOP user, and the ETL removes the sleep (with its
+  respiratory rate sample) or the workout (with its strain, energy and heart rate samples) of
+  that id. A tombstone keeps it from coming back with a later pull or a reprocessed raw object,
+  even when the deletion is processed before the record. Deletions only arrive by webhook:
+  without one, a record deleted at WHOOP stays.
+- `recovery.deleted` is acknowledged and not applied. WHOOP names a recovery by its sleep id,
+  while the recovery figures are stored under their cycle id, so the webhook does not say which
+  stored figures to remove; a re-scored recovery still replaces them.
