@@ -74,8 +74,13 @@ measurements, activity, sleep and workouts. The callback registered with Withing
 notification only triggers a pull of the recent window (at most 7 days back), so a forged one
 cannot make the server fetch a user's whole history.
 
+A notification pulls only what it concerns: a measurement pulls measures and ECG (4 calls),
+activity pulls activity and intraday (2), sleep (2) and workouts (1), instead of all 9 calls
+of a full pull. Notification pulls run before backfill and backstop pulls.
+
 For notifications to arrive, `OHS_PUBLIC_URL` must be reachable from the internet. Without it
-nothing breaks: the 6 hour pull still collects everything.
+nothing breaks: the backstop pull still collects everything, every hour while no
+notification arrives (see [background sync](../background-sync.md)).
 
 The subscription is durable. Connecting writes it as pending; the `collect` role subscribes it
 at Withings and, when that fails, retries with backoff (from 1 minute, doubling up to 6 hours)

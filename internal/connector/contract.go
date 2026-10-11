@@ -68,6 +68,16 @@ type Subscriber interface {
 	Unsubscribe(ctx context.Context, c Connection, callbackURL string) error
 }
 
+// NotifiedFetcher is optionally implemented by an OAuthConnector whose
+// notifications name what changed (InboundEvent.DataType). FetchNotified
+// pulls only what such a notification can concern, usually one or two
+// provider calls instead of one per data type, which keeps the app's rate
+// limit for what just changed. dataType is a value the connector put in
+// InboundEvent.DataType.
+type NotifiedFetcher interface {
+	FetchNotified(ctx context.Context, c Connection, from, to time.Time, dataType string, emit RawSink) error
+}
+
 // AsOAuth reports whether c can be pulled from with OAuth.
 func AsOAuth(c Connector) (OAuthConnector, bool) { o, ok := c.(OAuthConnector); return o, ok }
 

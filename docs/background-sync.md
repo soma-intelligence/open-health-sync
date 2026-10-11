@@ -10,7 +10,12 @@ The `collect` role does the work. Three mechanisms stack:
 
 1. **Notifications first.** When a provider sends webhooks (Withings, and the app-level
    webhooks of other providers), each notification queues a pull of the window it names.
-   Bursts are merged into one pull. Data lands within seconds of the provider having it.
+   Bursts are merged into one pull. Notification pulls are claimed before any backfill or
+   backstop pull, so a burst of slot jobs or a rate limit never queues fresh data behind
+   routine work. When the connector can (Withings), the pull fetches only what the
+   notification concerns: a new weight costs 4 Withings calls instead of 9, a new sleep 2,
+   which keeps the app's rate limit for what just changed. Data lands within seconds of the
+   provider having it.
 2. **A backstop pull.** Every connection is also pulled on a fixed slot, in case a
    notification was lost:
    - every **6 hours** (00:00, 06:00, 12:00, 18:00 UTC) while the connection's notifications
@@ -55,8 +60,9 @@ whatever a failed window missed.
 }
 ```
 
-- `synced_through` is the end of the most recent window pulled. It only moves forward: a
-  backfill of last month does not make the data look fresh. For a device source it is the
+- `synced_through` is the end of the most recent window pulled for every data type. It only
+  moves forward: a backfill of last month does not make the data look fresh, and a
+  notification pull of one type does not make the others look current. For a device source it is the
   time of the last upload.
 - `state` is `fresh`; `stale` when behind by more than two pull intervals plus an hour (or
   no upload for 26 hours for a device source); `failing` after 3 failed pulls in a row (see

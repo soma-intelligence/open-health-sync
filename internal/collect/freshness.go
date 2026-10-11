@@ -162,6 +162,17 @@ func (d Deps) isPush(provider string) bool {
 	return push
 }
 
+// typed reports whether provider's connector can pull only what a
+// notification names.
+func (d Deps) typed(provider string) bool {
+	oc, ok := d.oauth(provider)
+	if !ok {
+		return false
+	}
+	_, ok = oc.(connector.NotifiedFetcher)
+	return ok
+}
+
 // isDevice reports whether provider is an on-device store uploaded by an app.
 func (d Deps) isDevice(provider string) bool {
 	c, ok := d.lookup(provider)

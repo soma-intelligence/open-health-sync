@@ -23,7 +23,14 @@ release may change the API, the configuration or the database schema.
   (before: every 6 hours for all).
 - A provider subscription that has heard nothing for 24 hours and is more than 7 days old is
   renewed at the provider, which repairs a subscription the provider dropped silently.
-- Migration 0008 adds freshness columns to `ohs_sync.connections`.
+- Notification pulls go first: they are claimed before backfill and backstop pulls, so a
+  burst of slot jobs or a rate limit never delays data a provider just announced.
+- A Withings notification pulls only what it concerns (a measurement: measures and ECG;
+  activity: activity and intraday; sleep; workouts), 1 to 4 calls instead of 9, which
+  leaves the app's rate limit for fresh data. Connectors opt in with
+  `connector.NotifiedFetcher`.
+- Migration 0008 adds freshness columns to `ohs_sync.connections`; migration 0009 adds
+  `data_type` and `priority` to `ohs_sync.pull_jobs`.
 
 ## [0.0.2] - 2026-10-11
 

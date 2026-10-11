@@ -58,6 +58,13 @@ func newConnEnv(t *testing.T) *connEnv {
 
 func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	t.Helper()
+	return newConnEnvWrapped(t, cfg, func(c fakeConnector) connector.Connector { return c })
+}
+
+// newConnEnvWrapped registers wrap(fake) as the provider, so a test can add
+// optional connector interfaces.
+func newConnEnvWrapped(t *testing.T, cfg collect.SchedulerConfig, wrap func(fakeConnector) connector.Connector) *connEnv {
+	t.Helper()
 	ctx := context.Background()
 	pool, err := db.Open(ctx, db.TestDB(t))
 	require.NoError(t, err)
@@ -72,7 +79,7 @@ func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	e := &connEnv{pool: pool, raw: raw, box: box, store: tenant.New(pool), fake: newFakeProvider()}
 	t.Cleanup(e.fake.Close)
 	reg := connector.NewRegistry()
-	reg.Register(fakeConnector{f: e.fake})
+	reg.Register(wrap(fakeConnector{f: e.fake}))
 
 	ta, keyA, err := e.store.CreateTenant(ctx, "A")
 	require.NoError(t, err)

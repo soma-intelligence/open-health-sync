@@ -469,6 +469,8 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 		  AND NOT EXISTS (
 			SELECT 1 FROM ohs_sync.pull_jobs j
 			WHERE j.tenant_id = c.tenant_id AND j.user_id = c.user_id AND j.provider = c.provider
+			  -- a pull of one data type does not stand in for the backstop
+			  AND j.data_type IS NULL
 			  AND (j.to_time = s.slot_end
 			       -- any other job counts only if it covers the whole window
 			       -- regularWindow would pull (catch-up included), e.g. a slot
@@ -539,7 +541,13 @@ func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
 		return 0, err
 	}
 	sink := newPullSink(s.d, job)
-	err = oc.Fetch(ctx, conn, job.From, job.To, sink)
+	fetch := func(conn connector.Connection) error {
+		if nf, ok := oc.(connector.NotifiedFetcher); ok && job.DataType != "" {
+			return nf.FetchNotified(ctx, conn, job.From, job.To, job.DataType, sink)
+		}
+		return oc.Fetch(ctx, conn, job.From, job.To, sink)
+	}
+	err = fetch(conn)
 	if errors.Is(err, connector.ErrNeedsReauth) {
 		// The access token may just have expired early or been revoked
 		// alone (Withings answers 401): refresh once and retry once. Only a
@@ -549,7 +557,7 @@ func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
 			// refresh marks needs_reauth itself when the provider refuses.
 			return sink.stored, err
 		}
-		err = oc.Fetch(ctx, conn, job.From, job.To, sink)
+		err = fetch(conn)
 		if errors.Is(err, connector.ErrNeedsReauth) {
 			// Refused again: the grant is gone, unless a reconnect replaced
 			// the token in between.
@@ -606,15 +614,17 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 	case cause == nil:
 		err = s.q.Complete(ctx, job)
 		if err == nil {
-			// synced_through only moves forward, and never past now (a
-			// notification may name a window ending later).
+			// synced_through only moves forward, never past now (a
+			// notification may name a window ending later), and only for a
+			// pull of every type: one type does not make the rest current.
 			now := s.d.now()
 			if _, uerr := s.d.Pool.Exec(ctx, `
 				UPDATE ohs_sync.connections SET last_sync_at = $4, last_attempt_at = $4,
-					synced_through = greatest(synced_through, least($5::timestamptz, $4::timestamptz)),
+					synced_through = CASE WHEN $6 THEN synced_through
+						ELSE greatest(synced_through, least($5::timestamptz, $4::timestamptz)) END,
 					last_error = NULL, consecutive_failures = 0, updated_at = now()
 				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
-				job.TenantID, job.UserID, job.Provider, now, job.To); uerr != nil {
+				job.TenantID, job.UserID, job.Provider, now, job.To, job.DataType != ""); uerr != nil {
 				log.ErrorContext(ctx, "collect: record last sync", "error", uerr)
 			}
 		}
