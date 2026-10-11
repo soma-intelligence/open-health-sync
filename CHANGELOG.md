@@ -22,6 +22,10 @@ release may change the API, the configuration or the database schema.
   (Strava's `hub.challenge`), through the optional `connector.ChallengeResponder` interface.
 - `Workout.Replaceable`: a connector can mark a workout so an edited copy from the provider
   replaces the stored one instead of being skipped.
+- `SleepSession.Replaceable`: a re-scored or edited sleep session replaces the stored figures
+  and its sleep phases instead of keeping the first copy; a Replaceable session or workout whose
+  start moved supersedes the stored copy of the same provider record. Migration `0009` indexes
+  that lookup. Oura, WHOOP and Polar now mark their sleep sessions and workouts Replaceable.
 - Quantity name `hrv_rmssd` (milliseconds) for HRV reported as RMSSD, kept apart from
   `hrv_sdnn`. Migration `0008` registers it in `quantity_codes`.
 - Polar connector (AccessLink v3): OAuth connect with user registration, scheduled pulls of
