@@ -30,6 +30,8 @@ func TestKeyRotation(t *testing.T) {
 	require.Regexp(t, `^ohs_sk_[0-9A-Za-z]{43}$`, second)
 	_, err = s.CreateKey(ctx, uuid.New())
 	require.ErrorIs(t, err, tenant.ErrNotFound)
+	_, err = s.ListKeys(ctx, uuid.New())
+	require.ErrorIs(t, err, tenant.ErrNotFound)
 
 	keys, err := s.ListKeys(ctx, ten.ID)
 	require.NoError(t, err)

@@ -95,3 +95,33 @@ func TestAdminKeyRotation(t *testing.T) {
 		t.Fatal("a bad tenant id must fail")
 	}
 }
+
+func TestAdminKeyEdges(t *testing.T) {
+	url := db.TestDB(t)
+	t.Setenv("OHS_DATABASE_URL", url)
+	var buf bytes.Buffer
+	if err := run([]string{"admin", "tenant", "create", "--name", "Solo"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	key := regexp.MustCompile(`ohs_sk_[0-9A-Za-z]{43}`).FindString(buf.String())
+	id := regexp.MustCompile(`id ([0-9a-f-]{36})`).FindStringSubmatch(buf.String())[1]
+
+	// An unknown tenant is an error, not an empty list.
+	err := run([]string{"admin", "key", "list", "--tenant", "00000000-0000-0000-0000-000000000000"}, &buf)
+	if err == nil || !strings.Contains(err.Error(), "no tenant") {
+		t.Fatalf("key list unknown tenant: %v", err)
+	}
+	// A not found revoke never echoes more than the prefix of the argument.
+	err = run([]string{"admin", "key", "revoke", "--tenant", id, "--key", "ohs_sk_" + strings.Repeat("Z", 43)}, &buf)
+	if err == nil || strings.Contains(err.Error(), strings.Repeat("Z", 20)) {
+		t.Fatalf("revoke echoed the key: %v", err)
+	}
+	// Revoking the last active key warns.
+	buf.Reset()
+	if err := run([]string{"admin", "key", "revoke", "--tenant", id, "--key", key}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "no active API key") {
+		t.Fatalf("no warning: %q", buf.String())
+	}
+}

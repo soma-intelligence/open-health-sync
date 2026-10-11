@@ -27,17 +27,29 @@ func runAdmin(rest []string, out io.Writer) error {
 	if len(rest) < 2 {
 		return usageErr(adminUsage)
 	}
-	fs := flag.NewFlagSet("admin", flag.ContinueOnError)
+	// Each command has its own flags: a flag another command takes is refused.
+	fs := flag.NewFlagSet("admin "+rest[0]+" "+rest[1], flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	name := fs.String("name", "", "tenant name")
-	tenantFlag := fs.String("tenant", "", "tenant id")
-	key := fs.String("key", "", "API key, or the prefix key list shows")
+	var name, tenantFlag, key *string
+	cmd := rest[0] + " " + rest[1]
+	switch cmd {
+	case "tenant create":
+		name = fs.String("name", "", "tenant name")
+	case "tenant list":
+	case "key create", "key list":
+		tenantFlag = fs.String("tenant", "", "tenant id")
+	case "key revoke":
+		tenantFlag = fs.String("tenant", "", "tenant id")
+		key = fs.String("key", "", "API key, or the prefix key list shows")
+	default:
+		return usageErr(adminUsage)
+	}
 	if err := fs.Parse(rest[2:]); err != nil || fs.NArg() != 0 {
 		return usageErr(adminUsage)
 	}
 	var do func(context.Context, *tenant.Store) error
-	switch rest[0] + " " + rest[1] {
-	case "tenant create":
+	switch {
+	case cmd == "tenant create":
 		n := strings.TrimSpace(*name)
 		if n == "" {
 			return usageErr(adminUsage)
@@ -50,19 +62,21 @@ func runAdmin(rest []string, out io.Writer) error {
 			_, err = fmt.Fprintf(out, "tenant %s created (id %s)\nAPI key, shown only this once, store it now:\n%s\n", t.Name, t.ID, k)
 			return err
 		}
-	case "tenant list":
+	case cmd == "tenant list":
 		do = func(ctx context.Context, s *tenant.Store) error { return listTenants(ctx, s, out) }
-	case "key create", "key list", "key revoke":
-		id, err := uuid.Parse(*tenantFlag)
-		if *tenantFlag == "" || (rest[1] == "revoke" && *key == "") {
+	default: // key create, list, revoke
+		if *tenantFlag == "" || (key != nil && *key == "") {
 			return usageErr(adminUsage)
 		}
+		id, err := uuid.Parse(*tenantFlag)
 		if err != nil {
 			return fmt.Errorf("--tenant %q is not a tenant id (ohs admin tenant list shows them)", *tenantFlag)
 		}
-		do = keyCommand(rest[1], id, *key, out)
-	default:
-		return usageErr(adminUsage)
+		k := ""
+		if key != nil {
+			k = *key
+		}
+		do = keyCommand(rest[1], id, k, out)
 	}
 	url, err := databaseURL()
 	if err != nil {
@@ -92,6 +106,9 @@ func keyCommand(action string, id uuid.UUID, key string, out io.Writer) func(con
 			return err
 		case "list":
 			keys, err := s.ListKeys(ctx, id)
+			if errors.Is(err, tenant.ErrNotFound) {
+				return fmt.Errorf("no tenant with id %s", id)
+			}
 			if err != nil {
 				return err
 			}
@@ -100,13 +117,25 @@ func keyCommand(action string, id uuid.UUID, key string, out io.Writer) func(con
 			err := s.RevokeKeyByPrefix(ctx, id, key)
 			switch {
 			case errors.Is(err, tenant.ErrNotFound):
-				return fmt.Errorf("no key %q for tenant %s (ohs admin key list --tenant %s shows them)", key, id, id)
+				return fmt.Errorf("no key %s for tenant %s (ohs admin key list --tenant %s shows them)", shortKey(key), id, id)
 			case errors.Is(err, tenant.ErrAmbiguousPrefix):
 				return fmt.Errorf("prefix %q matches several keys: pass the whole key", key)
 			case err != nil:
 				return err
 			}
-			_, err = fmt.Fprintf(out, "key %s revoked\n", shortKey(key))
+			if _, err := fmt.Fprintf(out, "key %s revoked\n", shortKey(key)); err != nil {
+				return err
+			}
+			keys, err := s.ListKeys(ctx, id)
+			if err != nil {
+				return err
+			}
+			for _, k := range keys {
+				if k.RevokedAt == nil {
+					return nil
+				}
+			}
+			_, err = fmt.Fprintf(out, "warning: tenant %s has no active API key left; ohs admin key create --tenant %s makes one\n", id, id)
 			return err
 		}
 	}

@@ -67,7 +67,8 @@ func (s *Store) CreateKey(ctx context.Context, tenantID uuid.UUID) (string, erro
 	return full, nil
 }
 
-// ListKeys lists the API keys of a tenant, revoked ones included, oldest first.
+// ListKeys lists the API keys of a tenant, revoked ones included, oldest
+// first. An unknown tenant is ErrNotFound.
 func (s *Store) ListKeys(ctx context.Context, tenantID uuid.UUID) ([]APIKey, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT key_prefix, created_at, last_used_at, revoked_at FROM ohs_core.api_keys
@@ -75,11 +76,22 @@ func (s *Store) ListKeys(ctx context.Context, tenantID uuid.UUID) ([]APIKey, err
 	if err != nil {
 		return nil, fmt.Errorf("tenant: list keys: %w", err)
 	}
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (APIKey, error) {
+	keys, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (APIKey, error) {
 		var k APIKey
 		err := r.Scan(&k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt)
 		return k, err
 	})
+	if err != nil || len(keys) > 0 {
+		return keys, err
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ohs_core.tenants WHERE id = $1)`, tenantID).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("tenant: list keys: %w", err)
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	return keys, nil
 }
 
 // RevokeKeyByPrefix revokes one API key of the tenant, named by the prefix
