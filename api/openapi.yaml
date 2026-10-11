@@ -19,6 +19,9 @@ info:
     until it is null. Time windows are half open: `start` <= record time < `end`.
     `start` and `end` take an RFC 3339 time or a `YYYY-MM-DD` date (midnight UTC).
 
+    **FHIR.** `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples as FHIR
+    R4 Observations (`application/fhir+json`); see docs/fhir.md.
+
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
     of another tenant is a 404, never a 403.
 
@@ -43,6 +46,7 @@ tags:
   - name: tokens
   - name: connections
   - name: read
+  - name: fhir
   - name: ingest
   - name: provider-facing
   - name: mcp
@@ -528,6 +532,70 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Coverage" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Observation:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: searchFHIRObservations
+      summary: Quantity samples as FHIR R4 Observations
+      description: |
+        The user's quantity samples as a FHIR R4 (4.0.1) `searchset` Bundle of Observations,
+        `Content-Type: application/fhir+json`. Paged like every list: the Bundle's `next` link
+        carries the cursor, and there is no `next` link on the last page; `total` is left out.
+        Vital signs meet the R4 vital signs profiles they claim in `meta.profile`. The mapping
+        (codes, units, categories, provenance and limits) is in docs/fhir.md. Errors are
+        `application/problem+json` like the rest of the API.
+      parameters:
+        - name: type
+          in: query
+          description: Canonical quantity type, for example heart_rate. Optional; a name outside the quantity type catalog is a 400 (unless this user has samples of it).
+          schema: { type: string }
+        - name: code
+          in: query
+          description: |
+            A FHIR token `system|code`: `http://loinc.org|8867-4`, or the Open Health Sync
+            quantity type system (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`).
+            One value; other systems are a 400. A LOINC code no Observation carries is an empty Bundle.
+          schema: { type: string, examples: ["http://loinc.org|8867-4"] }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by effective start time.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Observation/{observation_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: observation_id
+        in: path
+        required: true
+        description: The Observation id, as the Bundle gives it (`qs-` and the stored row id).
+        schema: { type: string, examples: [qs-1234] }
+    get:
+      tags: [fhir]
+      operationId: readFHIRObservation
+      summary: One FHIR R4 Observation
+      description: The Observation an entry's `fullUrl` points to. Not the user's (or not an id of this form) is a 404.
+      responses:
+        "200":
+          description: The Observation.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRObservation" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -1193,3 +1261,105 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/DailySummary" } }
+
+    FHIRCoding:
+      type: object
+      properties:
+        system: { type: string, format: uri }
+        code: { type: string }
+        display: { type: string }
+    FHIRCodeableConcept:
+      type: object
+      properties:
+        coding:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/FHIRCoding" }
+        text: { type: string }
+    FHIRReference:
+      type: object
+      properties:
+        reference: { type: string, examples: ["Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"] }
+        display: { type: string }
+    FHIRObservation:
+      type: object
+      description: A FHIR R4 Observation made from one quantity sample (docs/fhir.md).
+      required: [resourceType, id, status, code, subject]
+      properties:
+        resourceType: { type: string, const: Observation }
+        id: { type: string, pattern: "^[A-Za-z0-9\\-\\.]{1,64}$", examples: [qs-1234] }
+        meta:
+          type: object
+          properties:
+            source:
+              type: string
+              format: uri
+              description: The provider the sample came through.
+            profile:
+              type: array
+              items: { type: string, format: uri }
+            tag:
+              type: array
+              description: The vendor that produced the sample, when known.
+              items: { $ref: "#/components/schemas/FHIRCoding" }
+        identifier:
+          type: array
+          description: The provider's own id of the sample, when it has one.
+          items:
+            type: object
+            properties:
+              system: { type: string, format: uri }
+              value: { type: string }
+        status: { type: string, const: final }
+        category:
+          type: array
+          items: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        code: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        subject: { $ref: "#/components/schemas/FHIRReference" }
+        effectiveDateTime: { type: string, format: date-time }
+        effectivePeriod:
+          type: object
+          properties:
+            start: { type: string, format: date-time }
+            end: { type: string, format: date-time }
+        issued:
+          type: string
+          format: date-time
+          description: When the sample was ingested.
+        valueQuantity:
+          type: object
+          properties:
+            value: { type: number }
+            unit: { type: string }
+            system: { type: string, const: "http://unitsofmeasure.org" }
+            code: { type: string, examples: ["/min"] }
+        dataAbsentReason: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        device: { $ref: "#/components/schemas/FHIRReference" }
+    FHIRBundle:
+      type: object
+      description: A FHIR R4 searchset Bundle of Observations.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link:
+          type: array
+          items:
+            type: object
+            required: [relation, url]
+            properties:
+              relation: { type: string, enum: [self, next] }
+              url: { type: string, format: uri }
+        entry:
+          type: array
+          description: Absent on an empty page (FHIR JSON has no empty arrays).
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource: { $ref: "#/components/schemas/FHIRObservation" }
+              search:
+                type: object
+                properties:
+                  mode: { type: string, const: match }

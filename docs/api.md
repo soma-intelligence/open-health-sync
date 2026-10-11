@@ -207,6 +207,19 @@ processed again; an object that failed as a whole, with no line singled out, cou
 line the server later recovers, after a fix, stops counting. A non-zero value after `pending_jobs` reaches 0 means some uploaded lines were
 not stored; an operator finds each line and its reason in `ohs_data.failed_records`.
 
+## FHIR R4
+
+`GET /v1/users/{id}/fhir/Observation` serves the same quantity samples as FHIR R4 Observations,
+in a `searchset` Bundle (`application/fhir+json`) paged by its `next` link, and
+`GET /v1/users/{id}/fhir/Observation/{observation_id}` reads one back. Filters: `type`, `code`
+(`http://loinc.org|8867-4`), `start`, `end`. The mapping, the profiles met and the limits are in
+[fhir.md](fhir.md).
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/fhir/Observation?type=heart_rate&start=2026-03-01&limit=50" \
+  -H "Authorization: Bearer $KEY"
+```
+
 ## MCP
 
 `POST /mcp` speaks the Model Context Protocol for AI agents, read only. See [mcp.md](mcp.md).

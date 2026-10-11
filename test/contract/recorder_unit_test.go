@@ -6,6 +6,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -86,4 +88,37 @@ func TestRecorderFlagsWrongType(t *testing.T) {
 	}, "GET", "/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11", "k")
 	require.NotEmpty(t, c.Problems)
 	assert.Contains(t, c.Problems[0], "response:")
+}
+
+// The FHIR golden files are what the FHIR routes answer: they match the
+// document, and a member it does not name is flagged.
+func TestRecorderFHIRGoldenFiles(t *testing.T) {
+	const fhirPath = "/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation"
+	files, err := filepath.Glob("../../internal/fhir/testdata/*.json")
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		require.NoError(t, err)
+		path := fhirPath
+		if strings.HasPrefix(filepath.Base(f), "observation-") {
+			path += "/qs-1001"
+		}
+		c := record(t, func(*http.Request) (int, string, string) { return 200, "application/fhir+json", string(raw) },
+			"GET", path, "k")
+		assert.Empty(t, c.Problems, f)
+	}
+
+	c := record(t, func(*http.Request) (int, string, string) {
+		return 200, "application/fhir+json", `{"resourceType":"Bundle","type":"searchset","link":[{"relation":"self","url":"http://h/x"}],"total":3}`
+	}, "GET", fhirPath+"?code=http://loinc.org|8867-4", "k")
+	assert.Contains(t, c.Problems, "response: undocumented field $.total")
+	assert.Equal(t, "searchFHIRObservations", c.Operation)
+
+	c = record(t, func(*http.Request) (int, string, string) {
+		return 200, "application/fhir+json", `{"resourceType":"Observation","id":"qs-1","status":"preliminary","code":{"text":"x"},"subject":{"reference":"Patient/x"}}`
+	}, "GET", fhirPath+"/qs-1", "k")
+	require.NotEmpty(t, c.Problems, "the body is checked against the schema")
+	assert.Contains(t, c.Problems[0], "response:")
+	assert.Equal(t, "readFHIRObservation", c.Operation)
 }

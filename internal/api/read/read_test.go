@@ -55,6 +55,11 @@ func TestQueryValidate(t *testing.T) {
 			assert.NoError(t, err, c.name)
 		}
 	}
+	assert.NoError(t, Query{Limit: 10}.Check())
+	assert.ErrorIs(t, Query{Cursor: "%%"}.Check(), ErrInvalidCursor)
+	var qe *QueryError
+	assert.ErrorAs(t, Query{Start: t0.Add(time.Hour), End: t0}.Check(), &qe)
+
 	n, err := Query{}.normalize(false)
 	require.NoError(t, err)
 	assert.Equal(t, DefaultLimit, n.Limit)

@@ -166,6 +166,9 @@ type list struct {
 	// parentCol, parentID add "AND parentCol = parentID" when parentCol is set.
 	parentCol string
 	parentID  int64
+	// loinc, when set, keeps the rows whose typeCol is a quantity type the
+	// catalog codes with this LOINC code.
+	loinc string
 }
 
 func run[T any](ctx context.Context, db Querier, tenantID, userID uuid.UUID, l list, q normalized,
@@ -187,6 +190,9 @@ func run[T any](ctx context.Context, db Querier, tenantID, userID uuid.UUID, l l
 	}
 	if l.typeCol != "" && q.Type != "" {
 		where = append(where, l.typeCol+" = "+arg(q.Type))
+	}
+	if l.typeCol != "" && l.loinc != "" {
+		where = append(where, l.typeCol+" IN (SELECT canonical_code FROM ohs_data.quantity_codes WHERE loinc_code = "+arg(l.loinc)+")")
 	}
 	if !q.Start.IsZero() {
 		where = append(where, l.timeCol+" >= "+bound(q.Start))
@@ -275,20 +281,30 @@ func Samples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Quer
 	if err := knownQuantityType(ctx, db, tenantID, userID, n.Type); err != nil {
 		return Page[Sample]{}, err
 	}
-	l := list{table: "ohs_data.quantity_samples", timeCol: "start_date", typeCol: "quantity_type",
-		cols: `id, quantity_type, value, unit, start_date, end_date, source_name, source_bundle_id,
-			device_model, product_type, external_id, is_primary_source, was_user_entered, metadata,
-			provider, source_slug, device_id, ingested_at`}
+	l := list{table: "ohs_data.quantity_samples", timeCol: "start_date", typeCol: "quantity_type", cols: sampleCols}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (Sample, time.Time, int64, error) {
 		var s Sample
-		err := r.Scan(&s.ID, &s.Type, &s.Value, &s.Unit, &s.StartDate, &s.EndDate, &s.SourceName, &s.SourceBundleID,
-			&s.DeviceModel, &s.ProductType, &s.ExternalID, &s.IsPrimarySource, &s.WasUserEntered, &s.Metadata,
-			&s.Provider, &s.Source, &s.Device, &s.IngestedAt)
-		utc(&s.StartDate)
-		utc(s.EndDate)
-		utc(&s.IngestedAt)
+		err := r.Scan(s.dest()...)
+		s.utc()
 		return s, s.StartDate, s.ID, err
 	})
+}
+
+// sampleCols are the columns of a Sample, in the order of Sample.dest.
+const sampleCols = `id, quantity_type, value, unit, start_date, end_date, source_name, source_bundle_id,
+	device_model, product_type, external_id, is_primary_source, was_user_entered, metadata,
+	provider, source_slug, device_id, ingested_at`
+
+func (s *Sample) dest() []any {
+	return []any{&s.ID, &s.Type, &s.Value, &s.Unit, &s.StartDate, &s.EndDate, &s.SourceName, &s.SourceBundleID,
+		&s.DeviceModel, &s.ProductType, &s.ExternalID, &s.IsPrimarySource, &s.WasUserEntered, &s.Metadata,
+		&s.Provider, &s.Source, &s.Device, &s.IngestedAt}
+}
+
+func (s *Sample) utc() {
+	utc(&s.StartDate)
+	utc(s.EndDate)
+	utc(&s.IngestedAt)
 }
 
 // CategorySample is one categorical event.
