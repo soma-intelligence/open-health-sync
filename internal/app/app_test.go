@@ -6,13 +6,17 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 )
 
 // An unwritable raw store stops startup with a message naming the variable,
@@ -45,4 +49,14 @@ func TestListenHint(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, listenHint(err, ln.Addr().String()), "OHS_LISTEN")
 	require.Empty(t, listenHint(errors.New("other"), ":8080"))
+}
+
+// Durations log as "24h0m0s", not as nanoseconds, and a request id on the
+// context lands on the line.
+func TestLoggerFormat(t *testing.T) {
+	var buf strings.Builder
+	log := newLogger(&buf, slog.LevelInfo)
+	log.InfoContext(reqid.With(context.Background(), "rid"), "x", "interval", 24*time.Hour)
+	require.Contains(t, buf.String(), `"interval":"24h0m0s"`)
+	require.Contains(t, buf.String(), `"request_id":"rid"`)
 }

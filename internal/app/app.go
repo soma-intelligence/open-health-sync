@@ -64,6 +64,23 @@ func Run(ctx context.Context, cfg config.Config) error {
 	return run(ctx, cfg, os.Stderr)
 }
 
+// Version is logged at start (set by ohs serve).
+var Version = "dev"
+
+// newLogger is the process logger: JSON lines, durations as text ("10m0s")
+// rather than nanoseconds, and the request id of the context on each line.
+func newLogger(w io.Writer, level slog.Level) *slog.Logger {
+	return slog.New(reqid.Handler(slog.NewJSONHandler(w, &slog.HandlerOptions{
+		Level: level,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Value.Kind() == slog.KindDuration {
+				a.Value = slog.StringValue(a.Value.Duration().String())
+			}
+			return a
+		},
+	})))
+}
+
 // options are the knobs tests turn.
 type options struct {
 	grace, margin time.Duration
@@ -80,7 +97,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
 		return fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", cfg.LogLevel)
 	}
-	logger := slog.New(reqid.Handler(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: level})))
+	logger := newLogger(logOut, level)
 	slog.SetDefault(logger)
 
 	providers, err := configureProviders(cfg.Providers)
@@ -226,7 +243,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		})
 	}
 
-	slog.Info("ohs started", "roles", roleList(cfg.Roles))
+	slog.Info("ohs started", "version", Version, "roles", roleList(cfg.Roles))
 	stopped := make(chan struct{})
 	go func() {
 		wg.Wait()

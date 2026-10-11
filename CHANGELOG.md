@@ -9,6 +9,8 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `ohs admin tenant list`, `ohs admin key create`, `key list` and `key revoke`: rotate a
+  tenant API key without touching the database by hand.
 - `GET /openapi.yaml` serves the OpenAPI description of the running version, readable from
   any origin, to import into Postman, Swagger UI or Redoc.
 - `X-Request-Id` on every API response (the caller's own is kept when well formed), repeated
@@ -17,6 +19,8 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- Logs write durations as text (`24h0m0s`) instead of nanoseconds, and `ohs started` names
+  the version.
 - `ohs mcp` says what a refused handshake means (401: the key; 403: the scope; 404 or 405:
   the URL) instead of `cannot reach`.
 - MCP server instructions and the `get_samples` description steer agents to `get_daily` for
