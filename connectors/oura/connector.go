@@ -1,32 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Package oura is the Oura connector: OAuth connect, pulls from the Oura Cloud
-// API v2, and the mapping of the stored raw lines to canonical records.
+// API v2, application webhooks, and the mapping of the stored raw lines to
+// canonical records.
 //
 // API docs: https://cloud.ouraring.com/v2/docs
 //
 // Keys: OHS_OURA_CLIENT_ID and OHS_OURA_CLIENT_SECRET, handed over by the
 // collect role with Configure (or set with Options in tests).
 //
-// Pull only. Oura webhooks do not fit the core's push contract yet, so this
-// connector implements neither connector.PushConnector nor
-// connector.Subscriber, and the 6 hour pull collects everything:
+// Optional: OHS_OURA_VERIFICATION_TOKEN, the token the operator passes when
+// creating the application's webhook subscriptions. With it the webhook
+// routes (connector.PushConnector and connector.ChallengeResponder, see
+// inbound.go) are on: create and update notifications queue a pull of the
+// recent days, and a deleted sleep, workout or session is removed. Without
+// it they refuse everything, the 6 hour pull collects the data, and the only
+// deletions are the sleep periods Oura lists with type "deleted" or "rest".
 //
-//   - Oura subscribes a callback URL per application, not per user (one
-//     subscription per data type and event type, created with the client id
-//     and secret), while connector.Subscriber is called per connection and
-//     Unsubscribe on one user's disconnect would cut every user off.
-//   - Oura checks a new subscription with a GET carrying verification_token
-//     and challenge, and expects {"challenge": ...} back. The core answers
-//     GET /inbound/{provider} itself, with an empty 200, and never asks the
-//     connector.
-//   - A delete event names one Oura document (object_id). connector.InboundEvent
-//     can only ask for a pull window, and the pipeline has no way to remove a
-//     stored record by its provider id.
-//
-// Updates and deletes. A daily document (activity, readiness, SpO2) is
-// re-sent with new values while its day is open: its samples are
-// Replaceable, hashed on the day, so the newest value replaces the stored one.
+// Updates and deletes. A daily document (activity, sleep score, readiness,
+// SpO2, stress, VO2 max) is re-sent with new values while its day is open:
+// its samples are Replaceable, hashed on the day, so the newest value
+// replaces the stored one.
 // A sleep or a workout is identified by its Oura id and start and is
 // Replaceable: a corrected copy replaces the stored figures (and, for a sleep,
 // its phases), and a copy whose start moved supersedes the stored one. The
@@ -71,6 +65,8 @@ func init() {
 // Options configures a Connector. Zero values take the production defaults.
 type Options struct {
 	ClientID, ClientSecret string
+	// VerificationToken is the optional webhook verification token.
+	VerificationToken string
 	// AccountBase serves the consent page (/oauth/authorize), APIBase the
 	// token endpoint and the data. Tests point both at an httptest fake.
 	AccountBase, APIBase string
@@ -87,7 +83,8 @@ type Options struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 }
 
-// Connector implements connector.OAuthConnector for Oura.
+// Connector implements connector.OAuthConnector and connector.PushConnector
+// for Oura.
 type Connector struct {
 	mu   sync.RWMutex
 	keys connector.Config
@@ -103,9 +100,11 @@ type Connector struct {
 }
 
 var (
-	_ connector.OAuthConnector = (*Connector)(nil)
-	_ connector.KeyedConnector = (*Connector)(nil)
-	_ connector.Configurable   = (*Connector)(nil)
+	_ connector.OAuthConnector     = (*Connector)(nil)
+	_ connector.PushConnector      = (*Connector)(nil)
+	_ connector.ChallengeResponder = (*Connector)(nil)
+	_ connector.KeyedConnector     = (*Connector)(nil)
+	_ connector.Configurable       = (*Connector)(nil)
 )
 
 // New returns an Oura connector.
@@ -142,7 +141,7 @@ func New(o Options) *Connector {
 		c.sleep = pause
 	}
 	if o.ClientID != "" || o.ClientSecret != "" {
-		c.keys = connector.Config{KeyClientID: o.ClientID, KeyClientSecret: o.ClientSecret}
+		c.keys = connector.Config{KeyClientID: o.ClientID, KeyClientSecret: o.ClientSecret, KeyVerificationToken: o.VerificationToken}
 	}
 	return c
 }
@@ -172,6 +171,7 @@ func newHTTPClient() *http.Client {
 func (c *Connector) Slug() string { return Slug }
 
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET.
+// VERIFICATION_TOKEN is optional: pulls work without it.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }
 
 // Enabled reports whether cfg holds both keys.
@@ -181,14 +181,17 @@ func (c *Connector) Enabled(cfg connector.Config) bool {
 
 // Configure hands the connector its keys (the OHS_OURA_* values of the
 // process configuration). It may be called again; the last call wins. Both
-// keys are required.
+// keys are required; VERIFICATION_TOKEN turns webhooks on.
 func (c *Connector) Configure(cfg connector.Config) error {
 	if cfg[KeyClientID] == "" || cfg[KeyClientSecret] == "" {
 		return errors.New("oura: OHS_OURA_CLIENT_ID and OHS_OURA_CLIENT_SECRET are both required")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.keys = connector.Config{KeyClientID: cfg[KeyClientID], KeyClientSecret: cfg[KeyClientSecret]}
+	c.keys = connector.Config{
+		KeyClientID: cfg[KeyClientID], KeyClientSecret: cfg[KeyClientSecret],
+		KeyVerificationToken: cfg[KeyVerificationToken],
+	}
 	return nil
 }
 

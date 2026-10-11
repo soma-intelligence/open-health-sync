@@ -45,6 +45,7 @@ func newMapper() *mapper {
 			DataTypeDailyStress:    mapDailyStress,
 			DataTypeSession:        mapSession,
 			DataTypeVO2Max:         mapVO2Max,
+			DataTypeWebhook:        mapWebhook,
 		},
 		unknownTypes: map[string]int{},
 	}

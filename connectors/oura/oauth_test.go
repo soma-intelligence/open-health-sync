@@ -29,14 +29,18 @@ func TestKeysAndEnabled(t *testing.T) {
 	assert.Len(t, reg.Enabled(map[string]config.ProviderKeys{"oura": {"CLIENT_ID": "a", "CLIENT_SECRET": "b"}}), 1)
 }
 
-// The connector registers itself, as a pulling connector and not a push one.
+// The connector registers itself as a pulling and a push connector. Oura
+// subscriptions belong to the application, so it subscribes nobody per
+// connection.
 func TestRegistered(t *testing.T) {
 	c, ok := connector.Get(Slug)
 	require.True(t, ok)
 	_, isOAuth := connector.AsOAuth(c)
 	assert.True(t, isOAuth)
 	_, isPush := connector.AsPush(c)
-	assert.False(t, isPush, "Oura webhooks do not fit the push contract yet")
+	assert.True(t, isPush)
+	_, answers := c.(connector.ChallengeResponder)
+	assert.True(t, answers)
 	_, isSub := c.(connector.Subscriber)
 	assert.False(t, isSub)
 }

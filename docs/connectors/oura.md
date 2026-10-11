@@ -1,8 +1,8 @@
 # Oura connector
 
 Slug `oura`. Users connect their own Oura account over OAuth; Open Health Sync pulls their data
-from the Oura Cloud API v2 on a schedule. You register your own Oura API application: nothing is
-shared between instances.
+from the Oura Cloud API v2 on a schedule, and on Oura's webhooks when you subscribe to them. You
+register your own Oura API application: nothing is shared between instances.
 
 This connector is available but has not yet been verified with a real Oura account. It was built
 from Oura's published API documentation and is tested against a fake of the API.
@@ -35,6 +35,7 @@ In `.env`:
 OHS_PUBLIC_URL=https://ohs.example.org
 OHS_OURA_CLIENT_ID=...
 OHS_OURA_CLIENT_SECRET=...
+# OHS_OURA_VERIFICATION_TOKEN=...   optional, turns webhooks on (see 5)
 ```
 
 Restart, then run `ohs doctor`. It reports the connector as enabled and prints the callback URL
@@ -46,6 +47,7 @@ ok    connector oura
 ```
 
 Both keys are required: with only one set, `ohs doctor` fails and the connector stays off.
+`VERIFICATION_TOKEN` is optional; without it webhooks are off and data arrives every 6 hours.
 `GET /v1/providers` lists `oura` when it is on.
 
 ## 3. Scopes
@@ -82,19 +84,76 @@ with `status=connected`. A new connection is backfilled over the last 30 days in
 windows, then pulled every 6 hours. Oura refresh tokens are single use: the `collect` role
 stores the new pair after each refresh.
 
-## 5. Webhooks
+## 5. Webhooks (optional)
 
-Not used yet. Oura can notify an application of new, updated and deleted documents, but its
-webhooks do not fit how Open Health Sync handles push today:
+Without webhooks the 6 hour pull collects everything. With them, a change at Oura queues a pull
+of that user's last 3 days within seconds, and a sleep period, workout or session the user
+deletes is removed here too.
 
-- Oura subscriptions belong to the application, not to a user, while the core subscribes and
-  unsubscribes per connection.
-- Oura verifies a subscription by calling the callback with a `challenge` it expects echoed back
-  in the body; the core's `/inbound/{provider}` probe answers with an empty 200.
-- A delete event names one Oura document, and the pipeline has no way to remove a stored record
-  by its provider id.
+Oura webhook subscriptions belong to your application, not to a user: you create them once, and
+Oura then notifies `<OHS_PUBLIC_URL>/inbound/oura` for every user who connected through the
+application. Nothing is subscribed when a user connects.
 
-The 6 hour pull collects everything in the meantime.
+1. Pick a random verification token and set it, then restart:
+
+   ```sh
+   OHS_OURA_VERIFICATION_TOKEN=$(openssl rand -hex 24)
+   ```
+
+   Without it the webhook routes refuse everything (401).
+
+2. With the instance running and reachable from the internet, create one subscription per data
+   type and event type. Oura checks each new subscription with
+   `GET /inbound/oura?verification_token=...&challenge=...`, which Open Health Sync answers with
+   `{"challenge": "..."}` when the token matches:
+
+   ```sh
+   for dt in sleep daily_sleep daily_activity daily_readiness daily_spo2 daily_stress workout session vo2_max; do
+     for ev in create update delete; do
+       curl -s -X POST https://api.ouraring.com/v2/webhook/subscription \
+         -H "x-client-id: $OHS_OURA_CLIENT_ID" -H "x-client-secret: $OHS_OURA_CLIENT_SECRET" \
+         -H 'Content-Type: application/json' \
+         -d "{\"callback_url\":\"https://ohs.example.org/inbound/oura\",\"verification_token\":\"$OHS_OURA_VERIFICATION_TOKEN\",\"event_type\":\"$ev\",\"data_type\":\"$dt\"}"
+       echo
+     done
+   done
+   ```
+
+   A `delete` subscription only matters for `sleep`, `workout` and `session`; you may skip it
+   for the daily types. Heart rate has no webhook.
+
+3. Subscriptions expire. List them, and renew each before its `expiration_time`:
+
+   ```sh
+   curl -s https://api.ouraring.com/v2/webhook/subscription \
+     -H "x-client-id: $OHS_OURA_CLIENT_ID" -H "x-client-secret: $OHS_OURA_CLIENT_SECRET"
+   curl -s -X PUT https://api.ouraring.com/v2/webhook/subscription/renew/<id> \
+     -H "x-client-id: $OHS_OURA_CLIENT_ID" -H "x-client-secret: $OHS_OURA_CLIENT_SECRET"
+   curl -s -X DELETE https://api.ouraring.com/v2/webhook/subscription/<id> \
+     -H "x-client-id: $OHS_OURA_CLIENT_ID" -H "x-client-secret: $OHS_OURA_CLIENT_SECRET"
+   ```
+
+   Open Health Sync does not renew them for you; a lapsed subscription only means the data
+   waits for the next 6 hour pull, and a deletion made meanwhile is missed.
+
+Each notification is signed: `x-oura-signature` is the hex HMAC-SHA256 of the
+`x-oura-timestamp` header followed by the raw body, keyed by your client secret. A notification
+whose signature is missing or wrong, or whose timestamp is more than an hour old or 5 minutes
+ahead of the server clock, is refused (401).
+
+| Event | Effect |
+|---|---|
+| `create`, `update` of any data type | a pull of the last 3 days for that Oura user |
+| `delete` of a `sleep`, `workout` or `session` | the record of that Oura id is removed (see [updates and deletes](#updates-and-deletes)) |
+| `delete` of a daily document, anything else | acknowledged (200), ignored: the next copy of the day replaces a daily document |
+
+A notification names the Oura user by the id read at connect. A connection made while Oura
+refused the `personal` scope has no Oura user id and gets no webhook; the scheduled pull still
+covers it.
+
+The signature scheme and the challenge come from Oura's webhook documentation as published by
+third parties; this part has not been checked against a live Oura subscription. If your
+notifications are refused with a valid secret, please report it.
 
 ## Data produced
 
@@ -135,7 +194,11 @@ Notes:
 - **Deletes.** A sleep period Oura marks `deleted`, or one the user rejected (type `rest`),
   removes the stored session of that Oura id, with its phases and its `resting_heart_rate` and
   `respiratory_rate` samples, and a tombstone keeps any later copy of it from being stored. A
-  pull sees such a period as long as Oura still lists it.
+  pull sees such a period as long as Oura still lists it. With webhooks on, a `delete`
+  notification of a sleep period, workout or session does the same: the notification is stored
+  verbatim as a raw object (data type `webhook`) for every connection of that Oura user, and
+  the ETL removes the record, even when the deletion is processed before the record itself.
+  Without webhooks, a workout or session deleted at Oura stays.
 
 ## Errors
 
