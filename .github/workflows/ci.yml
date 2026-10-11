@@ -18,6 +18,8 @@ jobs:
           go-version: "1.26"
       - run: go vet ./...
       - run: go test ./...
+      - name: Fuzz the Apple Health upload parser
+        run: go test ./connectors/applehealth/ -run '^$' -fuzz FuzzParseUpload -fuzztime=30s
       - name: Integration and API contract (Docker available on the runner)
         run: make integration
 
