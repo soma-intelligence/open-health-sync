@@ -146,3 +146,44 @@ func TestLoadIngestConcurrency(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadPublicURL(t *testing.T) {
+	for _, v := range []string{"localhost:8080", "ftp://x", "https://", "https://x/?a=1", "https://x/#f", "not a url"} {
+		m := base()
+		m["OHS_PUBLIC_URL"] = v
+		if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_PUBLIC_URL") {
+			t.Errorf("%q: got %v, want an OHS_PUBLIC_URL error", v, err)
+		}
+	}
+	for _, v := range []string{"https://health.example.org", "https://example.org/ohs/", "http://192.168.1.20:8080"} {
+		m := base()
+		m["OHS_PUBLIC_URL"] = v
+		if _, err := load(t, m); err != nil {
+			t.Errorf("%q: %v", v, err)
+		}
+	}
+}
+
+func TestLoadLogLevel(t *testing.T) {
+	m := base()
+	m["OHS_LOG_LEVEL"] = "verbose"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_LOG_LEVEL") {
+		t.Fatalf("got %v", err)
+	}
+	m["OHS_LOG_LEVEL"] = "DEBUG"
+	if _, err := load(t, m); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A key error tells the operator how to make a key.
+func TestLoadKeyErrorsSayHowToFix(t *testing.T) {
+	for _, k := range []string{"", "!!", base64.StdEncoding.EncodeToString([]byte("short"))} {
+		m := base()
+		m["OHS_ENCRYPTION_KEY"] = k
+		_, err := load(t, m)
+		if err == nil || !strings.Contains(err.Error(), "openssl rand -base64 32") {
+			t.Errorf("key %q: %v", k, err)
+		}
+	}
+}

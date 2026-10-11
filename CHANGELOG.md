@@ -14,6 +14,9 @@ release may change the API, the configuration or the database schema.
 ### Changed
 
 - A command line error (unknown command, wrong arguments) exits 2; other failures still exit 1.
+- `ohs serve` and `ohs doctor` refuse an `OHS_PUBLIC_URL` that is not an absolute http(s) URL
+  (or has a query or fragment) and an unknown `OHS_LOG_LEVEL` at load, and an
+  `OHS_ENCRYPTION_KEY` error says how to generate a key.
 
 ## [0.0.1] - 2026-10-11
 

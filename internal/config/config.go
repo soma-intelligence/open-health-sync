@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -56,6 +58,24 @@ var reserved = map[string]bool{
 // (missing, not base64, wrong length).
 var ErrEncryptionKey = errors.New("OHS_ENCRYPTION_KEY")
 
+// keyHint ends every OHS_ENCRYPTION_KEY error. Changing the key of an
+// instance that already stores OAuth tokens makes them unreadable.
+const keyHint = ": generate one with `openssl rand -base64 32` (or run `ohs doctor`), " +
+	"and keep the same key for the life of the instance"
+
+// checkPublicURL accepts an absolute http(s) URL with a host and no query or
+// fragment: OAuth callbacks are built by appending a path to it.
+func checkPublicURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("OHS_PUBLIC_URL %q must be an absolute http or https URL, for example https://health.example.org", raw)
+	}
+	if u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(raw, "?") || strings.HasSuffix(raw, "#") {
+		return fmt.Errorf("OHS_PUBLIC_URL %q must not have a query or fragment: callback paths are appended to it", raw)
+	}
+	return nil
+}
+
 var validRoles = map[string]bool{"api": true, "collect": true, "etl": true}
 
 // Load builds a Config. env looks up one variable; environ is the full
@@ -78,21 +98,29 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		Providers:       map[string]ProviderKeys{},
 	}
 	if c.DatabaseURL == "" {
-		return Config{}, fmt.Errorf("OHS_DATABASE_URL is required")
+		return Config{}, fmt.Errorf("OHS_DATABASE_URL is required (postgres://user:password@host:5432/db?sslmode=disable)")
 	}
 
 	raw := get("OHS_ENCRYPTION_KEY", "")
 	if raw == "" {
-		return Config{}, fmt.Errorf("%w is required (32 bytes, base64)", ErrEncryptionKey)
+		return Config{}, fmt.Errorf("%w is required (32 random bytes, base64)%s", ErrEncryptionKey, keyHint)
 	}
 	key, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return Config{}, fmt.Errorf("%w is not valid base64", ErrEncryptionKey)
+		return Config{}, fmt.Errorf("%w is not valid base64%s", ErrEncryptionKey, keyHint)
 	}
 	if len(key) != 32 {
-		return Config{}, fmt.Errorf("%w must decode to 32 bytes, got %d", ErrEncryptionKey, len(key))
+		return Config{}, fmt.Errorf("%w must decode to 32 bytes, got %d%s", ErrEncryptionKey, len(key), keyHint)
 	}
 	c.EncryptionKey = key
+
+	if err := checkPublicURL(c.PublicURL); err != nil {
+		return Config{}, err
+	}
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(c.LogLevel)); err != nil {
+		return Config{}, fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", c.LogLevel)
+	}
 
 	for _, r := range strings.Split(get("OHS_ROLES", "api,collect,etl"), ",") {
 		r = strings.TrimSpace(r)
