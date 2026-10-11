@@ -55,13 +55,17 @@ The consent page asks for:
 | Scope | Gives |
 |---|---|
 | `personal` | the Oura user id, read once at connect (nothing else of the profile is stored) |
-| `daily` | daily activity, sleep periods, daily readiness |
+| `daily` | daily activity, sleep periods, daily sleep score, daily readiness, daily stress, VO2 max |
 | `heartrate` | the heart rate time series |
 | `workout` | workouts |
+| `session` | meditation, breathing and other guided sessions |
 | `spo2` | daily SpO2 averages |
 
 Oura lets the user untick scopes at consent. A data type whose scope was refused answers 403; it
-is skipped for that user with a warning in the log, and the other types are still pulled.
+is skipped for that user with a warning in the log, and the other types are still pulled. A user
+who connected before the `session` scope was requested gets no sessions until they connect
+again. Which scope Oura requires for daily stress and VO2 max is not stated clearly in its
+documentation; if your users get 403 on them, check the scopes your application may request.
 
 ## 4. Connect a user
 
@@ -102,6 +106,10 @@ The 6 hour pull collects everything in the meantime.
 | Daily SpO2 | `oxygen_saturation`, the night's average in percent; the breathing disturbance index in metadata |
 | Heart rate | `heart_rate` samples, with what the ring was doing (`awake`, `rest`, `sleep`, `workout`...) in metadata |
 | Workouts | workouts, with the activity in the canonical vocabulary (`other` when there is no match; Oura's own name in metadata) |
+| Daily sleep | `sleep_score` (Oura's 0 to 100 daily sleep score) per local day; the contributors in metadata. It is a daily figure, not written into a sleep session |
+| Daily stress | `stress_high_time` and `recovery_high_time`, the minutes of the day Oura classed as high stress and high recovery (sent in seconds); Oura's day summary (`restored`, `normal`, `stressful`) in metadata. A UTC day, as the document has no time |
+| Sessions | a `mindful_session` category sample (the record Apple Health's mindful minutes use) per meditation, breathing or relaxation session, with the session type as its label and the mood in metadata. Naps, rest and body status sessions are not stored (a nap also arrives as a sleep period); the heart rate and HRV series of a session stay in the raw store |
+| VO2 max | `vo2_max` in mL/kg/min, Oura's estimate for the day (endpoint `vO2_max`) |
 
 Notes:
 
@@ -116,8 +124,8 @@ Notes:
 
 ## Updates and deletes
 
-- **Daily documents** (activity, readiness, SpO2) change while the day is open and after a late
-  ring sync. Their samples are replaceable: the newest value replaces the stored one.
+- **Daily documents** (activity, sleep score, readiness, SpO2, stress, VO2 max) change while the
+  day is open and after a late ring sync. Their samples are replaceable: the newest value replaces the stored one.
 - **Sleep periods and workouts** are identified by their Oura id and start, and are
   replaceable. A re-sent copy is not stored twice: a corrected copy replaces the stored figures
   (a figure it leaves out keeps its stored value), a corrected hypnogram replaces the stored

@@ -41,6 +41,10 @@ func newMapper() *mapper {
 			DataTypeDailySpO2:      mapDailySpO2,
 			DataTypeHeartRate:      mapHeartRate,
 			DataTypeWorkout:        mapWorkout,
+			DataTypeDailySleep:     mapDailySleep,
+			DataTypeDailyStress:    mapDailyStress,
+			DataTypeSession:        mapSession,
+			DataTypeVO2Max:         mapVO2Max,
 		},
 		unknownTypes: map[string]int{},
 	}

@@ -51,7 +51,9 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 // FetchTypes is Fetch restricted to the given data types.
 //
 // A data type Oura forbids (HTTP 403: the user did not grant its scope) is
-// skipped with a warning and the others are still pulled. When every asked
+// skipped with a warning and the others are still pulled, as is one whose
+// endpoint answers 404 (an endpoint Oura moved or retired must not stop the
+// pull of the others). When every asked
 // type is forbidden, which is what a lapsed Oura Membership looks like, Fetch
 // fails so the job shows the problem instead of succeeding empty.
 //
@@ -80,6 +82,8 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 		case errors.Is(err, errForbidden):
 			forbidden++
 			slog.Warn("oura: data type forbidden, skipped (scope not granted or membership lapsed)", "provider", Slug, "data_type", dt)
+		case errors.Is(err, errNotFound):
+			slog.Warn("oura: data type endpoint not found, skipped", "provider", Slug, "data_type", dt)
 		case err != nil:
 			return fmt.Errorf("oura: fetch %s: %w", dt, err)
 		}
@@ -166,7 +170,7 @@ func (c *Connector) fetchWindow(ctx context.Context, token, dataType string, par
 			q.Set("next_token", next)
 		}
 		var body page
-		if err := c.get(ctx, token, collectionPath+dataType, q, &body); err != nil {
+		if err := c.get(ctx, token, collectionPath+endpoint(dataType), q, &body); err != nil {
 			return err
 		}
 		if err := emitPage(ctx, emit, dataType, body.Data); err != nil {

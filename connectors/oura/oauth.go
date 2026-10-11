@@ -18,7 +18,7 @@ import (
 
 // Scopes requested at consent. "personal" only serves the Oura user id
 // (personal_info); the connector stores nothing else of it.
-var Scopes = []string{"personal", "daily", "heartrate", "workout", "spo2"}
+var Scopes = []string{"personal", "daily", "heartrate", "workout", "session", "spo2"}
 
 // errNotConfigured reports a call that needs the client keys before they were
 // set.

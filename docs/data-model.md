@@ -380,6 +380,7 @@ stored as 0 to 100, not as fractions.
 | `push_count` | `count` |
 | `readiness_hrv_balance` | `index` |
 | `readiness_score` | `score` |
+| `recovery_high_time` | `min` |
 | `respiratory_rate` | `bpm` |
 | `resting_heart_rate` | `bpm` |
 | `running_ground_contact_time` | `ms` |
@@ -388,9 +389,11 @@ stored as 0 to 100, not as fractions.
 | `running_stride_length` | `m` |
 | `running_vertical_oscillation` | `cm` |
 | `skin_temperature` | `celsius` |
+| `sleep_score` | `score` |
 | `step_count` | `count` |
 | `step_count_intraday` | `count` |
 | `strain` | `index` |
+| `stress_high_time` | `min` |
 | `underwater_depth` | `m` |
 | `uv_exposure` | `index` |
 | `vascular_age` | `years` |

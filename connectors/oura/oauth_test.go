@@ -80,7 +80,7 @@ func TestAuthorizeURL(t *testing.T) {
 	assert.Equal(t, "test-client-id", q.Get("client_id"))
 	assert.Equal(t, "state-123", q.Get("state"))
 	assert.Equal(t, "http://localhost:8080/oauth/oura/callback", q.Get("redirect_uri"))
-	assert.Equal(t, "personal daily heartrate workout spo2", q.Get("scope"), "space separated")
+	assert.Equal(t, "personal daily heartrate workout session spo2", q.Get("scope"), "space separated")
 	assert.Empty(t, q.Get("client_secret"), "the secret never reaches the browser")
 }
 
@@ -96,7 +96,7 @@ func TestExchange(t *testing.T) {
 	assert.Equal(t, "fake-access-token-1", tok.Access)
 	assert.Equal(t, "fake-refresh-token-1", tok.Refresh)
 	assert.Equal(t, "fake-oura-user-0001", tok.ProviderUserID, "from personal_info")
-	assert.Equal(t, []string{"personal", "daily", "heartrate", "workout", "spo2"}, tok.Scopes)
+	assert.Equal(t, []string{"personal", "daily", "heartrate", "workout", "session", "spo2"}, tok.Scopes)
 	assert.Equal(t, fakeNow.Add(24*time.Hour), tok.Expiry, "now + expires_in")
 
 	calls := f.Calls("/oauth/token")

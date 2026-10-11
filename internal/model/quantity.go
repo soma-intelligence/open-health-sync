@@ -49,6 +49,14 @@ const (
 	// quantity sample so score bindings that read quantities have a producer
 	// (they do not read daily summaries).
 	QTReadinessScore = "readiness_score"
+	// sleep_score is a provider's 0-100 daily sleep INDEX (Oura daily_sleep),
+	// a quantity sample like readiness_score. It is not the per-session
+	// sleep_sessions.sleep_score column, which belongs to one night.
+	QTSleepScore = "sleep_score"
+	// stress_high_time and recovery_high_time are the minutes of a day a
+	// provider classed as high stress or high recovery (Oura daily_stress).
+	QTStressHighTime   = "stress_high_time"
+	QTRecoveryHighTime = "recovery_high_time"
 
 	// Intraday interval variants of the SUM-aggregated activity metrics.
 	// Withings ships both a daily activity total AND per-interval intraday

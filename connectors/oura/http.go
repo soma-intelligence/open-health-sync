@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -31,6 +32,9 @@ var errUnauthorized = errors.New("oura: access token rejected")
 // errForbidden is an HTTP 403 from a data endpoint: the user did not grant
 // the scope of that endpoint, or their Oura Membership has lapsed.
 var errForbidden = errors.New("oura: access to this data type is forbidden")
+
+// errNotFound is an HTTP 404 from a data endpoint.
+var errNotFound = errors.New("oura: data endpoint not found")
 
 // get sends one GET request to path with params and decodes the JSON answer
 // into out. HTTP 401 gives errUnauthorized, 403 errForbidden, and a rate
@@ -77,6 +81,8 @@ func (c *Connector) get(ctx context.Context, token, path string, params url.Valu
 			return errUnauthorized
 		case resp.StatusCode == http.StatusForbidden:
 			return errForbidden
+		case resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, collectionPath):
+			return errNotFound
 		case resp.StatusCode == http.StatusTooManyRequests:
 			return connector.RateLimited(resp.Header, c.now())
 		case resp.StatusCode >= 400:

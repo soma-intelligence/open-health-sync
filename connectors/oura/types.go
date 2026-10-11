@@ -22,16 +22,49 @@ const (
 	DataTypeHeartRate = "heartrate"
 	// DataTypeWorkout: one workout document per line.
 	DataTypeWorkout = "workout"
+	// DataTypeDailySleep: one daily_sleep document (the day's sleep score)
+	// per line.
+	DataTypeDailySleep = "daily_sleep"
+	// DataTypeDailyStress: one daily_stress document per line.
+	DataTypeDailyStress = "daily_stress"
+	// DataTypeSession: one session document (a meditation, breathing or
+	// other guided moment) per line.
+	DataTypeSession = "session"
+	// DataTypeVO2Max: one vo2_max document per line. The endpoint is spelled
+	// vO2_max (see endpoints); the data type keeps Oura's webhook spelling.
+	DataTypeVO2Max = "vo2_max"
+	// DataTypeWebhook: one Oura webhook notification per line, verbatim,
+	// stored by the inbound route for a delete event. It is never fetched;
+	// Map turns it into a model.Deletion.
+	DataTypeWebhook = "webhook"
 )
 
 // AllDataTypes is every data type Fetch pulls, in the order it pulls them.
 var AllDataTypes = []string{
 	DataTypeDailyActivity,
 	DataTypeSleep,
+	DataTypeDailySleep,
 	DataTypeDailyReadiness,
 	DataTypeDailySpO2,
+	DataTypeDailyStress,
 	DataTypeWorkout,
+	DataTypeSession,
+	DataTypeVO2Max,
 	DataTypeHeartRate,
+}
+
+// endpoints names the /v2/usercollection path of a data type whose path is
+// not its name.
+var endpoints = map[string]string{
+	DataTypeVO2Max: "vO2_max",
+}
+
+// endpoint returns the /v2/usercollection path segment of dataType.
+func endpoint(dataType string) string {
+	if e, ok := endpoints[dataType]; ok {
+		return e
+	}
+	return dataType
 }
 
 // page is the shape of every Oura list answer: the documents, and a token for
@@ -139,4 +172,43 @@ type Workout struct {
 	Intensity     string   `json:"intensity"`
 	Label         *string  `json:"label"`
 	Source        string   `json:"source"`
+}
+
+// DailySleep is a daily_sleep document: the day's sleep score and its
+// contributors.
+type DailySleep struct {
+	ID           string             `json:"id"`
+	Day          string             `json:"day"`
+	Timestamp    string             `json:"timestamp"`
+	Score        *float64           `json:"score"`
+	Contributors map[string]float64 `json:"contributors"`
+}
+
+// DailyStress is a daily_stress document. StressHigh and RecoveryHigh are
+// seconds of the day; DaySummary is "restored", "normal" or "stressful".
+type DailyStress struct {
+	ID           string   `json:"id"`
+	Day          string   `json:"day"`
+	StressHigh   *float64 `json:"stress_high"`
+	RecoveryHigh *float64 `json:"recovery_high"`
+	DaySummary   *string  `json:"day_summary"`
+}
+
+// Session is a session document. The heart rate, HRV and motion series it
+// carries stay in the raw line.
+type Session struct {
+	ID            string  `json:"id"`
+	Day           string  `json:"day"`
+	StartDatetime string  `json:"start_datetime"`
+	EndDatetime   string  `json:"end_datetime"`
+	Type          string  `json:"type"`
+	Mood          *string `json:"mood"`
+}
+
+// VO2Max is a vo2_max document, in mL/kg/min.
+type VO2Max struct {
+	ID        string   `json:"id"`
+	Day       string   `json:"day"`
+	Timestamp string   `json:"timestamp"`
+	VO2Max    *float64 `json:"vo2_max"`
 }

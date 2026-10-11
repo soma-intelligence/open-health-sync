@@ -425,6 +425,20 @@ var rangeRules = map[string]rangeRule{
 		Unit:    "score",
 		HardMin: 0, HardMax: 100, SoftMin: 1, SoftMax: 100,
 	},
+	model.QTSleepScore: {
+		Unit:    "score",
+		HardMin: 0, HardMax: 100, SoftMin: 1, SoftMax: 100,
+	},
+	// Minutes of one day: more than 1440 cannot happen. Most of a day spent
+	// in high stress (soft ceiling 16 h) is possible but worth a flag.
+	model.QTStressHighTime: {
+		Unit:    "min",
+		HardMin: 0, HardMax: 1440, SoftMin: 0, SoftMax: 960,
+	},
+	model.QTRecoveryHighTime: {
+		Unit:    "min",
+		HardMin: 0, HardMax: 1440, SoftMin: 0, SoftMax: 960,
+	},
 
 	// --- Legacy aliases without a declared storage unit ---------------------
 	// These are not in model.StorageUnits, so CanonicalizeUnits leaves their

@@ -72,9 +72,14 @@ func TestFetch_EmitsOneObjectPerDataTypeAndPage(t *testing.T) {
 		{DataTypeDailyActivity, day(1), 2},
 		{DataTypeSleep, day(1), 2}, // page 1: the deleted period and the night
 		{DataTypeSleep, day(2), 1}, // page 2: the nap
+		{DataTypeDailySleep, day(2), 2},
 		{DataTypeDailyReadiness, day(1), 2},
 		{DataTypeDailySpO2, day(1), 2},
+		{DataTypeDailyStress, day(1), 2},
 		{DataTypeWorkout, day(2), 1},
+		{DataTypeSession, day(1), 2},
+		{DataTypeSession, day(2), 1},
+		{DataTypeVO2Max, day(2), 2},
 		{DataTypeHeartRate, day(1), 2},
 		{DataTypeHeartRate, day(1), 2},
 		{DataTypeHeartRate, day(2), 1},
@@ -149,6 +154,11 @@ func TestFetchThenMap(t *testing.T) {
 
 	hr := mapEmitted(t, c, sink, DataTypeHeartRate)
 	assert.Len(t, hr.QuantitySamples, 5)
+
+	assert.Len(t, mapEmitted(t, c, sink, DataTypeDailySleep).QuantitySamples, 1, "a day without a score gives nothing")
+	assert.Len(t, mapEmitted(t, c, sink, DataTypeDailyStress).QuantitySamples, 3)
+	assert.Len(t, mapEmitted(t, c, sink, DataTypeSession).CategorySamples, 2, "meditation and breathing; the nap gives nothing")
+	assert.Len(t, mapEmitted(t, c, sink, DataTypeVO2Max).QuantitySamples, 1)
 }
 
 func TestFetchTypes_OnlyTheAskedType(t *testing.T) {

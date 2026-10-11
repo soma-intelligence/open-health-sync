@@ -132,6 +132,11 @@ var storageUnits = map[string]string{
 	QTStrain:              "index",
 	QTWorkoutStrain:       "index",
 	QTReadinessScore:      "score",
+	QTSleepScore:          "score",
+
+	// Provider day classifications, in minutes of the day.
+	QTStressHighTime:   "min",
+	QTRecoveryHighTime: "min",
 }
 
 // unitAliases renames a unit without touching the value. Keyed by the source
@@ -266,6 +271,9 @@ var metricUnitConversions = map[string]conversion{
 	"apple_move_time|s":      {Factor: 1.0 / 60, To: "min"},
 	"apple_stand_time|ms":    {Factor: 1.0 / 60000, To: "min"},
 	"apple_stand_time|s":     {Factor: 1.0 / 60, To: "min"},
+	// Oura daily_stress reports seconds.
+	"stress_high_time|s":   {Factor: 1.0 / 60, To: "min"},
+	"recovery_high_time|s": {Factor: 1.0 / 60, To: "min"},
 	// Strain: Whoop and some aggregators call the same dimensionless index a "score". Scoped
 	// to the two strain types because readiness_score IS stored as "score", so a
 	// global score -> index rule would be wrong for it. Without these, every

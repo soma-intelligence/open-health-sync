@@ -7,7 +7,8 @@
 // real API that the connector depends on: the token endpoint, Bearer auth,
 // start_date and end_date (inclusive) filtering on each document's "day",
 // start_datetime and end_datetime on heartrate, and pagination through
-// next_token.
+// next_token. The vo2_max documents are served at vO2_max, Oura's spelling
+// of that endpoint.
 package ourafake
 
 import (
@@ -57,6 +58,8 @@ type Server struct {
 	DataHTTP int
 	// Forbidden lists the data types that answer 403.
 	Forbidden map[string]bool
+	// Status answers the endpoints it names with that HTTP status.
+	Status map[string]int
 	// Bodies overrides the whole answer of a data type (no filtering, no
 	// pagination).
 	Bodies map[string]string
@@ -159,6 +162,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dataType := strings.TrimPrefix(r.URL.Path, collectionPath)
+	if code, ok := s.Status[dataType]; ok {
+		w.WriteHeader(code)
+		write([]byte(`{"detail":"status"}`))
+		return
+	}
 	if s.Forbidden[dataType] {
 		w.WriteHeader(http.StatusForbidden)
 		write([]byte(`{"detail":"forbidden"}`))
@@ -171,12 +179,23 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	switch dataType {
 	case "personal_info":
 		write(File("personal_info.json"))
-	case "daily_activity", "sleep", "daily_readiness", "daily_spo2", "workout", "heartrate":
-		write(s.list(dataType, r.URL.Query()))
+	case "daily_activity", "sleep", "daily_readiness", "daily_spo2", "workout", "heartrate",
+		"daily_sleep", "daily_stress", "session", "vO2_max":
+		write(s.list(fixtureName(dataType), r.URL.Query()))
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		write([]byte(`{"detail":"not found"}`))
 	}
+}
+
+// fixtureName is the testdata file (without .json) of an endpoint: its path
+// segment, except vO2_max, whose documents are filed under the data type the
+// connector stores them as.
+func fixtureName(endpoint string) string {
+	if endpoint == "vO2_max" {
+		return "vo2_max"
+	}
+	return endpoint
 }
 
 // list answers a list endpoint: the recorded documents inside the asked

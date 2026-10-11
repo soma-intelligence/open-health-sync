@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "id": "daily-sleep-0001",
+      "contributors": {"deep_sleep": 90, "efficiency": 85, "latency": 70, "rem_sleep": 80, "restfulness": 75, "timing": 95, "total_sleep": 80},
+      "day": "2026-03-02",
+      "score": 82,
+      "timestamp": "2026-03-02T00:00:00.000+01:00"
+    },
+    {
+      "id": "daily-sleep-0002",
+      "contributors": {"deep_sleep": null, "efficiency": null, "latency": null, "rem_sleep": null, "restfulness": null, "timing": null, "total_sleep": null},
+      "day": "2026-03-03",
+      "score": null,
+      "timestamp": "2026-03-03T00:00:00.000+01:00"
+    }
+  ],
+  "next_token": null
+}
