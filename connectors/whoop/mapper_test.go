@@ -523,18 +523,32 @@ func TestMapBody_MissingDateErrors(t *testing.T) {
 // --- Time ---
 
 func TestIANAForOffset(t *testing.T) {
+	winter := ts("2026-01-15T12:00:00Z")
+	summer := ts("2026-07-15T12:00:00Z")
 	for in, want := range map[string]string{
 		"+01:00": "Etc/GMT-1",
 		"-05:00": "Etc/GMT+5",
 		"+00:00": "Etc/UTC",
 		"Z":      "Etc/UTC",
 		"+14:00": "Etc/GMT-14",
-		"+05:30": "",
+		"+05:30": "Asia/Kolkata",
+		"+05:45": "Asia/Kathmandu",
+		"-03:30": "America/St_Johns",
+		"+09:30": "Australia/Darwin",
+		"+10:30": "Australia/Adelaide",
+		"+05:17": "",
+		"+15:00": "",
+		"+-1:00": "",
 		"bogus":  "",
 		"":       "",
 	} {
-		assert.Equal(t, want, ianaForOffset(in), in)
+		assert.Equal(t, want, ianaForOffset(in, winter), in)
 	}
+	// St. John's keeps -03:30 in winter only; Adelaide is +10:30 in its
+	// summer (January) and +09:30 in July, when Lord Howe has +10:30.
+	assert.Equal(t, "", ianaForOffset("-03:30", summer), "no listed zone has -03:30 in July")
+	assert.Equal(t, "America/St_Johns", ianaForOffset("-02:30", summer))
+	assert.Equal(t, "Australia/Lord_Howe", ianaForOffset("+10:30", summer))
 	loc, err := time.LoadLocation("Etc/GMT-1")
 	require.NoError(t, err)
 	_, off := time.Date(2026, 3, 1, 12, 0, 0, 0, loc).Zone()

@@ -63,16 +63,17 @@ func TestFetch_EmitsOnePerDataTypeAndPage(t *testing.T) {
 		}
 	}
 	assert.Equal(t, map[string][]int{
-		DataTypeCycle:    {2, 1},
+		DataTypeCycle:    {2, 2},
 		DataTypeRecovery: {2, 2},
 		DataTypeSleep:    {2, 1},
 		DataTypeWorkout:  {2},
 		DataTypeBody:     {1},
-	}, got, "the fake serves two records a page")
+	}, got, "the fake serves two records a page; cycle 92999 ends inside the window, so WHOOP returns it")
 
-	// Each page is filed under the UTC day of its first record.
-	assert.Equal(t, day(1), sink.emitsOf(DataTypeCycle)[0].Day)
-	assert.Equal(t, day(2), sink.emitsOf(DataTypeCycle)[1].Day)
+	// Each page is filed under the UTC day of its first record (WHOOP sorts
+	// newest first).
+	assert.Equal(t, day(2), sink.emitsOf(DataTypeCycle)[0].Day)
+	assert.Equal(t, day(1), sink.emitsOf(DataTypeCycle)[1].Day)
 	assert.Equal(t, day(3), sink.emitsOf(DataTypeBody)[0].Day, "the body snapshot is filed under today")
 
 	for _, call := range f.Requests() {
@@ -99,8 +100,9 @@ func TestFetch_RequestShapes(t *testing.T) {
 	}
 	assert.Len(t, f.Calls("/v2/activity/workout"), 1)
 	assert.Len(t, f.Calls("/v2/user/measurement/body"), 1)
-	assert.Len(t, f.Calls("/v2/cycle/92999"), 1, "the one recovery whose cycle lies before the window")
-	assert.Empty(t, f.Calls("/v2/cycle/93001"), "a cycle the pull already has is not asked for")
+	for _, r := range f.Requests() {
+		assert.False(t, strings.HasPrefix(r.Path, "/v2/cycle/"), "a cycle the pull already has is not asked for: %s", r.Path)
+	}
 }
 
 // Lines are the provider objects as sent: only the documented additions.
@@ -111,7 +113,7 @@ func TestFetch_LinesAreProviderObjects(t *testing.T) {
 
 	var cy map[string]any
 	require.NoError(t, json.Unmarshal(sink.linesOf(DataTypeCycle)[0], &cy))
-	assert.EqualValues(t, 93001, cy["id"])
+	assert.EqualValues(t, 93003, cy["id"])
 	assert.Equal(t, "+01:00", cy["timezone_offset"])
 	_, added := cy["cycle"]
 	assert.False(t, added, "cycle lines are verbatim")
@@ -124,9 +126,6 @@ func TestFetch_LinesAreProviderObjects(t *testing.T) {
 		require.NotNil(t, r.Cycle, "cycle %s added", r.CycleID)
 		assert.Equal(t, "+01:00", r.Cycle.TimezoneOffset)
 	}
-	var r0 Recovery
-	require.NoError(t, json.Unmarshal(recs[0], &r0))
-	assert.Equal(t, "2026-02-28T00:00:00.000Z", r0.Cycle.Start, "read by id")
 
 	var b Body
 	require.NoError(t, json.Unmarshal(sink.linesOf(DataTypeBody)[0], &b))
@@ -152,9 +151,9 @@ func TestFetchThenMap(t *testing.T) {
 	require.NoError(t, c.Fetch(context.Background(), testConn(), fetchFrom, fetchTo, sink))
 
 	cyc := mapEmitted(t, c, sink, DataTypeCycle)
-	assert.Equal(t, 3, countType(cyc.QuantitySamples, model.QTStrain))
-	assert.Equal(t, 3, countType(cyc.QuantitySamples, model.QTHeartRate))
-	assert.Len(t, cyc.DailySummaries, 3)
+	assert.Equal(t, 4, countType(cyc.QuantitySamples, model.QTStrain))
+	assert.Equal(t, 4, countType(cyc.QuantitySamples, model.QTHeartRate))
+	assert.Len(t, cyc.DailySummaries, 4)
 
 	rec := mapEmitted(t, c, sink, DataTypeRecovery)
 	assert.Equal(t, 3, countType(rec.QuantitySamples, model.QTHRVRMSSD), "the pending recovery gives nothing")
@@ -273,7 +272,7 @@ func TestGet_TransportRetries(t *testing.T) {
 	var waits []time.Duration
 	c := New(Options{
 		APIBase: "http://whoop.invalid", HTTPClient: &http.Client{Transport: ft},
-		RetryBase: 10 * time.Millisecond,
+		RetryBase: 10 * time.Millisecond, PageDelay: -1,
 		Sleep: func(_ context.Context, d time.Duration) error {
 			waits = append(waits, d)
 			return nil

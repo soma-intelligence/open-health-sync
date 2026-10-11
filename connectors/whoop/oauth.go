@@ -42,9 +42,17 @@ func (c *Connector) AuthorizeURL(state, redirect string) (string, error) {
 	return c.authBase + "/oauth2/auth?" + q.Encode(), nil
 }
 
+// errNoRefreshToken reports a grant without a refresh token: WHOOP only
+// issues one for the offline scope.
+var errNoRefreshToken = errors.New("WHOOP returned no refresh token: the offline scope was not granted (check the app's scopes in the WHOOP developer dashboard)")
+
 // Exchange trades an authorization code for tokens, then reads the WHOOP user
 // id (webhooks name the user by it). A failed profile read does not fail the
 // connection: the pulls work without it, and Refresh tries again.
+//
+// A grant without a refresh token (the offline scope missing) is refused and
+// revoked: its access token lasts an hour, after which the connection could
+// only fall to needs_reauth, and so would every reconnection.
 func (c *Connector) Exchange(ctx context.Context, code, redirect string) (connector.Tokens, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
@@ -54,8 +62,56 @@ func (c *Connector) Exchange(ctx context.Context, code, redirect string) (connec
 	if err != nil {
 		return connector.Tokens{}, fmt.Errorf("whoop: exchange: %w", err)
 	}
+	if t.Refresh == "" {
+		if rerr := c.revokeAccess(ctx, t.Access); rerr != nil {
+			slog.Warn("whoop: could not revoke a grant without refresh token", "provider", Slug, "error", rerr)
+		}
+		return connector.Tokens{}, fmt.Errorf("whoop: exchange: %w", errNoRefreshToken)
+	}
 	c.fillUserID(ctx, &t)
 	return t, nil
+}
+
+// Revoke revokes the user's grant (DELETE /v2/user/access), which also stops
+// WHOOP's webhooks for that user. The stored access token may have expired (it
+// lasts an hour): on a 401 the refresh token is spent for a fresh one and the
+// call made again. A refresh token WHOOP refuses means the grant is already
+// gone, which counts as done, like a 404.
+func (c *Connector) Revoke(ctx context.Context, t connector.Tokens) error {
+	err := errUnauthorized
+	if t.Access != "" {
+		err = c.revokeAccess(ctx, t.Access)
+	}
+	if !errors.Is(err, errUnauthorized) {
+		return err
+	}
+	if t.Refresh == "" {
+		return fmt.Errorf("whoop: revoke: access token refused and no refresh token: %w", err)
+	}
+	fresh, rerr := c.Refresh(ctx, connector.Tokens{Refresh: t.Refresh, ProviderUserID: t.ProviderUserID})
+	if errors.Is(rerr, connector.ErrNeedsReauth) {
+		return nil
+	}
+	if rerr != nil {
+		return fmt.Errorf("whoop: revoke: %w", rerr)
+	}
+	return c.revokeAccess(ctx, fresh.Access)
+}
+
+// revokeAccess sends DELETE /v2/user/access with token. 2xx and 404 are done;
+// 401 gives errUnauthorized.
+func (c *Connector) revokeAccess(ctx context.Context, token string) error {
+	if token == "" {
+		return errors.New("whoop: revoke: no access token")
+	}
+	_, err := c.send(ctx, http.MethodDelete, token, pathAccess, nil)
+	if errors.Is(err, errNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("whoop: revoke: %w", err)
+	}
+	return nil
 }
 
 // Refresh trades a refresh token for new tokens. WHOOP rotates refresh tokens

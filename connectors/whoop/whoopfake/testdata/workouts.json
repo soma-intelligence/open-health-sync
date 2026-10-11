@@ -1,29 +1,6 @@
 {
   "records": [
-    {
-      "id": "bbbbbbbb-0000-4000-8000-000000000001", "v1_id": null, "user_id": 10001,
-      "created_at": "2026-03-01T17:50:00.000Z", "updated_at": "2026-03-01T17:55:00.000Z",
-      "start": "2026-03-01T17:00:00.000Z", "end": "2026-03-01T17:45:00.000Z",
-      "timezone_offset": "+01:00", "sport_name": "running", "sport_id": 0, "score_state": "SCORED",
-      "score": {
-        "strain": 12.25, "average_heart_rate": 148, "max_heart_rate": 176, "kilojoule": 2092.0,
-        "percent_recorded": 100, "distance_meter": 7500, "altitude_gain_meter": 45, "altitude_change_meter": 3,
-        "zone_durations": {"zone_zero_milli": 0, "zone_one_milli": 120000, "zone_two_milli": 600000,
-                           "zone_three_milli": 1200000, "zone_four_milli": 720000, "zone_five_milli": 60000}
-      }
-    },
-    {
-      "id": "bbbbbbbb-0000-4000-8000-000000000002", "v1_id": null, "user_id": 10001,
-      "created_at": "2026-03-02T19:05:00.000Z", "updated_at": "2026-03-02T19:10:00.000Z",
-      "start": "2026-03-02T18:00:00.000Z", "end": "2026-03-02T19:00:00.000Z",
-      "timezone_offset": "+01:00", "sport_name": "weightlifting", "sport_id": 45, "score_state": "SCORED",
-      "score": {
-        "strain": 7.5, "average_heart_rate": 110, "max_heart_rate": 150, "kilojoule": 1255.2,
-        "percent_recorded": 98, "distance_meter": null, "altitude_gain_meter": null, "altitude_change_meter": null,
-        "zone_durations": {"zone_zero_milli": 300000, "zone_one_milli": 1500000, "zone_two_milli": 1200000,
-                           "zone_three_milli": 600000, "zone_four_milli": 0, "zone_five_milli": 0}
-      }
-    }
-  ],
-  "next_token": null
+    {"id": "bbbbbbbb-0000-4000-8000-000000000001", "user_id": 10001, "created_at": "2026-03-01T17:50:00.000Z", "updated_at": "2026-03-01T17:55:00.000Z", "start": "2026-03-01T17:00:00.000Z", "end": "2026-03-01T17:45:00.000Z", "timezone_offset": "+01:00", "sport_name": "running", "sport_id": 0, "score_state": "SCORED", "score": {"strain": 12.25, "average_heart_rate": 148, "max_heart_rate": 176, "kilojoule": 2092.0, "percent_recorded": 100, "distance_meter": 7500, "altitude_gain_meter": 45, "altitude_change_meter": 3, "zone_durations": {"zone_zero_milli": 0, "zone_one_milli": 120000, "zone_two_milli": 600000, "zone_three_milli": 1200000, "zone_four_milli": 720000, "zone_five_milli": 60000}}},
+    {"id": "bbbbbbbb-0000-4000-8000-000000000002", "user_id": 10001, "created_at": "2026-03-02T19:05:00.000Z", "updated_at": "2026-03-02T19:10:00.000Z", "start": "2026-03-02T18:00:00.000Z", "end": "2026-03-02T19:00:00.000Z", "timezone_offset": "+01:00", "sport_name": "weightlifting", "score_state": "SCORED", "score": {"strain": 7.5, "average_heart_rate": 110, "max_heart_rate": 150, "kilojoule": 1255.2, "percent_recorded": 98, "zone_durations": {"zone_zero_milli": 300000, "zone_one_milli": 1500000, "zone_two_milli": 1200000, "zone_three_milli": 600000, "zone_four_milli": 0, "zone_five_milli": 0}}}
+  ]
 }

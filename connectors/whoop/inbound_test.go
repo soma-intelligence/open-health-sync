@@ -67,11 +67,16 @@ func TestHandleInbound_UpdateTypes(t *testing.T) {
 	}
 }
 
-// A deleted sleep or workout comes back as the verbatim body to store, which
-// Map turns into the deletion of that id.
+// A deleted sleep, workout or recovery comes back as the body to store, which
+// Map turns into the deletion of the stored record: the sleep or workout id,
+// and for a recovery (named by its sleep) "<sleep id>_recovery".
 func TestHandleInbound_DeletionIsStoredAndMapped(t *testing.T) {
 	c := inboundConnector()
-	for _, typ := range []string{EventSleepDeleted, EventWorkoutDeleted} {
+	for typ, want := range map[string]string{
+		EventSleepDeleted:    "aaaaaaaa-0000-4000-8000-000000000001",
+		EventWorkoutDeleted:  "aaaaaaaa-0000-4000-8000-000000000001",
+		EventRecoveryDeleted: "aaaaaaaa-0000-4000-8000-000000000001_recovery",
+	} {
 		body := event(typ)
 		events, err := c.HandleInbound(context.Background(), webhookAt(testSecret, inboundNow, body))
 		require.NoError(t, err, typ)
@@ -85,16 +90,18 @@ func TestHandleInbound_DeletionIsStoredAndMapped(t *testing.T) {
 		require.NoError(t, json.Unmarshal(ev.Lines[0], &fields))
 		res, err := c.Map(connector.RawRecord{UserID: "u-1", Provider: Slug, DataType: DataTypeWebhook, Fields: fields})
 		require.NoError(t, err, typ)
-		assert.Equal(t, []model.Deletion{{Provider: Slug, ExternalID: "aaaaaaaa-0000-4000-8000-000000000001"}}, res.Deletions, typ)
+		assert.Equal(t, []model.Deletion{{Provider: Slug, ExternalID: want}}, res.Deletions, typ)
 		assert.Equal(t, 1, res.RecordCount(), typ)
 	}
 }
 
-// recovery.deleted names the sleep, while recoveries are stored by cycle: it
-// is acknowledged and not applied, as is a type the connector does not know.
-func TestHandleInbound_RecoveryDeletionAndUnknownGiveNoEvent(t *testing.T) {
+// A type the connector does not know is acknowledged and ignored.
+func TestHandleInbound_UnknownGivesNoEvent(t *testing.T) {
 	c := inboundConnector()
-	for _, typ := range []string{EventRecoveryDeleted, "cycle.updated", "body.updated"} {
+	for _, typ := range []string{"cycle.updated", "body.updated", "recovery.created", ""} {
+		if typ == "" {
+			continue // no type at all is malformed, see TestHandleInbound_Malformed
+		}
 		events, err := c.HandleInbound(context.Background(), webhookAt(testSecret, inboundNow, event(typ)))
 		require.NoError(t, err, typ)
 		assert.Empty(t, events, typ)
@@ -108,10 +115,10 @@ func TestHandleInbound_DeletionWithoutIDIsRefused(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// A stored webhook line that is not an applied deletion maps to nothing.
+// A stored webhook line that is not a deletion maps to nothing.
 func TestMapWebhook_OtherTypesGiveNothing(t *testing.T) {
 	c := inboundConnector()
-	for _, typ := range []string{EventSleepUpdated, EventRecoveryDeleted} {
+	for _, typ := range []string{EventSleepUpdated, EventRecoveryUpdated, "unknown.deleted"} {
 		var fields map[string]any
 		require.NoError(t, json.Unmarshal([]byte(event(typ)), &fields))
 		res, err := c.Map(connector.RawRecord{UserID: "u-1", Provider: Slug, DataType: DataTypeWebhook, Fields: fields})

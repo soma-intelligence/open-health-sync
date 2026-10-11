@@ -8,6 +8,31 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
+// recoverySuffix makes the record id of a recovery from its sleep id. WHOOP
+// names a recovery by the sleep it was scored from (recovery.updated and
+// recovery.deleted webhooks carry the sleep id), and deletes it when that
+// sleep is deleted. The recovery samples are stored as
+// "<sleep id>_recovery_<quantity type>", so:
+//
+//   - sleep.deleted (a deletion of "<sleep id>") removes them with the sleep,
+//     as samples derived from it, and its tombstone keeps them out;
+//   - recovery.deleted (a deletion of "<sleep id>_recovery") tombstones them
+//     without touching the sleep.
+const recoverySuffix = "_recovery"
+
+// recoveryRecordID is the record id of a recovery: "<sleep id>_recovery", or,
+// for a recovery without a sleep id (the API documents it as always present),
+// "cycle-<cycle id>_recovery". "" when it has neither.
+func recoveryRecordID(sleepID, cycleID string) string {
+	switch {
+	case sleepID != "":
+		return sleepID + recoverySuffix
+	case cycleID != "":
+		return "cycle-" + cycleID + recoverySuffix
+	}
+	return ""
+}
+
 // mapRecovery turns one scored recovery into resting heart rate, HRV, SpO2
 // and skin temperature samples, and the recovery figures of the day's
 // summary.
@@ -18,15 +43,17 @@ import (
 //
 // A recovery has no time of its own besides created_at, which WHOOP sets when
 // it scores the night, shortly after waking: the samples are stamped with it.
-// The day of the summary is its cycle's (see cycleDay) when Fetch added the
-// cycle, else the local day of created_at.
+// It does not change when the recovery is re-scored, so the re-scored copy
+// replaces the stored one. The day of the summary is its cycle's (see
+// cycleDay) when Fetch added the cycle, else the local day of created_at.
 func mapRecovery(line []byte, userID string) (*model.MapResult, error) {
 	var r Recovery
 	if err := decode(DataTypeRecovery, line, &r); err != nil {
 		return nil, err
 	}
-	if r.CycleID == "" {
-		return nil, fmt.Errorf("whoop: recovery: missing cycle_id")
+	id := recoveryRecordID(string(r.SleepID), string(r.CycleID))
+	if id == "" {
+		return nil, fmt.Errorf("whoop: recovery: missing sleep_id and cycle_id")
 	}
 	at, err := requireTime(DataTypeRecovery, "created_at", r.CreatedAt)
 	if err != nil {
@@ -36,7 +63,6 @@ func mapRecovery(line []byte, userID string) (*model.MapResult, error) {
 		return nil, nil
 	}
 	sc := r.Score
-	id := string(r.CycleID)
 
 	offset := ""
 	day := dateOnly(at)
@@ -49,12 +75,15 @@ func mapRecovery(line []byte, userID string) (*model.MapResult, error) {
 	}
 
 	md := func() map[string]any {
-		m := map[string]any{"whoop_cycle_id": id}
+		m := map[string]any{}
+		if r.CycleID != "" {
+			m["whoop_cycle_id"] = string(r.CycleID)
+		}
 		if r.SleepID != "" {
 			m["whoop_sleep_id"] = string(r.SleepID)
 		}
 		setIf(m, "user_calibrating", sc.UserCalibrating)
-		return withTimezone(m, offset)
+		return withTimezone(m, offset, at)
 	}
 
 	res := &model.MapResult{}
@@ -70,7 +99,7 @@ func mapRecovery(line []byte, userID string) (*model.MapResult, error) {
 	add(model.QTSkinTemperature, "celsius", sc.SkinTempCelsius)
 
 	if sc.RecoveryScore != nil || sc.RestingHeartRate != nil {
-		d := dailySummary(userID, day, offset)
+		d := dailySummary(userID, day, offset, at)
 		d.RecoveryScore = sc.RecoveryScore
 		d.RestingHR = sc.RestingHeartRate
 		res.DailySummaries = append(res.DailySummaries, d)

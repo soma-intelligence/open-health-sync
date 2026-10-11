@@ -56,9 +56,10 @@ type Options struct {
 	HTTPClient        *http.Client
 	// RetryBase is the first wait of the transport error retry ladder (10 s).
 	RetryBase time.Duration
-	// PageDelay paces consecutive requests of one pull. WHOOP allows 100
-	// requests a minute per application, so the default is 600 ms. Negative
-	// disables the pause; zero takes the default.
+	// PageDelay spaces the API requests of this process, across all the
+	// pulls running at once. WHOOP allows 100 requests a minute per
+	// application, so the default is 600 ms. Negative disables the pause;
+	// zero takes the default.
 	PageDelay time.Duration
 	// Now is the clock, for tests.
 	Now func() time.Time
@@ -80,6 +81,11 @@ type Connector struct {
 	now               func() time.Time
 	sleep             func(ctx context.Context, d time.Duration) error
 
+	// paceMu guards nextSlot, the earliest time the next API request of this
+	// process may be sent (see pace).
+	paceMu   sync.Mutex
+	nextSlot time.Time
+
 	mapper *mapper
 }
 
@@ -88,6 +94,7 @@ var (
 	_ connector.PushConnector  = (*Connector)(nil)
 	_ connector.KeyedConnector = (*Connector)(nil)
 	_ connector.Configurable   = (*Connector)(nil)
+	_ connector.Revoker        = (*Connector)(nil)
 )
 
 // New returns a WHOOP connector.

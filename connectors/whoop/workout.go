@@ -73,7 +73,7 @@ func mapWorkout(line []byte, userID string) (*model.MapResult, error) {
 			md["zone_durations"] = sc.ZoneDurations
 		}
 	}
-	out.Metadata = withTimezone(md, w.TimezoneOffset)
+	out.Metadata = withTimezone(md, w.TimezoneOffset, start)
 	out.ContentHash = model.ComputeContentHash(map[string]string{
 		"user_id":     userID,
 		"provider":    Slug,
@@ -82,7 +82,7 @@ func mapWorkout(line []byte, userID string) (*model.MapResult, error) {
 
 	res := &model.MapResult{Workouts: []model.Workout{out}}
 	if strain != nil {
-		m := withTimezone(map[string]any{"whoop_workout_id": id, "activity_type": sport.activity}, w.TimezoneOffset)
+		m := withTimezone(map[string]any{"whoop_workout_id": id, "activity_type": sport.activity}, w.TimezoneOffset, start)
 		res.QuantitySamples = append(res.QuantitySamples,
 			quantity(userID, id, model.QTWorkoutStrain, *strain, "index", start, end, m))
 	}
@@ -140,5 +140,9 @@ var sports = map[string]workoutType{
 	"canoeing": {activity: "paddle_sports"}, "paddleboarding": {activity: "paddle_sports"},
 	"dance": {activity: "dance"}, "barre": {activity: "dance"}, "jumping_rope": {activity: "jump_rope"},
 	"meditation": {activity: "mind_and_body"}, "stretching": {activity: "flexibility"},
-	"activity": {activity: "other"},
+	"dog_walking": {activity: "walking"}, "stroller_walking": {activity: "walking"},
+	"stroller_jogging": {activity: "running"}, "stadium_steps": {activity: "stair_climbing"},
+	"climber": {activity: "stair_climbing"}, "box_fitness": {activity: "boxing"},
+	"obstacle_course_racing": {activity: "cross_training"},
+	"activity":               {activity: "other"}, "other": {activity: "other"},
 }

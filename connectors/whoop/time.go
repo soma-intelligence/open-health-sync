@@ -23,24 +23,38 @@ func parseTime(s string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-// offsetSeconds reads a WHOOP timezone_offset ("+HH:MM", "-HH:MM" or "Z").
+// offsetSeconds reads a WHOOP timezone_offset, documented as the TZD format
+// of ISO 8601: "+hh:mm", "-hh:mm" or "Z".
 func offsetSeconds(s string) (int, bool) {
 	if s == "Z" {
 		return 0, true
 	}
-	if len(s) != 6 || (s[0] != '+' && s[0] != '-') || s[3] != ':' {
+	if len(s) != 6 || (s[0] != '+' && s[0] != '-') || s[3] != ':' ||
+		!digits(s[1:3]) || !digits(s[4:6]) {
 		return 0, false
 	}
-	h, err1 := strconv.Atoi(s[1:3])
-	m, err2 := strconv.Atoi(s[4:6])
-	if err1 != nil || err2 != nil || h > 14 || m > 59 {
-		return 0, false
-	}
+	h, _ := strconv.Atoi(s[1:3])
+	m, _ := strconv.Atoi(s[4:6])
 	secs := h*3600 + m*60
+	// Offsets in use run from -12:00 to +14:00; past ±14:00 is corrupt.
+	if m > 59 || secs > 14*3600 {
+		return 0, false
+	}
 	if s[0] == '-' {
 		secs = -secs
 	}
 	return secs, true
+}
+
+// digits reports whether s is made of ASCII digits only (strconv.Atoi would
+// also take a sign).
+func digits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // offsetZone is the fixed zone of a timezone_offset, or UTC when it is
@@ -53,35 +67,74 @@ func offsetZone(s string) *time.Location {
 	return time.FixedZone(s, secs)
 }
 
-// ianaForOffset names a whole hour offset with its IANA Etc zone, whose sign
-// is inverted by convention (+02:00 is Etc/GMT-2). WHOOP sends an offset, not
-// a zone name, so this is the closest IANA name that keeps the local day
-// right; a half hour offset (+05:30) has none and gives "".
-func ianaForOffset(s string) string {
+// ianaForOffset names the zone the ETL reads the local day in, for a WHOOP
+// timezone_offset in force at instant at. WHOOP sends an offset, not a zone
+// name.
+//
+// A whole hour offset takes its IANA Etc zone, whose sign is inverted by
+// convention (+02:00 is Etc/GMT-2): a fixed offset, right whatever the date.
+// The other offsets in use (+05:30, +05:45, -03:30, ...) have no Etc zone, so
+// they take a zone that had exactly that offset at that instant (+05:30 is
+// Asia/Kolkata). The zone is checked at the record's own time, so the local
+// day comes out right across a daylight saving change too. The name says
+// which offset applied, not where the user was. An offset no listed zone had
+// at that instant, or an unreadable one, gives "" (the ETL then uses UTC).
+func ianaForOffset(s string, at time.Time) string {
 	secs, ok := offsetSeconds(s)
-	if !ok || secs%3600 != 0 {
+	if !ok {
 		return ""
 	}
-	h := secs / 3600
-	var name string
-	switch {
-	case h == 0:
-		name = "Etc/UTC"
-	case h > 0:
-		name = "Etc/GMT-" + strconv.Itoa(h)
-	default:
-		name = "Etc/GMT+" + strconv.Itoa(-h)
+	if secs%3600 == 0 {
+		h := secs / 3600
+		var name string
+		switch {
+		case h == 0:
+			name = "Etc/UTC"
+		case h > 0:
+			name = "Etc/GMT-" + strconv.Itoa(h)
+		default:
+			name = "Etc/GMT+" + strconv.Itoa(-h)
+		}
+		if _, err := time.LoadLocation(name); err != nil {
+			return ""
+		}
+		return name
 	}
-	if _, err := time.LoadLocation(name); err != nil {
-		return ""
+	for _, name := range fractionalZones[secs] {
+		loc, err := time.LoadLocation(name)
+		if err != nil {
+			continue
+		}
+		if _, off := at.In(loc).Zone(); off == secs {
+			return name
+		}
 	}
-	return name
+	return ""
+}
+
+// fractionalZones lists, for each offset in use that is not a whole number of
+// hours, zones that use it as standard or daylight saving time. The first one
+// whose offset at the record's instant matches is taken.
+var fractionalZones = map[int][]string{
+	-(9*3600 + 30*60): {"Pacific/Marquesas"},
+	-(3*3600 + 30*60): {"America/St_Johns"},
+	-(2*3600 + 30*60): {"America/St_Johns"},
+	3*3600 + 30*60:    {"Asia/Tehran"},
+	4*3600 + 30*60:    {"Asia/Kabul"},
+	5*3600 + 30*60:    {"Asia/Kolkata", "Asia/Colombo"},
+	5*3600 + 45*60:    {"Asia/Kathmandu"},
+	6*3600 + 30*60:    {"Asia/Yangon", "Indian/Cocos"},
+	8*3600 + 45*60:    {"Australia/Eucla"},
+	9*3600 + 30*60:    {"Australia/Darwin", "Australia/Adelaide"},
+	10*3600 + 30*60:   {"Australia/Adelaide", "Australia/Lord_Howe"},
+	12*3600 + 45*60:   {"Pacific/Chatham"},
+	13*3600 + 45*60:   {"Pacific/Chatham"},
 }
 
 // withTimezone records the WHOOP offset as "timezone_offset" and, when it
-// has one, its IANA name as "timezone" (R17), which the ETL reads for the
-// local day.
-func withTimezone(md map[string]any, offset string) map[string]any {
+// has one, the zone ianaForOffset names for it at instant at as "timezone"
+// (R17), which the ETL reads for the local day.
+func withTimezone(md map[string]any, offset string, at time.Time) map[string]any {
 	offset = strings.TrimSpace(offset)
 	if offset == "" {
 		return md
@@ -90,7 +143,7 @@ func withTimezone(md map[string]any, offset string) map[string]any {
 		md = map[string]any{}
 	}
 	md["timezone_offset"] = offset
-	if name := ianaForOffset(offset); name != "" {
+	if name := ianaForOffset(offset, at); name != "" {
 		md["timezone"] = name
 	}
 	return md

@@ -35,13 +35,19 @@ import (
 // A webhook names a record, not a time window. An updated record becomes a
 // pull of the last InboundLookback, which covers the record in all but the
 // rarest cases (an edit to an old night); the scheduled pull covers the rest.
-// A deleted sleep or workout (sleep.deleted, workout.deleted) is handed back
+// A deletion (sleep.deleted, workout.deleted, recovery.deleted) is handed back
 // verbatim as a raw line of DataTypeWebhook: the core stores it for every
-// connection of the WHOOP user, and Map turns it into a model.Deletion of
-// that sleep or workout id, which removes the stored record and its samples
-// and keeps it from coming back. recovery.deleted is acknowledged and not
-// applied: WHOOP names the recovery by its sleep id, while the recovery
-// figures are stored under their cycle id (see docs/connectors/whoop.md).
+// connection of the WHOOP user, and Map turns it into a model.Deletion, which
+// removes the stored record and its samples and keeps it from coming back.
+// A v2 webhook names a sleep or workout by its UUID, and a recovery by the
+// UUID of its sleep: recovery samples are stored under "<sleep id>_recovery"
+// (see recovery.go), so recovery.deleted is the deletion of that id.
+//
+// A delivery replayed within SignatureTolerance is accepted again: WHOOP
+// retries a delivery it thinks failed, and refusing a copy could drop the
+// only one the core stored. A replay is harmless: an update queues one more
+// pull of a few days, and a deletion is stored once (same bytes) and applied
+// once.
 
 // ErrBadSignature reports a webhook whose signature is missing, wrong or
 // stale. The inbound route answers it with 401.
@@ -97,10 +103,14 @@ func isDeletion(eventType string) bool {
 	return eventType == EventRecoveryDeleted || eventType == EventSleepDeleted || eventType == EventWorkoutDeleted
 }
 
-// appliedDeletion reports a deletion event whose id is the external id of a
-// stored record: a sleep or a workout.
-func appliedDeletion(eventType string) bool {
-	return eventType == EventSleepDeleted || eventType == EventWorkoutDeleted
+// deletedRecordID is the stored record id a deletion event removes: the sleep
+// or workout id itself, or "<sleep id>_recovery" for a recovery (WHOOP names
+// a recovery by its sleep).
+func deletedRecordID(eventType, id string) string {
+	if eventType == EventRecoveryDeleted {
+		return recoveryRecordID(id, "")
+	}
+	return id
 }
 
 // webhook is the body of a WHOOP webhook.
@@ -121,12 +131,12 @@ func Sign(secret, timestamp string, body []byte) string {
 }
 
 // HandleInbound verifies a WHOOP webhook and returns what it asks for: a pull
-// for an update, the webhook body as a raw line of DataTypeWebhook for a
-// deleted sleep or workout. HEAD and GET (a reachability check) give no event
-// and no error. A bad, missing or stale signature gives ErrBadSignature.
-// recovery.deleted, or an event type this connector does not know, gives no
-// event and no error, so the route still answers 200 and WHOOP does not
-// retry. A body that is not the documented JSON gives an error.
+// for an update, the webhook body (compacted to one line) as a raw line of
+// DataTypeWebhook for a deleted sleep, workout or recovery. HEAD and GET (a
+// reachability check) give no event and no error. A bad, missing or stale
+// signature gives ErrBadSignature. An event type this connector does not know
+// gives no event and no error, so the route still answers 200 and WHOOP does
+// not retry. A body that is not the documented JSON gives an error.
 func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connector.InboundEvent, error) {
 	if r.Method == http.MethodHead || r.Method == http.MethodGet {
 		return nil, nil
@@ -155,24 +165,24 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	if wh.UserID == "" || wh.Type == "" {
 		return nil, errors.New("whoop: webhook body has no user_id or type")
 	}
-	if appliedDeletion(wh.Type) {
+	if isDeletion(wh.Type) {
 		if wh.ID == "" {
 			return nil, errors.New("whoop: deletion webhook has no id")
+		}
+		// One stored line is one JSON object on one line.
+		line, err := compact(body)
+		if err != nil {
+			return nil, fmt.Errorf("whoop: webhook body is not JSON: %w", err)
 		}
 		return []connector.InboundEvent{{
 			ProviderUserID: string(wh.UserID),
 			DataType:       DataTypeWebhook,
-			Lines:          [][]byte{body},
+			Lines:          [][]byte{line},
 		}}, nil
 	}
 	dt := EventToDataType(wh.Type)
 	if dt == "" {
-		if isDeletion(wh.Type) {
-			slog.Info("whoop: recovery deletion not applied, recoveries are stored by cycle",
-				"provider", Slug, "event", wh.Type)
-		} else {
-			slog.Info("whoop: webhook of an unknown type ignored", "provider", Slug, "event", wh.Type)
-		}
+		slog.Info("whoop: webhook of an unknown type ignored", "provider", Slug, "event", truncate(wh.Type, 64))
 		return nil, nil
 	}
 	return []connector.InboundEvent{{
@@ -183,20 +193,29 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	}}, nil
 }
 
-// mapWebhook turns a stored deletion webhook into the deletion of its sleep
-// or workout. Any other webhook line gives nothing.
+// mapWebhook turns a stored deletion webhook into the deletion of its sleep,
+// workout or recovery (see deletedRecordID). Any other webhook line gives
+// nothing.
 func mapWebhook(line []byte, _ string) (*model.MapResult, error) {
 	var wh webhook
 	if err := decode(DataTypeWebhook, line, &wh); err != nil {
 		return nil, err
 	}
-	if !appliedDeletion(wh.Type) {
+	if !isDeletion(wh.Type) {
 		return nil, nil
 	}
 	if wh.ID == "" {
 		return nil, fmt.Errorf("whoop: webhook: %s without id", wh.Type)
 	}
-	return &model.MapResult{Deletions: []model.Deletion{{Provider: Slug, ExternalID: string(wh.ID)}}}, nil
+	return &model.MapResult{Deletions: []model.Deletion{{Provider: Slug, ExternalID: deletedRecordID(wh.Type, string(wh.ID))}}}, nil
+}
+
+// truncate shortens a provider supplied string before it reaches a log line.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // verify checks the signature of body and that its timestamp lies within

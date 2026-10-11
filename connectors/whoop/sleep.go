@@ -80,7 +80,7 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		}
 		session.TotalSleepSeconds = &total
 	}
-	session.Metadata = withTimezone(md, s.TimezoneOffset)
+	session.Metadata = withTimezone(md, s.TimezoneOffset, start)
 	session.ContentHash = model.ComputeContentHash(map[string]string{
 		"user_id":     userID,
 		"provider":    Slug,
@@ -89,7 +89,7 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 
 	res := &model.MapResult{SleepSessions: []model.SleepSession{session}}
 	if respiratory != nil {
-		m := withTimezone(map[string]any{"whoop_sleep_id": id, "nap": s.Nap}, s.TimezoneOffset)
+		m := withTimezone(map[string]any{"whoop_sleep_id": id, "nap": s.Nap}, s.TimezoneOffset, start)
 		res.QuantitySamples = append(res.QuantitySamples,
 			quantity(userID, id, model.QTRespiratoryRate, *respiratory, "count/min", start, end, m))
 	}

@@ -51,6 +51,8 @@ const (
 	pathWorkout  = "/v2/activity/workout"
 	pathBody     = "/v2/user/measurement/body"
 	pathProfile  = "/v2/user/profile/basic"
+	// pathAccess revokes the user's grant (DELETE).
+	pathAccess = "/v2/user/access"
 )
 
 // WHOOP score states. Only a SCORED record carries final figures: a
@@ -109,6 +111,10 @@ type Cycle struct {
 	TimezoneOffset string      `json:"timezone_offset"`
 	ScoreState     string      `json:"score_state"`
 	Score          *CycleScore `json:"score"`
+	// StepCount is the steps of the whole cycle, null when WHOOP has no step
+	// data for it. A number, read as a float so an odd encoding of it cannot
+	// fail the whole line.
+	StepCount *float64 `json:"step_count"`
 }
 
 // CycleScore is the score of a cycle. Pointers tell a missing figure from a

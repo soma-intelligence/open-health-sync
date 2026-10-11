@@ -12,6 +12,8 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -21,8 +23,15 @@ import (
 // so a runaway page must fail loudly rather than be buffered whole.
 const maxResponseBytes = 8 << 20
 
-// maxAttempts bounds the attempts of one request on transport errors.
+// maxAttempts bounds the attempts of one request on transport errors and
+// server errors (HTTP 500, 502, 503, 504).
 const maxAttempts = 5
+
+// maxPaceReset is the longest X-RateLimit-Reset the pacer waits out when
+// WHOOP says no request is left in the window. A longer one is the daily
+// limit: the next request gets its 429 and the job is deferred instead of a
+// worker sleeping for hours.
+const maxPaceReset = time.Minute
 
 // errUnauthorized is an HTTP 401 from a data endpoint.
 var errUnauthorized = errors.New("whoop: access token rejected")
@@ -31,65 +40,162 @@ var errUnauthorized = errors.New("whoop: access token rejected")
 // was listed).
 var errNotFound = errors.New("whoop: record not found")
 
+// errForbidden is an HTTP 403 from a data endpoint: the grant lacks the
+// endpoint's scope.
+var errForbidden = errors.New("whoop: access to this data was not granted")
+
+// statusError is an HTTP error status a data endpoint answered after the
+// retries. It names the path and the status, never the query (it holds the
+// page token) or the body.
+type statusError struct {
+	path   string
+	status int
+}
+
+func (e *statusError) Error() string { return fmt.Sprintf("whoop: %s: HTTP %d", e.path, e.status) }
+
+// retryable reports a server error worth another attempt.
+func retryable(status int) bool {
+	switch status {
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 // get sends one GET to path (under the API base) and decodes the JSON answer
-// into out. A rate limit (HTTP 429) returns a *connector.RateLimitError at
-// once, its wait taken from Retry-After or, failing that, X-RateLimit-Reset
-// (one minute without either), so the pull worker defers the job instead of a
-// worker sleeping. A transport error is retried on a ladder that starts at
-// retryBase and doubles, jittered upwards, five attempts in all.
+// into out. See send for the errors and retries.
 func (c *Connector) get(ctx context.Context, token, path string, q url.Values, out any) error {
+	body, err := c.send(ctx, http.MethodGet, token, path, q)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("whoop: %s: decode answer: %w", path, err)
+	}
+	return nil
+}
+
+// send sends one request to path (under the API base) and returns the body of
+// a 2xx answer.
+//
+// Every request first waits for its slot (see pace). A rate limit (HTTP 429)
+// returns a *connector.RateLimitError at once, its wait taken from
+// Retry-After or, failing that, X-RateLimit-Reset (one minute without either),
+// so the pull worker defers the job instead of a worker sleeping. 401 gives
+// errUnauthorized, 403 errForbidden, 404 errNotFound. A transport error or a
+// server error (500, 502, 503, 504) is retried on a ladder that starts at
+// retryBase and doubles, jittered upwards, maxAttempts in all; any other
+// status gives a *statusError.
+func (c *Connector) send(ctx context.Context, method, token, path string, q url.Values) ([]byte, error) {
 	endpoint := c.apiBase + path
 	if len(q) > 0 {
 		endpoint += "?" + q.Encode()
 	}
 	backoff := c.retryBase
 	for attempt := 1; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err := c.pace(ctx); err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Accept", "application/json")
 
 		resp, err := c.httpc.Do(req)
+		var retry error
+		var body []byte
 		if err != nil {
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return nil, ctx.Err()
 			}
-			if attempt == maxAttempts {
-				// The URL carries the page token: keep it out of the error.
-				var ue *url.Error
-				if errors.As(err, &ue) {
-					err = ue.Err
-				}
-				return fmt.Errorf("whoop http: %w", err)
+			// The URL carries the page token: keep it out of the error.
+			var ue *url.Error
+			if errors.As(err, &ue) {
+				err = ue.Err
 			}
-			slog.Warn("whoop: transport error, retrying", "provider", Slug, "attempt", attempt)
-			if err := c.sleep(ctx, jitter(backoff)); err != nil {
-				return err
+			retry = fmt.Errorf("whoop http: %w", err)
+		} else {
+			body, err = readBody(resp.Body, maxResponseBytes)
+			resp.Body.Close()
+			c.observeLimit(resp.Header)
+			switch {
+			case err != nil && ctx.Err() != nil:
+				return nil, ctx.Err()
+			case err != nil:
+				return nil, fmt.Errorf("whoop: %s: read response: %w", path, err)
+			case resp.StatusCode == http.StatusUnauthorized:
+				return nil, errUnauthorized
+			case resp.StatusCode == http.StatusTooManyRequests:
+				return nil, c.rateLimited(resp.Header)
+			case resp.StatusCode == http.StatusForbidden:
+				return nil, errForbidden
+			case resp.StatusCode == http.StatusNotFound:
+				return nil, errNotFound
+			case retryable(resp.StatusCode):
+				retry = &statusError{path: path, status: resp.StatusCode}
+			case resp.StatusCode >= 300:
+				return nil, &statusError{path: path, status: resp.StatusCode}
+			default:
+				return body, nil
 			}
-			backoff *= 2
-			continue
 		}
-		body, err := readBody(resp.Body, maxResponseBytes)
-		resp.Body.Close()
-		if err != nil {
-			return fmt.Errorf("whoop: read response: %w", err)
+		if attempt == maxAttempts {
+			return nil, retry
 		}
-		switch {
-		case resp.StatusCode == http.StatusUnauthorized:
-			return errUnauthorized
-		case resp.StatusCode == http.StatusTooManyRequests:
-			return c.rateLimited(resp.Header)
-		case resp.StatusCode == http.StatusNotFound:
-			return errNotFound
-		case resp.StatusCode >= 400:
-			return fmt.Errorf("whoop: %s: HTTP %d", path, resp.StatusCode)
+		slog.Warn("whoop: request failed, retrying", "provider", Slug, "attempt", attempt, "error", retry)
+		if err := c.sleep(ctx, jitter(backoff)); err != nil {
+			return nil, err
 		}
-		if err := json.Unmarshal(body, out); err != nil {
-			return fmt.Errorf("whoop: %s: decode answer: %w", path, err)
-		}
-		return nil
+		backoff *= 2
+	}
+}
+
+// pace waits for this request's slot. WHOOP allows 100 requests a minute per
+// application, so the requests of every pull of this process (the scheduler
+// runs several at once) are spaced pageDelay apart: one shared schedule, not
+// one per pull. A negative pageDelay disables it.
+func (c *Connector) pace(ctx context.Context) error {
+	if c.pageDelay < 0 {
+		return ctx.Err()
+	}
+	c.paceMu.Lock()
+	now := time.Now()
+	slot := c.nextSlot
+	if slot.Before(now) {
+		slot = now
+	}
+	c.nextSlot = slot.Add(c.pageDelay)
+	c.paceMu.Unlock()
+	return pause(ctx, slot.Sub(now))
+}
+
+// observeLimit reads the rate limit headers of an answer. When WHOOP says no
+// request is left in the current window and the window resets within
+// maxPaceReset, the next request waits for the reset instead of drawing a
+// 429.
+func (c *Connector) observeLimit(h http.Header) {
+	if c.pageDelay < 0 {
+		return
+	}
+	rem, err := strconv.Atoi(strings.TrimSpace(h.Get("X-RateLimit-Remaining")))
+	if err != nil || rem > 0 {
+		return
+	}
+	secs, err := strconv.Atoi(strings.TrimSpace(h.Get("X-RateLimit-Reset")))
+	if err != nil || secs <= 0 {
+		return
+	}
+	wait := time.Duration(secs) * time.Second
+	if wait > maxPaceReset {
+		return
+	}
+	c.paceMu.Lock()
+	defer c.paceMu.Unlock()
+	if at := time.Now().Add(wait); at.After(c.nextSlot) {
+		c.nextSlot = at
 	}
 }
 

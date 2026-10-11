@@ -131,13 +131,13 @@ func quantity(userID, recordID, qt string, value float64, unit string, start, en
 // energy) and recoveries (recovery score, resting heart rate) each fill their
 // own figures of the same row: the hash names only the day, the summary is
 // Replaceable, and the writer keeps a stored figure the other record type
-// leaves out.
-func dailySummary(userID string, day time.Time, offset string) model.DailySummary {
+// leaves out. at is the instant the offset applied (the cycle's start).
+func dailySummary(userID string, day time.Time, offset string, at time.Time) model.DailySummary {
 	s := model.DailySummary{
 		UserID:      userID,
 		Provider:    Slug,
 		SummaryDate: day,
-		Metadata:    withTimezone(map[string]any{}, offset),
+		Metadata:    withTimezone(map[string]any{}, offset, at),
 		Replaceable: true,
 	}
 	s.ContentHash = model.ComputeContentHash(map[string]string{
