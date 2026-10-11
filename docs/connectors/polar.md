@@ -154,11 +154,11 @@ Notes on the mapping:
 ## Updates and deletions
 
 - An exercise is identified by its Polar id and a night by its date, so the same record sent
-  again never becomes a second one. The core keeps the **first** version of a workout or a sleep
-  session, though: if a user edits an exercise in Polar Flow (calories, sport) or Polar re-scores
-  a night, the stored record is not updated. If the edit moves the exercise's start time, or the
-  night's start, the core cannot match it and stores a second record. Reprocessing the raw
-  objects after deleting the old record is the way out today.
+  again never becomes a second one. Both are replaceable: if a user edits an exercise in Polar
+  Flow (calories, sport) or Polar re-scores a night, the new copy replaces the stored figures (a
+  figure it leaves out keeps its stored value) and a night's new hypnogram replaces the stored
+  sleep phases. If the edit moves the exercise's or the night's start, the new copy replaces the
+  stored record of the same id or date instead of adding a second one.
 - Daily activity, Nightly Recharge, continuous heart rate and physical info samples are
   replaceable: a later value for the same day (or sample time) replaces the stored one.
 - Polar sends no deletion events and the non-transactional endpoints do not say what was

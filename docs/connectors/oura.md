@@ -118,11 +118,12 @@ Notes:
 
 - **Daily documents** (activity, readiness, SpO2) change while the day is open and after a late
   ring sync. Their samples are replaceable: the newest value replaces the stored one.
-- **Sleep periods and workouts** are identified by their Oura id and start. A re-sent copy is
-  not stored twice. The `resting_heart_rate` and `respiratory_rate` samples of a night follow a
-  corrected copy. The session row itself and a workout keep their first version: the pipeline
-  does not replace stored sessions or workouts yet, and a copy whose start moved is stored as
-  a second session.
+- **Sleep periods and workouts** are identified by their Oura id and start, and are
+  replaceable. A re-sent copy is not stored twice: a corrected copy replaces the stored figures
+  (a figure it leaves out keeps its stored value), a corrected hypnogram replaces the stored
+  sleep phases, and a copy whose start moved replaces the stored session or workout of the same
+  Oura id. The `resting_heart_rate` and `respiratory_rate` samples of a night follow the
+  corrected copy too.
 - **Deletes.** A sleep period Oura marks `deleted` is not stored. A document deleted after it was
   stored stays stored: the pull only sees what Oura still lists, and the pipeline has no way to
   remove a record by its provider id.

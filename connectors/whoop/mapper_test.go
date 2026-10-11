@@ -54,6 +54,19 @@ func fixture(t *testing.T, file string, i int) string {
 	return string(all.Records[i])
 }
 
+// edit returns line with the given top level fields set.
+func edit(t *testing.T, line string, set map[string]any) string {
+	t.Helper()
+	var m map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &m))
+	for k, v := range set {
+		m[k] = v
+	}
+	b, err := json.Marshal(m)
+	require.NoError(t, err)
+	return string(b)
+}
+
 func ts(s string) time.Time {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
@@ -336,10 +349,26 @@ func TestMapSleep_UnscorableNap(t *testing.T) {
 	assert.Empty(t, res.QuantitySamples)
 }
 
-// A pending sleep would freeze unscored: it waits for its scored copy.
-func TestMapSleep_PendingIsEmpty(t *testing.T) {
+// A pending sleep is stored with its times and no figures; its scored copy
+// hits the same session (same hash) and, Replaceable, fills the figures in.
+func TestMapSleep_PendingThenScoredReplaces(t *testing.T) {
 	res := mustMap(t, DataTypeSleep, fixture(t, "sleeps.json", 2))
-	assert.True(t, res.IsEmpty())
+	require.Len(t, res.SleepSessions, 1)
+	pending := res.SleepSessions[0]
+	assert.True(t, pending.Replaceable)
+	assert.Equal(t, "PENDING_SCORE", pending.Metadata["score_state"])
+	assert.Nil(t, pending.TotalSleepSeconds)
+	assert.Nil(t, pending.SleepScore)
+	assert.Empty(t, res.QuantitySamples, "no respiratory rate before scoring")
+
+	scored := mustMap(t, DataTypeSleep, edit(t, fixture(t, "sleeps.json", 0), map[string]any{"id": pending.ExternalID}))
+	assert.Equal(t, pending.ContentHash, scored.SleepSessions[0].ContentHash, "the scored copy is the same session")
+	assert.True(t, scored.SleepSessions[0].Replaceable)
+	assert.NotNil(t, scored.SleepSessions[0].SleepScore)
+
+	// A user edit of the times keeps the identity: the hash is the WHOOP id.
+	moved := mustMap(t, DataTypeSleep, edit(t, fixture(t, "sleeps.json", 0), map[string]any{"start": "2026-03-01T00:30:00Z"}))
+	assert.Equal(t, mustMap(t, DataTypeSleep, fixture(t, "sleeps.json", 0)).SleepSessions[0].ContentHash, moved.SleepSessions[0].ContentHash)
 }
 
 func TestMapSleep_MissingFieldsError(t *testing.T) {
@@ -388,9 +417,21 @@ func TestMapWorkout_NoDistance(t *testing.T) {
 	assert.InDelta(t, 300.0, *w.ActiveEnergyKcal, 1e-9)
 }
 
-func TestMapWorkout_PendingIsEmpty(t *testing.T) {
+// A pending workout is stored without figures, Replaceable, so its scored copy
+// (same WHOOP id, same hash) fills them in.
+func TestMapWorkout_PendingIsReplaceable(t *testing.T) {
 	res := mustMap(t, DataTypeWorkout, `{"id":"w","start":"2026-03-01T00:00:00Z","end":"2026-03-01T01:00:00Z","sport_name":"running","score_state":"PENDING_SCORE"}`)
-	assert.True(t, res.IsEmpty())
+	require.Len(t, res.Workouts, 1)
+	w := res.Workouts[0]
+	assert.True(t, w.Replaceable)
+	assert.Equal(t, "running", w.ActivityType)
+	assert.Nil(t, w.ActiveEnergyKcal)
+	assert.Empty(t, res.QuantitySamples, "no strain before scoring")
+
+	scored := mustMap(t, DataTypeWorkout, `{"id":"w","start":"2026-03-01T00:00:00Z","end":"2026-03-01T01:00:00Z","sport_name":"running","score_state":"SCORED","score":{"strain":8.5,"kilojoule":1000}}`)
+	assert.Equal(t, w.ContentHash, scored.Workouts[0].ContentHash)
+	assert.True(t, scored.Workouts[0].Replaceable)
+	assert.NotNil(t, scored.Workouts[0].ActiveEnergyKcal)
 }
 
 func TestMapWorkout_UnknownSport(t *testing.T) {

@@ -162,7 +162,7 @@ func TestFetchThenMap(t *testing.T) {
 	assert.Len(t, rec.DailySummaries, 3)
 
 	sl := mapEmitted(t, c, sink, DataTypeSleep)
-	assert.Len(t, sl.SleepSessions, 2, "the pending sleep waits for its score")
+	assert.Len(t, sl.SleepSessions, 3, "the pending sleep is stored, its scored copy replaces it")
 
 	wk := mapEmitted(t, c, sink, DataTypeWorkout)
 	require.Len(t, wk.Workouts, 2)

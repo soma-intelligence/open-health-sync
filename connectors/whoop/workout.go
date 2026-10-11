@@ -11,8 +11,10 @@ import (
 
 // mapWorkout turns one workout into a Workout plus a workout_strain sample.
 // WHOOP's kilojoules become active_energy_kcal, the field every connector
-// fills with a workout's energy. A workout still PENDING_SCORE gives nothing,
-// for the reason given on mapSleep.
+// fills with a workout's energy. Like a sleep, the workout is hashed on its
+// WHOOP id alone and is Replaceable: a PENDING_SCORE workout is stored with
+// its times and sport, and its scored (or re-scored) copy replaces the
+// figures.
 func mapWorkout(line []byte, userID string) (*model.MapResult, error) {
 	var w Workout
 	if err := decode(DataTypeWorkout, line, &w); err != nil {
@@ -28,9 +30,6 @@ func mapWorkout(line []byte, userID string) (*model.MapResult, error) {
 	end, err := requireTime(DataTypeWorkout, "end", w.End)
 	if err != nil {
 		return nil, err
-	}
-	if w.ScoreState == scorePending {
-		return nil, nil
 	}
 	id := string(w.ID)
 	dur := int(end.Sub(start).Seconds())
@@ -54,6 +53,7 @@ func mapWorkout(line []byte, userID string) (*model.MapResult, error) {
 		StartDate:    start,
 		EndDate:      end,
 		DurationS:    &dur,
+		Replaceable:  true,
 	}
 	var strain *float64
 	if sc := w.Score; sc != nil && w.ScoreState == scoreScored {

@@ -12,10 +12,14 @@ import (
 // stage durations, plus a respiratory_rate sample over it.
 //
 // WHOOP's public API gives the time spent in each stage, not a hypnogram, so
-// no SleepPhase is produced. Slow wave sleep is the deep stage. A sleep still
-// PENDING_SCORE gives nothing: the writer keeps the first copy of a session
-// it sees, so storing it unscored would freeze it without its figures. WHOOP
-// sends it again once scored. An UNSCORABLE sleep is stored without figures.
+// no SleepPhase is produced. Slow wave sleep is the deep stage.
+//
+// The session is hashed on the WHOOP sleep id alone and is Replaceable: a
+// re-scored copy, or one whose times the user edited, replaces the stored
+// figures (a copy whose start moved supersedes the stored one, by the id). A
+// sleep still PENDING_SCORE is therefore stored with its times and no figures,
+// and its scored copy fills them in; an UNSCORABLE sleep stays without
+// figures. score_state in metadata says which.
 func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 	var s Sleep
 	if err := decode(DataTypeSleep, line, &s); err != nil {
@@ -32,9 +36,6 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if s.ScoreState == scorePending {
-		return nil, nil
-	}
 	id := string(s.ID)
 
 	md := map[string]any{"nap": s.Nap, "score_state": s.ScoreState}
@@ -47,6 +48,7 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		ExternalID:   id,
 		BedtimeStart: start,
 		BedtimeEnd:   end,
+		Replaceable:  true,
 	}
 	var respiratory *float64
 	if sc := s.Score; sc != nil && s.ScoreState == scoreScored {

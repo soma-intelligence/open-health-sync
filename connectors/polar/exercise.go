@@ -30,7 +30,9 @@ func exerciseStart(e Exercise) (time.Time, error) {
 
 // mapExercise turns one exercise summary into a Workout. The hash is the
 // Polar exercise id alone, so the same exercise sent again (or edited in
-// Polar Flow) maps to the same record and never to a second one.
+// Polar Flow) maps to the same record and never to a second one. The workout
+// is Replaceable: an edited copy replaces the stored figures, and one whose
+// start moved supersedes the stored workout of the same id.
 func mapExercise(line []byte, userID string) (*model.MapResult, error) {
 	var e Exercise
 	if err := decode(DataTypeExercise, line, &e); err != nil {
@@ -89,6 +91,7 @@ func mapExercise(line []byte, userID string) (*model.MapResult, error) {
 		ActiveEnergyKcal: e.Calories,
 		DistanceM:        e.Distance,
 		Metadata:         md,
+		Replaceable:      true,
 	}
 	if e.HeartRate != nil {
 		out.AvgHeartRate = e.HeartRate.Average

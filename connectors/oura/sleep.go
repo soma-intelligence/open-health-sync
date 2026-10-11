@@ -37,11 +37,13 @@ var hypnogramStages = map[byte]string{
 // lowest heart rate of the night, Oura's definition of resting heart rate) and
 // respiratory_rate samples.
 //
-// Identity. The session is hashed on the Oura id and its start, so a re-sent
-// period is a duplicate however its values moved. The writer keeps the first
-// version of a session (it does not replace sleep rows); the two samples are
-// Replaceable, hashed on the Oura id, so they follow a corrected night. A
-// period of type "deleted" gives nothing.
+// Identity. The session is hashed on the Oura id and its start, never on its
+// values, and is Replaceable: a corrected copy of the period replaces the
+// stored figures and its hypnogram replaces the stored phases (a copy whose
+// start moved supersedes the stored one, by the Oura id). The two samples are
+// Replaceable too, hashed on the Oura id, so they follow a corrected night. A
+// period of type "deleted" gives nothing; one deleted after it was stored
+// stays stored.
 //
 // HRV. Oura's average_hrv is an RMSSD in milliseconds. It fills the session's
 // HRV column, labelled in metadata ("hrv_method": "rmssd"), and is never
@@ -109,6 +111,7 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		RestingHR:         s.LowestHeartRate,
 		RespiratoryRate:   s.AverageBreath,
 		Metadata:          md,
+		Replaceable:       true,
 	}
 	session.ContentHash = model.ComputeContentHash(map[string]string{
 		"user_id":       userID,

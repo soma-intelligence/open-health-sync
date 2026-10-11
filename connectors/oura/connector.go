@@ -27,13 +27,13 @@
 // Updates and deletes. A daily document (activity, readiness, SpO2) is
 // re-sent with new values while its day is open: its samples are
 // Replaceable, hashed on the day, so the newest value replaces the stored one.
-// A sleep or a workout is identified by its Oura id and start: a re-send of
-// the same document is a duplicate, and the figures of a main sleep
-// (resting heart rate, respiratory rate) are also emitted as Replaceable
-// samples keyed by the Oura id, so a corrected night updates them. The core
-// does not replace a stored sleep session or workout: the session row keeps
-// its first version. A sleep Oura marks as deleted (type "deleted") maps to
-// nothing; a record Oura removes after it was stored stays stored.
+// A sleep or a workout is identified by its Oura id and start and is
+// Replaceable: a corrected copy replaces the stored figures (and, for a sleep,
+// its phases), and a copy whose start moved supersedes the stored one. The
+// figures of a main sleep (resting heart rate, respiratory rate) are also
+// emitted as Replaceable samples keyed by the Oura id. A sleep Oura marks as
+// deleted (type "deleted") maps to nothing; a record Oura removes after it
+// was stored stays stored.
 package oura
 
 import (

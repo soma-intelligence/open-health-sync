@@ -57,6 +57,16 @@ func TestMapExercise(t *testing.T) {
 	res2, err := mapLine(t, DataTypeExercise, string(b))
 	require.NoError(t, err)
 	assert.Equal(t, w.ContentHash, res2.Workouts[0].ContentHash)
+	assert.True(t, w.Replaceable, "an edited exercise replaces the stored workout")
+	assert.True(t, res2.Workouts[0].Replaceable)
+
+	// A moved start keeps the identity too: the hash is the Polar id alone.
+	m["start_time"] = "2026-03-05T07:45:00"
+	b, _ = json.Marshal(m)
+	res4, err := mapLine(t, DataTypeExercise, string(b))
+	require.NoError(t, err)
+	assert.Equal(t, w.ContentHash, res4.Workouts[0].ContentHash)
+	assert.Equal(t, w.ExternalID, res4.Workouts[0].ExternalID)
 
 	res3, err := mapLine(t, DataTypeExercise, fixtureItem(t, "exercises.json", "exercises", 1))
 	require.NoError(t, err)
@@ -148,6 +158,9 @@ func TestMapSleep(t *testing.T) {
 	res2, err := mapLine(t, DataTypeSleep, string(b))
 	require.NoError(t, err)
 	assert.Equal(t, s.ContentHash, res2.SleepSessions[0].ContentHash)
+	assert.True(t, s.Replaceable, "a re-scored night replaces the stored session and its phases")
+	assert.True(t, res2.SleepSessions[0].Replaceable)
+	assert.Equal(t, s.ContentHash, res2.SleepPhases[0].ParentContentHash)
 }
 
 func TestMapSleep_Edges(t *testing.T) {

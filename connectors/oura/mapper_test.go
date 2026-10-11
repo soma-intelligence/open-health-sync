@@ -252,6 +252,9 @@ func TestMapSleep_UpdateKeepsIdentity(t *testing.T) {
 		"bedtime_end": "2026-03-02T07:10:00+01:00",
 	}))
 	assert.Equal(t, a.SleepSessions[0].ContentHash, b.SleepSessions[0].ContentHash)
+	assert.True(t, a.SleepSessions[0].Replaceable, "a corrected night replaces the stored session")
+	assert.True(t, b.SleepSessions[0].Replaceable)
+	assert.Equal(t, a.SleepSessions[0].ContentHash, b.SleepPhases[0].ParentContentHash, "the new hypnogram hangs off the same session")
 	ma, mb := byType(a.QuantitySamples), byType(b.QuantitySamples)
 	for _, qt := range []string{model.QTRestingHeartRate, model.QTRespiratoryRate} {
 		assert.Equal(t, ma[qt].ContentHash, mb[qt].ContentHash, qt)
@@ -371,6 +374,8 @@ func TestMapWorkout(t *testing.T) {
 
 	upd := mustMap(t, DataTypeWorkout, edit(t, fixture(t, DataTypeWorkout, 0), map[string]any{"calories": 420}))
 	assert.Equal(t, w.ContentHash, upd.Workouts[0].ContentHash, "same Oura id and start: one workout")
+	assert.True(t, w.Replaceable, "an edited workout replaces the stored one")
+	assert.True(t, upd.Workouts[0].Replaceable)
 }
 
 func TestWorkoutActivity(t *testing.T) {

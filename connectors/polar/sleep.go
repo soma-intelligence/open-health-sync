@@ -28,7 +28,10 @@ var hypnogramStages = map[int]string{
 // hypnogram segment and one heart_rate sample per sleep heart rate sample.
 //
 // AccessLink keys a night by its date, so the hash is the date: the same
-// night sent again, or re-scored by Polar, maps to the same session.
+// night sent again, or re-scored by Polar, maps to the same session. The
+// session is Replaceable: a re-scored night replaces the stored figures and
+// its hypnogram the stored phases, and a night whose start moved supersedes
+// the stored session of the same date (ExternalID).
 //
 // The hypnogram and the heart rate samples are keyed by local "HH:MM" wall
 // clock times. They are placed on the night starting at sleep_start_time
@@ -92,6 +95,7 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		AwakeSeconds:      s.TotalInterruptionDuration,
 		SleepScore:        s.SleepScore,
 		Metadata:          md,
+		Replaceable:       true,
 	}
 	if s.DeepSleep != nil || s.REMSleep != nil || s.LightSleep != nil {
 		total := 0

@@ -15,8 +15,9 @@ import (
 // has no counterpart); Oura's own name, intensity, label and source
 // (manual, autodetected, confirmed, workout_heart_rate) stay in metadata.
 //
-// The workout is hashed on its Oura id and start: a re-sent workout is a
-// duplicate, and the writer keeps its first version.
+// The workout is hashed on its Oura id and start, never on its values, and is
+// Replaceable: an edited copy replaces the stored figures (a copy whose start
+// moved supersedes the stored one, by the Oura id).
 func mapWorkout(line []byte, userID string) (*model.MapResult, error) {
 	var w Workout
 	if err := decode(DataTypeWorkout, line, &w); err != nil {
@@ -66,6 +67,7 @@ func mapWorkout(line []byte, userID string) (*model.MapResult, error) {
 		ActiveEnergyKcal: w.Calories,
 		DistanceM:        w.Distance,
 		Metadata:         md,
+		Replaceable:      true,
 	}
 	out.ContentHash = model.ComputeContentHash(map[string]string{
 		"user_id":     userID,

@@ -18,7 +18,8 @@ import (
 // The workout is Replaceable and hashed on the Strava id and start: an
 // activity the athlete edits (type, figures) comes back under the same hash
 // and its new figures replace the stored ones instead of adding a second
-// workout. The summary polyline is not mapped: it has no timestamps, and a
+// workout; an edit that moves the start supersedes the stored workout of the
+// same Strava id. The summary polyline is not mapped: it has no timestamps, and a
 // route point needs one.
 func mapActivity(line []byte, userID string) (*model.MapResult, error) {
 	var a Activity

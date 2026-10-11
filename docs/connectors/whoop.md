@@ -137,8 +137,10 @@ Notes on the mapping:
   stored as its IANA `Etc/GMT` name (`+01:00` is `Etc/GMT-1`) in `timezone`; the offset itself
   is kept as `timezone_offset`. A half hour offset has no such name and the local day falls back
   to UTC.
-- **Scoring.** A sleep, workout or recovery still `PENDING_SCORE` is not stored: WHOOP sends it
-  again once scored. `UNSCORABLE` sleeps and workouts are stored without figures.
+- **Scoring.** A sleep or workout still `PENDING_SCORE` is stored with its times (and, for a
+  workout, its sport) and no figures; the scored copy WHOOP sends later replaces it (see below).
+  A recovery or cycle still `PENDING_SCORE` gives nothing until scored. `UNSCORABLE` sleeps and
+  workouts are stored without figures. `score_state` in metadata says which.
 - **Not available.** The public API has no heart rate series, no hypnogram (only the time in
   each stage) and no ECG.
 
@@ -147,10 +149,10 @@ Notes on the mapping:
 - A re-scored cycle or recovery, a cycle whose strain is still growing, and a changed body
   measurement replace the stored figures: those quantity samples and the daily summary are
   identified by the WHOOP record and the quantity, not by the value.
-- Sleep sessions and workouts are kept as first stored: the core keeps the first copy of a
-  session or workout it sees and has no replace path for them yet. A sleep or workout that WHOOP
-  re-scores keeps its first scored figures (its strain and respiratory rate samples are
-  replaced); one whose start the user edits is stored again as a second record.
+- Sleep sessions and workouts are identified by their WHOOP id and are replaceable: a scored or
+  re-scored copy replaces the stored figures (a figure it leaves out keeps its stored value),
+  along with its strain and respiratory rate samples, and a copy whose start the user edited
+  replaces the stored record of the same id instead of adding a second one.
 - Deletions are not applied. The core gives a connector no way to remove one stored record, so
   a `*.deleted` webhook is acknowledged and logged, and the record stays until the user is
   deleted.
