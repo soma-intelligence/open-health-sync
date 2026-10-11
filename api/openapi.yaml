@@ -35,7 +35,8 @@ info:
     name: AGPL-3.0-only
     identifier: AGPL-3.0-only
 servers:
-  - url: http://localhost:8080
+  - url: /
+    description: The instance serving this document (GET /openapi.yaml), or set your own.
 tags:
   - name: providers
   - name: users

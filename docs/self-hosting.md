@@ -225,6 +225,8 @@ $DC exec -T postgres psql -v ON_ERROR_STOP=1 -U ohs -d ohs \
   -c 'CREATE EXTENSION IF NOT EXISTS timescaledb' -c 'SELECT timescaledb_pre_restore()'
 $DC exec -T postgres pg_restore -U ohs -d ohs --no-owner < ohs-2026-10-11.dump
 $DC exec -T postgres psql -U ohs -d ohs -c 'SELECT timescaledb_post_restore()'
+# empty the raw volume first, so files written after the backup do not linger
+docker run --rm -v ohs_raw:/raw alpine find /raw -mindepth 1 -delete
 docker run --rm -i -v ohs_raw:/raw alpine tar xzf - -C /raw < raw-2026-10-11.tgz
 $DC start ohs
 ```
