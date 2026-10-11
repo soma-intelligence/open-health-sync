@@ -15,6 +15,13 @@ release may change the API, the configuration or the database schema.
 - WHOOP connector (#6): bring your own WHOOP developer app, OAuth connection, scheduled pulls
   of cycles, recoveries, sleeps, workouts and body measurements from the API v2, and signed
   webhooks for recovery, sleep and workout updates. Not yet verified with a real account.
+- Strava connector (`strava`, API v3, OAuth 2.0, scheduled pulls and webhook events): activities
+  as workouts. Not yet verified with a real account; see
+  [docs/connectors/strava.md](docs/connectors/strava.md).
+- `GET /inbound/{provider}` lets a connector answer a provider's subscription challenge
+  (Strava's `hub.challenge`), through the optional `connector.ChallengeResponder` interface.
+- `Workout.Replaceable`: a connector can mark a workout so an edited copy from the provider
+  replaces the stored one instead of being skipped.
 - Quantity name `hrv_rmssd` (milliseconds) for HRV reported as RMSSD, kept apart from
   `hrv_sdnn`. Migration `0008` registers it in `quantity_codes`.
 
