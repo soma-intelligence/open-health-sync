@@ -44,6 +44,10 @@ configuration. The response is `Cache-Control: no-store`; the token is shown onc
   `{"type":"about:blank","title":"Bad Request","status":400,"detail":"..."}`.
   A user, workout or sleep session of another tenant is a 404, never a 403. A 401 carries
   `WWW-Authenticate: Bearer`.
+- **Request ids.** Every response carries `X-Request-Id`, and a problem body repeats it as
+  `request_id`. Send your own `X-Request-Id` (1 to 128 letters, digits, `-`, `_`, `.`) to have
+  it kept, for example your proxy's. Every log line about the call carries it as `request_id`,
+  so quote it when you ask the operator about a failed call.
 - **Idempotency.** Send `Idempotency-Key` (1 to 255 characters) on `POST /v1/users`. A retry with the same key and request within
   24 hours gets the first response back with `Idempotent-Replayed: true`. The same key with a
   different request is a 422; a retry while the first call still runs is a 409. Other routes

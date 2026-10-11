@@ -18,6 +18,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/mcp"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -88,12 +89,16 @@ func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerF
 	mux.Handle(pattern, auth.Middleware(s.lookup, auth.TenantKey)(h))
 }
 
-// instrument counts every request by its matched pattern, logs it at debug
-// level (route pattern, never the query string or a header) and turns a panic
-// into a 500.
+// instrument gives every request an id (X-Request-Id, kept from the caller
+// when well formed), counts it by its matched pattern, logs it at debug level
+// (route pattern, never the query string or a header) and turns a panic into
+// a 500.
 func (s *server) instrument(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		id := reqid.Sanitize(r.Header.Get(reqid.Header))
+		w.Header().Set(reqid.Header, id)
+		r = r.WithContext(reqid.With(r.Context(), id))
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
 			if v := recover(); v != nil {

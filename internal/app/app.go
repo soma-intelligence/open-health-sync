@@ -33,6 +33,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -79,7 +80,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
 		return fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", cfg.LogLevel)
 	}
-	logger := slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: level}))
+	logger := slog.New(reqid.Handler(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: level})))
 	slog.SetDefault(logger)
 
 	providers, err := configureProviders(cfg.Providers)
