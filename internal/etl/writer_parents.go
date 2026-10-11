@@ -36,9 +36,40 @@ var sleepSessionColumns = []string{
 var (
 	sleepSessionInsert = insertHead(tSleep, sleepSessionColumns) + placeholders(1, len(sleepSessionColumns)) +
 		doNothing(hyperConflict("bedtime_start")) + " RETURNING id"
+	// sleepSessionReplace is the insert of a Replaceable session: on conflict
+	// the stored figures are replaced (latestWins); a copy that changes nothing
+	// returns no row and resolves through sleepSessionSelect.
+	sleepSessionReplace = insertHead(tSleep, sleepSessionColumns) + placeholders(1, len(sleepSessionColumns)) +
+		latestWins(tSleep, hyperConflict("bedtime_start"), sleepFigures) + " RETURNING id"
 	sleepSessionSelect = `SELECT id FROM ohs_data.sleep_sessions
 		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND bedtime_start = $4`
+	// sleepSessionSupersede removes the other stored copies of a Replaceable
+	// session: same provider record, another (content_hash, bedtime_start)
+	// key, which is what a night whose start moved leaves behind. The dedup
+	// unique includes bedtime_start, so the upsert alone cannot reach them.
+	sleepSessionSupersede = `DELETE FROM ohs_data.sleep_sessions
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND external_id = $4 AND id <> $5
+		RETURNING id`
+	// sleepPhasesReplace drops the phases a Replaceable session's new copy no
+	// longer carries: every phase of a superseded copy ($3), and the phases of
+	// the kept row ($4) whose hash is not in the new set ($5). The new phases
+	// are then inserted as usual; the unchanged ones are skipped.
+	sleepPhasesReplace = `DELETE FROM ohs_data.sleep_phases
+		WHERE tenant_id = $1 AND user_id = $2
+		  AND (session_id = ANY($3) OR (session_id = $4 AND content_hash <> ALL($5)))`
+	// sleepPhasesAdopt moves the phases of superseded copies ($4) to the kept
+	// row ($3) when the new copy carries none: an omitted hypnogram keeps the
+	// stored one, as an omitted figure does.
+	sleepPhasesAdopt = `UPDATE ohs_data.sleep_phases SET session_id = $3
+		WHERE tenant_id = $1 AND user_id = $2 AND session_id = ANY($4)`
 )
+
+// sleepFigures are the columns a Replaceable session's new copy replaces.
+var sleepFigures = []string{
+	"bedtime_end", "total_sleep_seconds", "deep_sleep_seconds", "rem_sleep_seconds",
+	"light_sleep_seconds", "awake_seconds", "sleep_score",
+	"hrv_avg_ms", "resting_hr", "respiratory_rate", "spo2_avg",
+}
 
 // writeSleepWithPhases inserts sleep sessions, then their phases.
 func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, sessions []model.SleepSession, phases []model.SleepPhase, c Counts) error {
@@ -63,7 +94,11 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 
 	for _, s := range sessions {
 		p := sc.providerOr(s.Provider)
-		parentID, isNew, err := insertParentWithFallback(ctx, tx, sleepSessionInsert, []any{
+		insert := sleepSessionInsert
+		if s.Replaceable {
+			insert = sleepSessionReplace
+		}
+		parentID, isNew, err := insertParentWithFallback(ctx, tx, insert, []any{
 			sc.tenant, sc.user, p, sourceSlugOrProvider("", p), s.ExternalID, s.BedtimeStart, nullTime(s.BedtimeEnd),
 			s.TotalSleepSeconds, s.DeepSleepSeconds, s.REMSleepSeconds,
 			s.LightSleepSeconds, s.AwakeSeconds, s.SleepScore,
@@ -96,6 +131,11 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 				}
 			}
 		}
+		if s.Replaceable {
+			if err := replaceSleepChildren(ctx, tx, sc, p, s, parentID, own); err != nil {
+				return err
+			}
+		}
 		if len(own) > 0 {
 			n, k, err := w.writeSleepPhases(ctx, tx, sc, parentID, s.ContentHash, own)
 			if err != nil {
@@ -115,6 +155,48 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 	}
 	if len(orphans) > 0 {
 		return w.writeOrphanSleepPhases(ctx, tx, sc, orphans, windows, c)
+	}
+	return nil
+}
+
+// replaceSleepChildren runs after a Replaceable session is upserted to
+// parentID, before its phases are written. It deletes the stored copies of the
+// same provider record under another key (with an ExternalID only), then
+// replaces the phases: when the new copy carries phases, those of the
+// superseded copies and the kept row's phases missing from the new set are
+// deleted; when it carries none, the superseded copies' phases move to the
+// kept row.
+func replaceSleepChildren(ctx context.Context, tx TxLike, sc scope, provider string, s model.SleepSession, parentID int64, own []model.SleepPhase) error {
+	var superseded []int64
+	if s.ExternalID != "" {
+		rows, err := tx.Query(ctx, sleepSessionSupersede, sc.tenant, sc.user, provider, s.ExternalID, parentID)
+		if err != nil {
+			return fmt.Errorf("supersede sleep session: %w", err)
+		}
+		superseded, err = pgx.CollectRows(rows, pgx.RowTo[int64])
+		if err != nil {
+			return fmt.Errorf("supersede sleep session: %w", err)
+		}
+	}
+	if len(own) == 0 {
+		if len(superseded) == 0 {
+			return nil
+		}
+		if _, err := tx.Exec(ctx, sleepPhasesAdopt, sc.tenant, sc.user, parentID, superseded); err != nil {
+			return fmt.Errorf("adopt sleep phases: %w", err)
+		}
+		return nil
+	}
+	keep := make([]string, len(own))
+	for i, ph := range own {
+		ph.ParentContentHash = s.ContentHash
+		keep[i] = model.SleepPhaseContentHash(ph)
+	}
+	if superseded == nil {
+		superseded = []int64{}
+	}
+	if _, err := tx.Exec(ctx, sleepPhasesReplace, sc.tenant, sc.user, superseded, parentID, keep); err != nil {
+		return fmt.Errorf("replace sleep phases: %w", err)
 	}
 	return nil
 }
@@ -213,6 +295,23 @@ var (
 		latestWins(tWorkouts, hyperConflict("start_date"), workoutFigures) + " RETURNING id"
 	workoutSelect = `SELECT id FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND start_date = $4`
+	// workoutSupersede removes the other stored copies of a Replaceable
+	// workout (same provider record, another key: its start moved).
+	workoutSupersede = `DELETE FROM ohs_data.workouts
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND external_id = $4 AND id <> $5
+		RETURNING id`
+	// workoutRoutesAdopt moves the route points of superseded copies ($4) to
+	// the kept workout ($3).
+	workoutRoutesAdopt = `UPDATE ohs_data.route_points SET workout_id = $3
+		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($4)`
+	// workoutRoutesDrop deletes the route points of superseded copies when the
+	// new copy carries its own route.
+	workoutRoutesDrop = `DELETE FROM ohs_data.route_points
+		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
+	// workoutTracksDrop deletes the derived track summaries of superseded
+	// copies; they are rebuilt from the route points.
+	workoutTracksDrop = `DELETE FROM ohs_data.workout_tracks
+		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
 )
 
 // workoutFigures are the columns a Replaceable workout's new copy replaces.
@@ -269,6 +368,11 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 				}
 			}
 		}
+		if wk.Replaceable && wk.ExternalID != "" {
+			if err := supersedeWorkout(ctx, tx, sc, p, wk.ExternalID, parentID, len(own) > 0); err != nil {
+				return err
+			}
+		}
 		if len(own) > 0 {
 			n, k, err := w.writeRoutePoints(ctx, tx, sc, parentID, own)
 			if err != nil {
@@ -286,6 +390,36 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 	}
 	if len(orphans) > 0 {
 		return w.writeOrphanRoutePoints(ctx, tx, sc, orphans, c)
+	}
+	return nil
+}
+
+// supersedeWorkout deletes the stored copies of a Replaceable workout's
+// provider record under another key than parentID's, and their derived
+// tracks. Their route points move to parentID, or are deleted when the new
+// copy carries its own route (hasRoute).
+func supersedeWorkout(ctx context.Context, tx TxLike, sc scope, provider, externalID string, parentID int64, hasRoute bool) error {
+	rows, err := tx.Query(ctx, workoutSupersede, sc.tenant, sc.user, provider, externalID, parentID)
+	if err != nil {
+		return fmt.Errorf("supersede workout: %w", err)
+	}
+	superseded, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return fmt.Errorf("supersede workout: %w", err)
+	}
+	if len(superseded) == 0 {
+		return nil
+	}
+	if hasRoute {
+		_, err = tx.Exec(ctx, workoutRoutesDrop, sc.tenant, sc.user, superseded)
+	} else {
+		_, err = tx.Exec(ctx, workoutRoutesAdopt, sc.tenant, sc.user, parentID, superseded)
+	}
+	if err != nil {
+		return fmt.Errorf("supersede workout route points: %w", err)
+	}
+	if _, err := tx.Exec(ctx, workoutTracksDrop, sc.tenant, sc.user, superseded); err != nil {
+		return fmt.Errorf("supersede workout tracks: %w", err)
 	}
 	return nil
 }

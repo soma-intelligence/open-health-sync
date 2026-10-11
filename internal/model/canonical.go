@@ -91,6 +91,15 @@ type SleepSession struct {
 	SpO2Avg           *float64
 	ContentHash       string
 	Metadata          map[string]any
+
+	// Replaceable: see QuantitySample.Replaceable. For a night the provider
+	// re-scores or the user edits (an Oura, WHOOP or Polar sleep), hashed on its
+	// provider record id (and, for some, its start), never on its figures: the
+	// new copy's figures replace the stored ones, a figure it omits keeps its
+	// stored value, and the phases it carries replace the stored phases. A
+	// stored copy of the same ExternalID under another start (the night moved)
+	// is superseded by this one. Requires ExternalID for that last step.
+	Replaceable bool
 }
 
 // SleepPhase represents a single phase within a sleep session.
@@ -127,9 +136,11 @@ type Workout struct {
 	Metadata         map[string]any
 
 	// Replaceable: see QuantitySample.Replaceable. For a workout the provider
-	// edits after the fact (a Strava activity whose type or figures change),
-	// hashed on its provider id and start: the new copy's figures replace the
-	// stored ones. A figure the re-send omits keeps its stored value.
+	// edits or re-scores after the fact (a Strava activity whose type or
+	// figures change), hashed on its provider id (and, for some, its start):
+	// the new copy's figures replace the stored ones. A figure the re-send
+	// omits keeps its stored value. A stored copy of the same ExternalID under
+	// another start is superseded by this one, its route points moving over.
 	Replaceable bool
 }
 

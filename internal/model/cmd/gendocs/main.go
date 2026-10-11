@@ -71,6 +71,7 @@ var notes = map[string]string{
 	"DailySummary.Replaceable":           "Writer instruction, not a column: the latest summary for the day wins.",
 	"NutritionLog.Replaceable":           "Writer instruction, not a column.",
 	"Workout.Replaceable":                "Writer instruction, not a column: an edited workout replaces the stored figures.",
+	"SleepSession.Replaceable":           "Writer instruction, not a column: a re-scored session replaces the stored figures and phases.",
 	"NutritionLog.NutrientsJSON":         "Extended nutrients by name.",
 	"SleepPhase.Phase":                   "`deep`, `rem`, `light`, `awake`, `in_bed` or `asleep_core`, after label normalization.",
 	"SleepPhase.ParentContentHash":       "Content hash of the parent session. Empty for an orphan phase.",

@@ -97,6 +97,7 @@ Stored in `ohs_data.sleep_sessions`.
 | `SpO2Avg` | `*float64` |  |
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
+| `Replaceable` | `bool` | Writer instruction, not a column: a re-scored session replaces the stored figures and phases. |
 
 ### SleepPhase
 
