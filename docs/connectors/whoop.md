@@ -187,10 +187,16 @@ Notes on the mapping:
   the record. Deletions only arrive by webhook: without one, a record deleted at WHOOP stays.
 - WHOOP names a recovery by the id of its sleep, and deletes a recovery when its sleep is
   deleted. Recovery samples are stored under that sleep id, so a `sleep.deleted` removes them
-  with the sleep, and `recovery.deleted` tombstones them so that no later pull brings them back.
-  Two limits remain in the shared ETL: a `recovery.deleted` arriving alone, for a sleep that
-  is still stored, does not remove recovery samples already stored, and the recovery figures
-  of a daily summary stay until a re-scored recovery replaces them.
+  with the sleep. A `recovery.deleted` removes them too, even when it arrives alone and the
+  sleep stays, and tombstones them so that no later pull brings them back.
+- Either deletion also clears the recovery's figures (`recovery_score`, `resting_hr`) from the
+  daily summary of its day (the day is stamped on the recovery samples as `summary_date`); the
+  cycle's figures of that day stay, and a summary left without figures is removed. A later copy
+  of the deleted recovery writes neither its samples nor its figures. WHOOP has no cycle
+  deletion event, so a cycle's figures are only ever replaced, never cleared.
+- A cycle whose start shifted, or a sleep or workout whose start the user edited, replaces its
+  stored samples (strain, heart rate, respiratory rate, workout strain) instead of leaving a
+  copy under the old start.
 
 ## Testing
 

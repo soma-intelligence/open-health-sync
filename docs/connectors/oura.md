@@ -208,7 +208,8 @@ Notes:
   (a figure it leaves out keeps its stored value), a corrected hypnogram replaces the stored
   sleep phases, and a copy whose start moved replaces the stored session or workout of the same
   Oura id. The `resting_heart_rate` and `respiratory_rate` samples of a night follow the
-  corrected copy too.
+  corrected copy too, a copy whose start moved included: the samples under the old start are
+  replaced, not kept beside the new ones.
 - **Deletes.** A sleep period Oura marks `deleted`, or one the user rejected (type `rest`),
   removes the stored session of that Oura id, with its phases and its `resting_heart_rate` and
   `respiratory_rate` samples, and a tombstone keeps any later copy of it from being stored. A
@@ -216,7 +217,9 @@ Notes:
   notification of a sleep period, workout or session does the same: the notification is stored
   verbatim as a raw object (data type `webhook`) for every connection of that Oura user, and
   the ETL removes the record, even when the deletion is processed before the record itself.
-  Without webhooks, a workout or session deleted at Oura stays.
+  Without webhooks, a workout or session deleted at Oura stays. Oura's daily figures are
+  samples keyed by the day, not a daily summary row, so a deletion has no summary figure to
+  clear.
 
 ## Errors
 

@@ -38,6 +38,15 @@ release may change the API, the configuration or the database schema.
   samples, scoped to the job's tenant and user, and records a tombstone in the new
   `ohs_data.deleted_records` table (migration `0010`) so the record is never written again,
   whichever arrives first.
+- `QuantitySample.SupersedeMoved`: a Replaceable sample whose `ExternalID` names one figure of
+  one record replaces the stored copy of the same provider, external id and quantity type under
+  another start (an edited sleep or workout, a shifted cycle) instead of adding a second row.
+  WHOOP sets it on all its samples, Oura on the samples of a night.
+- `Deletion.ClearSummaryFields`, `DailySummary.RecordID` and the `summary_date` sample metadata
+  (`model.MetadataSummaryDate`): a deletion clears the daily summary figures its record filled
+  (allow-listed column names only), and a deleted record's summary is not written again. WHOOP
+  clears a recovery's `recovery_score` and `resting_hr` on `recovery.deleted` and
+  `sleep.deleted`.
 - `connector.InboundEvent.Lines`: a notification that a pull cannot fetch back (a delete
   notice) is stored verbatim as a raw object for every connection of the provider user and
   queued for the ETL, instead of queueing a pull.
@@ -78,6 +87,15 @@ release may change the API, the configuration or the database schema.
   type whose scope was not granted skipped instead of failing the pull, a failing data type no
   longer stopping the others, and a guard against a repeated `next_token`. A grant without a
   refresh token (`offline` unticked) is refused, and deleting a user revokes the WHOOP grant.
+- A provider deletion now removes the quantity and category samples stored under the record id
+  or `<id>_<suffix>` whenever they start, also when no sleep or workout of that id is stored (a
+  WHOOP `recovery.deleted` while the sleep stays, a record that only gave samples). Before, only
+  quantity samples within a day of a deleted sleep or workout went, and category samples only
+  matched the exact id. Migration `0012` adds partial indexes on (`tenant_id`, `user_id`,
+  `provider`, `external_id` in the "C" collation) of `quantity_samples` and `category_samples`
+  so the lookup is an index range, not a scan.
+- A token refresh that returns no new refresh token keeps the stored one (RFC 6749 section 6);
+  this was already the behaviour and is now covered by a test.
 
 ## [0.0.2] - 2026-10-11
 

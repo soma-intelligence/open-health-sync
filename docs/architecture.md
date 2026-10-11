@@ -46,8 +46,12 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
    validated against plausible ranges (hard bounds reject a record, soft bounds flag it),
    duplicates are dropped by content hash, and sources are attributed.
 5. **Write.** A deletion the provider reported (`MapResult.Deletions`) is applied first: the
-   stored rows of that provider record go, and a tombstone in `ohs_data.deleted_records` keeps
-   any later copy of it from being written. Records go to the `ohs_data` hypertables. Daily totals for step count, energy,
+   stored rows of that provider record go (its sleep or workout with their children, and the
+   samples stored under its id or `<id>_<suffix>`, found through an index on provider and
+   external id), the daily summary figures it filled are cleared when the deletion names them,
+   and a tombstone in `ohs_data.deleted_records` keeps any later copy of it from being written.
+   A Replaceable sleep, workout or (opted in with `SupersedeMoved`) quantity sample whose start
+   moved replaces the stored copy of the same provider record instead of adding a second one. Records go to the `ohs_data` hypertables. Daily totals for step count, energy,
    distance and flights are derived per user, provider and local day when the provider sent no
    daily summary of its own. The local day comes from the sample's `timezone` metadata (UTC when
    absent). Where several sources report the same day, the largest per-source sum wins, so a
