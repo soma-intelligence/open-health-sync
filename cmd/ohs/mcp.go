@@ -229,20 +229,64 @@ func newProxyClient(endpoint *url.URL, secret string, base http.RoundTripper) *h
 	}
 }
 
+// statusRecorder keeps the status of the last response, so a failed
+// handshake can say what to fix rather than "cannot reach".
+type statusRecorder struct {
+	base http.RoundTripper
+	mu   sync.Mutex
+	code int
+}
+
+func (s *statusRecorder) RoundTrip(r *http.Request) (*http.Response, error) {
+	res, err := s.base.RoundTrip(r)
+	if err == nil {
+		s.mu.Lock()
+		s.code = res.StatusCode
+		s.mu.Unlock()
+	}
+	return res, err
+}
+
+func (s *statusRecorder) last() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.code
+}
+
+// mcpConnectHint explains the HTTP status that ended the handshake, or ""
+// when there is nothing more useful to say than the error itself.
+func mcpConnectHint(status int) string {
+	switch status {
+	case http.StatusUnauthorized:
+		return "refused OHS_MCP_KEY (401): check it, a user token may have expired, mint a new one"
+	case http.StatusForbidden:
+		return "refused OHS_MCP_KEY (403): a user token needs the scope read, or the request came from a browser origin"
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		return fmt.Sprintf("has no MCP endpoint (%d): set OHS_MCP_URL to the base URL of the instance", status)
+	}
+	return ""
+}
+
 // proxyCallTimeout bounds one forwarded request.
 const proxyCallTimeout = 2 * time.Minute
 
 func proxyMCP(ctx context.Context, endpoint *url.URL, secret string, local sdk.Transport) error {
 	shown := endpoint.Redacted()
 	client := sdk.NewClient(&sdk.Implementation{Name: "ohs-mcp", Version: version}, nil)
+	httpClient := newProxyClient(endpoint, secret, nil)
+	seen := &statusRecorder{base: httpClient.Transport}
+	httpClient.Transport = seen
 	remote, err := client.Connect(ctx, &sdk.StreamableClientTransport{
 		Endpoint:   endpoint.String(),
-		HTTPClient: newProxyClient(endpoint, secret, nil),
+		HTTPClient: httpClient,
 		MaxRetries: -1,
 	}, nil)
 	if err != nil {
 		// The SDK error carries the HTTP status (net/http strips URL
 		// passwords from its own errors), never the bearer secret.
+		if hint := mcpConnectHint(seen.last()); hint != "" {
+			return fmt.Errorf("mcp: %s %s: %w", shown, hint, err)
+		}
 		return fmt.Errorf("mcp: cannot reach %s: %w", shown, err)
 	}
 	defer func() { _ = remote.Close() }()

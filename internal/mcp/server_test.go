@@ -96,6 +96,15 @@ func TestToolsList(t *testing.T) {
 			names = append(names, tl.Name)
 			assert.NotEmpty(t, tl.Description, tl.Name)
 		}
+		// Raw samples can be thousands a day: the descriptions steer an
+		// agent to daily summaries and narrow windows first.
+		for _, tl := range res.Tools {
+			if tl.Name == "get_samples" {
+				assert.Contains(t, tl.Description, "get_daily")
+				assert.Contains(t, tl.Description, "narrow")
+			}
+		}
+		assert.Contains(t, cs.InitializeResult().Instructions, "get_daily")
 		slices.Sort(names)
 		assert.Equal(t, []string{"get_category_samples", "get_coverage", "get_daily", "get_nutrition",
 			"get_samples", "get_sleep", "get_workout_route", "get_workouts", "list_connections",

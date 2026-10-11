@@ -66,7 +66,35 @@ binary:
 | `OHS_MCP_KEY` | none, required | a tenant API key or a user token with scope `read` |
 
 `ohs mcp` connects at start: a wrong URL or secret makes it exit with the reason on stderr
-(never the secret). Its stdout carries only protocol messages.
+(never the secret). A 401 means the key is wrong or the token expired, a 403 a user token
+without the `read` scope, a 404 or 405 a URL that is not the instance's base URL. Its stdout
+carries only protocol messages.
+
+The `ohs` binary of each [GitHub release](https://github.com/soma-intelligence/open-health-sync/releases)
+runs on Linux and macOS. Without it, the image does the same (`-i` keeps stdin open; inside the
+container `localhost` is the container, so give the instance's real address):
+
+```json
+"command": "docker",
+"args": ["run", "--rm", "-i", "-e", "OHS_MCP_URL", "-e", "OHS_MCP_KEY",
+         "ghcr.io/soma-intelligence/open-health-sync:0.0.1", "mcp"]
+```
+
+**Claude Desktop** reads this `mcpServers` block from `claude_desktop_config.json`
+(Settings, Developer, Edit Config) and picks up a change after a restart. **Claude Code** adds
+the same server from the command line:
+
+```sh
+claude mcp add open-health-sync -e OHS_MCP_URL=https://ohs.example.org \
+  -e OHS_MCP_KEY=ohs_ut_... -- ohs mcp
+```
+
+Or the remote endpoint directly, without the binary:
+
+```sh
+claude mcp add --transport http open-health-sync https://ohs.example.org/mcp \
+  --header "Authorization: Bearer ohs_ut_..."
+```
 
 ## Remote agent (URL and bearer)
 
@@ -114,7 +142,10 @@ Each result is one JSON text content:
 {"records": [...], "next_cursor": "MjAyNi0w...", "truncated": true}
 ```
 
-`limit` defaults to 100 and stops at 1000 (a larger value is a tool error). When `truncated` is
+`limit` defaults to 100 and stops at 1000 (a larger value is a tool error). A sample is
+half a kilobyte of JSON or more, so a full page of 1000 is 500 KB or more of agent context: the
+server instructions steer agents to `get_daily` for trends and to narrow windows for raw
+samples. When `truncated` is
 true, call the same tool again with `cursor` set to `next_cursor`. `get_coverage` is capped
 rather than paged: when it is truncated, narrow `start` and `end`.
 

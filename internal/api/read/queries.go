@@ -138,7 +138,7 @@ func knownQuantityType(ctx context.Context, db Querier, tenantID, userID uuid.UU
 		return fmt.Errorf("read: quantity type: %w", err)
 	}
 	if !ok {
-		return &QueryError{Msg: fmt.Sprintf("unknown type %q: not a quantity type of the catalog (snake_case names such as heart_rate or step_count; the MCP tool list_quantity_types lists them all)", qt)}
+		return &QueryError{Msg: fmt.Sprintf("unknown type %q: not a quantity type of the catalog (snake_case names such as heart_rate or step_count; listed in docs/data-model.md and by the MCP tool list_quantity_types)", qt)}
 	}
 	return nil
 }

@@ -188,6 +188,25 @@ func TestMCPStdioErrors(t *testing.T) {
 		if strings.Contains(string(out), "ohs_sk_wrong") {
 			t.Fatalf("%s: the key leaked into the output: %s", name, out)
 		}
+		if name == "bad key" && !strings.Contains(string(out), "refused OHS_MCP_KEY") {
+			t.Fatalf("bad key: the message should blame the key: %s", out)
+		}
+	}
+}
+
+func TestMCPConnectHint(t *testing.T) {
+	for status, want := range map[int]string{
+		401: "refused OHS_MCP_KEY",
+		403: "scope read",
+		404: "no MCP endpoint",
+		405: "no MCP endpoint",
+		502: "",
+		0:   "",
+	} {
+		got := mcpConnectHint(status)
+		if want == "" && got != "" || !strings.Contains(got, want) {
+			t.Errorf("%d: got %q, want %q", status, got, want)
+		}
 	}
 }
 

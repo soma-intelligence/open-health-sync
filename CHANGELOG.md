@@ -17,6 +17,10 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- `ohs mcp` says what a refused handshake means (401: the key; 403: the scope; 404 or 405:
+  the URL) instead of `cannot reach`.
+- MCP server instructions and the `get_samples` description steer agents to `get_daily` for
+  trends and to narrow windows for raw samples.
 - A known API path called with the wrong method answers 405 with an `Allow` header instead of
   404 `route not found`.
 - A 403 names the credential the endpoint takes (a tenant API key, or a user token with a
