@@ -37,7 +37,7 @@ func runMCP(rest []string, _ io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(rest); err != nil || fs.NArg() != 0 {
-		return errors.New(mcpUsage)
+		return usageErr(mcpUsage)
 	}
 	endpoint, err := mcpEndpoint(os.Getenv)
 	if err != nil {

@@ -22,15 +22,24 @@ var (
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: ohs <version|migrate|serve|up|admin|doctor|mcp>")
+		return usageErr("usage: ohs <command>, one of up, serve, migrate, doctor, admin, mcp, version: run `ohs help` for details")
 	}
 	name, rest := args[0], args[1:]
+	switch name {
+	case "help", "-h", "-help", "--help":
+		return help(rest, out)
+	case "--version", "-v":
+		name, rest = "version", nil
+	}
+	if _, known := commandHelp[name]; known && wantsHelp(rest) {
+		return help([]string{name}, out)
+	}
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	switch name {
 	case "version":
-		if err := fs.Parse(rest); err != nil {
-			return err
+		if err := fs.Parse(rest); err != nil || fs.NArg() != 0 {
+			return usageErr("usage: ohs version")
 		}
 		_, err := fmt.Fprintf(out, "ohs %s (%s)\n", version, commit)
 		return err
@@ -47,13 +56,13 @@ func run(args []string, out io.Writer) error {
 	case "mcp":
 		return runMCP(rest, out)
 	default:
-		return fmt.Errorf("unknown command %q", name)
+		return usageErr(fmt.Sprintf("unknown command %q: run `ohs help` for the list", name))
 	}
 }
 
 const migrateUsage = "usage: ohs migrate <up|down --all|version>"
 
-var errDownNeedsAll = errors.New("migrate down reverts every migration and drops all Open Health Sync data " +
+var errDownNeedsAll = usageErr("migrate down reverts every migration and drops all Open Health Sync data " +
 	"(schemas ohs_core, ohs_sync, ohs_data); run `ohs migrate down --all` to confirm")
 
 func runMigrate(rest []string, out io.Writer) error {
@@ -65,7 +74,7 @@ func runMigrate(rest []string, out io.Writer) error {
 	var args []string
 	for {
 		if err := fs.Parse(rest); err != nil {
-			return fmt.Errorf("%w (%s)", err, migrateUsage)
+			return usageErr(fmt.Sprintf("%v (%s)", err, migrateUsage))
 		}
 		if fs.NArg() == 0 {
 			break
@@ -74,11 +83,11 @@ func runMigrate(rest []string, out io.Writer) error {
 		rest = fs.Args()[1:]
 	}
 	if len(args) != 1 {
-		return errors.New(migrateUsage)
+		return usageErr(migrateUsage)
 	}
 	action := args[0]
 	if action != "up" && action != "down" && action != "version" {
-		return errors.New(migrateUsage)
+		return usageErr(migrateUsage)
 	}
 	if action == "down" && !*all {
 		return errDownNeedsAll
@@ -123,6 +132,6 @@ func databaseURL() (string, error) {
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "ohs:", err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }

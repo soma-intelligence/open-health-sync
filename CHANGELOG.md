@@ -7,6 +7,14 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- `ohs help`, `ohs help <command>`, `-h`/`--help` on every command and `ohs --version`.
+
+### Changed
+
+- A command line error (unknown command, wrong arguments) exits 2; other failures still exit 1.
+
 ## [0.0.1] - 2026-10-11
 
 First public release, an early preview. See the

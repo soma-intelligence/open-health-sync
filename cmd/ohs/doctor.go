@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"io"
 
@@ -18,10 +17,10 @@ func runDoctor(args []string, out io.Writer) error {
 	fs.SetOutput(io.Discard)
 	quick := fs.Bool("quick", false, "check the database and raw store only")
 	if err := fs.Parse(args); err != nil {
-		return errors.New("usage: ohs doctor [--quick]")
+		return usageErr("usage: ohs doctor [--quick]")
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: ohs doctor [--quick]")
+		return usageErr("usage: ohs doctor [--quick]")
 	}
 	return app.Doctor(context.Background(), out, app.DoctorOptions{Quick: *quick})
 }
