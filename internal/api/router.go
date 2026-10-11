@@ -8,6 +8,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -73,8 +74,35 @@ func NewRouter(d Deps) http.Handler {
 	s.mountIngest(mux)
 	s.mountCollect(mux)
 	s.mountMCP(mux)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { notFound(w, "route") })
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// The catch-all matches every method, so the mux never answers 405
+		// itself: a known path called with the wrong method lands here.
+		if allow := allowedMethods(mux, r); len(allow) > 0 {
+			list := strings.Join(allow, ", ")
+			w.Header().Set("Allow", list)
+			problem(w, http.StatusMethodNotAllowed, r.Method+" is not allowed here; this route takes "+list)
+			return
+		}
+		notFound(w, "route")
+	})
 	return s.instrument(mux)
+}
+
+// allowedMethods lists the methods a route other than the catch-all serves
+// for r's path, sorted.
+func allowedMethods(mux *http.ServeMux, r *http.Request) []string {
+	var allow []string
+	for _, m := range []string{http.MethodDelete, http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodPost, http.MethodPut} {
+		if m == r.Method {
+			continue
+		}
+		probe := r.Clone(r.Context())
+		probe.Method = m
+		if _, pattern := mux.Handler(probe); pattern != "" && pattern != "/" {
+			allow = append(allow, m)
+		}
+	}
+	return allow
 }
 
 // mountMCP serves the read-only MCP server at /mcp to a tenant key or a user

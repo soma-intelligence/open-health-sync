@@ -15,6 +15,10 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- A known API path called with the wrong method answers 405 with an `Allow` header instead of
+  404 `route not found`.
+- A 403 names the credential the endpoint takes (a tenant API key, or a user token with a
+  given scope).
 - A command line error (unknown command, wrong arguments) exits 2; other failures still exit 1.
 - `ohs serve` and `ohs doctor` refuse an `OHS_PUBLIC_URL` that is not an absolute http(s) URL
   (or has a query or fragment) and an unknown `OHS_LOG_LEVEL` at load, and an

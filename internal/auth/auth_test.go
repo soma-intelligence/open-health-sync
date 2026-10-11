@@ -199,3 +199,19 @@ func TestMiddlewareAny(t *testing.T) {
 	requireProblem(t, do(t, h, ""), 401)
 	require.Panics(t, func() { MiddlewareAny(lookup) })
 }
+
+func TestForbiddenNamesTheCredential(t *testing.T) {
+	cases := []struct {
+		wants []Scope
+		want  string
+	}{
+		{[]Scope{TenantKey}, "this endpoint needs a tenant API key (ohs_sk_)"},
+		{[]Scope{UserUpload}, "this endpoint needs a user token (ohs_ut_) with scope upload"},
+		{[]Scope{TenantKey, UserRead}, "this endpoint needs a tenant API key (ohs_sk_) or a user token (ohs_ut_) with scope read"},
+	}
+	for _, c := range cases {
+		if got := forbiddenDetail(c.wants); got != c.want {
+			t.Errorf("%v: got %q, want %q", c.wants, got, c.want)
+		}
+	}
+}
