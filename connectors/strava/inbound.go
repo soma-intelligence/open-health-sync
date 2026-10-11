@@ -12,9 +12,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
 // Push subscription events.
@@ -37,7 +39,14 @@ import (
 //	activity create, update  -> pull the recent window: an update lands as a
 //	                            new copy of the same activity, which replaces
 //	                            the stored workout (Map marks it Replaceable).
-//	activity delete          -> nothing: the core cannot delete one record.
+//	activity delete          -> with OHS_STRAVA_SUBSCRIPTION_ID set, the event
+//	                            body is handed back as a raw line of
+//	                            DataTypeEvent; Map turns it into the deletion
+//	                            of that activity's workout. Without it,
+//	                            nothing: a delete is not a mere change signal
+//	                            (it removes data for good), and Strava signs
+//	                            nothing, so it needs at least the
+//	                            subscription id check.
 //	athlete updates.authorized = "false" (deauthorization)
 //	                         -> a short pull: Strava has revoked the tokens,
 //	                            so the pull is refused (401, then the refresh
@@ -137,8 +146,14 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 		case "create", "update":
 			return []connector.InboundEvent{{ProviderUserID: owner, DataType: DataTypeActivity, From: now.Add(-InboundLookback), To: now}}, nil
 		case "delete":
-			slog.Info("strava: activity deleted at Strava, not removed here", "provider", Slug)
-			return nil, nil
+			if subscription == "" {
+				slog.Info("strava: activity delete ignored, OHS_STRAVA_SUBSCRIPTION_ID is not set", "provider", Slug)
+				return nil, nil
+			}
+			if _, err := ev.ObjectID.Int64(); err != nil {
+				return nil, errors.New("strava: event: object_id is not a number")
+			}
+			return []connector.InboundEvent{{ProviderUserID: owner, DataType: DataTypeEvent, Lines: [][]byte{bytes.TrimSpace(body)}}}, nil
 		}
 	case "athlete":
 		if ev.AspectType == "update" && deauthorized(ev.Updates) {
@@ -148,6 +163,23 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	}
 	slog.Info("strava: event not acted on, ignored", "provider", Slug, "object_type", ev.ObjectType, "aspect_type", ev.AspectType)
 	return nil, nil
+}
+
+// mapEvent turns a stored activity delete event into the deletion of the
+// workout of that activity. Any other event line gives nothing.
+func mapEvent(line []byte, _ string) (*model.MapResult, error) {
+	var ev event
+	if err := decode(DataTypeEvent, line, &ev); err != nil {
+		return nil, err
+	}
+	if ev.ObjectType != "activity" || ev.AspectType != "delete" {
+		return nil, nil
+	}
+	id, err := ev.ObjectID.Int64()
+	if err != nil || id <= 0 {
+		return nil, errors.New("strava: event: object_id is not an activity id")
+	}
+	return &model.MapResult{Deletions: []model.Deletion{{Provider: Slug, ExternalID: strconv.FormatInt(id, 10)}}}, nil
 }
 
 // deauthorized reports updates {"authorized": "false"}. Strava sends the

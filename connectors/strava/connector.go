@@ -13,7 +13,8 @@
 // verify_token when creating the push subscription; without it the
 // subscription challenge is refused and no event is accepted. Optional:
 // OHS_STRAVA_SUBSCRIPTION_ID, the id Strava returned for that subscription;
-// when set, an event naming another subscription is refused.
+// when set, an event naming another subscription is refused, and activity
+// deletes are applied (see inbound.go).
 //
 // Strava keeps one push subscription per application, for every athlete, so
 // the operator creates it once (see docs/connectors/strava.md); the connector

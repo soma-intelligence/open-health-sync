@@ -55,7 +55,8 @@ ok    connector strava
 
 `CLIENT_ID` and `CLIENT_SECRET` are required: with only one set, `ohs doctor` fails and the
 connector stays off. `VERIFY_TOKEN` and `SUBSCRIPTION_ID` are optional; without
-`VERIFY_TOKEN` webhook events are refused and data still arrives every 6 hours.
+`VERIFY_TOKEN` webhook events are refused and data still arrives every 6 hours, and without
+`SUBSCRIPTION_ID` activity deletes are not applied.
 `GET /v1/providers` lists `strava` when it is on.
 
 ## 3. Scopes
@@ -124,7 +125,7 @@ so a forged event cannot inject data or reach another user.
 | Event | What happens |
 |---|---|
 | activity `create` or `update` | a pull of the last 7 days. An updated activity replaces the stored workout (same Strava id): no duplicate |
-| activity `delete` | nothing (see below) |
+| activity `delete` | with `OHS_STRAVA_SUBSCRIPTION_ID` set, the workout of that activity is removed (see below); without it, nothing |
 | athlete `update` with `updates.authorized = "false"` (the athlete revoked access in Strava) | a short pull. Strava has revoked the tokens, so it is refused, the refresh is refused too, and the connection becomes `needs_reauth` |
 | anything else | ignored, answered 200 so Strava does not retry |
 
@@ -154,9 +155,15 @@ connection becomes `needs_reauth` and the user must connect again.
 
 ## Limitations
 
-- **Deleted activities stay.** Open Health Sync has no way yet for a connector to delete one
-  stored record, so a `delete` event is logged and ignored; the workout remains until the user
-  is deleted or retention prunes it.
+- **Deleted activities.** With `OHS_STRAVA_SUBSCRIPTION_ID` set, an activity `delete` event is
+  stored verbatim as a raw object (data type `event`) for every connection of that athlete, and
+  the ETL removes the workout of that Strava id. A tombstone keeps it from coming back with a
+  later pull or a reprocessed raw object, even when the delete is processed first. Strava signs
+  nothing, and a deletion, unlike a pull, removes data, so deletes are applied only when the
+  subscription id is configured and matches; without it they are logged and ignored and the
+  workout stays. Anyone who knows the subscription id, an athlete id and an activity id of that
+  athlete could still forge one: keep the subscription id private. A deletion lost while the
+  instance was unreachable is not recovered by a pull.
 - **Late edits.** A pull asks Strava for activities by start time. An activity created or
   edited more than 7 days after it started is only picked up if a pull window covers its start
   (a new connection is backfilled over 30 days).

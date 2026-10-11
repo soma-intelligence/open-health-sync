@@ -10,6 +10,10 @@ const (
 	// DataTypeActivity: one SummaryActivity of GET /athlete/activities per
 	// line, verbatim.
 	DataTypeActivity = "activity"
+	// DataTypeEvent: one push event body per line, verbatim, stored by the
+	// inbound route for an activity delete. It is never fetched; Map turns
+	// it into a model.Deletion of the activity.
+	DataTypeEvent = "event"
 )
 
 // AllDataTypes is every data type Fetch pulls.

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
 var inboundNow = time.Date(2026, 3, 3, 12, 0, 0, 0, time.UTC)
@@ -53,10 +54,54 @@ func TestHandleInbound_ActivityCreateAndUpdatePull(t *testing.T) {
 	}
 }
 
-func TestHandleInbound_DeleteIsIgnored(t *testing.T) {
+// Without a subscription id to check, an unsigned delete is not applied.
+func TestHandleInbound_DeleteIgnoredWithoutSubscriptionID(t *testing.T) {
 	events, err := inboundConnector("").HandleInbound(context.Background(), post(deleteEvent))
 	require.NoError(t, err)
 	assert.Empty(t, events)
+}
+
+// With it, the event is handed back verbatim, and Map turns it into the
+// deletion of the activity's workout.
+func TestHandleInbound_DeleteIsStoredAndMapped(t *testing.T) {
+	c := inboundConnector("4242")
+	events, err := c.HandleInbound(context.Background(), post(deleteEvent))
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	ev := events[0]
+	assert.Equal(t, "1000001", ev.ProviderUserID)
+	assert.Equal(t, DataTypeEvent, ev.DataType)
+	assert.Equal(t, [][]byte{[]byte(deleteEvent)}, ev.Lines)
+
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal(ev.Lines[0], &fields))
+	res, err := c.Map(connector.RawRecord{UserID: "u-1", Provider: Slug, DataType: DataTypeEvent, Fields: fields})
+	require.NoError(t, err)
+	assert.Equal(t, []model.Deletion{{Provider: Slug, ExternalID: "90000000001"}}, res.Deletions)
+
+	// The id matches the workout the activity was stored as.
+	act, err := c.Map(connector.RawRecord{UserID: "u-1", Provider: Slug, DataType: DataTypeActivity, Fields: map[string]any{
+		"id": float64(90000000001), "sport_type": "Run", "start_date": "2026-03-01T08:00:00Z", "elapsed_time": float64(1800),
+	}})
+	require.NoError(t, err)
+	require.Len(t, act.Workouts, 1)
+	assert.Equal(t, res.Deletions[0].ExternalID, act.Workouts[0].ExternalID)
+
+	// A delete for another subscription is still refused.
+	_, err = inboundConnector("9999").HandleInbound(context.Background(), post(deleteEvent))
+	assert.ErrorIs(t, err, ErrWrongSubscription)
+}
+
+// A stored event line other than an activity delete maps to nothing.
+func TestMapEvent_OtherEventsGiveNothing(t *testing.T) {
+	c := inboundConnector("4242")
+	for _, body := range []string{createEvent, updateEvent, deauthEvent} {
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal([]byte(body), &fields))
+		res, err := c.Map(connector.RawRecord{UserID: "u-1", Provider: Slug, DataType: DataTypeEvent, Fields: fields})
+		require.NoError(t, err)
+		assert.True(t, res.IsEmpty(), body)
+	}
 }
 
 // A deauthorization queues a short pull: Strava refuses it, and the refused

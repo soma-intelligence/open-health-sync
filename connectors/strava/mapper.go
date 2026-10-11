@@ -32,6 +32,7 @@ func newMapper() *mapper {
 	return &mapper{
 		handlers: map[string]recordHandler{
 			DataTypeActivity: mapActivity,
+			DataTypeEvent:    mapEvent,
 		},
 		unknownTypes: map[string]int{},
 	}
