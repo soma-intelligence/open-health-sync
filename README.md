@@ -107,7 +107,7 @@ Integration paths, vendor programs and tracking issues for each:
 
 | Source | Status | How the data arrives |
 |---|---|---|
-| Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)) |
+| Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)); `ohs import apple-health` loads a Health app export |
 | Withings | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
 | Oura | 🛠 Planned ([#5](https://github.com/soma-intelligence/open-health-sync/issues/5)) | cloud API, OAuth |
 | Whoop | 🛠 Planned ([#6](https://github.com/soma-intelligence/open-health-sync/issues/6)) | cloud API, OAuth, webhooks |
@@ -183,6 +183,18 @@ Wait until processing is done (`pending_jobs` is 0), then read the normalized sa
 curl -s "$OHS/v1/users/$USER_ID/coverage" -H "Authorization: Bearer $KEY"
 curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bearer $KEY"
 ```
+
+**Load your existing history.** On the iPhone, Health app, your picture, *Export All Health
+Data* gives `export.zip`. Copy it to any machine with the `ohs` binary and load it with the
+user's token (`--dry-run` first counts what it would send):
+
+```sh
+OHS_TOKEN=$TOKEN ohs import apple-health export.zip --url $OHS
+```
+
+Records, workouts with their routes and ECGs go through the same upload API, in constant memory.
+Running it again uploads nothing twice. Details:
+[importing an export](docs/connectors/apple-health.md#importing-a-health-app-export).
 
 `ohs doctor` checks the configuration at any time:
 `docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor`.
@@ -346,7 +358,8 @@ Withings.
 **Which devices does it work with?**
 Anything that writes to Apple Health (Apple Watch, iPhone, and the apps and devices that sync
 into HealthKit), through an iOS app that uploads it. No SDK ships yet: your app implements the
-[upload contract](docs/connectors/apple-health.md). Withings scales, watches and sleep devices
+[upload contract](docs/connectors/apple-health.md). Without an app, `ohs import apple-health`
+loads the export the Health app writes, history included. Withings scales, watches and sleep devices
 through the user's Withings account; that connector is available but not yet verified with a
 real account. Oura, Whoop, Garmin, Fitbit, Polar, Strava, Samsung Health through Health Connect
 and more are [planned](docs/connectors/README.md), not available yet, and the

@@ -7,6 +7,16 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- `ohs import apple-health <export.zip|export.xml>`: loads the history of an Apple Health
+  export (the Health app's *Export All Health Data*) without an iOS app. Records, workouts with
+  their routes, blood pressure and food correlations, heartbeat series, audiograms and ECGs are
+  converted to the upload contract's lines and sent through `POST /v1/ingest/apple-health`, in
+  constant memory, with `--since`, `--tz`, `--dry-run` and a batch id derived from the export so
+  a re-run uploads nothing twice. See
+  [importing a Health app export](docs/connectors/apple-health.md#importing-a-health-app-export).
+
 ## [0.0.2] - 2026-10-11
 
 Usability release. Nothing changes in the data model or the database schema. Read the
