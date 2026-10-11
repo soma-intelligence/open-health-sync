@@ -1,7 +1,7 @@
 <a href="#quickstart">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.png">
-  <img src="docs/assets/readme/hero-light.png" width="100%" alt="Open Health Sync: Apple Health and Withings flow into one Go binary (raw store, normalize, Postgres) and out as a REST API and a read-only MCP server. The JSON shown is a real heart rate sample read back from the API.">
+  <img src="docs/assets/readme/hero-light.png" width="100%" alt="Open Health Sync: Apple Health and Withings, the two available sources, flow into one Go binary (raw store, normalize, Postgres) and out as a REST API and a read-only MCP server. Oura, Whoop, Ultrahuman, Garmin, Fitbit, Polar, Strava, Samsung Health via Health Connect, Health Connect, Dexcom, Coros and Suunto are listed as planned, not in this release. The JSON shown is a real heart rate sample read back from the API.">
 </picture>
 </a>
 
@@ -101,19 +101,38 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 
 ### Sources and outputs
 
-| Area | Item | Status |
-|---|---|---|
-| Sources | Apple Health (your iOS app uploads HealthKit data, [contract](docs/connectors/apple-health.md)) | Available |
-| Sources | Withings (OAuth, scheduled pulls, push notifications, [guide](docs/connectors/withings.md)) | Available, not yet verified with a real account |
-| Sources | Oura, Whoop, Ultrahuman, Garmin, Fitbit, Polar, Strava, Coros, Suunto | Planned |
-| Sources | Dexcom, Libre, Omron; Health Connect through the Android SDK | Planned |
-| Outputs | REST JSON, described by [api/openapi.yaml](api/openapi.yaml) | Available |
-| Outputs | MCP server, read only ([docs/mcp.md](docs/mcp.md)) | Available |
-| Outputs | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | Planned |
-| Outputs | Outgoing webhooks, FHIR R4, Open mHealth, CSV and Parquet exports | Planned |
-| SDKs | Swift, Kotlin, React Native, Flutter | Planned |
+Two sources ship today. Every other one is planned: on the roadmap, not in this release.
+Integration paths, vendor programs and tracking issues for each:
+[docs/connectors](docs/connectors/README.md).
 
-Planned means on the roadmap and not in this release.
+| Source | Status | How the data arrives |
+|---|---|---|
+| Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)) |
+| Withings | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
+| Oura | 🛠 Planned ([#5](https://github.com/soma-intelligence/open-health-sync/issues/5)) | cloud API, OAuth |
+| Whoop | 🛠 Planned ([#6](https://github.com/soma-intelligence/open-health-sync/issues/6)) | cloud API, OAuth, webhooks |
+| Strava | 🛠 Planned ([#7](https://github.com/soma-intelligence/open-health-sync/issues/7)) | cloud API, OAuth, webhooks |
+| Polar | 🛠 Planned ([#8](https://github.com/soma-intelligence/open-health-sync/issues/8)) | cloud API (AccessLink), OAuth |
+| Garmin, Fitbit | 🛠 Planned ([#9](https://github.com/soma-intelligence/open-health-sync/issues/9)) | partner program (Garmin); Fitbit Web API moving to the Google Health API |
+| Ultrahuman, Suunto | 🛠 Planned | partner programs |
+| Coros, Dexcom | 🛠 Planned | cloud API, OAuth |
+| FreeStyle Libre, Omron | 🛠 Planned | not researched yet |
+| Health Connect | 🛠 Planned | on-device, through the planned Kotlin SDK |
+| Samsung Health, Zepp / Amazfit | 🛠 Planned, via Health Connect | their apps write to Health Connect on Android |
+| Google Fit | Deprecated by Google | use Health Connect (planned Kotlin SDK) |
+| Eight Sleep | No public API | nothing official to build on |
+
+Want one sooner? Connectors are self-contained: read
+[writing a connector](docs/writing-a-connector.md) and pick a
+[good first issue](https://github.com/soma-intelligence/open-health-sync/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22).
+
+| Output | Status |
+|---|---|
+| REST JSON, described by [api/openapi.yaml](api/openapi.yaml) | ✅ Available |
+| MCP server, read only ([docs/mcp.md](docs/mcp.md)) | ✅ Available |
+| Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
+| Outgoing webhooks, FHIR R4, Open mHealth, CSV and Parquet exports | 🛠 Planned |
+| SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
 
 ## Quickstart
 
@@ -329,7 +348,8 @@ Anything that writes to Apple Health (Apple Watch, iPhone, and the apps and devi
 into HealthKit), through an iOS app that uploads it. No SDK ships yet: your app implements the
 [upload contract](docs/connectors/apple-health.md). Withings scales, watches and sleep devices
 through the user's Withings account; that connector is available but not yet verified with a
-real account. Other providers are [planned](#sources-and-outputs), and the
+real account. Oura, Whoop, Garmin, Fitbit, Polar, Strava, Samsung Health through Health Connect
+and more are [planned](docs/connectors/README.md), not available yet, and the
 [connector request form](https://github.com/soma-intelligence/open-health-sync/issues/new/choose)
 is open.
 
@@ -372,7 +392,8 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
 - [MCP server](docs/mcp.md): tools, credentials, desktop and remote agents.
 - [Data model](docs/data-model.md): every canonical type and quantity name, with units.
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
-- Connectors: [Apple Health](docs/connectors/apple-health.md),
+- Connectors: [supported and planned sources](docs/connectors/README.md),
+  [Apple Health](docs/connectors/apple-health.md),
   [Withings](docs/connectors/withings.md), [writing your own](docs/writing-a-connector.md).
 
 ## Contributing
