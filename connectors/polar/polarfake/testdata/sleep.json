@@ -1,0 +1,51 @@
+{
+  "nights": [
+    {
+      "polar_user": "https://www.polaraccesslink.com/v3/users/10101010",
+      "date": "2026-03-04",
+      "sleep_start_time": "2026-03-03T23:30:00+01:00",
+      "sleep_end_time": "2026-03-04T07:00:00+01:00",
+      "device_id": "DEV00001",
+      "continuity": 3.5,
+      "continuity_class": 3,
+      "light_sleep": 14400,
+      "deep_sleep": 5400,
+      "rem_sleep": 5400,
+      "unrecognized_sleep_stage": 1800,
+      "sleep_score": 80,
+      "total_interruption_duration": 1800,
+      "sleep_charge": 3,
+      "sleep_goal": 28800,
+      "sleep_rating": 4,
+      "short_interruption_duration": 600,
+      "long_interruption_duration": 1200,
+      "sleep_cycles": 5,
+      "group_duration_score": 90,
+      "group_solidity_score": 70,
+      "group_regeneration_score": 60,
+      "hypnogram": {
+        "23:30": 0,
+        "23:40": 2,
+        "00:30": 4,
+        "02:00": 3,
+        "04:00": 1,
+        "05:30": 5,
+        "06:00": 3,
+        "06:50": 0
+      },
+      "heart_rate_samples": {
+        "23:35": 60,
+        "00:35": 55
+      }
+    },
+    {
+      "polar_user": "https://www.polaraccesslink.com/v3/users/10101010",
+      "date": "2026-02-01",
+      "sleep_start_time": "2026-01-31T23:00:00+01:00",
+      "sleep_end_time": "2026-02-01T07:00:00+01:00",
+      "light_sleep": 15000,
+      "deep_sleep": 5000,
+      "rem_sleep": 5000
+    }
+  ]
+}

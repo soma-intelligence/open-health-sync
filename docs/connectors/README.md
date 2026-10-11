@@ -1,8 +1,8 @@
 # Connectors
 
-A connector teaches Open Health Sync one source. Five are available: [Apple Health](apple-health.md),
-[Withings](withings.md), [Oura](oura.md), [WHOOP](whoop.md) and [Strava](strava.md). Every other
-source below is **planned**: it is not built yet, and no code for it runs today. To build one, start with
+A connector teaches Open Health Sync one source. Six are available: [Apple Health](apple-health.md),
+[Withings](withings.md), [Oura](oura.md), [WHOOP](whoop.md), [Strava](strava.md) and [Polar](polar.md).
+Every other source below is **planned**: it is not built yet, and no code for it runs today. To build one, start with
 [writing a connector](../writing-a-connector.md).
 
 ## Supported and planned sources
@@ -33,7 +33,7 @@ linked tracking issue or the vendor's developer site before you start):
 | Ultrahuman | Planned | Partner program (UltraSignal partner API), OAuth 2.0 | Sleep, HRV, skin temperature, recovery; glucose with the M1 patch | Not self-serve: companies apply and are onboarded. We could not confirm that new partners are accepted | |
 | Garmin | Planned | Partner program (Garmin Connect Developer Program: Health and Activity APIs), OAuth 2.0 with PKCE, Garmin pushes notifications (ping/pull or push) | Daily summaries, sleep, stress, heart rate, activities | For approved business developers only; some data needs a commercial license fee. New access requests have been paused since spring 2026, per Garmin's replies to applicants; no public announcement or reopening date. Not usable by individuals self-hosting ([research notes](garmin.md)) | [#9](https://github.com/soma-intelligence/open-health-sync/issues/9) |
 | Fitbit | Planned | Cloud API in transition: the legacy Fitbit Web API is replaced by the Google Health API (Google OAuth 2.0, restricted scopes, pull plus webhooks) | Activity, sleep, heart rate, SpO2, body | Google: support for the legacy Web API ended on 2026-09-30 and it is turned off on 2026-10-30. The Google Health API is not onboarding new projects yet; once it does, an unverified app is limited to 100 users. On Android, Fitbit data can also reach Health Connect ([research notes](fitbit.md)) | [#9](https://github.com/soma-intelligence/open-health-sync/issues/9) |
-| Polar | Planned | Cloud API (AccessLink v3), OAuth 2.0 | Exercises, daily activity, sleep, nightly recharge, physical info | Self-serve: a client is created at `admin.polaraccesslink.com` with a Polar Flow account; each user is registered after consent | [#8](https://github.com/soma-intelligence/open-health-sync/issues/8) |
+| Polar | Available, not yet verified with a real account | Cloud API (AccessLink v3), OAuth 2.0, scheduled pulls and webhooks | Exercises, daily activity, sleep with hypnogram, Nightly Recharge, continuous heart rate, physical info | Self-serve: bring your own AccessLink client from `admin.polaraccesslink.com` ([guide](polar.md)); each user is registered after consent. The API only serves recent data (28 to 30 days for most types) | [#8](https://github.com/soma-intelligence/open-health-sync/issues/8) |
 | Strava | Available, not yet verified with a real account | Cloud API v3, OAuth 2.0, scheduled pulls and webhook events | Activities as workouts (summary figures; no streams or routes yet) | Bring your own Strava API application ([guide](strava.md)). A new app serves 1 athlete, 10 after a self-upgrade, more after Strava's review. The 2026 API terms forbid AI training on API data and restrict intermediary platforms; third parties report a paid Strava subscription is now needed for API access | [#7](https://github.com/soma-intelligence/open-health-sync/issues/7) |
 | Coros | Planned | Cloud API, OAuth 2.0; a partner API with webhooks for established platforms | Activities, health metrics, fitness assessments | Partner access is requested from COROS (api@coros.com); full docs are shared after registration | |
 | Suunto | Planned | Partner program (Suunto Cloud API) | Workouts and activity | Companies apply to Suunto's partner program; current terms are not public | |

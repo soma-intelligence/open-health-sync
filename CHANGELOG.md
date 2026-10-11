@@ -24,6 +24,10 @@ release may change the API, the configuration or the database schema.
   replaces the stored one instead of being skipped.
 - Quantity name `hrv_rmssd` (milliseconds) for HRV reported as RMSSD, kept apart from
   `hrv_sdnn`. Migration `0008` registers it in `quantity_codes`.
+- Polar connector (AccessLink v3): OAuth connect with user registration, scheduled pulls of
+  exercises, sleep with hypnogram, Nightly Recharge, daily activity, continuous heart rate and
+  physical info, and AccessLink webhooks with optional signature verification
+  (`OHS_POLAR_WEBHOOK_SECRET`). Not yet verified with a real account.
 
 ## [0.0.2] - 2026-10-11
 

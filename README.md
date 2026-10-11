@@ -101,7 +101,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 
 ### Sources and outputs
 
-Five sources are available. Every other one is planned: on the roadmap, not built yet.
+Six sources are available. Every other one is planned: on the roadmap, not built yet.
 Integration paths, vendor programs and tracking issues for each:
 [docs/connectors](docs/connectors/README.md).
 
@@ -112,7 +112,7 @@ Integration paths, vendor programs and tracking issues for each:
 | Oura | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls ([guide](docs/connectors/oura.md)) |
 | Whoop | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
 | Strava | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
-| Polar | 🛠 Planned ([#8](https://github.com/soma-intelligence/open-health-sync/issues/8)) | cloud API (AccessLink), OAuth |
+| Polar | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
 | Garmin, Fitbit | 🛠 Planned ([#9](https://github.com/soma-intelligence/open-health-sync/issues/9)) | partner program (Garmin); Fitbit Web API moving to the Google Health API |
 | Ultrahuman, Suunto | 🛠 Planned | partner programs |
 | Coros, Dexcom | 🛠 Planned | cloud API, OAuth |
@@ -347,9 +347,9 @@ registered with the vendor.
 Anything that writes to Apple Health (Apple Watch, iPhone, and the apps and devices that sync
 into HealthKit), through an iOS app that uploads it. No SDK ships yet: your app implements the
 [upload contract](docs/connectors/apple-health.md). Withings scales, watches and sleep devices
-through the user's Withings account. Oura rings, WHOOP bands and Strava activities work through
-the user's own account with each; these connectors are available but not yet verified with a
-real account. Garmin, Fitbit, Polar, Samsung Health through Health Connect and more are
+through the user's Withings account. Oura rings, WHOOP bands, Polar watches and Strava activities
+work through the user's own account with each; these connectors are available but not yet
+verified with a real account. Garmin, Fitbit, Samsung Health through Health Connect and more are
 [planned](docs/connectors/README.md), not available yet, and the
 [connector request form](https://github.com/soma-intelligence/open-health-sync/issues/new/choose)
 is open.
