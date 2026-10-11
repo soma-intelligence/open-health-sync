@@ -125,4 +125,17 @@ func copyMetadata(md map[string]any) map[string]any {
 	return out
 }
 
-func ptrFloat(v float64) *float64 { return &v }
+// contributorMetadata returns the contributors Oura computed (a null one is
+// left out), or nil when there is none.
+func contributorMetadata(in map[string]*float64) map[string]any {
+	out := map[string]any{}
+	for k, v := range in {
+		if v != nil {
+			out[k] = *v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

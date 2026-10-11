@@ -28,12 +28,8 @@ func mapDailySleep(line []byte, userID string) (*model.MapResult, error) {
 	if d.Score == nil {
 		return nil, nil
 	}
-	if len(d.Contributors) > 0 {
-		contributors := make(map[string]any, len(d.Contributors))
-		for k, v := range d.Contributors {
-			contributors[k] = v
-		}
-		md["contributors"] = contributors
+	if c := contributorMetadata(d.Contributors); c != nil {
+		md["contributors"] = c
 	}
 	return &model.MapResult{QuantitySamples: []model.QuantitySample{
 		dailySample(userID, d.Day, model.QTSleepScore, "score", *d.Score, start, end, md),

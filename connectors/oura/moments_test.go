@@ -106,12 +106,12 @@ func TestMapVO2Max(t *testing.T) {
 	assertCanonical(t, res.QuantitySamples)
 	s := res.QuantitySamples[0]
 	assert.Equal(t, "vo2_max", s.QuantityType)
-	assert.InDelta(t, 45.5, s.Value, 1e-9)
+	assert.InDelta(t, 45.0, s.Value, 1e-9)
 	assert.Equal(t, "mL/kg/min", s.Unit)
 	assert.True(t, time.Date(2026, 3, 2, 0, 0, 0, 0, paris(t)).Equal(s.StartDate))
 	assert.True(t, s.Replaceable)
 
-	assert.True(t, isEmpty(mustMap(t, DataTypeVO2Max, fixture(t, DataTypeVO2Max, 1))), "no estimate, nothing stored")
+	assert.True(t, isEmpty(mustMap(t, DataTypeVO2Max, fixture(t, DataTypeVO2Max, 1))), "a zero estimate is none: nothing stored")
 }
 
 // vo2_max is served at Oura's spelling of the endpoint.

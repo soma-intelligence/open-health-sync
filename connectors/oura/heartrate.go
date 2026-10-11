@@ -14,20 +14,35 @@ import (
 // "session", "live", "workout"); that goes into metadata. A reading never
 // changes once taken, so the hash carries the value like any measurement. A
 // zero or missing bpm is no reading and is skipped.
+//
+// Oura sends a reading's time in UTC (timestamp, and timestamp_unix in
+// milliseconds, read when timestamp is missing), not in the user's offset, so
+// the sample claims no time zone: the ETL files it under its UTC day.
 func mapHeartRate(line []byte, userID string) (*model.MapResult, error) {
 	var h HeartRate
 	if err := decode(DataTypeHeartRate, line, &h); err != nil {
 		return nil, err
 	}
-	ts, err := parseTime(h.Timestamp)
-	if err != nil {
-		return nil, fmt.Errorf("oura: heartrate: %w", err)
+	var ts time.Time
+	switch {
+	case h.Timestamp != "":
+		t, err := parseTime(h.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("oura: heartrate: %w", err)
+		}
+		ts = t
+	case h.TimestampUnix != nil && *h.TimestampUnix > 0:
+		ts = time.UnixMilli(*h.TimestampUnix)
+		if !plausible(ts) {
+			return nil, fmt.Errorf("oura: heartrate: timestamp_unix %d is out of range", *h.TimestampUnix)
+		}
+	default:
+		return nil, fmt.Errorf("oura: heartrate: no timestamp")
 	}
 	if h.BPM == nil || *h.BPM <= 0 {
 		return nil, nil
 	}
 	md := map[string]any{"oura_source": h.Source}
-	zoneMetadata(md, ts)
 	at := ts.UTC()
 	s := model.QuantitySample{
 		UserID:          userID,

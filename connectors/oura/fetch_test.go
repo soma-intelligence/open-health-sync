@@ -111,7 +111,7 @@ func TestFetch_RequestShapes(t *testing.T) {
 	act := f.Calls("/v2/usercollection/daily_activity")
 	require.Len(t, act, 1)
 	assert.Equal(t, "2026-02-28", act[0].Query.Get("start_date"), "widened by a day: the document day is a local day")
-	assert.Equal(t, "2026-03-03", act[0].Query.Get("end_date"))
+	assert.Equal(t, "2026-03-04", act[0].Query.Get("end_date"), "widened by a day, and one more in case end_date is exclusive")
 
 	sl := f.Calls("/v2/usercollection/sleep")
 	require.Len(t, sl, 2, "next_token followed")
@@ -270,13 +270,12 @@ func TestFetch_MalformedPage(t *testing.T) {
 	require.Error(t, err)
 }
 
-// An empty page that still names a next_token, or a token that repeats,
-// stops the loop.
+// A token that repeats stops the loop, empty pages or not.
 func TestFetch_PaginationGuards(t *testing.T) {
 	f := newFakeOura(t)
 	f.Bodies = map[string]string{"workout": `{"data":[],"next_token":"again"}`}
 	require.NoError(t, f.connector().FetchTypes(context.Background(), testConn(), fetchFrom, fetchTo, []string{DataTypeWorkout}, &recordingSink{}))
-	assert.Len(t, f.Calls("/v2/usercollection/workout"), 1)
+	assert.Len(t, f.Calls("/v2/usercollection/workout"), 2, "the second answer repeats the token")
 
 	f = newFakeOura(t)
 	f.Bodies = map[string]string{"workout": `{"data":[{"id":"w","day":"2026-03-01"}],"next_token":"same"}`}
@@ -307,14 +306,14 @@ func TestWindows(t *testing.T) {
 	w := windows(DataTypeSleep, fetchFrom, fetchTo)
 	require.Len(t, w, 1)
 	assert.Equal(t, "2026-02-28", w[0].Get("start_date"))
-	assert.Equal(t, "2026-03-03", w[0].Get("end_date"))
+	assert.Equal(t, "2026-03-04", w[0].Get("end_date"))
 
 	long := windows(DataTypeDailyActivity, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC))
 	require.Len(t, long, 3)
 	assert.Equal(t, "2025-12-31", long[0].Get("start_date"))
-	assert.Equal(t, "2026-01-29", long[0].Get("end_date"))
-	assert.Equal(t, "2026-01-30", long[1].Get("start_date"), "no day in two windows")
-	assert.Equal(t, "2026-03-02", long[2].Get("end_date"))
+	assert.Equal(t, "2026-01-30", long[0].Get("end_date"))
+	assert.Equal(t, "2026-01-30", long[1].Get("start_date"), "windows share their boundary day: none is missed if end_date is exclusive")
+	assert.Equal(t, "2026-03-03", long[2].Get("end_date"))
 
 	hr := windows(DataTypeHeartRate, fetchFrom, fetchFrom.Add(10*24*time.Hour))
 	require.Len(t, hr, 2, "heartrate in 7 day steps")

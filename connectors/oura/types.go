@@ -2,7 +2,12 @@
 
 package oura
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"math"
+	"strconv"
+	"strings"
+)
 
 // Data types this connector stores. Each raw object holds one of them, and
 // Map dispatches on it. A line is one Oura document, verbatim (compacted to
@@ -76,12 +81,31 @@ type page struct {
 
 // tokenBody is the answer of the token endpoint.
 type tokenBody struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int64  `json:"expires_in"`
-	Scope        string `json:"scope"`
-	TokenType    string `json:"token_type"`
-	Error        string `json:"error"`
+	AccessToken  string      `json:"access_token"`
+	RefreshToken string      `json:"refresh_token"`
+	ExpiresIn    flexSeconds `json:"expires_in"`
+	Scope        string      `json:"scope"`
+	TokenType    string      `json:"token_type"`
+	Error        string      `json:"error"`
+}
+
+// flexSeconds is a count of seconds sent as a JSON number or as a numeric
+// string; anything else reads as 0 (unknown).
+type flexSeconds int64
+
+// maxExpiresIn caps a token lifetime: a larger value is treated as this one,
+// so a provider glitch cannot overflow a time.Duration.
+const maxExpiresIn = 10 * 365 * 24 * 3600
+
+func (f *flexSeconds) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), `"`)
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil || n <= 0 || math.IsNaN(n) {
+		*f = 0
+		return nil
+	}
+	*f = flexSeconds(min(n, maxExpiresIn))
+	return nil
 }
 
 // personalInfo is the part of /v2/usercollection/personal_info the connector
@@ -134,13 +158,13 @@ type Sleep struct {
 
 // DailyReadiness is a daily_readiness document.
 type DailyReadiness struct {
-	ID                        string             `json:"id"`
-	Day                       string             `json:"day"`
-	Timestamp                 string             `json:"timestamp"`
-	Score                     *float64           `json:"score"`
-	TemperatureDeviation      *float64           `json:"temperature_deviation"`
-	TemperatureTrendDeviation *float64           `json:"temperature_trend_deviation"`
-	Contributors              map[string]float64 `json:"contributors"`
+	ID                        string              `json:"id"`
+	Day                       string              `json:"day"`
+	Timestamp                 string              `json:"timestamp"`
+	Score                     *float64            `json:"score"`
+	TemperatureDeviation      *float64            `json:"temperature_deviation"`
+	TemperatureTrendDeviation *float64            `json:"temperature_trend_deviation"`
+	Contributors              map[string]*float64 `json:"contributors"`
 }
 
 // DailySpO2 is a daily_spo2 document.
@@ -153,11 +177,13 @@ type DailySpO2 struct {
 	BreathingDisturbanceIndex *float64 `json:"breathing_disturbance_index"`
 }
 
-// HeartRate is one heartrate reading.
+// HeartRate is one heartrate reading. Timestamp is in UTC; TimestampUnix is
+// the same instant in Unix milliseconds.
 type HeartRate struct {
-	BPM       *float64 `json:"bpm"`
-	Source    string   `json:"source"`
-	Timestamp string   `json:"timestamp"`
+	BPM           *float64 `json:"bpm"`
+	Source        string   `json:"source"`
+	Timestamp     string   `json:"timestamp"`
+	TimestampUnix *int64   `json:"timestamp_unix"`
 }
 
 // Workout is a workout document. Distance is in metres, calories in kcal.
@@ -177,11 +203,11 @@ type Workout struct {
 // DailySleep is a daily_sleep document: the day's sleep score and its
 // contributors.
 type DailySleep struct {
-	ID           string             `json:"id"`
-	Day          string             `json:"day"`
-	Timestamp    string             `json:"timestamp"`
-	Score        *float64           `json:"score"`
-	Contributors map[string]float64 `json:"contributors"`
+	ID           string              `json:"id"`
+	Day          string              `json:"day"`
+	Timestamp    string              `json:"timestamp"`
+	Score        *float64            `json:"score"`
+	Contributors map[string]*float64 `json:"contributors"`
 }
 
 // DailyStress is a daily_stress document. StressHigh and RecoveryHigh are

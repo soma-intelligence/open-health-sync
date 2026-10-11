@@ -164,8 +164,15 @@ func (c *Connector) AnswerChallenge(r *http.Request) (string, []byte, error) {
 // (see the table above). HEAD and GET give no event and no error
 // (AnswerChallenge serves them). Webhooks off, or a bad signature, is an
 // error; so is a body that is not a notification. An event this connector
-// does not act on gives no event and no error, so the route answers 200 and
-// Oura does not retry.
+// does not act on (a data type it does not store, an event type it does not
+// know) gives no event and no error, so the route answers 200 and Oura does
+// not retry. Event and data types are compared without regard to case.
+//
+// Replays. A delivery is accepted as often as it arrives within
+// SignatureMaxAge: Oura retries one it thinks failed, and only the core knows
+// whether it was stored. Processing one twice is harmless: a pull is
+// idempotent, the raw store keeps identical bytes once, and a deletion
+// applied twice changes nothing.
 func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connector.InboundEvent, error) {
 	if r.Method == http.MethodHead || r.Method == http.MethodGet {
 		return nil, nil
@@ -176,6 +183,9 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	}
 	if secret == "" {
 		return nil, errNotConfigured
+	}
+	if r.Body == nil {
+		return nil, errors.New("oura: webhook without a body")
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxInboundBody+1))
 	if err != nil {
@@ -189,13 +199,9 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 		return nil, err
 	}
 
-	var n notification
-	dec := json.NewDecoder(bytes.NewReader(body))
-	if err := dec.Decode(&n); err != nil {
-		return nil, fmt.Errorf("oura: webhook body: %w", err)
-	}
-	if _, err := dec.Token(); err != io.EOF {
-		return nil, errors.New("oura: webhook body: trailing data")
+	n, err := parseNotification(body)
+	if err != nil {
+		return nil, err
 	}
 	if n.UserID == "" || n.EventType == "" || n.DataType == "" {
 		return nil, errors.New("oura: webhook body has no user_id, event_type or data_type")
@@ -203,12 +209,16 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 
 	switch n.EventType {
 	case EventCreate, EventUpdate:
+		if !pulledTypes[n.DataType] {
+			slog.Info("oura: webhook for a data type not stored, ignored", "provider", Slug, "data_type", clip(n.DataType, 64))
+			return nil, nil
+		}
 		return []connector.InboundEvent{{
 			ProviderUserID: n.UserID, DataType: n.DataType, From: now.Add(-InboundLookback), To: now,
 		}}, nil
 	case EventDelete:
 		if !deletableTypes[n.DataType] {
-			slog.Info("oura: delete not applied for this data type", "provider", Slug, "data_type", n.DataType)
+			slog.Info("oura: delete not applied for this data type", "provider", Slug, "data_type", clip(n.DataType, 64))
 			return nil, nil
 		}
 		if n.ObjectID == "" {
@@ -218,18 +228,61 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 			ProviderUserID: n.UserID, DataType: DataTypeWebhook, Lines: [][]byte{bytes.TrimSpace(body)},
 		}}, nil
 	}
-	slog.Info("oura: webhook of an unknown event type ignored", "provider", Slug, "event_type", n.EventType)
+	slog.Info("oura: webhook of an unknown event type ignored", "provider", Slug, "event_type", clip(n.EventType, 64))
 	return nil, nil
 }
 
+// pulledTypes are the webhook data types whose create or update queues a
+// pull: the ones Fetch stores. Oura's webhook spelling of VO2 max is
+// "vo2_max", the data type's own name.
+var pulledTypes = func() map[string]bool {
+	m := map[string]bool{}
+	for _, dt := range AllDataTypes {
+		m[dt] = true
+	}
+	return m
+}()
+
+// parseNotification decodes one notification body: exactly one JSON object,
+// its event and data types in lower case.
+func parseNotification(body []byte) (notification, error) {
+	var n notification
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if err := dec.Decode(&n); err != nil {
+		return notification{}, fmt.Errorf("oura: webhook body: %w", err)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return notification{}, errors.New("oura: webhook body: trailing data")
+	}
+	n.normalize()
+	return n, nil
+}
+
+// normalize lower cases the event and data types.
+func (n *notification) normalize() {
+	n.EventType = strings.ToLower(strings.TrimSpace(n.EventType))
+	n.DataType = strings.ToLower(strings.TrimSpace(n.DataType))
+}
+
 // verifySignature checks the signature of body and, when the timestamp reads
-// as a time, that it is recent.
+// as a time, that it is recent. Oura documents the signature as the HMAC of
+// the timestamp followed by the JSON body as its sender serializes it; the
+// bytes received are that serialization, and their compact form is accepted
+// too, so a body re-indented on the way still verifies.
 func verifySignature(secret, timestamp, signature string, body []byte, now time.Time) error {
+	timestamp, signature = strings.TrimSpace(timestamp), strings.TrimSpace(signature)
 	if timestamp == "" || signature == "" {
 		return fmt.Errorf("%w: missing header", ErrBadSignature)
 	}
-	want := Sign(secret, timestamp, body)
-	if !hmac.Equal([]byte(strings.ToUpper(signature)), []byte(want)) {
+	got := []byte(strings.ToUpper(signature))
+	ok := hmac.Equal(got, []byte(Sign(secret, timestamp, body)))
+	if !ok {
+		var b bytes.Buffer
+		if json.Compact(&b, body) == nil && !bytes.Equal(b.Bytes(), body) {
+			ok = hmac.Equal(got, []byte(Sign(secret, timestamp, b.Bytes())))
+		}
+	}
+	if !ok {
 		return ErrBadSignature
 	}
 	if at, ok := signedTime(timestamp); ok {
@@ -240,8 +293,8 @@ func verifySignature(secret, timestamp, signature string, body []byte, now time.
 	return nil
 }
 
-// signedTime reads the x-oura-timestamp value: Unix seconds or milliseconds,
-// or an RFC 3339 time. Oura does not document its format, so a value that
+// signedTime reads the x-oura-timestamp value: Unix seconds (what Oura's
+// documentation shows) or milliseconds, or an RFC 3339 time. A value that
 // reads as none of them is accepted on the strength of the signature alone.
 func signedTime(v string) (time.Time, bool) {
 	if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
@@ -263,6 +316,7 @@ func mapWebhook(line []byte, _ string) (*model.MapResult, error) {
 	if err := decode(DataTypeWebhook, line, &n); err != nil {
 		return nil, err
 	}
+	n.normalize()
 	if n.EventType != EventDelete || !deletableTypes[n.DataType] {
 		return nil, nil
 	}

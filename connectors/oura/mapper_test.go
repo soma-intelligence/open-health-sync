@@ -146,14 +146,20 @@ func TestMapDailyActivity_MissingValuesSkipped(t *testing.T) {
 	assert.True(t, res.IsEmpty())
 }
 
-// An offset with no IANA name: the day is a UTC day, and no timezone is
-// claimed.
+// An offset that is not a whole number of hours names a zone using it, so the
+// day is the user's local day.
 func TestMapDailyActivity_HalfHourOffset(t *testing.T) {
 	res := mustMap(t, DataTypeDailyActivity, `{"id":"a","day":"2026-03-01","timestamp":"2026-03-01T04:00:00+05:30","steps":100}`)
 	require.Len(t, res.QuantitySamples, 1)
 	s := res.QuantitySamples[0]
-	assert.NotContains(t, s.Metadata, "timezone")
+	assert.Equal(t, "Asia/Kolkata", s.Metadata["timezone"])
 	assert.Equal(t, "+05:30", s.Metadata["utc_offset"])
+	assert.True(t, time.Date(2026, 2, 28, 18, 30, 0, 0, time.UTC).Equal(s.StartDate), "local midnight")
+
+	// An offset no zone uses: the day is a UTC day, and no timezone is claimed.
+	res = mustMap(t, DataTypeDailyActivity, `{"id":"a","day":"2026-03-01","timestamp":"2026-03-01T04:00:00+05:20","steps":100}`)
+	s = res.QuantitySamples[0]
+	assert.NotContains(t, s.Metadata, "timezone")
 	assert.True(t, time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC).Equal(s.StartDate))
 }
 
@@ -348,7 +354,7 @@ func TestMapHeartRate(t *testing.T) {
 	assert.True(t, at.Equal(s.StartDate))
 	assert.True(t, at.Equal(s.EndDate))
 	assert.Equal(t, "awake", s.Metadata["oura_source"])
-	assert.Equal(t, "UTC", s.Metadata["timezone"])
+	assert.NotContains(t, s.Metadata, "timezone", "Oura sends heart rate in UTC: the user's zone is unknown")
 	assert.False(t, s.Replaceable)
 
 	other := mustMap(t, DataTypeHeartRate, fixture(t, DataTypeHeartRate, 1)).QuantitySamples[0]
@@ -472,7 +478,15 @@ func TestOffsetZone(t *testing.T) {
 		"2026-03-01T00:00:00+01:00": "Etc/GMT-1",
 		"2026-03-01T00:00:00-05:00": "Etc/GMT+5",
 		"2026-03-01T00:00:00+14:00": "Etc/GMT-14",
-		"2026-03-01T00:00:00+05:30": "",
+		"2026-03-01T00:00:00+05:30": "Asia/Kolkata",
+		"2026-03-01T00:00:00+05:45": "Asia/Kathmandu",
+		"2026-03-01T00:00:00-03:30": "America/St_Johns",
+		"2026-07-01T00:00:00-02:30": "America/St_Johns",
+		"2026-03-01T00:00:00+09:30": "Australia/Darwin",
+		"2026-01-01T00:00:00+10:30": "Australia/Adelaide",
+		"2026-01-01T00:00:00+13:45": "Pacific/Chatham",
+		"2026-03-01T00:00:00+05:20": "",
+		"2026-03-01T00:00:00+15:00": "",
 		"2026-03-01T00:00:00-12:00": "Etc/GMT+12",
 	}
 	for in, want := range cases {

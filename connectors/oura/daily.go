@@ -98,18 +98,11 @@ func mapDailyReadiness(line []byte, userID string) (*model.MapResult, error) {
 	if r.TemperatureTrendDeviation != nil {
 		md["temperature_trend_deviation"] = *r.TemperatureTrendDeviation
 	}
-	if len(r.Contributors) > 0 {
-		contributors := make(map[string]any, len(r.Contributors))
-		for k, v := range r.Contributors {
-			contributors[k] = v
-		}
-		md["contributors"] = contributors
+	if c := contributorMetadata(r.Contributors); c != nil {
+		md["contributors"] = c
 	}
-
-	var hrvBalance *float64
-	if v, ok := r.Contributors["hrv_balance"]; ok {
-		hrvBalance = ptrFloat(v)
-	}
+	// A contributor Oura could not compute is null: no sample then.
+	hrvBalance := r.Contributors["hrv_balance"]
 	var samples []model.QuantitySample
 	for _, m := range []struct {
 		quantityType, unit string

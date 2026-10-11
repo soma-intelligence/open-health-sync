@@ -11,11 +11,15 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
-// Oura sleep period types.
+// Oura sleep period types (PublicSleepType in Oura's OpenAPI document). A
+// "sleep" (a confirmed nap or short sleep, 15 minutes to 3 hours) and a
+// "late_nap" (one that ended after 6 pm, counted on the next day) are stored
+// like a night, without the night's resting heart rate and respiratory rate
+// samples; so is a type this connector does not know yet, or none.
 const (
-	sleepTypeDeleted   = "deleted"    // removed by the user or by Oura
-	sleepTypeRest      = "rest"       // a period the user rejected as sleep
-	sleepTypeLongSleep = "long_sleep" // the main sleep of a day
+	sleepTypeDeleted   = "deleted"    // deleted by the user
+	sleepTypeRest      = "rest"       // falsely detected, rejected by the user
+	sleepTypeLongSleep = "long_sleep" // longer than 3 hours: the main sleep of a day
 )
 
 // sleepRemoved reports a period type that must not be stored: Oura deleted
@@ -78,6 +82,10 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 	start, end := startLocal.UTC(), endLocal.UTC()
 	if end.Before(start) {
 		return nil, fmt.Errorf("oura: sleep: bedtime_end before bedtime_start")
+	}
+	if end.Equal(start) {
+		// A period of no length holds nothing to store.
+		return nil, nil
 	}
 
 	md := map[string]any{"oura_type": s.Type, "day": s.Day}
