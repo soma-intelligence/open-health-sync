@@ -109,7 +109,7 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 	// when another part of the configuration is invalid.
 	dbURL := get("OHS_DATABASE_URL", "")
 	report("database", checkDB(ctx, dbURL, o.Timeout), "")
-	report("raw store", checkRawStore(ctx, get("OHS_RAW_STORE", "file:///var/lib/ohs/raw"), o.Timeout), "")
+	report("raw store", checkRawStore(ctx, get("OHS_RAW_STORE", "file:///var/lib/ohs/raw"), o.Timeout, !o.Quick), "")
 
 	if !o.Quick {
 		public := get("OHS_PUBLIC_URL", "http://localhost:8080")
@@ -211,7 +211,9 @@ func redact(err error, dbURL string) string {
 	return s
 }
 
-func checkRawStore(ctx context.Context, rawURL string, timeout time.Duration) error {
+// checkRawStore opens and lists the store; with write it also writes and
+// deletes a probe object (not in --quick: the healthcheck runs every 10 s).
+func checkRawStore(ctx context.Context, rawURL string, timeout time.Duration, write bool) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	st, err := rawstore.Open(rawURL)
@@ -223,7 +225,22 @@ func checkRawStore(ctx context.Context, rawURL string, timeout time.Duration) er
 	if err := st.Walk(ctx, "raw/.ohs-doctor/", func([]string) error { return nil }); err != nil {
 		return fmt.Errorf("list: %w", err)
 	}
+	if write {
+		if err := rawstore.CheckWritable(ctx, st); err != nil {
+			return fmt.Errorf("%w%s", err, writeHint(rawURL))
+		}
+	}
 	return nil
+}
+
+// writeHint points at the usual cause of an unwritable folder: the image
+// runs as the distroless nonroot user (uid 65532), and a bind mounted host
+// folder is owned by someone else.
+func writeHint(rawURL string) string {
+	if strings.HasPrefix(rawURL, "file:") {
+		return " (the container runs as uid 65532: a bind mounted folder needs `chown -R 65532:65532 <folder>` on the host)"
+	}
+	return " (check the bucket exists and the credentials may write to it)"
 }
 
 func checkPublicURL(raw string) error {

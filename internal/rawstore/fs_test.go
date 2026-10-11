@@ -80,3 +80,30 @@ func TestPingFS(t *testing.T) {
 	require.NoError(t, os.WriteFile(dir, []byte("x"), 0o600))
 	require.Error(t, Ping(ctx, s))
 }
+
+func TestCheckWritable(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open("file://" + dir)
+	require.NoError(t, err)
+	require.NoError(t, CheckWritable(context.Background(), s))
+	ents, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, ents, "the probe must leave nothing behind")
+	keys, err := s.List(context.Background(), "")
+	require.NoError(t, err)
+	require.Empty(t, keys)
+}
+
+func TestCheckWritableReadOnlyRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a read-only directory")
+	}
+	dir := t.TempDir()
+	s, err := Open("file://" + dir)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	err = CheckWritable(context.Background(), s)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not writable")
+}

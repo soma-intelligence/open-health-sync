@@ -17,6 +17,10 @@ release may change the API, the configuration or the database schema.
 - `ohs serve` and `ohs doctor` refuse an `OHS_PUBLIC_URL` that is not an absolute http(s) URL
   (or has a query or fragment) and an unknown `OHS_LOG_LEVEL` at load, and an
   `OHS_ENCRYPTION_KEY` error says how to generate a key.
+- `ohs serve` checks at start that the raw store accepts writes (a probe object outside `raw/`,
+  deleted at once) and stops with a hint instead of failing every upload; `ohs doctor` runs
+  the same check (not `--quick`). A database it cannot reach, or a listen address already in
+  use, now names the variable to check.
 
 ## [0.0.1] - 2026-10-11
 

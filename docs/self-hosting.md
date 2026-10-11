@@ -60,7 +60,10 @@ every enabled connector. For each enabled OAuth connector it prints the callback
 URL to register with the provider: `<OHS_PUBLIC_URL>/oauth/<slug>/callback`.
 A connector that needs keys and has none set gets a `skip` line,
 `skip  connector withings: disabled (no keys)`; one with only some of its keys is a
-`fail`. `--quick` checks the database and raw store only.
+`fail`. `--quick` checks the database and raw store only. The full run also writes and deletes
+a probe object in the raw store; a host folder bind mounted at `/var/lib/ohs/raw` must be
+writable by the container user (`chown -R 65532:65532 <folder>`). `ohs serve` runs the same
+write check at start and stops if it fails.
 
 ## Images and architectures
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -146,4 +147,25 @@ func TestDoctorBadPublicURL(t *testing.T) {
 	}, false, nil)
 	require.True(t, errors.Is(err, ErrDoctorFailed))
 	require.Contains(t, out, "fail  public url")
+}
+
+func TestDoctorRawStoreNotWritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a read-only directory")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	m := map[string]string{
+		"OHS_DATABASE_URL":   "postgres://ohs@127.0.0.1:1/ohs?connect_timeout=1",
+		"OHS_ENCRYPTION_KEY": goodKey(),
+		"OHS_RAW_STORE":      "file://" + dir,
+	}
+	out, err := runDoctorT(t, m, false, nil)
+	require.ErrorIs(t, err, ErrDoctorFailed)
+	require.Contains(t, out, "fail  raw store")
+	require.Contains(t, out, "not writable")
+	// --quick (the healthcheck, every 10 s) only lists: no write each time.
+	out, _ = runDoctorT(t, m, true, nil)
+	require.Contains(t, out, "ok    raw store")
 }

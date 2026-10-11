@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	// Every connector registers itself.
@@ -90,9 +91,22 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		return fmt.Errorf("OHS_ENCRYPTION_KEY: %w", err)
 	}
 
+	// The raw store first: it is local and cheap to check, and an unwritable
+	// one would otherwise only show as failed uploads.
+	raw, err := rawstore.Open(cfg.RawStore)
+	if err != nil {
+		return fmt.Errorf("OHS_RAW_STORE: %w", err)
+	}
+	if err := rawstore.CheckWritable(ctx, raw); err != nil {
+		return fmt.Errorf("OHS_RAW_STORE: %w%s", err, writeHint(cfg.RawStore))
+	}
+	if opts.wrapRaw != nil {
+		raw = opts.wrapRaw(raw)
+	}
+
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot reach the database of OHS_DATABASE_URL (is Postgres up, are host, port and password right?): %w", err)
 	}
 	abandoned := false
 	defer func() {
@@ -103,13 +117,6 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		}
 		pool.Close()
 	}()
-	raw, err := rawstore.Open(cfg.RawStore)
-	if err != nil {
-		return err
-	}
-	if opts.wrapRaw != nil {
-		raw = opts.wrapRaw(raw)
-	}
 	store := tenant.New(pool)
 	collectDeps := collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: store,
@@ -197,7 +204,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		if err != nil {
 			cancel()
 			wg.Wait()
-			return fmt.Errorf("api: %w", err)
+			return fmt.Errorf("api: %w%s", err, listenHint(err, cfg.Listen))
 		}
 		slog.Info("api listening", "addr", ln.Addr().String())
 		goRole("api", func() error {
@@ -306,6 +313,14 @@ func bootstrap(ctx context.Context, store *tenant.Store, name string) error {
 	slog.Warn("bootstrap tenant created: store this API key now, it is shown only this once",
 		"tenant_id", t.ID, "name", t.Name, "api_key", key)
 	return nil
+}
+
+// listenHint says what to change when the listen address is taken.
+func listenHint(err error, addr string) string {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return fmt.Sprintf(" (another process holds %s: stop it or set OHS_LISTEN; with docker compose set OHS_HTTP_PORT and OHS_PUBLIC_URL)", addr)
+	}
+	return ""
 }
 
 func roleList(roles map[string]bool) string {
