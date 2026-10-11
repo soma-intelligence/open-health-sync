@@ -57,6 +57,18 @@ release may change the API, the configuration or the database schema.
 - Oura sleep periods of type `deleted` or `rest` (rejected by the user) remove the stored
   session of that id instead of being skipped. An Oura data endpoint answering 404 is skipped
   with a warning instead of failing the pull.
+- Oura connector checked against Oura's OpenAPI document (1.37). The consent asks for
+  `spo2Daily`; the old `spo2` is not an Oura scope. Heart rate is filed under its UTC day (Oura
+  sends it in UTC). Records at a half or quarter hour offset (+05:30, +05:45, -03:30...) land on
+  the user's local day instead of the UTC day. A null contributor is no longer stored as 0, and
+  a zero-length sleep period or a timestamp outside 2000 to 2199 is not stored.
+- Oura pulls retry a 5xx answer twice with backoff. A data type that fails no longer stops the
+  others: the pull stores what it could and fails with the errors at the end. Paging survives
+  an empty page and stops on a repeated `next_token`, and date windows overlap by a day so no
+  day is missed. An `invalid_client` answer of the token endpoint is reported as an
+  application error instead of marking every user `needs_reauth`.
+- Oura webhooks accept data and event types in any case and a signature over the compacted
+  body, and queue no pull for a data type the connector does not store.
 
 ## [0.0.2] - 2026-10-11
 

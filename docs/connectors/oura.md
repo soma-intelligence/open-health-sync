@@ -4,8 +4,9 @@ Slug `oura`. Users connect their own Oura account over OAuth; Open Health Sync p
 from the Oura Cloud API v2 on a schedule, and on Oura's webhooks when you subscribe to them. You
 register your own Oura API application: nothing is shared between instances.
 
-This connector is available but has not yet been verified with a real Oura account. It was built
-from Oura's published API documentation and is tested against a fake of the API.
+This connector is available but has not yet been verified with a real Oura account. It is
+checked against Oura's OpenAPI document (version 1.37, see [Testing](#testing)) and tested
+against a fake of the API.
 
 ## Before you start
 
@@ -61,13 +62,14 @@ The consent page asks for:
 | `heartrate` | the heart rate time series |
 | `workout` | workouts |
 | `session` | meditation, breathing and other guided sessions |
-| `spo2` | daily SpO2 averages |
+| `spo2Daily` | daily SpO2 averages |
 
 Oura lets the user untick scopes at consent. A data type whose scope was refused answers 403; it
 is skipped for that user with a warning in the log, and the other types are still pulled. A user
-who connected before the `session` scope was requested gets no sessions until they connect
-again. Which scope Oura requires for daily stress and VO2 max is not stated clearly in its
-documentation; if your users get 403 on them, check the scopes your application may request.
+who connected before the `session` or `spo2Daily` scope was requested gets no sessions or SpO2
+until they connect again (earlier versions asked for `spo2`, which is not an Oura scope). Oura's
+OpenAPI document does not say which scope daily stress and VO2 max need; `daily` is assumed. If
+your users get 403 on them, check the scopes your application may request.
 
 ## 4. Connect a user
 
@@ -137,23 +139,32 @@ application. Nothing is subscribed when a user connects.
    waits for the next 6 hour pull, and a deletion made meanwhile is missed.
 
 Each notification is signed: `x-oura-signature` is the hex HMAC-SHA256 of the
-`x-oura-timestamp` header followed by the raw body, keyed by your client secret. A notification
-whose signature is missing or wrong, or whose timestamp is more than an hour old or 5 minutes
-ahead of the server clock, is refused (401).
+`x-oura-timestamp` header (Unix seconds) followed by the body, keyed by your client secret.
+Oura's document computes it over the serialized JSON body, so the connector accepts the
+signature over the body as received or over its compacted form, in upper or lower case hex. A
+notification whose signature is missing or wrong, or whose timestamp is more than an hour old
+or 5 minutes ahead of the server clock, is refused (401). A notification replayed within that
+hour is accepted: what it does (a pull, or a removal) is idempotent.
 
 | Event | Effect |
 |---|---|
-| `create`, `update` of any data type | a pull of the last 3 days for that Oura user |
+| `create`, `update` of a data type the connector stores | a pull of the last 3 days for that Oura user |
+| `create`, `update` of another type (`tag`, `meal`, `ring_configuration`...) | acknowledged (200), ignored |
 | `delete` of a `sleep`, `workout` or `session` | the record of that Oura id is removed (see [updates and deletes](#updates-and-deletes)) |
 | `delete` of a daily document, anything else | acknowledged (200), ignored: the next copy of the day replaces a daily document |
 
-A notification names the Oura user by the id read at connect. A connection made while Oura
-refused the `personal` scope has no Oura user id and gets no webhook; the scheduled pull still
-covers it.
+Data and event types are read in any case. A notification names the Oura user by the id read at
+connect. A connection made while Oura refused the `personal` scope has no Oura user id and gets
+no webhook; the scheduled pull still covers it.
 
-The signature scheme and the challenge come from Oura's webhook documentation as published by
-third parties; this part has not been checked against a live Oura subscription. If your
-notifications are refused with a valid secret, please report it.
+Oura retries a notification that is not answered 2xx up to 10 times over about an hour, and
+cancels the subscription on HTTP 410. Open Health Sync never answers 410. A refused notification
+(401, or 413 above 1 MiB) is retried by Oura and then dropped; the scheduled pull still covers
+the data, but not a deletion.
+
+The signature scheme and the challenge follow Oura's OpenAPI document; they have not yet been
+checked against a live Oura subscription. If your notifications are refused with a valid
+secret, please report it.
 
 ## Data produced
 
@@ -163,7 +174,7 @@ notifications are refused with a valid secret, please report it.
 | Sleep | a sleep session per sleep period (nights, naps, rest), with its stages from the 5 minute hypnogram (`deep`, `light`, `rem`, `awake`), average HRV, lowest heart rate (as resting heart rate) and average breathing rate. The main sleep of a day also gives `resting_heart_rate` and `respiratory_rate` samples |
 | Daily readiness | `readiness_score` (0 to 100), `readiness_hrv_balance` (the HRV balance contributor, an index, not milliseconds), `body_temperature_deviation` (degrees Celsius); the other contributors in metadata |
 | Daily SpO2 | `oxygen_saturation`, the night's average in percent; the breathing disturbance index in metadata |
-| Heart rate | `heart_rate` samples, with what the ring was doing (`awake`, `rest`, `sleep`, `workout`...) in metadata |
+| Heart rate | `heart_rate` samples, with what the ring was doing (`awake`, `rest`, `sleep`, `workout`...) in metadata. Oura sends readings in UTC, so they carry no time zone and are filed under their UTC day |
 | Workouts | workouts, with the activity in the canonical vocabulary (`other` when there is no match; Oura's own name in metadata) |
 | Daily sleep | `sleep_score` (Oura's 0 to 100 daily sleep score) per local day; the contributors in metadata. It is a daily figure, not written into a sleep session |
 | Daily stress | `stress_high_time` and `recovery_high_time`, the minutes of the day Oura classed as high stress and high recovery (sent in seconds); Oura's day summary (`restored`, `normal`, `stressful`) in metadata. A UTC day, as the document has no time |
@@ -175,9 +186,16 @@ Notes:
 - **HRV.** Oura's sleep HRV is an RMSSD. It fills the session's HRV column, marked
   `"hrv_method": "rmssd"` in metadata, and is never stored as `hrv_sdnn`.
 - **Time zones.** Oura gives a UTC offset, not a zone name. The connector records the offset
-  (`utc_offset`) and, when it is a whole number of hours, the matching fixed-offset zone as
-  `timezone` (`Etc/GMT-1` for +01:00), so a record lands on the user's local day. A half hour
-  offset falls back to UTC days.
+  (`utc_offset`) and a zone with that offset at that instant as `timezone`, so a record lands on
+  the user's local day: the fixed-offset zone for a whole number of hours (`Etc/GMT-1` for
+  +01:00), and a zone of a place that uses the offset otherwise (`Asia/Kolkata` for +05:30,
+  `Asia/Kathmandu` for +05:45, `America/St_Johns` for -03:30). The zone name says nothing about
+  where the user is. An offset no zone uses falls back to UTC days.
+- **Empty and odd records.** A null or missing figure is left out, never stored as 0. A sleep
+  period that ends when it starts, and any timestamp outside the years 2000 to 2199, is not
+  stored. An unknown sleep type, workout activity or intensity, heart rate source, mood or
+  stress summary is kept as Oura sent it in metadata; a session of an unknown type is not
+  stored.
 - **Days.** A daily document covers the calendar day it names, from local midnight. Oura's own
   activity day starts at 4 am; the figures are Oura's, only the window is the calendar day.
 
@@ -202,8 +220,49 @@ Notes:
 
 ## Errors
 
-- Rate limits (HTTP 429) defer the connection's job until `Retry-After`.
-- If Oura refuses the access or refresh token the connection becomes `needs_reauth` and the user
-  must connect again.
+- Rate limits (HTTP 429, on any endpoint) defer the connection's job until `Retry-After`.
+- A 500, 502, 503 or 504 answer is retried twice within the pull, with a growing pause. If it
+  persists, the job is retried later (at `Retry-After` when Oura sent one).
+- If Oura refuses the access token, the core refreshes it once and pulls again. If Oura refuses
+  the refresh token (`invalid_grant`), the connection becomes `needs_reauth` and the user must
+  connect again. If it refuses your application (`invalid_client`, a wrong client ID or
+  secret), no user is marked: the jobs fail with that error until the keys are fixed.
+- **Partial failure.** A data type that fails (after its retries) does not stop the others: the
+  pull stores what the other types returned, then fails with the errors, and the job is retried
+  later. Stored data is deduplicated, so the retry adds only what was missing. A rate limit, a
+  refused token or a failure to store stops the pull at once.
 - When every data type answers 403 (typically a lapsed Oura Membership), the pull fails with
   that error and is retried later; nothing is lost once access is back.
+- **Windows.** Oura does not document whether `end_date` is inclusive. The connector asks one
+  day more than it needs on each side and lets consecutive 30 day windows share their boundary
+  day; the copies this gives are deduplicated. Paging stops on a repeated `next_token`, after 3
+  empty pages in a row, or after 500 pages.
+
+## Testing
+
+- `go test ./connectors/oura/...` runs the unit, robustness and contract tests against a fake
+  of the API. The contract tests check every fixture and every answer of the fake against
+  `connectors/oura/testdata/responses.schema.json`, the response schemas, scopes and endpoints
+  taken from Oura's OpenAPI document. That document has no licence for redistribution, so only
+  the derived structure is committed. To refresh it from a newer copy:
+
+  ```sh
+  go test ./connectors/oura/ -run TestContract -oura-openapi /path/to/openapi.json -oura-openapi-version 1.38
+  ```
+
+- Fuzz targets (`FuzzMapSleep`, `FuzzHandleInbound`...) replay their seeds and the crashers in
+  `testdata/fuzz` on every run. To search for more:
+  `go test -run='^$' -fuzz=FuzzMapSleep -fuzztime=30s ./connectors/oura/`.
+- `go test -tags integration -run TestEndToEnd ./connectors/oura/` starts the whole app with a
+  database (Docker required), connects a user against the fake, and follows the data through
+  the scheduled pull, the ETL, the REST API, update and delete webhooks, and a re-pull.
+- **Live check** (opt-in, never in CI): with an access token of a real account,
+
+  ```sh
+  OHS_OURA_LIVE_TOKEN=... go test -tags live -run TestLive -v ./connectors/oura/
+  ```
+
+  reads the last 7 days (`OHS_OURA_LIVE_DAYS`, at most 30), checks each answer against the
+  response schemas, and maps every line through the connector. It only reads, and prints counts
+  and schema paths, never a value. Get a token by connecting an account to a test instance, or
+  through the OAuth flow of your application.
