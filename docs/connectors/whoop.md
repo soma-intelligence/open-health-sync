@@ -5,7 +5,8 @@ data from the WHOOP API v2 on a schedule and when WHOOP sends a webhook. You reg
 WHOOP developer application: nothing is shared between instances.
 
 Status: available, not yet verified with a real WHOOP account. The connector follows the
-published API documentation and is tested against a fake of the API.
+published API documentation (v2) and is tested against a fake of the API that answers in the
+documented shapes; [Testing](#testing) says how to check it against your own account.
 
 ## 1. Get your keys
 
@@ -56,6 +57,12 @@ The consent page asks for:
 | `read:profile` | the WHOOP user id, which webhooks name. The name and email the profile also returns are not stored |
 | `offline` | a refresh token, so the connection outlives the one hour access token |
 
+`offline` is required: a grant WHOOP returns without a refresh token is refused (the
+connection is not created and the grant is revoked at WHOOP), since it would stop working
+after an hour. The user may untick other scopes on the consent page. A data type whose scope
+the grant lacks is skipped with a warning (from the scopes WHOOP returned, or when WHOOP
+answers 403), and the rest is pulled.
+
 ## 4. Connect a user
 
 Your server asks for a consent URL (see [api.md](../api.md#connecting-a-provider)):
@@ -74,7 +81,12 @@ WHOOP rotates the refresh token on every refresh and invalidates the previous ac
 Open Health Sync stores the new pair each time. If WHOOP refuses the refresh token
 (`invalid_grant`) the connection becomes `needs_reauth` and the user must connect again. A
 refused client (`invalid_client`, a wrong secret) is reported as an error and does not touch
-the connections.
+the connections. An access token WHOOP rejects in the middle of a pull is refreshed once and
+the pull is retried.
+
+Deleting a user revokes the grant at WHOOP (`DELETE /v2/user/access`), which also stops
+WHOOP's webhooks for that user. A grant WHOOP already forgot (`invalid_grant`, 404) counts as
+revoked.
 
 ## 5. Webhooks
 
@@ -86,12 +98,13 @@ Each delivery is signed: `X-WHOOP-Signature` is the base64 HMAC-SHA256 of the
 `X-WHOOP-Signature-Timestamp` header followed by the raw body, keyed by your client secret.
 Open Health Sync recomputes it and refuses (401) a delivery whose signature is missing or wrong,
 or whose timestamp is more than 5 minutes from the server clock, so keep the clock synchronized.
+A signed delivery replayed within those 5 minutes is accepted: every event is idempotent (a
+pull, or a deletion already applied), and WHOOP itself retries a delivery up to 5 times.
 
 | Event | Effect |
 |---|---|
 | `recovery.updated`, `sleep.updated`, `workout.updated` | a pull of the last 3 days for that user |
-| `sleep.deleted`, `workout.deleted` | the sleep or workout is removed: see [updates and deletions](#updates-and-deletions) |
-| `recovery.deleted` | acknowledged (200), not applied: see [updates and deletions](#updates-and-deletions) |
+| `sleep.deleted`, `workout.deleted`, `recovery.deleted` | the record is removed: see [updates and deletions](#updates-and-deletions) |
 | anything else | acknowledged (200), ignored |
 
 A webhook names one record, but a pull job covers a time window, so an update pulls the last 3
@@ -108,17 +121,24 @@ for them.
 ## 6. Limits
 
 WHOOP allows 100 requests a minute and 10,000 a day per app by default (an increase can be
-requested in the dashboard). A pull pages through each collection 25 records at a time and
-spaces its requests 600 ms apart. On HTTP 429 the connection's job is deferred until
-`Retry-After`, or `X-RateLimit-Reset` when WHOOP sends only that, and one minute when it sends
-neither.
+requested in the dashboard). A pull pages through each collection 25 records at a time. All
+the WHOOP requests of an instance process, across the pulls running at once, share one
+schedule spaced 600 ms apart, which stays under 100 a minute. When WHOOP says no request is
+left (`X-RateLimit-Remaining: 0`) and the window resets within a minute, the next request
+waits for the reset. On HTTP 429 the connection's job is deferred until `Retry-After`, or
+`X-RateLimit-Reset` when WHOOP sends only that, and one minute when it sends neither.
+
+A network error or an HTTP 500, 502, 503 or 504 is retried up to 5 times with a growing,
+jittered pause. If one data type still fails, the others are pulled anyway and the pull
+reports the failure, so the job is retried; the records already pulled are not duplicated by
+the retry. A rejected token (401) or a 429 stops the pull at once.
 
 ## Data produced
 
 | WHOOP data | Canonical records |
 |---|---|
-| Cycle | quantity samples `strain` and `heart_rate` (the cycle average, `count/min`, stored as `bpm`); the day's summary gets `strain_score` and `total_kcal` |
-| Recovery | quantity samples `resting_heart_rate`, `hrv_rmssd`, `oxygen_saturation`, `skin_temperature`; the day's summary gets `recovery_score` and `resting_hr` |
+| Cycle | quantity samples `strain` and `heart_rate` (the cycle average, `count/min`, stored as `bpm`); the day's summary gets `strain_score` and `total_kcal`, and `step_count` when WHOOP sends the cycle's steps |
+| Recovery | quantity samples `resting_heart_rate`, `hrv_rmssd`, `oxygen_saturation`, `skin_temperature`, identified by the recovery's sleep; the day's summary gets `recovery_score` and `resting_hr` |
 | Sleep | a sleep session per sleep or nap: stage durations (slow wave sleep is `deep`), sleep performance as `sleep_score`, respiratory rate; plus a `respiratory_rate` sample |
 | Workout | a workout (activity in the shared vocabulary, energy, distance, average and maximum heart rate, elevation gain) and a `workout_strain` sample |
 | Body measurement | `body_mass` and `height` samples dated the day they were read; the maximum heart rate is kept in their metadata |
@@ -136,8 +156,13 @@ Notes on the mapping:
   shows it on. The cycle and the recovery of a day fill one daily summary row.
 - **Time zone.** WHOOP gives an offset such as `+01:00`, not a zone name. A whole hour offset is
   stored as its IANA `Etc/GMT` name (`+01:00` is `Etc/GMT-1`) in `timezone`; the offset itself
-  is kept as `timezone_offset`. A half hour offset has no such name and the local day falls back
-  to UTC.
+  is kept as `timezone_offset`. An offset that is not a whole number of hours (`+05:30`,
+  `+05:45`, `-03:30`, ...) has no `Etc` name, so it is stored as a zone that had exactly that
+  offset at the record's time (`+05:30` is `Asia/Kolkata`): the local day comes out right, but
+  the name says which offset applied, not where the user was. An offset no zone had then, or an
+  unreadable one, falls back to UTC.
+- **Steps.** The cycle's `step_count` is stored whatever the cycle's
+  score state, and missing or null on older cycles leaves the summary's steps empty.
 - **Scoring.** A sleep or workout still `PENDING_SCORE` is stored with its times (and, for a
   workout, its sport) and no figures; the scored copy WHOOP sends later replaces it (see below).
   A recovery or cycle still `PENDING_SCORE` gives nothing until scored. `UNSCORABLE` sleeps and
@@ -154,12 +179,43 @@ Notes on the mapping:
   re-scored copy replaces the stored figures (a figure it leaves out keeps its stored value),
   along with its strain and respiratory rate samples, and a copy whose start the user edited
   replaces the stored record of the same id instead of adding a second one.
-- A `sleep.deleted` or `workout.deleted` webhook is stored verbatim as a raw object (data type
-  `webhook`) for every connection of that WHOOP user, and the ETL removes the sleep (with its
-  respiratory rate sample) or the workout (with its strain, energy and heart rate samples) of
-  that id. A tombstone keeps it from coming back with a later pull or a reprocessed raw object,
-  even when the deletion is processed before the record. Deletions only arrive by webhook:
-  without one, a record deleted at WHOOP stays.
-- `recovery.deleted` is acknowledged and not applied. WHOOP names a recovery by its sleep id,
-  while the recovery figures are stored under their cycle id, so the webhook does not say which
-  stored figures to remove; a re-scored recovery still replaces them.
+- A `sleep.deleted`, `workout.deleted` or `recovery.deleted` webhook is stored as a raw object
+  (data type `webhook`, the event as WHOOP sent it, on one line) for every connection of that
+  WHOOP user, and the ETL removes the sleep (with its respiratory rate sample) or the workout
+  (with its strain, energy and heart rate samples) of that id. A tombstone keeps it from coming
+  back with a later pull or a reprocessed raw object, even when the deletion is processed before
+  the record. Deletions only arrive by webhook: without one, a record deleted at WHOOP stays.
+- WHOOP names a recovery by the id of its sleep, and deletes a recovery when its sleep is
+  deleted. Recovery samples are stored under that sleep id, so a `sleep.deleted` removes them
+  with the sleep, and `recovery.deleted` tombstones them so that no later pull brings them back.
+  Two limits remain in the shared ETL: a `recovery.deleted` arriving alone, for a sleep that
+  is still stored, does not remove recovery samples already stored, and the recovery figures
+  of a daily summary stay until a re-scored recovery replaces them.
+
+## Testing
+
+`go test ./connectors/whoop/...` runs the unit, robustness and fuzz seed tests against the
+fake WHOOP in `whoopfake`; `go test -tags integration ./connectors/whoop/` adds an end to end
+test through the real app (Postgres in a container): connect, backfill, ETL, the REST API,
+re-scoring and delete webhooks, a re-pull, and the revocation on user deletion.
+
+The fixtures are checked against the response schemas of the WHOOP API v2, kept as a table in
+`contract_test.go`. To compare that table with the current published OpenAPI document, download
+it (`https://api.prod.whoop.com/developer/doc/openapi.json`) and run:
+
+```sh
+OHS_WHOOP_OPENAPI=/path/to/openapi.json go test -run TestContract ./connectors/whoop/
+```
+
+A smoke test reads a few days of a real account, checks every record against the schemas and
+maps it. It needs the `live` build tag and an access token (for example one stored by an
+instance you run, or one from WHOOP's OAuth flow); it never refreshes or revokes it, and logs
+only counts and field names:
+
+```sh
+OHS_WHOOP_LIVE_ACCESS_TOKEN=... OHS_WHOOP_LIVE_DAYS=3 \
+  go test -tags live -count=1 -run TestLive -v ./connectors/whoop/
+```
+
+Keep the token out of your shell history (`read -s OHS_WHOOP_LIVE_ACCESS_TOKEN; export
+OHS_WHOOP_LIVE_ACCESS_TOKEN`).

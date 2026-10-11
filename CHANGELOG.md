@@ -69,6 +69,15 @@ release may change the API, the configuration or the database schema.
   application error instead of marking every user `needs_reauth`.
 - Oura webhooks accept data and event types in any case and a signature over the compacted
   body, and queue no pull for a data type the connector does not store.
+- WHOOP checked against the published API v2: `recovery.deleted` webhooks are applied
+  (recovery samples are now identified by their sleep), the cycle's `step_count` fills the
+  daily summary's steps, offsets that are not whole hours (`+05:30`, `+05:45`) give the right
+  local day, and an ongoing cycle (no `end`) maps.
+- WHOOP pulls are sturdier: one request schedule per process across concurrent pulls, a wait
+  for `X-RateLimit-Reset` when the window is spent, retries on HTTP 500/502/503/504, a data
+  type whose scope was not granted skipped instead of failing the pull, a failing data type no
+  longer stopping the others, and a guard against a repeated `next_token`. A grant without a
+  refresh token (`offline` unticked) is refused, and deleting a user revokes the WHOOP grant.
 
 ## [0.0.2] - 2026-10-11
 
