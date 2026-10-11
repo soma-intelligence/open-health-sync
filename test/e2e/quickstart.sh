@@ -23,10 +23,11 @@
 # Usage: test/e2e/quickstart.sh          (tears the stack down on exit)
 #        KEEP=1 test/e2e/quickstart.sh   (leaves it running)
 # Env:   OHS_E2E_PORT (host port, default 18080), OHS_E2E_TIMEOUT (seconds to
-#        wait for processing, default 120)
+#        wait for processing, default 120), OHS_E2E_PROJECT (compose project,
+#        default ohs-e2e; set it and the port to run beside another checkout)
 set -euo pipefail
 
-E2E_PROJECT=ohs-e2e
+E2E_PROJECT="${OHS_E2E_PROJECT:-ohs-e2e}"
 # shellcheck source=test/e2e/lib.sh
 source "$(dirname "$0")/lib.sh"
 trap e2e_down EXIT

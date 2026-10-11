@@ -29,14 +29,14 @@ integration:
 contract:
 	go test -tags integration -count=1 ./test/contract/
 
-# Quickstart end to end on the compose stack (project ohs-e2e, port
-# OHS_E2E_PORT, default 18080). Needs docker, curl, jq. The helper tests run
+# Quickstart end to end on the compose stack (project OHS_E2E_PROJECT, default
+# ohs-e2e, port OHS_E2E_PORT, default 18080). Needs docker, curl, jq. The helper tests run
 # first.
 e2e:
 	test/e2e/lib_test.sh
 	test/e2e/quickstart.sh
 
-# kill -9 crash recovery on the compose stack (project ohs-rel, port
+# kill -9 crash recovery on the compose stack (project OHS_E2E_PROJECT, default ohs-rel, port
 # OHS_E2E_PORT, default 18081). Takes over 10 minutes: a job cut by the crash
 # is reclaimed after the queue's visibility timeout. CI runs it on main and
 # nightly (.github/workflows/reliability.yml).

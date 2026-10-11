@@ -20,12 +20,12 @@
 #
 # Usage: test/e2e/reliability.sh          (tears the stack down on exit)
 #        KEEP=1 test/e2e/reliability.sh   (leaves it running)
-# Env:   OHS_E2E_PORT (default 18081), OHS_REL_PARTS (default 6),
+# Env:   OHS_E2E_PROJECT (compose project, default ohs-rel), OHS_E2E_PORT (default 18081), OHS_REL_PARTS (default 6),
 #        OHS_REL_LINES (lines per part, default 40000), OHS_REL_TIMEOUT
 #        (seconds to wait for recovery, default 900), OHS_REL_KILL_WAIT
 set -euo pipefail
 
-E2E_PROJECT=ohs-rel
+E2E_PROJECT="${OHS_E2E_PROJECT:-ohs-rel}"
 export OHS_E2E_PORT="${OHS_E2E_PORT:-18081}"
 # shellcheck source=test/e2e/lib.sh
 source "$(dirname "$0")/lib.sh"
