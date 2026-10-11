@@ -109,6 +109,8 @@ func TestAdminUsage(t *testing.T) {
 		{"admin", "tenant", "create", "--name", "a", "extra"},
 		{"admin", "key"}, {"admin", "key", "create"}, {"admin", "key", "revoke", "--tenant", "x"},
 		{"admin", "tenant", "list", "extra"},
+		{"admin", "tenant", "list", "--name", "x"}, {"admin", "tenant", "create", "--name", "a", "--tenant", "x"},
+		{"admin", "key", "create", "--tenant", "x", "--key", "y"}, {"admin", "key", "list", "--tenant", "x", "--name", "n"},
 	} {
 		err := run(args, &buf)
 		if err == nil || !strings.Contains(err.Error(), "usage: ohs admin") {
@@ -126,5 +128,21 @@ func TestServeNeedsConfig(t *testing.T) {
 	err := run([]string{"serve"}, &buf)
 	if err == nil || !strings.Contains(err.Error(), "OHS_DATABASE_URL") {
 		t.Fatalf("got %v, want an error naming OHS_DATABASE_URL", err)
+	}
+}
+
+// migrate and admin need only the database URL: a bad public URL or log
+// level (read by serve) must not stop them.
+func TestMigrateIgnoresServeOnlySettings(t *testing.T) {
+	for k, v := range map[string]string{"OHS_PUBLIC_URL": "localhost:8080", "OHS_LOG_LEVEL": "loud"} {
+		t.Run(k, func(t *testing.T) {
+			t.Setenv("OHS_DATABASE_URL", unreachableDB)
+			t.Setenv("OHS_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+			t.Setenv(k, v)
+			err := run([]string{"migrate", "version"}, &bytes.Buffer{})
+			if err == nil || strings.Contains(err.Error(), k) {
+				t.Fatalf("got %v, want a connection error, not %s", err, k)
+			}
+		})
 	}
 }

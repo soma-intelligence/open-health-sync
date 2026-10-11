@@ -114,7 +114,7 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 
 	if !o.Quick {
 		public := get("OHS_PUBLIC_URL", "http://localhost:8080")
-		report("public url", checkPublicURL(public), public)
+		report("public url", config.CheckPublicURL(public), public)
 		if cfgErr == nil {
 			doctorConnectors(out, report, o, cfg, strings.TrimRight(public, "/"))
 		}
@@ -245,15 +245,4 @@ func writeHint(rawURL string) string {
 		return " (the container runs as uid 65532: a bind mounted folder needs `chown -R 65532:65532 <folder>` on the host)"
 	}
 	return " (check the bucket exists and the credentials may write to it)"
-}
-
-func checkPublicURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("OHS_PUBLIC_URL is not a valid URL: %w", err)
-	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return errors.New("OHS_PUBLIC_URL must be an http(s) URL with a host")
-	}
-	return nil
 }

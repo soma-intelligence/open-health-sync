@@ -115,15 +115,16 @@ func runMigrate(rest []string, out io.Writer) error {
 	return err
 }
 
-// databaseURL reads OHS_DATABASE_URL through config.Load. migrate needs no
-// encryption key, so only a missing or invalid OHS_ENCRYPTION_KEY falls back to
-// the variable alone; any other configuration error is returned.
+// databaseURL reads OHS_DATABASE_URL through config.Load. migrate and admin
+// need neither the encryption key nor the settings only serve reads, so an
+// error about OHS_ENCRYPTION_KEY, OHS_PUBLIC_URL or OHS_LOG_LEVEL falls back
+// to the variable alone; any other configuration error is returned.
 func databaseURL() (string, error) {
 	cfg, err := config.Load(os.LookupEnv, os.Environ())
 	if err == nil {
 		return cfg.DatabaseURL, nil
 	}
-	if !errors.Is(err, config.ErrEncryptionKey) {
+	if !errors.Is(err, config.ErrEncryptionKey) && !errors.Is(err, config.ErrPublicURL) && !errors.Is(err, config.ErrLogLevel) {
 		return "", err
 	}
 	return os.Getenv("OHS_DATABASE_URL"), nil // Load checked it is set

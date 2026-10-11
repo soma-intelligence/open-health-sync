@@ -4,6 +4,7 @@ package config
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -185,5 +186,21 @@ func TestLoadKeyErrorsSayHowToFix(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "openssl rand -base64 32") {
 			t.Errorf("key %q: %v", k, err)
 		}
+	}
+}
+
+func TestLoadSentinels(t *testing.T) {
+	m := base()
+	m["OHS_PUBLIC_URL"] = "localhost:1"
+	if _, err := load(t, m); !errors.Is(err, ErrPublicURL) {
+		t.Fatalf("public url: %v", err)
+	}
+	m = base()
+	m["OHS_LOG_LEVEL"] = "loud"
+	if _, err := load(t, m); !errors.Is(err, ErrLogLevel) {
+		t.Fatalf("log level: %v", err)
+	}
+	if CheckPublicURL("https://x/?q") == nil || CheckPublicURL("https://x") != nil {
+		t.Fatal("CheckPublicURL")
 	}
 }

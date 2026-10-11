@@ -63,15 +63,22 @@ var ErrEncryptionKey = errors.New("OHS_ENCRYPTION_KEY")
 const keyHint = ": generate one with `openssl rand -base64 32` (or run `ohs doctor`), " +
 	"and keep the same key for the life of the instance"
 
-// checkPublicURL accepts an absolute http(s) URL with a host and no query or
+// ErrPublicURL and ErrLogLevel are wrapped by the Load errors about
+// OHS_PUBLIC_URL and OHS_LOG_LEVEL, settings only serve reads.
+var (
+	ErrPublicURL = errors.New("OHS_PUBLIC_URL")
+	ErrLogLevel  = errors.New("OHS_LOG_LEVEL")
+)
+
+// CheckPublicURL accepts an absolute http(s) URL with a host and no query or
 // fragment: OAuth callbacks are built by appending a path to it.
-func checkPublicURL(raw string) error {
+func CheckPublicURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return fmt.Errorf("OHS_PUBLIC_URL %q must be an absolute http or https URL, for example https://health.example.org", raw)
+		return fmt.Errorf("%w %q must be an absolute http or https URL, for example https://health.example.org", ErrPublicURL, raw)
 	}
 	if u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(raw, "?") || strings.HasSuffix(raw, "#") {
-		return fmt.Errorf("OHS_PUBLIC_URL %q must not have a query or fragment: callback paths are appended to it", raw)
+		return fmt.Errorf("%w %q must not have a query or fragment: callback paths are appended to it", ErrPublicURL, raw)
 	}
 	return nil
 }
@@ -114,12 +121,12 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	}
 	c.EncryptionKey = key
 
-	if err := checkPublicURL(c.PublicURL); err != nil {
+	if err := CheckPublicURL(c.PublicURL); err != nil {
 		return Config{}, err
 	}
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(c.LogLevel)); err != nil {
-		return Config{}, fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", c.LogLevel)
+		return Config{}, fmt.Errorf("%w: %q is not one of debug, info, warn, error", ErrLogLevel, c.LogLevel)
 	}
 
 	for _, r := range strings.Split(get("OHS_ROLES", "api,collect,etl"), ",") {
