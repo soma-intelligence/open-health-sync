@@ -103,6 +103,12 @@ var rangeRules = map[string]rangeRule{
 		// means no beat-to-beat variability at all, which no live heart produces.
 		HardMin: 0, HardMax: unbounded, SoftMin: 3, SoftMax: 300,
 	},
+	model.QTHRVRMSSD: {
+		Unit: "ms",
+		// Same reasoning as SDNN: an RMSSD of 0 is a dropped reading. Nightly
+		// RMSSD rarely passes 250 ms even in endurance athletes.
+		HardMin: 0, HardMax: unbounded, SoftMin: 3, SoftMax: 300,
+	},
 	"vo2_max": {
 		Unit: "mL/kg/min",
 		// The human record is around 96; 90 as the soft ceiling leaves room for

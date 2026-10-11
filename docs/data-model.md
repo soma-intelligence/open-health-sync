@@ -362,6 +362,7 @@ stored as 0 to 100, not as fractions.
 | `headphone_audio_exposure` | `dBASPL` |
 | `heart_rate` | `bpm` |
 | `height` | `cm` |
+| `hrv_rmssd` | `ms` |
 | `hrv_sdnn` | `ms` |
 | `inhaler_usage` | `count` |
 | `insulin_delivery` | `IU` |

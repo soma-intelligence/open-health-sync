@@ -41,6 +41,7 @@ var storageUnits = map[string]string{
 	"walking_heart_rate_average": "bpm",
 	QTRespiratoryRate:            "bpm",
 	QTHRVSDNN:                    "ms",
+	QTHRVRMSSD:                   "ms",
 	"vo2_max":                    "mL/kg/min",
 	QTOxygenSaturation:           "percent",
 	"blood_pressure_systolic":    "mmHg",

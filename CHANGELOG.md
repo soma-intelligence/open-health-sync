@@ -12,6 +12,11 @@ release may change the API, the configuration or the database schema.
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
   verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
+- WHOOP connector (#6): bring your own WHOOP developer app, OAuth connection, scheduled pulls
+  of cycles, recoveries, sleeps, workouts and body measurements from the API v2, and signed
+  webhooks for recovery, sleep and workout updates. Not yet verified with a real account.
+- Quantity name `hrv_rmssd` (milliseconds) for HRV reported as RMSSD, kept apart from
+  `hrv_sdnn`. Migration `0008` registers it in `quantity_codes`.
 
 ## [0.0.2] - 2026-10-11
 
