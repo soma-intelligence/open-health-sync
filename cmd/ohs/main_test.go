@@ -107,6 +107,8 @@ func TestAdminUsage(t *testing.T) {
 		{"admin"}, {"admin", "tenant"}, {"admin", "tenant", "delete"},
 		{"admin", "tenant", "create"}, {"admin", "tenant", "create", "--name", ""},
 		{"admin", "tenant", "create", "--name", "a", "extra"},
+		{"admin", "key"}, {"admin", "key", "create"}, {"admin", "key", "revoke", "--tenant", "x"},
+		{"admin", "tenant", "list", "extra"},
 	} {
 		err := run(args, &buf)
 		if err == nil || !strings.Contains(err.Error(), "usage: ohs admin") {

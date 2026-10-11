@@ -33,7 +33,7 @@ Commands:
   serve     run the roles listed in OHS_ROLES (api, collect, etl)
   migrate   apply or inspect the database schema: up, version, down --all
   doctor    check the configuration, database, raw store and connectors
-  admin     create a tenant and print its first API key
+  admin     create tenants, create, list and revoke their API keys
   mcp       serve MCP on stdin and stdout for a local agent (Claude Desktop, Claude Code)
   version   print the version and commit
   help      print this help, or the help of one command: ohs help <command>
@@ -78,10 +78,20 @@ paste into .env.
 
   --quick   check the database and the raw store only (container healthcheck)
 `,
-	"admin": `usage: ohs admin tenant create --name <name>
+	"admin": `usage: ohs admin <command>
 
-Creates a tenant and prints its API key (ohs_sk_...) once: store it, it cannot
-be shown again. Needs OHS_DATABASE_URL.
+  tenant create --name <name>    create a tenant and print its first API key
+  tenant list                    list the tenants, with their ids
+  key create --tenant <id>       add an API key to a tenant (rotation)
+  key list --tenant <id>         list a tenant's keys by prefix, with last use
+  key revoke --tenant <id> --key <key or prefix>
+                                 revoke one key, named by the prefix key list
+                                 shows or by the whole key (a whole user
+                                 token is revoked the same way)
+
+A new key (ohs_sk_...) is printed once: store it, it cannot be shown again.
+To rotate: key create, deploy the new key, key revoke the old one.
+Needs OHS_DATABASE_URL.
 `,
 	"mcp": `usage: ohs mcp
 
