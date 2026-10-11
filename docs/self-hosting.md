@@ -68,9 +68,9 @@ write check at start and stops if it fails.
 ## Images and architectures
 
 Each release publishes `ghcr.io/soma-intelligence/open-health-sync` for `linux/amd64` and
-`linux/arm64`, tagged with the version (`0.0.1`) and `edge` (the newest final release, never a pre-release such as `0.1.0-rc.1`).
+`linux/arm64`, tagged with the version (`0.0.2`) and `edge` (the newest final release, never a pre-release such as `0.1.0-rc.1`).
 There is no `latest` tag while the version is 0.x: pin a version. The compose file
-uses `${OHS_VERSION:-0.0.1}`; set `OHS_VERSION` to move to another release.
+uses `${OHS_VERSION:-0.0.2}`; set `OHS_VERSION` to move to another release.
 Release binaries for Linux and macOS (amd64, arm64) and their `checksums.txt` are
 attached to each [GitHub release](https://github.com/soma-intelligence/open-health-sync/releases).
 

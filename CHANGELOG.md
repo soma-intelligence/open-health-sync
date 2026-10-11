@@ -7,6 +7,12 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-11
+
+Usability release. Nothing changes in the data model or the database schema. Read the
+[release notes](docs/release-notes/v0.0.2.md) for the two settings that are now checked at
+start.
+
 ### Added
 
 - `ohs admin tenant list`, `ohs admin key create`, `key list` and `key revoke`: rotate a
@@ -16,6 +22,13 @@ release may change the API, the configuration or the database schema.
 - `X-Request-Id` on every API response (the caller's own is kept when well formed), repeated
   as `request_id` in problem bodies and on every log line about the request.
 - `ohs help`, `ohs help <command>`, `-h`/`--help` on every command and `ohs --version`.
+- Docs: a providers page (`docs/connectors/README.md`) listing the supported and planned
+  sources with status and integration path; upgrade, backup and restore, and secret rotation
+  in the self-hosting guide; Claude Desktop and Claude Code setup in the MCP guide.
+- README rewritten around real screenshots (light and dark) and a social preview image.
+- The container image carries the `io.modelcontextprotocol.server.name` label and the
+  standard OCI source, description and licenses labels, and `server.json` at the repository
+  root describes the stdio MCP package for the official MCP registry.
 
 ### Changed
 
@@ -74,5 +87,6 @@ First public release, an early preview. See the
   `ghcr.io/soma-intelligence/open-health-sync`, and static binaries for Linux and macOS on
   amd64 and arm64 with SHA-256 checksums.
 
-[Unreleased]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/soma-intelligence/open-health-sync/releases/tag/v0.0.1

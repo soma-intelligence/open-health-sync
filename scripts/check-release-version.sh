@@ -6,7 +6,7 @@
 # (`${OHS_VERSION:-X.Y.Z}`), so `docker compose up` on the tagged checkout
 # pulls the image the tag publishes.
 #
-#   scripts/check-release-version.sh v0.0.1
+#   scripts/check-release-version.sh v0.0.2
 set -euo pipefail
 
 tag="${1:-}"

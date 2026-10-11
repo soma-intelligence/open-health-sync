@@ -13,18 +13,18 @@
 
 [![CI](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/soma-intelligence/open-health-sync?color=0e9f8e)](https://github.com/soma-intelligence/open-health-sync/releases)
-[![Image](https://img.shields.io/badge/ghcr.io-0.0.1-0e9f8e)](https://github.com/soma-intelligence/open-health-sync/releases)
+[![Image](https://img.shields.io/badge/ghcr.io-0.0.2-0e9f8e)](https://github.com/soma-intelligence/open-health-sync/releases)
 ![amd64 and arm64](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-555)
 [![Go version](https://img.shields.io/github/go-mod/go-version/soma-intelligence/open-health-sync?color=555)](go.mod)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-555)](LICENSE)
 
 ```bash
-docker pull ghcr.io/soma-intelligence/open-health-sync:0.0.1
+docker pull ghcr.io/soma-intelligence/open-health-sync:0.0.2
 ```
 
 [**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
-<sub><b>v0.0.1, early preview.</b> APIs, configuration and schema may change in any 0.x release.</sub>
+<sub><b>v0.0.2, early preview.</b> APIs, configuration and schema may change in any 0.x release.</sub>
 
 </div>
 
@@ -369,8 +369,8 @@ software.
 
 ## Status and roadmap
 
-v0.0.1 is the first public release. What changed: [CHANGELOG.md](CHANGELOG.md). Install notes and
-the full list of limitations: [release notes](docs/release-notes/v0.0.1.md).
+v0.0.2 is the latest release. What changed: [CHANGELOG.md](CHANGELOG.md). Install notes and
+the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
 
