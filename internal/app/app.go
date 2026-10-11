@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -113,7 +114,11 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	// one would otherwise only show as failed uploads.
 	raw, err := rawstore.Open(cfg.RawStore)
 	if err != nil {
-		return fmt.Errorf("OHS_RAW_STORE: %w", err)
+		hint := ""
+		if errors.Is(err, fs.ErrPermission) {
+			hint = writeHint(cfg.RawStore)
+		}
+		return fmt.Errorf("OHS_RAW_STORE: %w%s", err, hint)
 	}
 	if err := rawstore.CheckWritable(ctx, raw); err != nil {
 		return fmt.Errorf("OHS_RAW_STORE: %w%s", err, writeHint(cfg.RawStore))

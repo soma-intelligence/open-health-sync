@@ -60,3 +60,20 @@ func TestLoggerFormat(t *testing.T) {
 	require.Contains(t, buf.String(), `"interval":"24h0m0s"`)
 	require.Contains(t, buf.String(), `"request_id":"rid"`)
 }
+
+// A root the process cannot create gets the same chown hint.
+func TestRunRawStoreCannotCreateRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root creates anything")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	cfg := config.Config{
+		DatabaseURL: "postgres://ohs@127.0.0.1:1/ohs?connect_timeout=1", RawStore: "file://" + dir + "/raw",
+		LogLevel: "info", EncryptionKey: make([]byte, 32), Roles: map[string]bool{"api": true},
+	}
+	err := run(context.Background(), cfg, io.Discard)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "chown")
+}

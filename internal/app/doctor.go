@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"strings"
@@ -218,6 +219,9 @@ func checkRawStore(ctx context.Context, rawURL string, timeout time.Duration, wr
 	defer cancel()
 	st, err := rawstore.Open(rawURL)
 	if err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return fmt.Errorf("open: %w%s", err, writeHint(rawURL))
+		}
 		return fmt.Errorf("open: %w", err)
 	}
 	// A walk of an unused prefix proves the store is reachable without
