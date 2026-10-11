@@ -1,0 +1,92 @@
+---
+title: Production checklist
+description: What to set before real people's health data goes through an instance.
+icon: ShieldCheck
+---
+
+<Steps>
+<Step>
+
+### Put TLS in front
+
+Bearer secrets travel in headers. Put a reverse proxy with TLS in front of port 8080, and set
+`OHS_PUBLIC_URL` to the https address clients and providers use: OAuth callbacks, notification
+URLs and links are built from it.
+
+```text title="Caddyfile"
+ohs.example.org {
+	@metrics path /metrics
+	respond @metrics 404
+	reverse_proxy localhost:8080
+}
+```
+
+</Step>
+<Step>
+
+### Hide or turn off /metrics
+
+`/metrics` is unauthenticated and global to the instance. It exposes counters, not per-tenant
+data, but anyone who reaches it can read it. Block it at the proxy, as above, or set
+`OHS_METRICS=false`.
+
+</Step>
+<Step>
+
+### Keep the encryption key safe
+
+`OHS_ENCRYPTION_KEY` seals provider OAuth tokens. Store it in your secret manager and in your
+backups. Without it, stored tokens cannot be read and every user must connect their providers
+again.
+
+</Step>
+<Step>
+
+### Encrypt at rest
+
+`ohs` hashes keys and tokens and encrypts OAuth tokens, but health records themselves are stored
+in clear in Postgres and the raw store. Use disk or database encryption, and a bucket with
+server-side encryption.
+
+</Step>
+<Step>
+
+### Back up, and test a restore
+
+Database, raw store and `.env`, taken together. See [Backup and restore](/docs/self-hosting/backup).
+
+</Step>
+<Step>
+
+### Set a retention period
+
+`OHS_RETENTION_DAYS` deletes raw files and normalized data past an age. `0` keeps everything.
+See [Deletion and retention](/docs/concepts/deletion-and-retention).
+
+</Step>
+<Step>
+
+### Run etl somewhere, and size the pool
+
+Uploads and user deletions only complete in a process that runs the `etl` role. If you split
+roles across processes, size each Postgres pool with `pool_max_conns`: see
+[Configuration](/docs/self-hosting/configuration#database-pool-size).
+
+</Step>
+<Step>
+
+### Watch it
+
+`GET /readyz` answers 503 when the database or the raw store fails; `GET /healthz` is liveness.
+Logs are JSON on stderr, and every line about a request carries its `request_id`, the same value
+as the `X-Request-Id` response header. A non-zero `parked_jobs` in a user's coverage report needs
+an operator.
+
+</Step>
+</Steps>
+
+<Callout type="warn" title="Hand consent links to their own user only">
+  A consent link is single use and expires after 10 minutes, but its state is not bound to a
+  browser session: whoever completes it connects the account they sign in with to the user it was
+  minted for. Never post an authorize URL where others can open it.
+</Callout>

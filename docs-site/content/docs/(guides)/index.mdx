@@ -1,0 +1,117 @@
+---
+title: Introduction
+description: Health data from devices and apps, in one clean model. Self-hosted, free, one Go binary plus Postgres.
+icon: House
+---
+
+import { Bot, Braces, Cloud, Plug, Rocket, Server } from 'lucide-react';
+
+Open Health Sync (`ohs`) is a self-hosted ingestion and normalization layer for health data. It
+pulls from providers, accepts uploads from phones, stores each payload verbatim, maps it to one
+canonical model with one set of units, and serves it over a REST API and a read-only MCP server.
+
+<Pipeline />
+
+It stops at clean, traceable data. It is not a dashboard, a coaching app or a medical device:
+scores, insights and products belong in what you build on top.
+
+<Cards>
+  <Card icon={<Rocket />} title="Quickstart" href="/docs/quickstart">
+    Run an instance, upload a heart rate reading and read it back, in under five minutes.
+  </Card>
+  <Card icon={<Server />} title="Self-host it" href="/docs/self-hosting">
+    Docker Compose, a Raspberry Pi 5, an S3 bucket or a single binary.
+  </Card>
+  <Card icon={<Plug />} title="Connect sources" href="/docs/connectors">
+    Apple Health and Withings today, many more on the roadmap.
+  </Card>
+  <Card icon={<Braces />} title="API reference" href="/docs/api-reference">
+    Every route, generated from the OpenAPI 3.1 file that leads the code.
+  </Card>
+  <Card icon={<Bot />} title="Give it to an AI agent" href="/docs/guides/ai-agents">
+    A read-only MCP server, with a token that can only read one person's data.
+  </Card>
+  <Card icon={<Cloud />} title="Hosted platform" href="/docs/platform">
+    A managed instance for developers who would rather not run one. Coming soon.
+  </Card>
+</Cards>
+
+## Why it exists
+
+Every health source speaks its own dialect. Apple Health sends one JSON line per HealthKit
+sample, heart rate in `count/min`, oxygen saturation as a fraction. Withings sends a daily
+activity object keyed by date, and intraday series keyed by Unix epoch. Each one has its own idea
+of a day, a device and a duplicate.
+
+So teams write a script per provider: a parser, a table, a cron job. It works until the second
+provider, the first re-sent upload, the first mapper bug that needs a backfill, or the first
+person who asks you to delete everything you hold about them. Open Health Sync is that layer,
+written once, with the boring parts done properly.
+
+| | A script per provider | Open Health Sync |
+| --- | :---: | :---: |
+| Add a source | a new parser, new tables, a new cron job | a connector that maps into the same model |
+| Units | whatever each API sends | one unit per quantity, the original kept in `metadata` |
+| "Today" | UTC, or the provider's clock | the local calendar day of the record's time zone |
+| A re-sent upload | stored twice | answered `200` with `"duplicate": true` |
+| Raw payloads | parsed, then thrown away | kept verbatim, so a user can be re-processed after a fix |
+| Is it done? | guess, or read the logs | `GET /coverage`: pending, parked and rejected counts |
+| Provider OAuth tokens | a plain column | sealed with AES-256-GCM |
+| Delete a user | grep across tables and buckets | `DELETE /v1/users/{id}`, then poll the job |
+
+## What ships today
+
+<Status is="available" /> **Sources:** [Apple Health](/docs/connectors/apple-health) through your
+iOS app, and [Withings](/docs/connectors/withings) over OAuth.
+
+<Status is="available" /> **Outputs:** the [REST API](/docs/api-reference) and the read-only
+[MCP server](/docs/api-reference/mcp).
+
+<Status is="planned" /> **Next:** more connectors, standard outputs (FHIR R4, Open mHealth,
+exports, webhooks), then client SDKs. The [sources page](/docs/connectors/sources) tracks each
+one.
+
+<Callout title="Early preview">
+  Releases are 0.x: the API, the configuration and the schema may change in any of them. Read
+  the [changelog](https://github.com/soma-intelligence/open-health-sync/blob/main/CHANGELOG.md)
+  before you upgrade.
+</Callout>
+
+## Who sees the data
+
+Only whoever runs the instance. Open Health Sync is software you run, with no account to create,
+no analytics and no call home. The server talks to the providers you enable and to your own
+database and raw store. Logs never contain tokens, keys or health values.
+
+<Accordions>
+  <Accordion title="Is it HIPAA or GDPR compliant?">
+    No software is compliant on its own, and Open Health Sync is not certified, audited or covered
+    by a business associate agreement. What it gives you: data stays on infrastructure you choose,
+    `DELETE /v1/users/{id}` is a hard delete of raw files and rows, `OHS_RETENTION_DAYS` enforces a
+    retention period, every query is scoped to a tenant and a user, keys and tokens are stored
+    hashed, and provider OAuth tokens are encrypted. Health records themselves are not encrypted
+    by `ohs`: use disk or database encryption, TLS in front of the API, and your own access
+    controls.
+  </Accordion>
+  <Accordion title="What does it cost?">
+    Nothing. The server is free and open source. You pay for wherever you run it, which can be a
+    Raspberry Pi 5 with 4 GB. Cloud providers such as Withings need your own developer
+    application, registered with them.
+  </Accordion>
+  <Accordion title="Why AGPL?">
+    So the layer stays open. Anyone can run, study and change it; if you run a modified Open
+    Health Sync as a network service, you publish your changes under the same license. The client
+    SDKs will be MIT licensed when they exist, so apps that talk to a server are not affected.
+  </Accordion>
+  <Accordion title="Can I use it commercially?">
+    Yes. A company can run it, modified or not, to power its own product. The AGPL only asks that
+    users who interact with a modified server over the network can get its source. This is not
+    legal advice: read the
+    [license](https://github.com/soma-intelligence/open-health-sync/blob/main/LICENSE) or ask your
+    counsel.
+  </Accordion>
+  <Accordion title="Is it a medical device?">
+    No. It moves and normalizes data. It does not diagnose, score or advise, and it is not
+    clinical software.
+  </Accordion>
+</Accordions>

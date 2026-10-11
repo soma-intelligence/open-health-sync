@@ -1,0 +1,51 @@
+---
+title: Processing and coverage
+description: Uploads are processed asynchronously. The coverage report says when data has landed, and what did not.
+icon: Gauge
+---
+
+An upload answers as soon as the payload is safe in the raw store. Normalizing it happens in the
+background, so "did my data land?" has its own answer: the coverage report.
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/coverage" -H "Authorization: Bearer $KEY"
+```
+
+<TypeTable
+  type={{
+    days: { type: 'array', description: 'Record counts per provider and local day. Capped at 10000 days, with truncated: true when more matched.' },
+    pending_jobs: { type: 'integer', description: 'Work not finished yet. Poll until it is 0.' },
+    parked_jobs: { type: 'integer', description: 'Work that exhausted its retries and needs an operator.' },
+    rejected_records: { type: 'integer', description: 'Lines that were not stored: a value out of range, a missing startDate, a unit that does not convert.' },
+  }}
+/>
+
+<Shot name="daily-coverage" alt="Left: daily summaries per local day. Right: the coverage report with 0 pending, 0 parked and 0 rejected." />
+
+## The rule of thumb
+
+<Steps>
+<Step>
+After an upload, poll the coverage report until `pending_jobs` is 0.
+</Step>
+<Step>
+Then read. A non-zero `rejected_records` means some lines were not stored; an operator finds
+each line and its reason in `ohs_data.failed_records`.
+</Step>
+<Step>
+A non-zero `parked_jobs` is for the operator: those jobs failed 5 times.
+</Step>
+</Steps>
+
+## Retries and crashes
+
+- A failed job is retried with exponential backoff (30 seconds, doubling) and parked after 5
+  attempts.
+- A job interrupted by a crash is claimed again after its 10 minute visibility timeout.
+- A provider's 429 defers that connection's job until `Retry-After`, without counting a failed
+  attempt.
+- Records that failed for a recoverable reason are replayed once per process start, so a fixed
+  release picks them up after a restart.
+
+What to do after a long outage, and how to re-process a user from the raw files, is in
+[Operating notes](/docs/self-hosting/operating-notes).

@@ -1,0 +1,52 @@
+---
+title: S3 raw store
+description: Keep raw payloads in AWS S3, or any S3 compatible store that supports conditional writes.
+icon: HardDrive
+---
+
+By default raw payloads go to a folder (`file:///var/lib/ohs/raw`, the `raw` volume). Point
+`OHS_RAW_STORE` at a bucket instead:
+
+```sh title=".env"
+OHS_RAW_STORE=s3://bucket?endpoint=&region=&path_style=true
+```
+
+<Callout type="warn" title="Conditional writes are required">
+  A raw object is never overwritten: every write uses `If-None-Match`. The store must support
+  it. `ohs doctor` writes and deletes a probe object to check that the store is usable.
+</Callout>
+
+<Tabs items={['AWS S3 or another service', 'Local store with compose']}>
+<Tab value="AWS S3 or another service">
+
+Set the bucket and the usual `AWS_*` credentials in `.env`, and start without any S3 overlay:
+
+```sh title=".env"
+OHS_RAW_STORE=s3://my-ohs-raw?region=eu-west-3
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+For another S3 compatible service, add its `endpoint`, and `path_style=true` when it needs
+path-style URLs.
+
+</Tab>
+<Tab value="Local store with compose">
+
+The overlay `deploy/docker-compose.s3.yml` runs VersityGW (POSIX backend, pinned by digest) and
+creates the `ohs-raw` bucket:
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.s3.yml up -d --wait
+```
+
+Set `S3_ACCESS_KEY` and `S3_SECRET_KEY` in `.env` to replace the demo credentials. VersityGW was
+chosen by running the candidates (VersityGW, SeaweedFS, RustFS) through the `rawstore`
+conformance suite and keeping the first one that passed. Never start it with `--nometa`:
+conditional writes depend on the stored metadata.
+
+</Tab>
+</Tabs>
+
+Back the bucket up with your provider's tools, together with the database and `.env`. See
+[Backup and restore](/docs/self-hosting/backup).

@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+@import "fumadocs-openapi/css/preset.css";
+
+/* The brand teal of the README badges and the wordmark (#0e9f8e). */
+@theme {
+  --color-fd-primary: hsl(173, 84%, 34%);
+  --color-fd-primary-foreground: hsl(0, 0%, 100%);
+  --color-fd-ring: hsl(173, 84%, 34%);
+}
+
+.dark {
+  --color-fd-primary: hsl(172, 66%, 52%);
+  --color-fd-primary-foreground: hsl(180, 40%, 8%);
+  --color-fd-ring: hsl(172, 66%, 52%);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+/* biome-ignore-start lint/complexity/noImportantStyles: overrides the scroll lock's inline styles */
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+/* biome-ignore-end lint/complexity/noImportantStyles: overrides the scroll lock's inline styles */

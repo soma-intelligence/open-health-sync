@@ -1,0 +1,4 @@
+{
+  "title": "Connectors",
+  "pages": ["index", "apple-health", "withings", "...", "sources", "writing-a-connector"]
+}
