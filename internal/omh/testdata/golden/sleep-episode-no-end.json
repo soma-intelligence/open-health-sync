@@ -1,0 +1,23 @@
+{
+  "header": {
+    "id": "sleep-8",
+    "creation_date_time": "2026-03-01T09:15:30.25Z",
+    "schema_id": {
+      "namespace": "omh",
+      "name": "sleep-episode",
+      "version": "1.1"
+    },
+    "acquisition_provenance": {
+      "source_name": "apple_health"
+    },
+    "user_id": "3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+  },
+  "body": {
+    "effective_time_frame": {
+      "time_interval": {
+        "end_date_time": "2026-03-01T08:00:00Z",
+        "start_date_time": "2026-03-01T08:00:00Z"
+      }
+    }
+  }
+}
