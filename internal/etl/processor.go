@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -189,77 +190,107 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	failed = append(failed, recordFailures...)
 	recordsFailed := len(failed) + rr.ParseErrorsDropped
 
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+	// One write transaction per object. Late data for an old period can land
+	// in a chunk TimescaleDB's compression job is compressing at that moment,
+	// and the two may deadlock: retry the transaction a few times before
+	// leaving it to the job queue's own retries.
+	writeObject := func() (Counts, string, bool, error) {
+		dt := cloneDetails(details)
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return nil, "", false, fmt.Errorf("begin transaction: %w", err)
+		}
+		defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	// Re-check under a share lock: a deletion that flips the user to deleting
-	// waits for this transaction, and one that already did stops the write.
-	if active, err := userActive(ctx, tx, sc, true); err != nil {
+		// Re-check under a share lock: a deletion that flips the user to deleting
+		// waits for this transaction, and one that already did stops the write.
+		if active, err := userActive(ctx, tx, sc, true); err != nil {
+			return nil, "", false, err
+		} else if !active {
+			return Counts{}, "", true, nil
+		}
+
+		counts := Counts{}
+		if !acc.IsEmpty() {
+			c, err := NewWriter(opts.Writer).WriteAccumulated(ctx, tx, sc, acc)
+			if err != nil {
+				return nil, "", false, fmt.Errorf("write records: %w", err)
+			}
+			counts = c
+			if days := touchedDays(sc, acc); len(days) > 0 {
+				n, k, err := deriveDailySummaries(ctx, tx, sc, days)
+				if err != nil {
+					return nil, "", false, fmt.Errorf("derive daily summaries: %w", err)
+				}
+				if n+k > 0 {
+					counts.add(tDaily, n, k)
+				}
+			}
+			for table, tc := range counts {
+				d := detail(dt, table)
+				d.written += tc.Written
+				d.skipped += tc.Skipped
+			}
+		}
+		written := counts.TotalWritten()
+
+		if len(failed) > 0 {
+			if err := writeFailedRecords(ctx, tx, sc, job.Key, failed); err != nil {
+				return nil, "", false, err
+			}
+		}
+		// All-failed object (nothing written or already stored): the per-line rows alone do not make it visible as one
+		// unit, so add a job-level row in the same transaction.
+		if written+counts.TotalSkipped() == 0 && recordsFailed > 0 {
+			if err := writeJobFailure(ctx, tx, sc, job.Key,
+				fmt.Sprintf("all %d record(s) failed (0 written)", recordsFailed)); err != nil {
+				return nil, "", false, err
+			}
+		}
+
+		status := "success"
+		if recordsIn > 0 && recordsFailed > 0 {
+			status = "partial"
+		}
+		entries := []syncLogEntry{{
+			MetricType: metricAll, Status: status, Written: written, Skipped: counts.TotalSkipped(),
+			Failed: recordsFailed, DurationMS: time.Since(start).Milliseconds(),
+		}}
+		entries = append(entries, metricEntries(dt)...)
+		if err := writeSyncLog(ctx, tx, sc, job.Key, entries); err != nil {
+			return nil, "", false, err
+		}
+		if err := writeCoverage(ctx, tx, sc, cov.entries()); err != nil {
+			return nil, "", false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, "", false, fmt.Errorf("commit transaction: %w", err)
+		}
+		return counts, status, false, nil
+	}
+	var (
+		counts      Counts
+		status      string
+		userSkipped bool
+	)
+	for attempt := 1; ; attempt++ {
+		counts, status, userSkipped, err = writeObject()
+		if err == nil || attempt == maxWriteAttempts || !retryableWrite(err) {
+			break
+		}
+		log.WarnContext(ctx, "write transaction retried", "attempt", attempt, "error", err)
+		if err := sleepCtx(ctx, time.Duration(attempt)*100*time.Millisecond); err != nil {
+			return nil, err
+		}
+	}
+	if err != nil {
 		return nil, err
-	} else if !active {
+	}
+	if userSkipped {
 		log.InfoContext(ctx, "etl job skipped, user not active")
 		return Counts{}, nil
 	}
-
-	counts := Counts{}
-	if !acc.IsEmpty() {
-		c, err := NewWriter(opts.Writer).WriteAccumulated(ctx, tx, sc, acc)
-		if err != nil {
-			return nil, fmt.Errorf("write records: %w", err)
-		}
-		counts = c
-		if days := touchedDays(sc, acc); len(days) > 0 {
-			n, k, err := deriveDailySummaries(ctx, tx, sc, days)
-			if err != nil {
-				return nil, fmt.Errorf("derive daily summaries: %w", err)
-			}
-			if n+k > 0 {
-				counts.add(tDaily, n, k)
-			}
-		}
-		for table, tc := range counts {
-			d := detail(details, table)
-			d.written += tc.Written
-			d.skipped += tc.Skipped
-		}
-	}
 	written := counts.TotalWritten()
-
-	if len(failed) > 0 {
-		if err := writeFailedRecords(ctx, tx, sc, job.Key, failed); err != nil {
-			return nil, err
-		}
-	}
-	// All-failed object (nothing written or already stored): the per-line rows alone do not make it visible as one
-	// unit, so add a job-level row in the same transaction.
-	if written+counts.TotalSkipped() == 0 && recordsFailed > 0 {
-		if err := writeJobFailure(ctx, tx, sc, job.Key,
-			fmt.Sprintf("all %d record(s) failed (0 written)", recordsFailed)); err != nil {
-			return nil, err
-		}
-	}
-
-	status := "success"
-	if recordsIn > 0 && recordsFailed > 0 {
-		status = "partial"
-	}
-	entries := []syncLogEntry{{
-		MetricType: metricAll, Status: status, Written: written, Skipped: counts.TotalSkipped(),
-		Failed: recordsFailed, DurationMS: time.Since(start).Milliseconds(),
-	}}
-	entries = append(entries, metricEntries(details)...)
-	if err := writeSyncLog(ctx, tx, sc, job.Key, entries); err != nil {
-		return nil, err
-	}
-	if err := writeCoverage(ctx, tx, sc, cov.entries()); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit transaction: %w", err)
-	}
 
 	log.InfoContext(ctx, "raw object processed",
 		"status", status, "records_in", recordsIn, "records_out", written,
@@ -480,4 +511,38 @@ func (b *coverageBuilder) entries() []coverageEntry {
 		}
 	}
 	return out
+}
+
+// maxWriteAttempts bounds the in-process retries of one object's write
+// transaction.
+const maxWriteAttempts = 3
+
+// retryableWrite reports whether a write transaction failed on a deadlock or a
+// serialization failure, which a fresh attempt can clear.
+func retryableWrite(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "40P01" || pgErr.Code == "40001")
+}
+
+// cloneDetails copies the per-metric counts so a retried transaction starts
+// from the counts gathered before the write.
+func cloneDetails(in map[string]*metricDetail) map[string]*metricDetail {
+	out := make(map[string]*metricDetail, len(in))
+	for k, v := range in {
+		d := *v
+		out[k] = &d
+	}
+	return out
+}
+
+// sleepCtx waits for d or until ctx is done.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }

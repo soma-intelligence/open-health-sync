@@ -74,8 +74,15 @@ Three schemas:
   `failed_records`.
 
 Every row in `ohs_sync` and `ohs_data` carries `tenant_id` and `user_id`, except the two
-reference tables. Only hypertables are used: no continuous aggregates and no compression
-policies, so the data layer stays inside the Apache licensed part of TimescaleDB.
+reference tables. `quantity_samples`, the largest table, is compressed once a chunk is 30 days
+old (about 7 times smaller on disk). Compression is a Timescale License feature, included in
+the default `timescale/timescaledb` image; on an Apache-only build the migration leaves the
+table uncompressed and everything else works the same. No continuous aggregates are used.
+
+Duplicates are dropped on write. Most tables do it with a unique index on `(tenant_id,
+user_id, content_hash, <time>)`. `quantity_samples` has no such index, because checking a unique
+index on a compressed chunk decompresses whole batches: the writer reads the stored hashes of
+the batch's time window for that user and inserts only the missing rows, under a per-user lock.
 
 The raw store is a local folder (`OHS_RAW_STORE=file:///var/lib/ohs/raw`) or any S3 compatible
 store (`s3://bucket?endpoint=...&region=...&path_style=true`). Writes are conditional (never

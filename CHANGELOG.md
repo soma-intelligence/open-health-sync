@@ -104,6 +104,17 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- `quantity_samples` chunks older than 30 days are compressed (TimescaleDB compression,
+  segmented by tenant and user): about 7 times less disk in our benchmark of 10.5 million
+  samples. Builds of TimescaleDB without compression keep the table as it is.
+- Duplicate quantity samples are now found by the writer, in the stored rows of the batch's
+  time window, instead of a unique index (migration 0015 drops `quantity_samples_dedup_key`).
+  A history import into a compressed period is about 34 times faster than with the index,
+  and no longer fails on TimescaleDB's decompression limit.
+- User deletion and retention lift TimescaleDB's per-transaction decompression limit, so they
+  can never stop half way on compressed data.
+- The ETL retries an object's write transaction up to 3 times on a deadlock or serialization
+  failure, which late data can hit while the compression job compresses the same chunk.
 - Oura sleep periods of type `deleted` or `rest` (rejected by the user) remove the stored
   session of that id instead of being skipped. An Oura data endpoint answering 404 is skipped
   with a warning instead of failing the pull.

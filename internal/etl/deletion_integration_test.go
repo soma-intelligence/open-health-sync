@@ -393,3 +393,23 @@ func (e *env) explain(q string, args ...any) string {
 	require.NoError(e.t, err)
 	return strings.Join(lines, "\n")
 }
+
+// A provider deletion names only an id, so on compressed chunks TimescaleDB
+// decompresses the user's batches to find its samples: more rows than the
+// default per-transaction decompression limit must not fail the job.
+func TestDeletion_RemovesSamplesInCompressedChunks(t *testing.T) {
+	e := newEnv(t)
+	e.register("prov", recordsMap)
+	e.process(e.upload(e.tenant, e.user, "prov", "records", rec("samples", "r-9", deletionBase.Add(-60*24*time.Hour))))
+	// A dense heart rate history of the same user, over the limit of 100,000.
+	e.write(WriterConfig{}, &model.MapResult{QuantitySamples: points(120_000, deletionBase.Add(-90*24*time.Hour))})
+	e.compressQuantity()
+	require.EqualValues(t, 0, e.scalar(`SELECT count(*) FROM timescaledb_information.chunks
+		WHERE hypertable_name = 'quantity_samples' AND NOT is_compressed`), "every chunk is compressed")
+
+	c := e.process(e.upload(e.tenant, e.user, "prov", "records", del("r-9")))
+	assert.Equal(t, TableCount{Written: 1}, c[tDeleted])
+	assert.EqualValues(t, 0, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'prov'`, e.tenant, e.user))
+	assert.Equal(t, 120_000, e.countFor("quantity_samples", e.tenant, e.user))
+}

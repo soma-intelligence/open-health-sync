@@ -305,6 +305,74 @@ func TestWriter_SecondCopyInOneTransactionReusesStaging(t *testing.T) {
 	assert.Equal(t, 16, c["route_points"].Written)
 }
 
+// compressQuantity compresses every chunk of quantity_samples, as the policy
+// does once a chunk is 30 days old.
+func (e *env) compressQuantity() {
+	e.t.Helper()
+	e.exec(`SELECT compress_chunk(c, if_not_compressed => true) FROM show_chunks('ohs_data.quantity_samples') c`)
+}
+
+func TestWriter_QuantityDedupsAgainstCompressedChunks(t *testing.T) {
+	e := newEnv(t)
+	base := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
+	day := time.Date(2026, 1, 6, 0, 0, 0, 0, time.UTC)
+	c := e.write(smallCopy, &model.MapResult{QuantitySamples: append(points(300, base), dayFigure("d1", day, 100, true))})
+	assert.Equal(t, TableCount{Written: 301}, c["quantity_samples"])
+	e.compressQuantity()
+
+	// A re-upload of the same period: every row is a duplicate, found in the
+	// compressed chunk with the default decompression limit.
+	c = e.write(smallCopy, &model.MapResult{QuantitySamples: points(300, base)})
+	assert.Equal(t, TableCount{Skipped: 300}, c["quantity_samples"])
+
+	// New rows in the compressed period are written, a changed Replaceable
+	// figure replaces the stored one, an unchanged one is skipped.
+	late := points(310, base)[300:]
+	for i := range late {
+		late[i].ContentHash = fmt.Sprintf("late%d", i)
+	}
+	c = e.write(smallCopy, &model.MapResult{QuantitySamples: append(late, dayFigure("d1", day, 250, true))})
+	assert.Equal(t, TableCount{Written: 11}, c["quantity_samples"])
+	c = e.write(smallCopy, &model.MapResult{QuantitySamples: []model.QuantitySample{dayFigure("d1", day, 250, true)}})
+	assert.Equal(t, TableCount{Skipped: 1}, c["quantity_samples"])
+
+	assert.Equal(t, 311, e.count("quantity_samples"))
+	assert.EqualValues(t, 250, e.scalar(`SELECT value FROM ohs_data.quantity_samples WHERE content_hash = 'd1'`))
+}
+
+func TestWriter_QuantityConcurrentJobsOfOneUserWriteOnce(t *testing.T) {
+	e := newEnv(t)
+	base := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+	const writers = 4
+	results := make(chan Counts, writers)
+	for range writers {
+		go func() {
+			ctx := context.Background()
+			tx, err := e.pool.Begin(ctx)
+			if err != nil {
+				results <- nil
+				return
+			}
+			defer tx.Rollback(ctx) //nolint:errcheck
+			c, err := NewWriter(smallCopy).WriteAccumulated(ctx, tx, scope{tenant: e.tenant, user: e.user, provider: "dev"},
+				&model.MapResult{QuantitySamples: points(200, base)})
+			if err != nil || tx.Commit(ctx) != nil {
+				results <- nil
+				return
+			}
+			results <- c
+		}()
+	}
+	written := 0
+	for range writers {
+		c := <-results
+		require.NotNil(t, c, "a writer failed")
+		written += c["quantity_samples"].Written
+	}
+	assert.Equal(t, 200, written, "the per-user lock lets exactly one job write each row")
+	assert.Equal(t, 200, e.count("quantity_samples"))
+}
+
 func TestWriter_ReplaceableWorkoutLatestWins(t *testing.T) {
 	e := newEnv(t)
 	start := time.Date(2026, 8, 18, 7, 0, 0, 0, time.UTC)
