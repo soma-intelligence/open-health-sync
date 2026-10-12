@@ -1,0 +1,19 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT",
+   "device": {
+    "formFactor": "SCALE",
+    "displayName": "Aria Air",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "weight": {
+   "sampleTime": {
+    "physicalTime": "2026-03-09T06:30:00Z",
+    "utcOffset": "3600s"
+   },
+   "weightGrams": 72500.0
+  }
+ }
+]

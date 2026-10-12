@@ -89,6 +89,16 @@ type NotifiedFetcher interface {
 	FetchNotified(ctx context.Context, c Connection, from, to time.Time, dataType string, emit RawSink) error
 }
 
+// StateExchanger is optionally implemented by an OAuthConnector whose
+// provider requires PKCE, such as Garmin. AuthorizeURL and the exchange are
+// separate requests, so the connector derives the code verifier from the
+// OAuth state (for example an HMAC of it under its client secret) instead of
+// storing it. The callback hands the state back: when a connector implements
+// this interface, ExchangeState is called instead of Exchange.
+type StateExchanger interface {
+	ExchangeState(ctx context.Context, code, state, redirect string) (Tokens, error)
+}
+
 // AsOAuth reports whether c can be pulled from with OAuth.
 func AsOAuth(c Connector) (OAuthConnector, bool) { o, ok := c.(OAuthConnector); return o, ok }
 
