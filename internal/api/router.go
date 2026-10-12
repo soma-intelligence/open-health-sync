@@ -21,6 +21,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // DefaultIngestLimit is how many device uploads one instance processes at once.
@@ -37,6 +38,9 @@ type Deps struct {
 	Providers []connector.Connector
 	// Device handles POST /v1/ingest/apple-health. Nil leaves the route out.
 	Device connector.DeviceConnector
+	// HealthConnect handles POST /v1/ingest/health-connect. Nil leaves the
+	// route out.
+	HealthConnect connector.DeviceConnector
 	// IngestLimit bounds uploads in flight (0 means DefaultIngestLimit).
 	IngestLimit int
 	// Metrics mounts GET /metrics (OHS_METRICS).
@@ -49,6 +53,12 @@ type Deps struct {
 	// PublicURL (OHS_PUBLIC_URL) starts the absolute links of FHIR
 	// responses. Empty means the request's own scheme and host.
 	PublicURL string
+	// Webhooks manages outgoing webhook endpoints (/v1/webhooks). Nil
+	// leaves the routes out.
+	Webhooks *webhook.Store
+	// WebhookAllowPrivate (OHS_WEBHOOK_ALLOW_PRIVATE) accepts http and
+	// private hosts in endpoint URLs.
+	WebhookAllowPrivate bool
 }
 
 type server struct {
@@ -72,6 +82,7 @@ func NewRouter(d Deps) http.Handler {
 	s.mountProviders(mux)
 	s.mountUsers(mux)
 	s.mountTokens(mux)
+	s.mountWebhooks(mux)
 	s.mountDeletion(mux)
 	s.mountReads(mux)
 	s.mountFHIR(mux)
@@ -114,7 +125,7 @@ func allowedMethods(mux *http.ServeMux, r *http.Request) []string {
 // mountMCP serves the read-only MCP server at /mcp to a tenant key or a user
 // token with scope read; a user token without it gets 403.
 func (s *server) mountMCP(mux *http.ServeMux) {
-	h := mcp.NewHandler(mcp.Deps{DB: s.d.Pool, Store: s.d.Store})
+	h := mcp.NewHandler(mcp.Deps{DB: s.d.Pool, Store: s.d.Store, Webhooks: s.d.Webhooks})
 	mux.Handle("/mcp", auth.MiddlewareAny(s.lookup, auth.TenantKey, auth.UserRead)(h))
 }
 

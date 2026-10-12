@@ -260,7 +260,11 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		if err := writeSyncLog(ctx, tx, sc, job.Key, entries); err != nil {
 			return nil, "", false, err
 		}
-		if err := writeCoverage(ctx, tx, sc, cov.entries()); err != nil {
+		covEntries := cov.entries()
+		if err := writeCoverage(ctx, tx, sc, covEntries); err != nil {
+			return nil, "", false, err
+		}
+		if err := enqueueWebhooks(ctx, tx, sc, counts, covEntries); err != nil {
 			return nil, "", false, err
 		}
 		if err := tx.Commit(ctx); err != nil {

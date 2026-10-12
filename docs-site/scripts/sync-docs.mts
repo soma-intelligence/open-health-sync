@@ -131,6 +131,13 @@ const sources: Record<string, Target[]> = {
       description: "Download every record of a list as one CSV or Parquet file.",
     },
   ],
+  "docs/webhooks.md": [
+    {
+      page: "(guides)/guides/webhooks",
+      title: "Outgoing webhooks",
+      description: "Be told when data changes: events, signature verification, retries and the routes.",
+    },
+  ],
 };
 
 // The SDK overview, then one page per SDK guide under docs/sdks.
@@ -176,6 +183,7 @@ const icons: Record<string, string> = {
   "(guides)/sdks/flutter": "Feather",
   "(guides)/guides/open-mhealth": "Activity",
   "(guides)/guides/exports": "FileDown",
+  "(guides)/guides/webhooks": "Webhook",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

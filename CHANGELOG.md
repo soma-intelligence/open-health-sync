@@ -15,6 +15,22 @@ release may change the API, the configuration or the database schema.
   (Dart). Each covers every API route with typed models, paging, problem errors, an upload
   part builder and retried uploads. CI runs their tests and each quickstart example against a
   live server. Guides: [docs/sdks](docs/sdks/README.md).
+- Dexcom connector (`dexcom`, API v3, OAuth 2.0, scheduled pulls): CGM estimated glucose values
+  as `blood_glucose`, with trend and out-of-range status. `OHS_DEXCOM_REGION` picks the US, EU,
+  Japan or sandbox host. Not yet verified with a real account; see
+  [docs/connectors/dexcom.md](docs/connectors/dexcom.md).
+- OMRON connector (`omron`, OMRON Wellness partner API, OAuth 2.0, scheduled pulls): blood
+  pressure (paired into the FHIR panel), pulse, possible AFib flags, weight and body
+  composition. Not yet verified with a real account; see
+  [docs/connectors/omron.md](docs/connectors/omron.md).
+- Health Connect connector (`health_connect`) and `POST /v1/ingest/health-connect`: an Android
+  app uploads Health Connect records (steps, heart rate, HRV, SpO2, temperature, blood pressure,
+  glucose, body measurements, sleep, exercise, deletions). See
+  [docs/connectors/health-connect.md](docs/connectors/health-connect.md).
+- FHIR: a glucose sample measured in interstitial fluid (a CGM reading) is coded with LOINC
+  `99504-3` instead of `2339-0`.
+- FreeStyle Libre research notes: Abbott has no public API; readings arrive through Health
+  Connect or Apple Health.
 - Open mHealth output: `GET /v1/users/{id}/omh/data-points` serves heart rate, steps, blood
   pressure pairs, body weight, height, BMI, body fat, body temperature, SpO2, respiratory rate,
   blood glucose, active energy, sleep sessions (`sleep-episode`) and workouts
@@ -26,6 +42,15 @@ release may change the API, the configuration or the database schema.
   sample, sleep session, workout, nutrition log or daily summary of a user in a time window as
   one CSV or Parquet file, with the columns of the REST records (typed, UTC timestamps, JSON
   metadata). See [docs/exports.md](docs/exports.md).
+- Outgoing webhooks ([docs/webhooks.md](docs/webhooks.md)): `POST /v1/webhooks` registers an
+  endpoint for `data.written`, `data.deleted`, `user.deleted` and `connection.needs_reauth`
+  events. Requests are signed per Standard Webhooks (HMAC-SHA256, `whsec_` secrets sealed with
+  `OHS_ENCRYPTION_KEY`), written in the transaction of the change they announce, posted by the
+  `etl` role and retried 8 times over about 28 hours; an endpoint failing for 5 days is
+  disabled. Payloads name the user, provider and days, never a health value. Routes to list,
+  change, delete, test, rotate the secret, list deliveries and retry one; MCP tool
+  `list_webhooks`. Endpoint URLs must be https and public unless
+  `OHS_WEBHOOK_ALLOW_PRIVATE=true`. Migration `0018`.
 - Fitbit connector (`fitbit`) on the Google Health API v4, not the legacy Fitbit Web API: Google
   OAuth with granted-scope handling, paged pulls of 21 data types, webhooks checked with the
   subscriber secret and Google's ECDSA signature, and revoke on disconnect. Google is not
@@ -42,7 +67,6 @@ release may change the API, the configuration or the database schema.
 - `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE
   (for a future Garmin connector).
 - None of these four connectors has been verified with a real account yet.
-
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
   verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
