@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // The README quickstart with the Kotlin SDK: create a user, mint a token, upload one heart rate
 // reading, wait for processing and read it back. Run against a test instance:

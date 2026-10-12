@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 import 'package:open_health_sync/open_health_sync.dart';
 import 'package:test/test.dart';

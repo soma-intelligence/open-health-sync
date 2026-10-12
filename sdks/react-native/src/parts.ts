@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 import { gzipSync, strToU8 } from "fflate";
 import { isDay } from "./time.ts";

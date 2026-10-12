@@ -14,8 +14,7 @@ share one shape, so what you learn in one carries over to the others.
 **Status: 0.1.0, not on any package registry yet.** Install them from this repository (each guide
 says how). Package names and coordinates are set when the first version is published.
 
-**Licence: MIT** ([sdks/LICENSE](../../sdks/LICENSE)), unlike the AGPL server, so an app that
-embeds an SDK keeps its own licence.
+**Licence: AGPL-3.0-only**, like the server ([LICENSE](../../LICENSE)).
 
 ## What every SDK does
 

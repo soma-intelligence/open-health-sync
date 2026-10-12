@@ -3,8 +3,8 @@
 The Swift client for the [REST API](../api.md), for iOS and watchOS apps, macOS, and Swift
 backends on Linux. `async`/`await` for every call, `Codable` models, `URLSession` underneath, no
 dependencies. A second library, `OpenHealthSyncHealthKit`, reads HealthKit and uploads what changed
-since the last run. It follows the shape every SDK shares ([overview](README.md)). MIT licensed
-([sdks/LICENSE](../../sdks/LICENSE)).
+since the last run. It follows the shape every SDK shares ([overview](README.md)). AGPL-3.0-only, like the server
+([LICENSE](../../LICENSE)).
 
 | Library | Runs on | What it holds |
 |---|---|---|

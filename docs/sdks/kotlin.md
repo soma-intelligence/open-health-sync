@@ -3,7 +3,7 @@
 The Kotlin client for the [REST API](../api.md), for Android apps and JVM backends. Coroutines
 for every call, kotlinx.serialization for the models, `HttpURLConnection` underneath, so it runs on
 Android API 26+ and any JVM 11+ with no HTTP library. It follows the shape every SDK shares
-([overview](README.md)). MIT licensed ([sdks/LICENSE](../../sdks/LICENSE)).
+([overview](README.md)). AGPL-3.0-only, like the server ([LICENSE](../../LICENSE)).
 
 ## Install
 

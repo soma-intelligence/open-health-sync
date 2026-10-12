@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 /// Typed records of the Open Health Sync API, one class per schema of
 /// `api/openapi.yaml`. Field names are the JSON names in lowerCamelCase.

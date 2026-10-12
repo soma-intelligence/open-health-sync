@@ -3,7 +3,7 @@
 The Dart client for the [REST API](../api.md), for Flutter apps on iOS, Android, desktop and web,
 and for Dart backends. It is a plain Dart package with no Flutter dependency: `http` for requests
 and `archive` for gzip, so it runs wherever Dart 3.4+ runs, the browser included. It follows the
-shape every SDK shares ([overview](README.md)). MIT licensed ([sdks/LICENSE](../../sdks/LICENSE)).
+shape every SDK shares ([overview](README.md)). AGPL-3.0-only, like the server ([LICENSE](../../LICENSE)).
 
 ## Install
 

@@ -134,7 +134,7 @@ Want one sooner? Connectors are self-contained: read
 | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
 | Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
-| Client SDKs: Kotlin, Swift (with HealthKit sync), React Native, Flutter, MIT licensed ([docs/sdks](docs/sdks/README.md)) | ✅ Available from this repository, not on package registries yet |
+| Client SDKs: Kotlin, Swift (with HealthKit sync), React Native, Flutter ([docs/sdks](docs/sdks/README.md)) | ✅ Available from this repository, not on package registries yet |
 
 ## Quickstart
 
@@ -373,7 +373,7 @@ is open.
 **Why AGPL?**
 So the layer stays open. Anyone can run, study and change it; if you run a modified Open Health
 Sync as a network service, you publish your changes under the same license. The client SDKs in
-[sdks/](sdks) are MIT licensed, so apps that embed them are not affected.
+[sdks/](sdks) are AGPL-3.0-only too.
 
 **Can I use it commercially?**
 Yes. A company can run it, unmodified or modified, to power its own product. The AGPL only asks
@@ -440,5 +440,4 @@ data, keys or tokens in a public issue.
 ## License
 
 The server is AGPL-3.0-only, see [LICENSE](LICENSE). If you run a modified Open Health Sync as a
-service, you publish your changes. The client SDKs in [sdks/](sdks) are MIT, see
-[sdks/LICENSE](sdks/LICENSE).
+service, you publish your changes. The client SDKs in [sdks/](sdks) are under the same license.

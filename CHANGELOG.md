@@ -9,7 +9,7 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
-- Client SDKs 0.1.0 under [sdks/](sdks), MIT licensed, not on package registries yet:
+- Client SDKs 0.1.0 under [sdks/](sdks), AGPL-3.0-only like the server, not on package registries yet:
   Kotlin (Android and JVM), Swift (iOS, macOS, Linux; with a HealthKit sync that uploads what
   changed since the last run), React Native (TypeScript, also Node and browsers) and Flutter
   (Dart). Each covers every API route with typed models, paging, problem errors, an upload

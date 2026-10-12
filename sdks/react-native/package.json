@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "TypeScript client for the Open Health Sync REST API, for React Native, Expo, Node 18+ and browsers.",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/soma-intelligence/open-health-sync.git",

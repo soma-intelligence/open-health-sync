@@ -7,4 +7,4 @@ Kotlin client for the Open Health Sync REST API, for Android (API 26+) and the J
 ./gradlew runExample  # the quickstart, with OHS_URL and OHS_KEY set
 ```
 
-Guide: [docs/sdks/kotlin.md](../../docs/sdks/kotlin.md). Licence: MIT ([sdks/LICENSE](../LICENSE)), unlike the server.
+Guide: [docs/sdks/kotlin.md](../../docs/sdks/kotlin.md). Licence: AGPL-3.0-only, like the server ([LICENSE](../../LICENSE)).

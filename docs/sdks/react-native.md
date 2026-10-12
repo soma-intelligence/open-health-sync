@@ -4,8 +4,8 @@
 React Native 0.72+ (either of its JavaScript engines), Expo, Node 18+ and browsers. It calls the global
 `fetch`, depends on nothing but `fflate` (gzip), and has no React dependency, so the same code
 works in an app, in a Node backend and in tests. The source is in
-[`sdks/react-native`](../../sdks/react-native). It is MIT licensed
-([LICENSE](../../sdks/LICENSE)).
+[`sdks/react-native`](../../sdks/react-native). It is AGPL-3.0-only, like the server
+([LICENSE](../../LICENSE)).
 
 What all the SDKs share (routes, paging, errors, the part builder, which credential goes where)
 is in the [SDK overview](README.md). This page covers what is specific to TypeScript.

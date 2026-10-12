@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 /**
  * Records and responses of the Open Health Sync API, with camelCase field names.

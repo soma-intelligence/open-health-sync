@@ -15,4 +15,4 @@ npm run build
 OHS_URL=http://localhost:8080 OHS_KEY=ohs_sk_... npm run example
 ```
 
-Version 0.1.0, not published to any registry. MIT licensed (see [../LICENSE](../LICENSE)).
+Version 0.1.0, not published to any registry. AGPL-3.0-only, like the server (see [LICENSE](../../LICENSE)).
