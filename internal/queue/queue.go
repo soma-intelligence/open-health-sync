@@ -93,14 +93,19 @@ func complete(ctx context.Context, table string, pool poolExec, id int64, claime
 // FOR UPDATE SKIP LOCKED and either marks them running or, when a reclaim
 // would exhaust the attempts, parks them; parked rows are not returned.
 // $1 = limit, $2 = visibility timeout seconds, $3.. = extra filter args.
+// order is the ORDER BY of the pick.
 func claimSQL(table, extraWhere, cols string) string {
+	return claimSQLOrdered(table, extraWhere, cols, "not_before, id")
+}
+
+func claimSQLOrdered(table, extraWhere, cols, order string) string {
 	return fmt.Sprintf(`
 		WITH picked AS (
 			SELECT id, (status = 'running' AND attempts + 1 >= %[1]d) AS exhausted
 			FROM ohs_sync.%[2]s
 			WHERE %[3]s((status = 'pending' AND not_before <= now())
 				OR (status = 'running' AND claimed_at < now() - make_interval(secs => $2::double precision)))
-			ORDER BY not_before, id
+			ORDER BY %[5]s
 			LIMIT $1
 			FOR UPDATE SKIP LOCKED
 		), upd AS (
@@ -112,5 +117,5 @@ func claimSQL(table, extraWhere, cols string) string {
 			FROM picked p WHERE t.id = p.id
 			RETURNING t.*
 		)
-		SELECT %[4]s FROM upd WHERE status = 'running'`, MaxAttempts, table, extraWhere, cols)
+		SELECT %[4]s FROM upd WHERE status = 'running'`, MaxAttempts, table, extraWhere, cols, order)
 }

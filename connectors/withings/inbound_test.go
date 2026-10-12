@@ -198,3 +198,31 @@ func TestSignedCallbackURL(t *testing.T) {
 	_, err = c.SignedCallbackURL("https://ohs.example.org/inbound/withings", "")
 	assert.Error(t, err)
 }
+
+func TestFetchNotified_PullsOnlyWhatTheNotificationConcerns(t *testing.T) {
+	to := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
+	from := to.Add(-2 * time.Hour)
+	all := newFakeWithings(t)
+	require.NoError(t, all.connector().Fetch(context.Background(), testConn(), from, to, &recordingSink{}))
+	for dt, want := range map[string][]string{
+		DataTypeMeasure:  {DataTypeMeasure, DataTypeECG},
+		DataTypeActivity: {DataTypeActivity, DataTypeIntraday},
+		DataTypeSleep:    {DataTypeSleep},
+		DataTypeWorkout:  {DataTypeWorkout},
+	} {
+		f := newFakeWithings(t)
+		sink := &recordingSink{}
+		require.NoError(t, f.connector().FetchNotified(context.Background(), testConn(), from, to, dt, sink))
+		got := map[string]bool{}
+		for _, c := range sink.calls {
+			got[c.DataType] = true
+		}
+		for d := range got {
+			assert.Contains(t, want, d, dt)
+		}
+		assert.LessOrEqual(t, len(f.Requests()), len(all.Requests())/2, "%s: %d calls against %d for every type", dt, len(f.Requests()), len(all.Requests()))
+	}
+	f := newFakeWithings(t)
+	require.NoError(t, f.connector().FetchNotified(context.Background(), testConn(), from, to, "unknown", &recordingSink{}))
+	assert.Equal(t, len(all.Requests()), len(f.Requests()), "an unknown type pulls everything")
+}

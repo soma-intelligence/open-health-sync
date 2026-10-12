@@ -27,6 +27,28 @@ release may change the API, the configuration or the database schema.
   vital signs and blood pressure profiles; LOINC and UCUM codes come from the quantity type
   catalog. The golden files pass the official HL7 validator (`make fhir-validate`, not in CI).
   Mapping and limits: [docs/fhir.md](docs/fhir.md).
+- `GET /v1/users/{id}/freshness`: how up to date each source of a user is (`synced_through`,
+  `lag_seconds`, last notification, next pull, last error, and a `fresh`/`stale`/`failing`
+  state), Apple Health uploads included. `/metrics` gains `ohs_sync_connections` by provider
+  and state, `ohs_sync_max_lag_seconds` and `ohs_sync_push_silent_connections`.
+- Docs: [background sync](docs/background-sync.md), including what the iOS and Android SDKs
+  need to upload in the background.
+
+### Changed
+
+- The backstop pull adapts to notifications: every 6 hours while a connection's provider
+  notifications arrive, every hour when none came for 24 hours or the provider sends none
+  (before: every 6 hours for all).
+- A provider subscription that has heard nothing for 24 hours and is more than 7 days old is
+  renewed at the provider, which repairs a subscription the provider dropped silently.
+- Notification pulls go first: they are claimed before backfill and backstop pulls, so a
+  burst of slot jobs or a rate limit never delays data a provider just announced.
+- A Withings notification pulls only what it concerns (a measurement: measures and ECG;
+  activity: activity and intraday; sleep; workouts), 1 to 4 calls instead of 9, which
+  leaves the app's rate limit for fresh data. Connectors opt in with
+  `connector.NotifiedFetcher`.
+- Migration 0008 adds freshness columns to `ohs_sync.connections`; migration 0009 adds
+  `data_type` and `priority` to `ohs_sync.pull_jobs`.
 
 ### Changed
 

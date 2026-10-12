@@ -88,11 +88,12 @@ type Connector struct {
 }
 
 var (
-	_ connector.OAuthConnector = (*Connector)(nil)
-	_ connector.PushConnector  = (*Connector)(nil)
-	_ connector.KeyedConnector = (*Connector)(nil)
-	_ connector.Configurable   = (*Connector)(nil)
-	_ connector.Subscriber     = (*Connector)(nil)
+	_ connector.OAuthConnector  = (*Connector)(nil)
+	_ connector.PushConnector   = (*Connector)(nil)
+	_ connector.KeyedConnector  = (*Connector)(nil)
+	_ connector.Configurable    = (*Connector)(nil)
+	_ connector.Subscriber      = (*Connector)(nil)
+	_ connector.NotifiedFetcher = (*Connector)(nil)
 )
 
 // New returns a Withings connector.

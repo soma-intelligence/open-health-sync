@@ -14,31 +14,51 @@ import (
 
 // PullJob is one provider pull for one user over [From, To).
 type PullJob struct {
-	ID        int64
-	TenantID  uuid.UUID
-	UserID    uuid.UUID
-	Provider  string
-	From, To  time.Time
+	ID       int64
+	TenantID uuid.UUID
+	UserID   uuid.UUID
+	Provider string
+	From, To time.Time
+	// DataType, when set, restricts the pull to that provider data type
+	// (a notification named it); empty pulls every type.
+	DataType string
+	// Inbound marks a pull a provider notification asked for: it is
+	// claimed before routine (backfill and backstop) pulls.
+	Inbound   bool
 	Attempts  int
 	NotBefore time.Time
 	// ClaimedAt is set by Claim and fences Complete, Fail and Defer.
 	ClaimedAt time.Time
 }
 
+// Pull job priorities (pull_jobs.priority), claimed lowest first.
+const (
+	priorityInbound = 0
+	priorityRoutine = 1
+)
+
 // EnqueuePull adds a job inside the caller's transaction. A pending or running
-// job for the same user, provider and window makes this a no-op. A zero
-// NotBefore means now.
+// job for the same user, provider, window and data type makes this a no-op.
+// A zero NotBefore means now.
 func EnqueuePull(ctx context.Context, tx pgx.Tx, j PullJob) error {
 	var nb *time.Time
 	if !j.NotBefore.IsZero() {
 		nb = &j.NotBefore
 	}
+	var dt *string
+	if j.DataType != "" {
+		dt = &j.DataType
+	}
+	prio := priorityRoutine
+	if j.Inbound {
+		prio = priorityInbound
+	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO ohs_sync.pull_jobs (tenant_id, user_id, provider, from_time, to_time, not_before)
-		VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()))
-		ON CONFLICT (tenant_id, user_id, provider, from_time, to_time)
+		INSERT INTO ohs_sync.pull_jobs (tenant_id, user_id, provider, from_time, to_time, not_before, data_type, priority)
+		VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), $7, $8)
+		ON CONFLICT (tenant_id, user_id, provider, from_time, to_time, (coalesce(data_type, '')))
 			WHERE status IN ('pending', 'running') DO NOTHING`,
-		j.TenantID, j.UserID, j.Provider, j.From, j.To, nb)
+		j.TenantID, j.UserID, j.Provider, j.From, j.To, nb, dt, prio)
 	if err != nil {
 		return fmt.Errorf("enqueue pull job: %w", err)
 	}
@@ -51,14 +71,16 @@ type Pull struct{ pool *pgxpool.Pool }
 // NewPull returns the pull queue over pool.
 func NewPull(pool *pgxpool.Pool) *Pull { return &Pull{pool: pool} }
 
-// Claim takes up to n due jobs, oldest first, with the same rules as ETL.Claim.
+// Claim takes up to n due jobs, notification pulls first and then oldest
+// first, with the same rules as ETL.Claim.
 func (q *Pull) Claim(ctx context.Context, n int) ([]PullJob, error) {
 	if n <= 0 {
 		return nil, nil
 	}
 	rows, err := q.pool.Query(ctx,
-		claimSQL("pull_jobs", "",
-			"id, tenant_id, user_id, provider, from_time, to_time, attempts, not_before, claimed_at"),
+		claimSQLOrdered("pull_jobs", "",
+			"id, tenant_id, user_id, provider, from_time, to_time, coalesce(data_type, ''), priority = 0, attempts, not_before, claimed_at",
+			"priority, not_before, id"),
 		n, VisibilityTimeout.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("claim pull jobs: %w", err)
@@ -67,7 +89,7 @@ func (q *Pull) Claim(ctx context.Context, n int) ([]PullJob, error) {
 	var out []PullJob
 	for rows.Next() {
 		var j PullJob
-		if err := rows.Scan(&j.ID, &j.TenantID, &j.UserID, &j.Provider, &j.From, &j.To, &j.Attempts, &j.NotBefore, &j.ClaimedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.TenantID, &j.UserID, &j.Provider, &j.From, &j.To, &j.DataType, &j.Inbound, &j.Attempts, &j.NotBefore, &j.ClaimedAt); err != nil {
 			return nil, fmt.Errorf("scan pull job: %w", err)
 		}
 		out = append(out, j)

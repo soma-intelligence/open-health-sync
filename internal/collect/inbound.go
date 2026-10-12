@@ -164,11 +164,27 @@ func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events [
 			return fmt.Errorf("find connection: %w", err)
 		}
 		from, to := inboundWindow(ev, now)
+		dataType := ""
+		if h.d.typed(provider) {
+			dataType = ev.DataType
+		}
 		for _, o := range owners {
 			if err := coalescePull(ctx, tx, queue.PullJob{
 				TenantID: o.tenant, UserID: o.user, Provider: provider, From: from, To: to,
+				DataType: dataType, Inbound: true,
 			}); err != nil {
 				return err
+			}
+			// A health signal, not data: skip a row another transaction holds
+			// (a token refresh waits on the provider under that lock) rather
+			// than keep the provider's request waiting.
+			if _, err := tx.Exec(ctx, `
+				UPDATE ohs_sync.connections c SET last_event_at = $4
+				WHERE c.ctid = (SELECT ctid FROM ohs_sync.connections
+					WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
+					FOR UPDATE SKIP LOCKED)`,
+				o.tenant, o.user, provider, now); err != nil {
+				return fmt.Errorf("touch connection: %w", err)
 			}
 			if _, err := tx.Exec(ctx, `
 				UPDATE ohs_sync.inbound_subscriptions SET last_received_at = $4
@@ -186,17 +202,18 @@ func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events [
 const maxCoalesced = BackfillChunk
 
 // coalescePull enqueues an inbound pull unless a pending job of the same
-// connection already covers its window; a pending job that overlaps it is
-// widened to cover both, while the union stays within maxCoalesced. A pull
-// fetches every data type, so the data type of the event does not matter.
-// Providers notify in bursts; this keeps one job per burst.
+// connection already covers its window and data type (a job of every type
+// covers any type); a pending job of the same data type that overlaps it is
+// widened to cover both, while the union stays within maxCoalesced.
+// Providers notify in bursts; this keeps one job per burst and type.
 func coalescePull(ctx context.Context, tx pgx.Tx, j queue.PullJob) error {
 	var covered bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM ohs_sync.pull_jobs
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status = 'pending'
-		  AND from_time <= $4 AND to_time >= $5)`,
-		j.TenantID, j.UserID, j.Provider, j.From, j.To).Scan(&covered); err != nil {
+		  AND from_time <= $4 AND to_time >= $5
+		  AND (data_type IS NULL OR data_type = $6))`,
+		j.TenantID, j.UserID, j.Provider, j.From, j.To, j.DataType).Scan(&covered); err != nil {
 		return fmt.Errorf("find covering pull job: %w", err)
 	}
 	if covered {
@@ -210,17 +227,19 @@ func coalescePull(ctx context.Context, tx pgx.Tx, j queue.PullJob) error {
 		return fmt.Errorf("savepoint: %w", err)
 	}
 	tag, err := sp.Exec(ctx, `
-		UPDATE ohs_sync.pull_jobs SET from_time = least(from_time, $4), to_time = greatest(to_time, $5)
+		UPDATE ohs_sync.pull_jobs SET from_time = least(from_time, $4), to_time = greatest(to_time, $5),
+			priority = least(priority, 0)
 		WHERE id = (
 			SELECT id FROM ohs_sync.pull_jobs
 			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status = 'pending'
 			  AND from_time <= $5 AND to_time >= $4
+			  AND coalesce(data_type, '') = $7
 			  AND greatest(to_time, $5) - least(from_time, $4) <= make_interval(secs => $6::double precision)
 			ORDER BY not_before, id
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED)
 		  AND status = 'pending'`,
-		j.TenantID, j.UserID, j.Provider, j.From, j.To, maxCoalesced.Seconds())
+		j.TenantID, j.UserID, j.Provider, j.From, j.To, maxCoalesced.Seconds(), j.DataType)
 	if err != nil {
 		_ = sp.Rollback(ctx)
 	} else if err := sp.Commit(ctx); err != nil {

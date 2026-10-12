@@ -80,6 +80,27 @@ func AppliToDataType(appli int) string {
 	}
 }
 
+// notifiedTypes are the data types a notification of one type can concern.
+// ECG recordings and intraday samples have no notification category of their
+// own: they come with a measurement and with activity.
+var notifiedTypes = map[string][]string{
+	DataTypeMeasure:  {DataTypeMeasure, DataTypeECG},
+	DataTypeActivity: {DataTypeActivity, DataTypeIntraday},
+	DataTypeSleep:    {DataTypeSleep},
+	DataTypeWorkout:  {DataTypeWorkout},
+}
+
+// FetchNotified pulls what a notification of dataType concerns (see
+// notifiedTypes): one or two data types instead of all six. An unknown
+// dataType pulls everything.
+func (c *Connector) FetchNotified(ctx context.Context, conn connector.Connection, from, to time.Time, dataType string, emit connector.RawSink) error {
+	types, ok := notifiedTypes[dataType]
+	if !ok {
+		types = AllDataTypes
+	}
+	return c.FetchTypes(ctx, conn, from, to, types, emit)
+}
+
 // signature is the hex HMAC-SHA256 of the Withings user id, keyed by the
 // client secret.
 func signature(secret, providerUserID string) string {
