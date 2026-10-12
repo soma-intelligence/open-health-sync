@@ -39,7 +39,7 @@ Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 docker pull ghcr.io/soma-intelligence/open-health-sync:0.0.2
 ```
 
-[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
+[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
 <sub><b>v0.0.2, early preview.</b> APIs, configuration and schema may change in any 0.x release.</sub>
 
@@ -98,6 +98,21 @@ Provider deletions are honored too.
 </td>
 </tr>
 </table>
+
+## Roadmap at a glance
+
+✅ available on `main` &nbsp;·&nbsp; 🛠 in progress, not shipped yet
+
+| | Outputs and integrations | | Sources |
+|:---:|---|:---:|---|
+| ✅ | FHIR R4 (Observations, checked with the HL7 validator) | ✅ | Apple Health, Withings |
+| 🛠 | Open mHealth output | ✅ | Oura, WHOOP, Polar, Strava |
+| 🛠 | Outgoing webhooks | 🛠 | Garmin, Fitbit and more |
+| 🛠 | CSV and Parquet exports | 🛠 | Dexcom, FreeStyle Libre, Omron |
+| 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Health Connect (Android) |
+
+Each line turns ✅ only when its pull request is merged. Details per source:
+[docs/connectors](docs/connectors/README.md).
 
 ## What you can build
 
