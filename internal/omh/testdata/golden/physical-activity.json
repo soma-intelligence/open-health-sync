@@ -1,0 +1,32 @@
+{
+  "header": {
+    "id": "workout-9",
+    "creation_date_time": "2026-03-01T09:15:30.25Z",
+    "schema_id": {
+      "namespace": "omh",
+      "name": "physical-activity",
+      "version": "1.2"
+    },
+    "acquisition_provenance": {
+      "source_name": "apple_health"
+    },
+    "user_id": "3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+  },
+  "body": {
+    "activity_name": "trail running",
+    "distance": {
+      "value": 8200,
+      "unit": "m"
+    },
+    "effective_time_frame": {
+      "time_interval": {
+        "end_date_time": "2026-03-01T08:45:00Z",
+        "start_date_time": "2026-03-01T08:00:00Z"
+      }
+    },
+    "kcal_burned": {
+      "value": 610,
+      "unit": "kcal"
+    }
+  }
+}

@@ -6,7 +6,7 @@ export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
       title: <Logo />,
-      url: "/docs",
+      url: "/documentation",
     },
     githubUrl: repoUrl,
     links: [
