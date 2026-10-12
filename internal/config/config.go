@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // ProviderKeys holds the OHS_<SLUG>_<FIELD> values of one provider, keyed by FIELD
@@ -178,15 +179,62 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		if reserved[rest] {
 			continue
 		}
-		slug, field, ok := strings.Cut(rest, "_")
-		if !ok || slug == "" || field == "" {
+		slug, field, ok := splitProviderKey(rest)
+		if !ok {
 			continue
 		}
-		slug = strings.ToLower(slug)
 		if c.Providers[slug] == nil {
 			c.Providers[slug] = ProviderKeys{}
 		}
 		c.Providers[slug][field] = v
 	}
 	return c, nil
+}
+
+// multiWordSlugs are the provider slugs that hold an underscore
+// ("intervals_icu"), declared by RegisterSlug. OHS_INTERVALS_ICU_CLIENT_ID
+// cannot be split on its first underscore like OHS_WITHINGS_CLIENT_ID: it
+// would read as field ICU_CLIENT_ID of a provider "intervals".
+var (
+	slugMu         sync.RWMutex
+	multiWordSlugs = map[string]bool{}
+)
+
+// RegisterSlug declares a provider slug, so Load files the
+// OHS_<SLUG>_<FIELD> variables of a slug holding an underscore under it. A
+// slug without one needs no declaration. The connector registry calls it for
+// every registered connector, before Load runs (registration happens in
+// init).
+func RegisterSlug(slug string) {
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if !strings.Contains(slug, "_") {
+		return
+	}
+	slugMu.Lock()
+	defer slugMu.Unlock()
+	multiWordSlugs[slug] = true
+}
+
+// splitProviderKey splits OHS_ less a prefix into a lower-case slug and a
+// field. The longest declared multi-word slug that prefixes the name wins;
+// otherwise the name splits on its first underscore.
+func splitProviderKey(rest string) (slug, field string, ok bool) {
+	upper := strings.ToUpper(rest)
+	best := ""
+	slugMu.RLock()
+	for s := range multiWordSlugs {
+		p := strings.ToUpper(s) + "_"
+		if len(s) > len(best) && strings.HasPrefix(upper, p) && len(rest) > len(p) {
+			best = s
+		}
+	}
+	slugMu.RUnlock()
+	if best != "" {
+		return best, rest[len(best)+1:], true
+	}
+	slug, field, ok = strings.Cut(rest, "_")
+	if !ok || slug == "" || field == "" {
+		return "", "", false
+	}
+	return strings.ToLower(slug), field, true
 }

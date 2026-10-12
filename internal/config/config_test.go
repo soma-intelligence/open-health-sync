@@ -204,3 +204,30 @@ func TestLoadSentinels(t *testing.T) {
 		t.Fatal("CheckPublicURL")
 	}
 }
+
+func TestLoadMultiWordSlug(t *testing.T) {
+	RegisterSlug("multi_word")
+	RegisterSlug("multi_word_longer")
+	RegisterSlug("single") // no underscore: nothing to declare
+	m := base()
+	m["OHS_MULTI_WORD_CLIENT_ID"] = "a"
+	m["OHS_MULTI_WORD_LONGER_CLIENT_ID"] = "b"
+	m["OHS_MULTI_OTHER"] = "c"
+	m["OHS_WITHINGS_CLIENT_ID"] = "d"
+	c, err := load(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Providers["multi_word"]["CLIENT_ID"]; got != "a" {
+		t.Fatalf("multi_word: %v", c.Providers["multi_word"])
+	}
+	if got := c.Providers["multi_word_longer"]["CLIENT_ID"]; got != "b" {
+		t.Fatalf("multi_word_longer (longest slug wins): %v", c.Providers)
+	}
+	if c.Providers["multi"]["OTHER"] != "c" || c.Providers["withings"]["CLIENT_ID"] != "d" {
+		t.Fatalf("first underscore split: %v", c.Providers)
+	}
+	if _, ok := c.Providers["multi"]["WORD_CLIENT_ID"]; ok {
+		t.Fatalf("multi-word key filed under its first word: %v", c.Providers)
+	}
+}
