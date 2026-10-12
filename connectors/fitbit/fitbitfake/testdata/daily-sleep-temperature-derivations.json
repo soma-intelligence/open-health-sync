@@ -1,0 +1,22 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "dailySleepTemperatureDerivations": {
+   "date": {
+    "year": 2026,
+    "month": 3,
+    "day": 9
+   },
+   "nightlyTemperatureCelsius": 34.0,
+   "baselineTemperatureCelsius": 33.5
+  }
+ }
+]

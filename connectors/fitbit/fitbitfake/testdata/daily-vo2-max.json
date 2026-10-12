@@ -1,0 +1,23 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "dailyVo2Max": {
+   "date": {
+    "year": 2026,
+    "month": 3,
+    "day": 9
+   },
+   "vo2Max": 45.0,
+   "cardioFitnessLevel": "GOOD",
+   "estimated": false
+  }
+ }
+]

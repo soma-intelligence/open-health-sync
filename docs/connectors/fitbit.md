@@ -1,246 +1,273 @@
-# Fitbit: research notes
+# Fitbit connector
 
-Status: **planned, not built**. No Fitbit code ships in this release. This page collects what a
-contributor needs to know before writing the connector, as checked on **2026-10-11**. Google is
-in the middle of replacing the Fitbit Web API, so check the sources below again before you
-start.
+Slug `fitbit`. Users connect their Google Account (the one their Fitbit or Pixel Watch data lives
+in) over Google OAuth; Open Health Sync pulls their data from the
+[Google Health API](https://developers.google.com/health) (`health.googleapis.com`, v4) on a
+schedule and when Google sends a webhook notification. You create your own Google Cloud project
+and OAuth client: nothing is shared between instances.
 
-Statements we could not confirm from a public Google page are marked **(unverified)**.
+Status: **available, not yet verified with a real account.** Google is **not onboarding new
+Google Health API projects yet**, so most operators cannot get keys today (see
+[Access](#access-read-this-first)). Field names follow the API's public reference and discovery
+document, checked on 2026-10-12; points marked **(unverified)** are the ones to check first against
+a real project.
 
-## Summary
+The connector is built on the Google Health API only. The legacy Fitbit Web API
+(`api.fitbit.com`) lost support on 2026-09-30 and is turned off on 2026-10-30; it is not used, and
+legacy Fitbit tokens cannot be carried over (every user consents again).
 
-| | |
+## Access: read this first
+
+- **No new projects for now.** Google's page says "we are not onboarding new projects at this
+  time" with no date. Until your Cloud project is admitted, the API refuses it and the connector
+  cannot be used. Watch the [Google Health API page](https://developers.google.com/health).
+- **100 users while unverified.** All Google Health API scopes are *restricted*. An app that has
+  not passed Google's OAuth app verification "is limited to 100 users". More needs verification
+  plus an annual third-party security assessment (CASA), quoted at USD 500 to 4,500 and 2 to 6
+  weeks ([app verification](https://developers.google.com/health/app-verification)).
+- **7 day refresh tokens in Testing.** While the consent screen's publishing status is
+  *Testing*, Google expires refresh tokens after 7 days: each user's connection turns
+  `needs_reauth` weekly and they must connect again. Publishing the app avoids it; whether an
+  unverified app with restricted scopes can be published is **(unverified)**.
+- **Users link first.** A user must link their Google Account to Google Health in the Fitbit
+  (Google Health) mobile app before consenting. If they have not, the connect fails with a clear
+  message ("this Google Account is not linked to Google Health yet...") and the grant is revoked.
+
+A self-hosted instance for a person or a family fits well within the unverified limits.
+
+## 1. Get your keys
+
+When your project is admitted ([setup](https://developers.google.com/health/setup)):
+
+1. Create a Google Cloud project (one per environment) and enable the **Google Health API**
+   (`health.googleapis.com`).
+2. On the OAuth consent screen (Audience page) choose **External**, and while in Testing add each
+   user's Google Account as a test user.
+3. On the Data Access page add the three read scopes listed in [Scopes](#3-scopes).
+4. Create an **OAuth client ID** of type **Web application** and add the authorized redirect URI
+   `ohs doctor` prints, which is `<OHS_PUBLIC_URL>/oauth/fitbit/callback`. It must match exactly.
+5. Copy the **client ID** and **client secret**.
+
+## 2. Configure the instance
+
+In `.env`:
+
+```sh
+OHS_PUBLIC_URL=https://ohs.example.org
+OHS_FITBIT_CLIENT_ID=...apps.googleusercontent.com
+OHS_FITBIT_CLIENT_SECRET=...
+# Optional, see "Webhooks": the subscriber's secret, scheme included.
+OHS_FITBIT_WEBHOOK_SECRET="Bearer <long random string>"
+# Optional: required (default), if_available or off.
+OHS_FITBIT_WEBHOOK_SIGNATURE=required
+```
+
+Restart and run `ohs doctor`: it reports the connector as enabled and prints the callback URL.
+The client ID and secret are both required. `GET /v1/providers` lists `fitbit` when it is on.
+
+## 3. Scopes
+
+Consent asks for three read scopes, all with the prefix `https://www.googleapis.com/auth/`:
+
+| Scope | Data types pulled |
 |---|---|
-| Legacy API | Fitbit Web API (`api.fitbit.com`): support ended **2026-09-30**, turned off on **2026-10-30**. Do not build on it |
-| Replacement | [Google Health API](https://developers.google.com/health) (`health.googleapis.com`, v4), the rebuilt Fitbit Web API |
-| Can a new developer join today | **No.** Google: "we are not onboarding new projects at this time", with no date |
-| OAuth | Google OAuth 2.0 (authorization code, `https://oauth2.googleapis.com/token`); scopes under `https://www.googleapis.com/auth/googlehealth.*`, all restricted |
-| Delivery | Pull (REST list and roll-up endpoints) plus webhooks that signal changes; the data is always pulled |
-| Limits | 300 requests per user per minute; unverified apps 100 users |
-| Recommendation | **Wait** for the Google Health API to onboard new projects. Meanwhile Fitbit data can reach us through Health Connect on Android (planned Kotlin SDK) |
+| `googlehealth.activity_and_fitness.readonly` | steps, distance, floors, active energy, exercise, VO2 max |
+| `googlehealth.health_metrics_and_measurements.readonly` | heart rate, resting heart rate, HRV, SpO2, respiratory rate, weight, body fat, height, blood glucose, core body temperature, sleep temperature |
+| `googlehealth.sleep.readonly` | sleep |
 
-## Which API a new app can use
+Nothing else is asked for (no nutrition, ECG, location or profile): every extra restricted scope
+makes verification harder. Google lets a user grant some scopes and refuse others. The connector
+reads the granted scopes from the token answer and skips the data types of a refused scope; a
+consent granting none of the three fails. Which scope covers VO2 max, blood glucose, core body
+temperature and sleep temperature is **(unverified)**; a data type Google answers with 403 is
+skipped anyway.
 
-From [dev.fitbit.com](https://dev.fitbit.com/build/reference/web-api/) and the Google Health API
-[migration guide](https://developers.google.com/health/migration) (page updated 2026-09-28):
+The consent URL uses `access_type=offline` (for a refresh token), `prompt=consent` (so a
+reconnect gets a new refresh token) and `include_granted_scopes=true`.
 
-- "Support for the legacy Fitbit Web API ends on September 30, 2026." After that Google fixes no
-  bugs and gives no support.
-- On October 30, 2026 the legacy API "will be turned off and will no longer function or sync data
-  to or from Fitbit users". That is 19 days after this check: a connector written now would stop
-  working before it shipped.
-- Legacy tokens do not carry over: "existing access and refresh tokens cannot be transferred", so
-  every user consents again on the new API.
-- The [Google Health API](https://developers.google.com/health/about) is the only path forward, and
-  it is closed to new projects: "While we are not onboarding new projects at this time, we are
-  actively working to open access to more developers and will share updates here as availability
-  expands."
+## 4. Connect a user
 
-Google Fit is a separate, deprecated API (see the [connector table](README.md)) and is no way in
-either.
+Your server asks for a consent URL (see [api.md](../api.md#connecting-a-provider)):
 
-## Access: what you need to do
+```sh
+curl -s -X POST $OHS/v1/users/$USER_ID/connections/fitbit \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"redirect_uri":"https://app.example.org/connected"}'
+```
 
-Today there is nothing a new maintainer can do except wait and watch the
-[Google Health API page](https://developers.google.com/health) (and its developer newsletter,
-linked there). When onboarding opens, the documented setup is:
+After consent, Open Health Sync trades the code at `oauth2.googleapis.com/token`, then calls
+`users.getIdentity` (`GET /v4/users/me/identity`) and stores the `healthUserId` as the
+connection's provider user id: webhooks name users by it. If that call fails for another reason
+than an unlinked account, the user is connected without it (pulls work) and it is read at the
+next token refresh.
 
-1. **Create a Google Cloud project** (one per environment; there is no sandbox) and enable the
-   Google Health API (`health.googleapis.com`) ([setup](https://developers.google.com/health/setup)).
-2. **Create an OAuth client** of type Web application, and register the redirect URI
-   `<OHS_PUBLIC_URL>/oauth/fitbit/callback` (the slug is not decided; see below).
-3. **Configure the consent screen** (Audience page): user type External. Add test users while
-   in Testing.
-4. **Pick the read scopes** on the Data Access page.
-5. **Know the user limits.** From [setup](https://developers.google.com/health/setup) and
-   [app verification](https://developers.google.com/health/app-verification):
-   - An unverified app "is limited to 100 users".
-   - In Testing mode, refresh tokens expire after 7 days, so each user would reconnect weekly.
-     Google says to publish the app to avoid that.
-   - More than 100 users needs Google's OAuth app verification plus an annual third-party
-     security assessment (CASA, against OWASP ASVS), "ranging from $500 to $4,500 USD", taking
-     2 to 6 weeks. All Google Health API scopes are restricted.
-6. **Users link first.** A user must link their Google Account to Google Health in the mobile
-   app before consent; check it with `users.getIdentity` after the token exchange (an unlinked
-   account gets `FAILED_PRECONDITION` / `ACCOUNT_NOT_LINKED`).
+Access tokens last an hour and are refreshed as needed. A refresh token Google refuses
+(`invalid_grant`: revoked, or 7 days old in Testing) turns the connection `needs_reauth`.
+Disconnecting, or deleting the user, revokes the grant at `oauth2.googleapis.com/revoke`.
 
-### Can a self-hosted instance use it
+## 5. What is pulled
 
-Probably yes once Google onboards projects, within the unverified limits: each instance creates
-its own Cloud project and OAuth client, and a personal or family instance stays well under 100
-users. What we could not confirm (**unverified**):
+A new connection is backfilled over the last 30 days, then pulled every 6 hours. Each data type is
+read with `users.dataTypes.dataPoints.list`
+(`GET /v4/users/me/dataTypes/<type>/dataPoints`), page after page (`pageSize` 10,000, or 25 for
+`exercise` and `sleep`, the API's maximums; `nextPageToken`). Every page is stored as one raw
+object of the data type, one data point per line. The filter per kind of data type:
 
-- whether Google will onboard individual developers or only companies;
-- whether an unverified app with restricted scopes can be published out of Testing mode (to
-  avoid the 7 day refresh token expiry) without completing verification;
-- how the unverified-app warning screen looks for these scopes.
-
-A self-hosted operator who must serve more than 100 users would need the annual security
-assessment, which is out of reach for most.
-
-## Integration shape
-
-### OAuth
-
-Standard Google OAuth 2.0 for web server apps: authorization code with `access_type=offline` to
-get a refresh token, token endpoint `https://oauth2.googleapis.com/token`. Users can grant some
-scopes and refuse others; the connector must read the granted scopes from the token response and
-treat a refused scope as an empty data type (as the Withings connector does). Revoking uses
-Google's standard revoke endpoint (**unverified** for this API, but it is the standard Google
-flow).
-
-Read scopes (from [scopes](https://developers.google.com/health/scopes)), all with the prefix
-`https://www.googleapis.com/auth/googlehealth.`:
-
-| Scope | Gives |
-|---|---|
-| `activity_and_fitness.readonly` | steps, distance, floors, calories, active minutes, heart rate zones, exercise, VO2 max |
-| `health_metrics_and_measurements.readonly` | heart rate, HRV, resting heart rate, SpO2, respiratory rate, weight, body fat, height, temperature, blood glucose |
-| `sleep.readonly` | sleep sessions and stages |
-| `nutrition.readonly` | food logs, hydration |
-| `ecg.readonly` | ECG recordings |
-| `irn.readonly` | irregular rhythm notifications |
-| `location.readonly` | exercise routes (**unverified** which data it covers) |
-| `profile.readonly`, `settings.readonly` | profile and settings, including the user's time zone (**unverified**) |
-
-A first version should ask for the first three (plus `nutrition.readonly` if wanted) and nothing
-else: every extra restricted scope makes verification harder.
-
-### Pull
-
-From the [REST reference](https://developers.google.com/health/reference/rest): base URL
-`https://health.googleapis.com`, versions `v4` and `v4beta`. Data is read with
-`users.dataTypes.dataPoints.list` (raw points), `rollUp` and `dailyRollUp` (aggregates), and
-`reconcile` (Google's merged stream when several sources overlap). Page sizes go up to 10,000
-points, but only 25 for `exercise` and `sleep`. Roll-ups span at most 14 days for
-`heart-rate`, `calories-in-heart-rate-zone`, `active-minutes` and `total-calories`, 90 days for
-the others ([data types](https://developers.google.com/health/data-types)). After a user
-connects, history can be queried; the maximum history depth is **unverified**.
-
-Data only exists after the user's device syncs to the Google Health app (at best every 15
-minutes while the app is open).
-
-### Webhooks
-
-From [webhooks](https://developers.google.com/health/webhooks):
-
-- A **subscriber** is registered once per Cloud project:
-  `POST https://health.googleapis.com/v4/projects/<project-number>/subscribers?subscriberId=...`
-  with an HTTPS `endpointUri`, an `endpointAuthorization` secret and, per data type, a
-  `subscriptionCreatePolicy` of `AUTOMATIC` (Google subscribes every consenting user) or
-  `MANUAL`.
-- On create or update Google verifies the endpoint with two POSTs of `{"type": "verification"}`:
-  with the secret it must answer 200 or 201, without it 401 or 403.
-- Each notification carries the secret in `Authorization` and an ECDSA P-256 signature in
-  `GOOGLE-HEALTH-API-SIGNATURE`, verified against Google's
-  [public keyset](https://www.gstatic.com/googlehealthapi/webhooks/webhooks_public_keyset.json)
-  (keys rotate every 30 days).
-- A notification is a change signal: `healthUserId`, `dataType`, `operation` (`UPSERT` or
-  `DELETE`) and the affected `intervals`. Batches hold up to 99 messages. The handler answers 204
-  at once; Google retries for up to 7 days.
-- Not every data type has webhooks (for example `total-calories`, `oxygen-saturation`,
-  `vo2-max`, `daily-vo2-max` do not), so a scheduled pull is still needed.
-- Revoked permissions and account deletion produce no notification.
-
-### Mapping to this repository's interfaces
-
-| Interface | Google Health API | Notes |
+| Kind | Data types | Filter |
 |---|---|---|
-| `OAuthConnector` | `AuthorizeURL`, `Exchange`, `Refresh` against Google OAuth; `Fetch` lists data points per data type over the window | Google OAuth needs no PKCE for a confidential web client, so the current contract fits. `Fetch` emits one raw object per data type and page |
-| `PushConnector` | `HandleInbound` checks the `Authorization` secret and the signature, answers verification requests, and turns each message into an `InboundEvent` (`healthUserId`, `dataType`, interval as `From`/`To`) | A good fit: notifications are already "pull this window". A `DELETE` operation needs thought: today an inbound event can only trigger a pull, not remove stored records |
-| `Subscriber` | Not needed with `AUTOMATIC` subscriptions | The subscriber is per project. Registering it is a one-off operator step (or done at startup through `Configurable`), not per connection |
-| `Revoker` | Revoke the Google token on disconnect | |
-| `KeyedConnector` | `CLIENT_ID`, `CLIENT_SECRET`, plus the webhook secret and project number if webhooks are used | |
+| Interval | `steps`, `distance`, `floors`, `active-energy-burned` | `<type>.interval.start_time` in the window |
+| Sample | `heart-rate`, `heart-rate-variability`, `oxygen-saturation`, `weight`, `body-fat`, `height`, `vo2-max`, `blood-glucose`, `core-body-temperature` | `<type>.sample_time.physical_time` in the window |
+| Daily | `daily-resting-heart-rate`, `daily-heart-rate-variability`, `daily-oxygen-saturation`, `daily-respiratory-rate`, `daily-vo2-max`, `daily-sleep-temperature-derivations` | `<type>.date`, one day wider on each side |
+| Session | `exercise` | `exercise.interval.civil_start_time`, one day wider on each side |
+| Sleep | `sleep` | `sleep.interval.end_time` in the window |
 
-The connection should keep `healthUserId` (from `users.getIdentity`) as the provider user id;
-webhooks name users by it.
+The filter field names of daily types are written in snake case (`daily_resting_heart_rate.date`)
+as on Google's data types page; the list reference shows one example in camel case
+(`dailyHeartRateVariability.date`). Which one the API accepts is **(unverified)**.
 
-**Slug.** Users know the devices as Fitbit, but the API is the Google Health API and also serves
-Pixel Watch data and manual entries. `fitbit` is the working name; `google_health` may be more
-accurate. Decide when building.
+The connector uses the default data source family (`all-sources`): points from every source the
+user has (tracker, phone, scale, other apps) are pulled, and the source is kept in metadata and
+in the content hash, so two sources of the same minute stay apart. Data only exists once the
+user's device has synced to the app. How far back history reaches is **(unverified)**.
 
-## Data types and the canonical model
+## 6. Webhooks
 
-Data type names and record kinds from [data types](https://developers.google.com/health/data-types);
-field names and units from the [dataPoints reference](https://developers.google.com/health/reference/rest/v4/users.dataTypes.dataPoints).
-Units are part of the field names (`...Millimeters`, `...Kcal`, `beatsPerMinute`). Fields we
-could not read in the reference are marked **(unverified)**. Times come as RFC 3339 instants with
-a UTC offset per point (`startUtcOffset`) and a civil (local) time; no IANA zone name per point,
-so `Metadata["timezone"]` would come from the user's settings if available (**unverified**), and
-the offset should be kept in metadata.
+A Google Health API **subscriber** belongs to the Cloud project, not to a user, so Open Health
+Sync does not create it. Create it once ([webhooks](https://developers.google.com/health/webhooks))
+with `endpointUri` set to `<OHS_PUBLIC_URL>/inbound/fitbit` and `endpointAuthorization.secret`
+set to exactly the value of `OHS_FITBIT_WEBHOOK_SECRET` (the value includes its scheme, such as
+`Bearer `, and Google sends it verbatim in the `Authorization` header):
 
-| Google Health data type | Fields and units | Canonical records |
-|---|---|---|
-| `steps` (interval, 1 minute) | `count` | `step_count_intraday` (count); daily totals from `dailyRollUp` as `step_count` and `DailySummary.StepCount` |
-| `distance` (interval, 1 minute) | millimeters (**unverified** field name) | `distance_walking_running_intraday` / `distance_walking_running` (m, divide by 1000) |
-| `floors` (interval) | `count` | `flights_climbed`, `DailySummary.FloorsClimbed` |
-| `active-energy-burned`, `total-calories` (interval) | kcal (**unverified** field names) | `active_energy_burned_intraday` / `active_energy_burned` (kcal); `DailySummary.ActiveKcal`, `TotalKcal` |
-| `heart-rate` (sample, 1 second) | `beatsPerMinute` | `heart_rate` (bpm) |
-| `daily-resting-heart-rate` (daily) | `beatsPerMinute` | `resting_heart_rate` (bpm), `DailySummary.RestingHR` |
-| `daily-heart-rate-variability` (daily) | `averageHeartRateVariabilityMilliseconds`, `deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds` (ms) | RMSSD, not SDNN: `DailySummary.HRVAvgMs`; not `hrv_sdnn`. A new quantity name for RMSSD would be cleaner |
-| `heart-rate-variability` (sample) | ms (**unverified** fields) | as above |
-| `oxygen-saturation`, `daily-oxygen-saturation` | percent (**unverified** whether 0 to 100 or a fraction) | `oxygen_saturation` (percent, 0 to 100) |
-| `daily-respiratory-rate`, `respiratory-rate-sleep-summary` | breaths per minute (**unverified** fields) | `respiratory_rate`; `SleepSession.RespiratoryRate` |
-| `daily-sleep-temperature-derivations` | deviation in °C (**unverified**) | `body_temperature_deviation` (celsius) |
-| `core-body-temperature`, `skin-temperature-sensors` (v4beta) | °C (**unverified**) | `body_temperature`, `skin_temperature` |
-| `sleep` (session) | `stages[]` with `AWAKE`, `LIGHT`, `DEEP`, `REM` (or `ASLEEP`, `RESTLESS` for classic sleep); `summary.minutesAsleep`, `minutesAwake` (minutes) | `SleepSession` (minutes × 60) and `SleepPhase` rows; `ASLEEP` maps to `asleep_core`, `RESTLESS` to `awake` or kept as a label (decide) |
-| `exercise` (session) | `exerciseType`, `activeDuration` (seconds), `metricsSummary.caloriesKcal`, `distanceMillimeters`, `averageHeartRateBeatsPerMinute`, `elevationGainMillimeters`, `averageSpeedMillimetersPerSecond`, `runVo2Max` | `Workout` (`ActiveEnergyKcal`, `DistanceM` = mm / 1000, `AvgHeartRate`, `ElevationGainM` = mm / 1000, `AvgSpeedMps` = mm/s / 1000, `VO2Max`). `exerciseType` needs a mapping table. Routes via `exportExerciseTcx` → `RoutePoint` (**unverified** whether it needs `location.readonly`) |
-| `vo2-max`, `run-vo2-max`, `daily-vo2-max` | mL/kg/min (**unverified**) | `vo2_max` |
-| `weight` | grams (**unverified**) | `body_mass` (kg) |
-| `body-fat` | percent (**unverified**) | `body_fat_percentage` |
-| `height` | millimeters (**unverified**) | `height` (cm) |
-| `blood-glucose` | **unverified** unit | `blood_glucose` (mg/dL; the ETL converts mmol/L) |
-| `nutrition-log`, `food`, `hydration-log` | kcal and grams (**unverified**) | `NutritionLog`; hydration has no canonical name yet |
-| `electrocardiogram` | **unverified** waveform format | `ECGRecording` and `ECGVoltageSample` if the waveform is returned; separate scope, not in a first version |
-| `active-zone-minutes`, `active-minutes`, `time-in-heart-rate-zone`, `sedentary-period`, `activity-level` | minutes | No canonical names; keep raw for now |
+```sh
+curl -s -X POST "https://health.googleapis.com/v4/projects/$PROJECT_NUMBER/subscribers?subscriberId=ohs-fitbit" \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" -H 'Content-Type: application/json' \
+  -d '{"endpointUri":"https://ohs.example.org/inbound/fitbit",
+       "endpointAuthorization":{"secret":"Bearer <long random string>"},
+       "subscriberConfigs":[{"subscriptionCreatePolicy":"AUTOMATIC",
+         "dataTypes":["steps","distance","floors","heart-rate-variability","daily-resting-heart-rate",
+                      "daily-heart-rate-variability","daily-oxygen-saturation","daily-respiratory-rate",
+                      "weight","body-fat","height","sleep","exercise"]}]}'
+```
 
-Exactly which data types a Fitbit device (as opposed to a Pixel Watch) produces is
-**unverified**.
+Set `OHS_FITBIT_WEBHOOK_SECRET` and restart **before** this call: while creating it Google POSTs
+`{"type": "verification"}` twice, once with the secret (Open Health Sync answers 200) and once
+without (401), and refuses the subscriber if either answer is wrong. With `AUTOMATIC`, every user
+who consents is subscribed. The credentials the call needs, and which data types Google accepts in
+`subscriberConfigs` (not every type has webhooks; `oxygen-saturation`, `vo2-max` and
+`daily-vo2-max` do not), are **(unverified)**: drop a type the call refuses.
 
-## Rate limits
+Each notification must carry the secret, compared in constant time. It must also carry a valid
+`GOOGLE-HEALTH-API-SIGNATURE`: base64 of a Tink prefix (version byte, 4 byte key id) and an ECDSA
+P-256 / SHA-256 signature of the raw body, checked against Google's
+[public keyset](https://www.gstatic.com/googlehealthapi/webhooks/webhooks_public_keyset.json)
+(fetched, cached for an hour, fetched again when a signature names a key it does not hold; keys
+rotate every 30 days). This follows Google's manual verification steps without the Tink library.
+Not confirmed against a real delivery **(unverified)**: the base64 alphabet (standard and URL-safe
+are both accepted) and the signature encoding (DER per the docs; IEEE P1363 also accepted).
+`OHS_FITBIT_WEBHOOK_SIGNATURE` sets the check:
 
-From [rate limits](https://developers.google.com/health/rate-limits):
-
-| Limit | Value |
+| Value | Behaviour |
 |---|---|
-| Per project per day | 86.4 million requests |
-| Per project per minute | 120,000 requests |
-| Per user per minute | 300 requests (5 per second) |
-| Unverified app | 250 requests per second in total, at most 100 users at 2.5 per second each |
+| `required` (default) | a missing or bad signature is refused (401); while the keyset cannot be fetched, every notification is refused and Google retries for up to 7 days |
+| `if_available` | as `required`, except that while the keyset cannot be fetched the secret alone admits a notification |
+| `off` | only the secret is checked; use it if real notifications fail the signature check, and report it |
 
-Exceeding a limit returns HTTP 429; Google asks for exponential backoff on 429 and 504.
-`connector.RateLimited` covers it. Per-user limits are generous for a 6 hour pull, but a
-backfill over many data types with 25-record pages for sleep and exercise needs pacing.
+A notification (one, or a batch of up to 99) only says what changed: user, data type, operation
+(`UPSERT` or `DELETE`) and intervals. Each one queues a pull of **that data type only** over its
+intervals (a minute wider on each side; for daily data, the day before to two days after), merged
+per user and data type. A data type the connector does not pull is acknowledged and ignored.
 
-The legacy Web API allowed 150 requests per user per hour; it no longer matters.
+- **Deletions are not propagated yet.** A `DELETE` notification queues a pull like an upsert, but
+  a pull cannot tell what is gone, so data deleted at Google stays stored.
+- **Answer code.** Open Health Sync answers an accepted notification with 200; Google documents
+  204 and retries "any other status code" **(unverified** whether a 200 is retried).
+- Revoked permissions and account deletions send no notification. Without webhooks nothing
+  breaks: the 6 hour pull still collects everything.
 
-## Recommendation
+## 7. Rate limits
 
-**Wait, and route through Health Connect meanwhile.**
+Per [rate limits](https://developers.google.com/health/rate-limits): 300 requests per user per
+minute; 86.4 million per project per day and 120,000 per minute; an unverified app 250 per second
+in total. An HTTP 429 or 504 defers the connection's job until `Retry-After` (one minute without
+one); 500, 502 and 503 are retried a few times first. One pull costs one request per data type
+and page: about 21 for a quiet day, more for a long backfill of one-second heart rate.
 
-- The legacy Fitbit Web API shuts down on 2026-10-30: do not build on it.
-- The Google Health API is the right target, and its design fits this repository well (OAuth
-  pull plus "pull this window" webhooks). But no one can create a project for it today, so we
-  could neither test it nor let anyone use it.
-- For Android users, the Fitbit / Google Health app can write to Health Connect, which the
-  planned Kotlin SDK will read. Which Fitbit data types reach Health Connect is **unverified**.
-  iPhone users have no Fitbit path: the Fitbit app does not write to Apple Health
-  (**unverified** for the Google Health app).
+## Data produced
 
-Revisit when the Google Health API page says it onboards new projects. Write the connector then,
-with fixtures recorded from a test project.
+| Google Health data | Canonical records |
+|---|---|
+| `steps` (1 minute) | `step_count_intraday` (count) |
+| `distance` (1 minute, `millimeters`) | `distance_walking_running_intraday` (m = mm / 1000) |
+| `floors` (1 minute) | `flights_climbed` (count) |
+| `active-energy-burned` (1 minute, `kcal`) | `active_energy_burned_intraday` (kcal) |
+| `heart-rate` (`beatsPerMinute`) | `heart_rate` (bpm); motion context and sensor location in metadata |
+| `heart-rate-variability` (RMSSD ms) | `hrv_rmssd` (ms); the standard deviation in metadata |
+| `daily-heart-rate-variability` | `hrv_rmssd` for the day (average RMSSD); deep sleep RMSSD, non-REM heart rate and entropy in metadata |
+| `daily-resting-heart-rate` | `resting_heart_rate` (bpm) for the day |
+| `oxygen-saturation` (`percentage`) | `oxygen_saturation` (percent) |
+| `daily-oxygen-saturation` | `oxygen_saturation` for the day (average); bounds in metadata |
+| `daily-respiratory-rate` (`breathsPerMinute`) | `respiratory_rate` (stored as "bpm") for the day |
+| `weight` (`weightGrams`) | `body_mass` (kg = g / 1000) |
+| `body-fat` (`percentage`) | `body_fat_percentage` (percent) |
+| `height` (`heightMillimeters`) | `height` (cm = mm / 10) |
+| `vo2-max`, `daily-vo2-max` | `vo2_max` (mL/kg/min); cardio fitness level in metadata |
+| `blood-glucose` (`bloodGlucoseMilligramsPerDeciliter`) | `blood_glucose` (mg/dL); specimen, meal and timing in metadata |
+| `core-body-temperature` (`temperatureCelsius`) | `body_temperature` (celsius) |
+| `daily-sleep-temperature-derivations` | `skin_temperature` (nightly, celsius) and `body_temperature_deviation` (nightly minus the 30 day baseline) |
+| `sleep` | a sleep session (`minutesAsleep`, `minutesAwake`, deep, REM and light minutes from `stagesSummary`, times 60) and its phases from `stages` |
+| `exercise` | a workout: activity from `exerciseType`, duration from `activeDuration`, `caloriesKcal`, distance and elevation (mm / 1000), average speed (mm/s / 1000), average heart rate; steps, run VO2 max, active zone minutes and swim lengths in metadata |
+
+Notes on the mapping:
+
+- **Units in field names.** The API writes units into field names and int64 values as JSON
+  strings (`"count": "120"`); both strings and numbers are read. A SpO2 value at or under 1 is
+  taken for a fraction and scaled to percent (the API documents 0 to 100).
+- **HRV is RMSSD**, stored as `hrv_rmssd`, never `hrv_sdnn`.
+- **Time zones.** Every point carries a UTC offset (`startUtcOffset`, `utcOffset`, as
+  `"3600s"`), never an IANA name. The metadata keeps `utc_offset` (`+01:00`) and, as
+  `timezone`, a zone with that offset (`Etc/GMT-1`, or a place for a half-hour offset), which is
+  what the ETL needs to find the local day. Daily points carry a date only: they span that date
+  and claim no zone.
+- **No daily totals.** Steps, distance, floors and active energy are stored per minute under
+  the `*_intraday` names (and `flights_climbed`); daily roll-ups and daily summaries are not
+  pulled.
+- **Sleep stages.** `AWAKE`, `LIGHT`, `DEEP`, `REM` map to the canonical stages. Classic sleep
+  (older devices, naps) reports `ASLEEP` (stored as light) and `RESTLESS` (stored as awake, its
+  minutes in metadata as `minutes_restless`); the session keeps `sleep_type`.
+- **Exercise types.** About 150 `exerciseType` values map to the canonical activity vocabulary;
+  the rest (chores, motor sports...) become `other`, with Google's type and display name in
+  metadata.
+- **Raw only.** Google data types this connector does not pull (nutrition, hydration, ECG,
+  irregular rhythm, active zone minutes, time in heart rate zones, sedentary periods, activity
+  level, swim lengths, altitude, basal energy, menstrual and mood data) have no canonical name
+  here or need a scope not asked for. Exercise routes (TCX export) are not pulled.
+- Which data types a Fitbit tracker (as opposed to a Pixel Watch) produces is **(unverified)**.
+
+## Updates and deletions
+
+- Minute intervals are replaceable and keyed by source and start: a minute Google revises after
+  a later sync replaces the stored value.
+- Daily points are replaceable and keyed by date: a recomputed day replaces the stored value.
+- Sleep sessions and workouts are keyed by their data point id (the last segment of the resource
+  name) and start, and are replaceable: Google reprocessing a night (stages computed later, an
+  edit) replaces its figures and phases.
+- Measurements (heart rate, weight...) are keyed by source, time and value.
+- Deletions are not propagated (see [Webhooks](#6-webhooks)).
+
+## To verify with a real project
+
+- The filter field spelling of daily types, and every scope assignment marked above.
+- The webhook signature format (base64 alphabet, DER) and whether a 200 answer stops retries.
+- The exact notification `dataType` spelling (kebab case per the docs; snake and camel case are
+  accepted too) and batch shape.
+- Which data types support webhook subscriptions, and the credentials creating a subscriber needs.
+- History depth, and the Testing-mode and publishing limits above.
 
 ## Sources
 
-All checked on 2026-10-11.
+Checked on 2026-10-12.
 
-- Fitbit, [Web API reference](https://dev.fitbit.com/build/reference/web-api/) (deprecation notice)
-- Google, [Google Health API](https://developers.google.com/health) and [about](https://developers.google.com/health/about)
-- Google, [Fitbit Web API migration guide](https://developers.google.com/health/migration) (updated 2026-09-28)
-- Google, [Get started](https://developers.google.com/health/get-started) and [Set up Google Cloud and OAuth](https://developers.google.com/health/setup)
-- Google, [Scopes](https://developers.google.com/health/scopes)
-- Google, [App verification](https://developers.google.com/health/app-verification)
-- Google, [Data types](https://developers.google.com/health/data-types)
-- Google, [REST reference](https://developers.google.com/health/reference/rest) and [dataPoints](https://developers.google.com/health/reference/rest/v4/users.dataTypes.dataPoints)
-- Google, [Webhook subscriptions](https://developers.google.com/health/webhooks)
-- Google, [Rate limits](https://developers.google.com/health/rate-limits)
+- Google, [Google Health API](https://developers.google.com/health), [setup](https://developers.google.com/health/setup), [scopes](https://developers.google.com/health/scopes), [app verification](https://developers.google.com/health/app-verification)
+- Google, [data types](https://developers.google.com/health/data-types), [REST reference](https://developers.google.com/health/reference/rest) and the API discovery document (`https://health.googleapis.com/$discovery/rest?version=v4`)
+- Google, [webhooks](https://developers.google.com/health/webhooks), [rate limits](https://developers.google.com/health/rate-limits)
+- Google, [Fitbit Web API migration guide](https://developers.google.com/health/migration)

@@ -1,0 +1,96 @@
+[
+ {
+  "name": "users/111222333444555666/dataTypes/sleep/dataPoints/9000000001",
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "sleep": {
+   "interval": {
+    "startTime": "2026-03-08T22:30:00Z",
+    "startUtcOffset": "3600s",
+    "endTime": "2026-03-09T06:00:00Z",
+    "endUtcOffset": "3600s"
+   },
+   "type": "STAGES",
+   "stages": [
+    {
+     "type": "AWAKE",
+     "startTime": "2026-03-08T22:30:00Z",
+     "startUtcOffset": "3600s",
+     "endTime": "2026-03-08T22:45:00Z",
+     "endUtcOffset": "3600s"
+    },
+    {
+     "type": "LIGHT",
+     "startTime": "2026-03-08T22:45:00Z",
+     "startUtcOffset": "3600s",
+     "endTime": "2026-03-09T01:00:00Z",
+     "endUtcOffset": "3600s"
+    },
+    {
+     "type": "DEEP",
+     "startTime": "2026-03-09T01:00:00Z",
+     "startUtcOffset": "3600s",
+     "endTime": "2026-03-09T02:30:00Z",
+     "endUtcOffset": "3600s"
+    },
+    {
+     "type": "REM",
+     "startTime": "2026-03-09T02:30:00Z",
+     "startUtcOffset": "3600s",
+     "endTime": "2026-03-09T04:00:00Z",
+     "endUtcOffset": "3600s"
+    },
+    {
+     "type": "LIGHT",
+     "startTime": "2026-03-09T04:00:00Z",
+     "startUtcOffset": "3600s",
+     "endTime": "2026-03-09T06:00:00Z",
+     "endUtcOffset": "3600s"
+    }
+   ],
+   "metadata": {
+    "mainSleep": true,
+    "nap": false,
+    "manuallyEdited": false,
+    "processed": true,
+    "stagesStatus": "SUCCEEDED"
+   },
+   "summary": {
+    "minutesInSleepPeriod": "450",
+    "minutesAsleep": "435",
+    "minutesAwake": "15",
+    "minutesToFallAsleep": "15",
+    "minutesAfterWakeUp": "0",
+    "stagesSummary": [
+     {
+      "type": "AWAKE",
+      "minutes": "15",
+      "count": "1"
+     },
+     {
+      "type": "LIGHT",
+      "minutes": "255",
+      "count": "2"
+     },
+     {
+      "type": "DEEP",
+      "minutes": "90",
+      "count": "1"
+     },
+     {
+      "type": "REM",
+      "minutes": "90",
+      "count": "1"
+     }
+    ]
+   }
+  }
+ }
+]

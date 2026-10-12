@@ -1,0 +1,23 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "dailyOxygenSaturation": {
+   "date": {
+    "year": 2026,
+    "month": 3,
+    "day": 9
+   },
+   "averagePercentage": 95.5,
+   "lowerBoundPercentage": 93.0,
+   "upperBoundPercentage": 98.0
+  }
+ }
+]
