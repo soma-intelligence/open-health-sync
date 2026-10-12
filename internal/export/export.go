@@ -104,7 +104,7 @@ func columns(t reflect.Type, prefix []int) ([]column, error) {
 			c.optional, ft = true, ft.Elem()
 		}
 		switch {
-		case ft == rawType:
+		case ft == rawType, ft.Kind() == reflect.Map && ft.Key().Kind() == reflect.String:
 			c.kind, c.optional = kJSON, true
 		case ft == timeType:
 			c.kind = kTime
@@ -145,6 +145,16 @@ func (c column) value(rec reflect.Value) any {
 		return v.Bool()
 	case kTime:
 		return v.Interface().(time.Time).UTC()
+	}
+	if v.Kind() == reflect.Map {
+		if v.Len() == 0 {
+			return nil
+		}
+		b, err := json.Marshal(v.Interface())
+		if err != nil {
+			return nil
+		}
+		return string(b)
 	}
 	raw := v.Interface().(json.RawMessage)
 	if len(raw) == 0 || string(raw) == "null" {

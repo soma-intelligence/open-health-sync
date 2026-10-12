@@ -137,6 +137,21 @@ release may change the API, the configuration or the database schema.
   source (Garmin, Wahoo, Zwift, Coros, Suunto, ...).
 - `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE
   (for a future Garmin connector).
+- Source priorities and a merged view. When several sources recorded the same thing (a ring
+  and a watch the same night, a phone and a watch the same steps, one sample directly and
+  through an aggregator), the reads now list only the best ranked source's record by default,
+  so totals and summaries count nothing twice. Every raw record stays stored, and `view=all`
+  returns all of them as before. The order of sources is resolved per metric (metric, then
+  group, then `*`, then built-in defaults) and set per user with
+  `GET`/`PUT /v1/users/{id}/source-priorities`, stored in `ohs_sync.source_priorities`
+  (migration `0019`). Overlap is judged per kind of metric: any shared time for counts such as
+  steps, 5 minutes for readings such as heart rate, 12 hours for nightly figures, an hour for
+  body measurements, half the shorter session for sleep and workouts. `GET .../daily` merges
+  one summary per day with each figure from its best ranked source and `sources` naming it;
+  the FHIR search leaves out covered records and shows a daily summary's own figures only. The
+  MCP read tools take the same `view`. An optional `fusion.Scorer` (`api.Deps.Scorer`) can rank
+  the sources of metrics a user has not ordered, from a quality measure.
+
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. See [docs/connectors/oura.md](docs/connectors/oura.md).
 - WHOOP connector (#6): bring your own WHOOP developer app, OAuth connection, scheduled pulls
@@ -220,6 +235,9 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- The sample, category sample, sleep, workout, daily and FHIR reads default to the merged view
+  (see Added). A client that needs every source's rows passes `view=all`; `GET .../daily`
+  returns one summary per day instead of one per provider and day.
 - The backstop pull adapts to notifications: every 6 hours while a connection's provider
   notifications arrive, every hour when none came for 24 hours or the provider sends none
   (before: every 6 hours for all).

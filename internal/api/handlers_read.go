@@ -43,6 +43,7 @@ func listRoute[T any](s *server, fn listFunc[T]) http.HandlerFunc {
 			badRequest(w, err.Error())
 			return
 		}
+		s.mergePolicy(r, p.TenantID, user, &q)
 		pg, err := fn(r.Context(), s.d.Pool, p.TenantID, user, q)
 		if err != nil {
 			readError(w, r, err, "user")

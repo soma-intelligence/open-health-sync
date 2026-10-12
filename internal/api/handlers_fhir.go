@@ -65,6 +65,7 @@ func (s *server) fhirObservations(w http.ResponseWriter, r *http.Request) {
 		readError(w, r, err, "user")
 		return
 	}
+	s.mergePolicy(r, p.TenantID, user, &q)
 	pg, err := read.Observations(r.Context(), s.d.Pool, p.TenantID, user, q, f)
 	if err != nil {
 		readError(w, r, err, "user")
@@ -145,6 +146,7 @@ func (s *server) fhirEverything(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, _ := auth.From(r.Context())
+	s.mergePolicy(r, p.TenantID, user, &q)
 	pg, err := read.Observations(r.Context(), s.d.Pool, p.TenantID, user, q, read.AllObservations())
 	if err != nil {
 		readError(w, r, err, "patient")
@@ -289,7 +291,12 @@ func (s *server) fhirObservation(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "observation")
 		return
 	}
-	rec, err := read.ObservationByID(r.Context(), s.d.Pool, p.TenantID, user, kind, panel, id)
+	view, err := read.ParseView(r.URL.Query().Get("view"))
+	if err != nil {
+		readError(w, r, err, "observation")
+		return
+	}
+	rec, err := read.ObservationByID(r.Context(), s.d.Pool, p.TenantID, user, kind, panel, id, view)
 	if err != nil {
 		readError(w, r, err, "observation")
 		return

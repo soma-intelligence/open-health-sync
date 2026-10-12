@@ -18,6 +18,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/console"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
+	"github.com/soma-intelligence/open-health-sync/internal/fusion"
 	"github.com/soma-intelligence/open-health-sync/internal/mcp"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
@@ -68,6 +69,9 @@ type Deps struct {
 	// WebhookAllowPrivate (OHS_WEBHOOK_ALLOW_PRIVATE) accepts http and
 	// private hosts in endpoint URLs.
 	WebhookAllowPrivate bool
+	// Scorer, when set, ranks the sources of a metric a user has not ordered
+	// in merged reads (see fusion.Scorer). Nil uses the built-in defaults.
+	Scorer fusion.Scorer
 }
 
 type server struct {
@@ -95,6 +99,7 @@ func NewRouter(d Deps) http.Handler {
 	s.mountDeletion(mux)
 	s.mountReads(mux)
 	s.mountTags(mux)
+	s.mountSourcePriorities(mux)
 	s.mountFHIR(mux)
 	s.mountOMH(mux)
 	s.mountExports(mux)

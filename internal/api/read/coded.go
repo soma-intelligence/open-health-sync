@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/soma-intelligence/open-health-sync/internal/fusion"
 )
 
 // CodedSample is a quantity sample with the standard codes the quantity type
@@ -252,11 +254,30 @@ func Observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 	if f.Empty() {
 		return out, nil
 	}
+	var pol *fusion.Policy
+	if n.merged() {
+		p, err := policy(ctx, db, tenantID, userID, n.Query)
+		if err != nil {
+			return Page[ObservationRecord]{}, err
+		}
+		pol = &p
+	}
 
 	args := []any{tenantID, userID}
 	arg := func(v any) string {
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args))
+	}
+	var mp *mergeParams
+	if pol != nil {
+		mp = bindMerge(*pol, append(fusion.KnownMetrics(), f.Types...), arg)
+	}
+	// mergedOut adds the merged view's condition for a branch.
+	mergedOut := func(where []string, cond func() string) []string {
+		if pol == nil {
+			return where
+		}
+		return append(where, cond())
 	}
 	limit := arg(n.Limit + 1)
 	var branches []string
@@ -289,16 +310,22 @@ func Observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 			}
 			where = append(where, cond)
 		}
+		where = mergedOut(where, func() string { return "NOT " + quantityFamily.covered(mp, "q", "") })
 		branch(KindQuantity, "ohs_data.quantity_samples", "q", "q.start_date", where)
 	}
 	if f.Sleep {
-		branch(KindSleep, "ohs_data.sleep_sessions", "s", "s.bedtime_start", nil)
+		branch(KindSleep, "ohs_data.sleep_sessions", "s", "s.bedtime_start",
+			mergedOut(nil, func() string { return "NOT " + sleepFamily.covered(mp, "s", fusion.MetricSleep) }))
 	}
 	if f.Workouts {
-		branch(KindWorkout, "ohs_data.workouts", "w", "w.start_date", nil)
+		branch(KindWorkout, "ohs_data.workouts", "w", "w.start_date",
+			mergedOut(nil, func() string { return "NOT " + workoutFamily.covered(mp, "w", fusion.MetricWorkouts) }))
 	}
 	if f.Daily {
-		branch(KindDaily, "ohs_data.daily_summaries", "d", "(d.summary_date::timestamp AT TIME ZONE 'UTC')", nil)
+		// A day's row stays when it holds a figure no better ranked row of the
+		// day holds; fetchRecords blanks the figures it does not own.
+		branch(KindDaily, "ohs_data.daily_summaries", "d", "(d.summary_date::timestamp AT TIME ZONE 'UTC')",
+			mergedOut(nil, func() string { return dailyOwnsAny(mp, "d") }))
 	}
 	sql := "SELECT kind, ts, id FROM (" + strings.Join(branches, " UNION ALL ") + ") k ORDER BY ts, kind, id LIMIT " + limit
 	rows, err := db.Query(ctx, sql, args...)
@@ -323,7 +350,7 @@ func Observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 		out.NextCursor = encodeObsCursor(last.t, last.kind, last.id)
 		keys = keys[:n.Limit]
 	}
-	recs, err := fetchRecords(ctx, db, tenantID, userID, keys)
+	recs, err := fetchRecords(ctx, db, tenantID, userID, keys, pol)
 	if err != nil {
 		return Page[ObservationRecord]{}, err
 	}
@@ -339,12 +366,22 @@ func Observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 // ObservationByID reads one record of the user. For KindQuantity, panel
 // asks for a systolic sample paired with a diastolic one, and !panel for a
 // sample that is in no pair. ErrNotFound when it is not the tenant's, does
-// not exist or does not have that shape.
-func ObservationByID(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k Kind, panel bool, id int64) (ObservationRecord, error) {
+// not exist or does not have that shape. In the merged view a daily summary
+// carries only the figures it owns, as in Observations; any other record
+// reads as stored.
+func ObservationByID(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k Kind, panel bool, id int64, view View) (ObservationRecord, error) {
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return ObservationRecord{}, err
 	}
-	recs, err := fetchRecords(ctx, db, tenantID, userID, []obsKey{{kind: k, id: id}})
+	var pol *fusion.Policy
+	if k == KindDaily && view != ViewAll {
+		p, err := policy(ctx, db, tenantID, userID, Query{})
+		if err != nil {
+			return ObservationRecord{}, err
+		}
+		pol = &p
+	}
+	recs, err := fetchRecords(ctx, db, tenantID, userID, []obsKey{{kind: k, id: id}}, pol)
 	if err != nil {
 		return ObservationRecord{}, err
 	}
@@ -360,8 +397,9 @@ func ObservationByID(ctx context.Context, db Querier, tenantID, userID uuid.UUID
 
 // fetchRecords reads the records of keys (time ignored), by kind, keyed by
 // kind and id. The diastolic half of a pair is left out unless it is asked
-// for as a partner.
-func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, keys []obsKey) (map[obsKey]ObservationRecord, error) {
+// for as a partner. With a policy, a daily summary's figures that a better
+// ranked row of the day holds read as null.
+func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, keys []obsKey, pol *fusion.Policy) (map[obsKey]ObservationRecord, error) {
 	ids := map[Kind][]int64{}
 	for _, k := range keys {
 		ids[k.kind] = append(ids[k.kind], k.id)
@@ -425,7 +463,18 @@ func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k
 		}
 	}
 	if len(ids[KindDaily]) > 0 {
-		err := fetchByIDs(ctx, db, "ohs_data.daily_summaries", dailyCols, tenantID, userID, ids[KindDaily], func(r pgx.Rows) error {
+		cols := dailyCols
+		var extra []any
+		if pol != nil {
+			// fetchByIDs binds $1 to $3.
+			args := []any{nil, nil, nil}
+			mp := bindMerge(*pol, nil, func(v any) string {
+				args = append(args, v)
+				return "$" + strconv.Itoa(len(args))
+			})
+			cols, extra = dailyMaskedCols(mp, "r"), args[3:]
+		}
+		err := fetchByIDs(ctx, db, "ohs_data.daily_summaries", cols, tenantID, userID, ids[KindDaily], func(r pgx.Rows) error {
 			var d DailySummary
 			var day time.Time
 			if err := r.Scan(d.dest(&day)...); err != nil {
@@ -434,7 +483,7 @@ func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k
 			d.finish(day)
 			out[obsKey{kind: KindDaily, id: d.ID}] = ObservationRecord{Kind: KindDaily, Daily: &d}
 			return nil
-		})
+		}, extra...)
 		if err != nil {
 			return nil, err
 		}
@@ -476,9 +525,10 @@ func fetchSamples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, i
 	return out, partners, nil
 }
 
-func fetchByIDs(ctx context.Context, db Querier, table, cols string, tenantID, userID uuid.UUID, ids []int64, scan func(pgx.Rows) error) error {
-	rows, err := db.Query(ctx, `SELECT `+cols+` FROM `+table+`
-		WHERE tenant_id = $1 AND user_id = $2 AND id = ANY($3::bigint[])`, tenantID, userID, ids)
+// fetchByIDs reads rows of table (alias r) by id; extra binds $4 onwards.
+func fetchByIDs(ctx context.Context, db Querier, table, cols string, tenantID, userID uuid.UUID, ids []int64, scan func(pgx.Rows) error, extra ...any) error {
+	rows, err := db.Query(ctx, `SELECT `+cols+` FROM `+table+` r
+		WHERE r.tenant_id = $1 AND r.user_id = $2 AND r.id = ANY($3::bigint[])`, append([]any{tenantID, userID, ids}, extra...)...)
 	if err != nil {
 		return fmt.Errorf("read: %s: %w", table, err)
 	}

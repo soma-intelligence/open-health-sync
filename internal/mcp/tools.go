@@ -37,9 +37,20 @@ type windowArgs struct {
 	End   string `json:"end,omitempty" jsonschema:"exclusive upper bound, RFC 3339 or YYYY-MM-DD (UTC midnight)"`
 }
 
+type viewArgs struct {
+	View string `json:"view,omitempty" jsonschema:"merged (default): when several sources recorded the same thing, only the best ranked one, so nothing counts twice; all: every source's records"`
+}
+
 type listArgs struct {
 	userArgs
 	windowArgs
+	pageArgs
+}
+
+type dailyArgs struct {
+	userArgs
+	windowArgs
+	viewArgs
 	pageArgs
 }
 
@@ -47,6 +58,7 @@ type typedArgs struct {
 	userArgs
 	Type string `json:"type,omitempty" jsonschema:"filter on this type"`
 	windowArgs
+	viewArgs
 	pageArgs
 }
 
@@ -54,6 +66,7 @@ type samplesArgs struct {
 	userArgs
 	Type string `json:"type" jsonschema:"canonical quantity type, for example heart_rate or step_count (see list_quantity_types)"`
 	windowArgs
+	viewArgs
 	pageArgs
 }
 
@@ -61,6 +74,7 @@ type sleepArgs struct {
 	userArgs
 	SessionID int64 `json:"session_id,omitempty" jsonschema:"when set, list the phases of this sleep session instead of the sessions"`
 	windowArgs
+	viewArgs
 	pageArgs
 }
 
@@ -147,22 +161,22 @@ func addTools(s *sdk.Server, t *tools) {
 		"Raw points: heart rate alone can be thousands a day, so pass a narrow start and end; "+
 		"for daily totals and averages use get_daily instead.",
 		func(ctx context.Context, a samplesArgs) (any, error) {
-			return listTool(ctx, t, a.userArgs, read.Query{Type: a.Type}, a.windowArgs, a.pageArgs, read.Samples)
+			return listTool(ctx, t, a.userArgs, read.Query{Type: a.Type, View: read.View(a.View)}, a.windowArgs, a.pageArgs, read.Samples)
 		})
 	add(s, "get_category_samples", "Category samples (events with a categorical value, such as mindful sessions), oldest first.",
 		func(ctx context.Context, a typedArgs) (any, error) {
-			return listTool(ctx, t, a.userArgs, read.Query{Type: a.Type}, a.windowArgs, a.pageArgs, read.CategorySamples)
+			return listTool(ctx, t, a.userArgs, read.Query{Type: a.Type, View: read.View(a.View)}, a.windowArgs, a.pageArgs, read.CategorySamples)
 		})
 	add(s, "get_sleep", "Sleep sessions by bedtime, oldest first; with session_id, the phases of that session.",
 		func(ctx context.Context, a sleepArgs) (any, error) {
 			if a.SessionID != 0 {
 				return childTool(ctx, t, a.userArgs, a.SessionID, a.windowArgs, a.pageArgs, read.SleepPhases, "sleep session not found")
 			}
-			return listTool(ctx, t, a.userArgs, read.Query{}, a.windowArgs, a.pageArgs, read.Sleep)
+			return listTool(ctx, t, a.userArgs, read.Query{View: read.View(a.View)}, a.windowArgs, a.pageArgs, read.Sleep)
 		})
 	add(s, "get_workouts", "Workouts, oldest first; type filters on the activity type.",
 		func(ctx context.Context, a typedArgs) (any, error) {
-			return listTool(ctx, t, a.userArgs, read.Query{Type: a.Type}, a.windowArgs, a.pageArgs, read.Workouts)
+			return listTool(ctx, t, a.userArgs, read.Query{Type: a.Type, View: read.View(a.View)}, a.windowArgs, a.pageArgs, read.Workouts)
 		})
 	add(s, "get_workout_route", "GPS route points of one workout, in time order.",
 		func(ctx context.Context, a routeArgs) (any, error) {
@@ -172,9 +186,10 @@ func addTools(s *sdk.Server, t *tools) {
 		func(ctx context.Context, a listArgs) (any, error) {
 			return listTool(ctx, t, a.userArgs, read.Query{}, a.windowArgs, a.pageArgs, read.Nutrition)
 		})
-	add(s, "get_daily", "Daily summaries (scores, steps, energy, resting heart rate, HRV) per local day, oldest first.",
-		func(ctx context.Context, a listArgs) (any, error) {
-			return listTool(ctx, t, a.userArgs, read.Query{}, a.windowArgs, a.pageArgs, read.Daily)
+	add(s, "get_daily", "Daily summaries (scores, steps, energy, resting heart rate, HRV) per local day, oldest first. "+
+		"By default one summary per day, each figure from the best ranked source (sources names it); view all gives one per source.",
+		func(ctx context.Context, a dailyArgs) (any, error) {
+			return listTool(ctx, t, a.userArgs, read.Query{View: read.View(a.View)}, a.windowArgs, a.pageArgs, read.Daily)
 		})
 	add(s, "get_rr_intervals", "Beat-to-beat (RR) intervals in milliseconds, by beat time, with the heartbeat series each belongs to. "+
 		"Raw beats: pass a narrow start and end; for HRV use get_hrv instead.",

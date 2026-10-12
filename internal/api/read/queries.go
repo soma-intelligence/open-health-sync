@@ -23,6 +23,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/soma-intelligence/open-health-sync/internal/fusion"
 )
 
 // Page limits.
@@ -65,6 +67,13 @@ type Query struct {
 	Cursor     string
 	// Limit is the page size: 0 means DefaultLimit, at most MaxLimit.
 	Limit int
+	// View is ViewMerged (the default, also when empty) or ViewAll. It
+	// applies to samples, category samples, sleep, workouts, daily summaries
+	// and observations.
+	View View
+	// Policy ranks the user's sources in the merged view; nil reads the
+	// user's stored orders over the built-in defaults.
+	Policy *fusion.Policy
 }
 
 type normalized struct {
@@ -87,6 +96,9 @@ func (q Query) normalize(typeRequired bool) (normalized, error) {
 		n.Limit = DefaultLimit
 	case q.Limit < 0 || q.Limit > MaxLimit:
 		return n, &QueryError{Msg: fmt.Sprintf("limit must be between 1 and %d", MaxLimit)}
+	}
+	if _, err := ParseView(string(q.View)); err != nil {
+		return n, err
 	}
 	if q.Cursor != "" {
 		t, id, err := DecodeCursor(q.Cursor)
@@ -166,6 +178,9 @@ type list struct {
 	// parentCol, parentID add "AND parentCol = parentID" when parentCol is set.
 	parentCol string
 	parentID  int64
+	// where adds conditions over the row (alias r), binding parameters
+	// through arg.
+	where func(arg func(any) string) []string
 }
 
 func run[T any](ctx context.Context, db Querier, tenantID, userID uuid.UUID, l list, q normalized,
@@ -188,6 +203,9 @@ func run[T any](ctx context.Context, db Querier, tenantID, userID uuid.UUID, l l
 	if l.typeCol != "" && q.Type != "" {
 		where = append(where, l.typeCol+" = "+arg(q.Type))
 	}
+	if l.where != nil {
+		where = append(where, l.where(arg)...)
+	}
 	if !q.Start.IsZero() {
 		where = append(where, l.timeCol+" >= "+bound(q.Start))
 	}
@@ -201,7 +219,7 @@ func run[T any](ctx context.Context, db Querier, tenantID, userID uuid.UUID, l l
 		where = append(where, l.timeCol+" >= "+after,
 			"("+l.timeCol+", id) > ("+after+", "+arg(q.afterID)+")")
 	}
-	sql := "SELECT " + l.cols + " FROM " + l.table + " WHERE " + strings.Join(where, " AND ") +
+	sql := "SELECT " + l.cols + " FROM " + l.table + " r WHERE " + strings.Join(where, " AND ") +
 		" ORDER BY " + l.timeCol + ", id LIMIT " + arg(q.Limit+1)
 
 	rows, err := db.Query(ctx, sql, args...)
@@ -228,6 +246,26 @@ func run[T any](ctx context.Context, db Querier, tenantID, userID uuid.UUID, l l
 		return Page[T]{}, fmt.Errorf("read: %s: %w", l.table, err)
 	}
 	return out, nil
+}
+
+// mergeWhere sets l.where to leave out the records of f a better ranked
+// source covers, when q reads the merged view.
+func mergeWhere(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q normalized, l *list, f family) error {
+	if !q.merged() {
+		return nil
+	}
+	p, err := policy(ctx, db, tenantID, userID, q.Query)
+	if err != nil {
+		return err
+	}
+	metric := f.key
+	if metric == "" {
+		metric = q.Type // "" for category samples of every type
+	}
+	l.where = func(arg func(any) string) []string {
+		return []string{"NOT " + f.covered(bindMerge(p, nil, arg), "r", metric)}
+	}
+	return nil
 }
 
 func utc(t *time.Time) {
@@ -288,6 +326,9 @@ func samples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Quer
 		}
 	}
 	l := list{table: "ohs_data.quantity_samples", timeCol: "start_date", typeCol: "quantity_type", cols: sampleCols}
+	if err := mergeWhere(ctx, db, tenantID, userID, n, &l, quantityFamily); err != nil {
+		return Page[Sample]{}, err
+	}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (Sample, time.Time, int64, error) {
 		var s Sample
 		err := r.Scan(s.dest()...)
@@ -339,6 +380,9 @@ func CategorySamples(ctx context.Context, db Querier, tenantID, userID uuid.UUID
 	l := list{table: "ohs_data.category_samples", timeCol: "start_date", typeCol: "category_type",
 		cols: `id, category_type, value_int, value_label, start_date, end_date, source_name, external_id, metadata,
 			provider, source_slug, device_id, ingested_at`}
+	if err := mergeWhere(ctx, db, tenantID, userID, n, &l, categoryFamily); err != nil {
+		return Page[CategorySample]{}, err
+	}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (CategorySample, time.Time, int64, error) {
 		var s CategorySample
 		err := r.Scan(&s.ID, &s.Type, &s.ValueInt, &s.ValueLabel, &s.StartDate, &s.EndDate, &s.SourceName,
@@ -380,6 +424,9 @@ func Sleep(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query)
 		return Page[SleepSession]{}, err
 	}
 	l := list{table: "ohs_data.sleep_sessions", timeCol: "bedtime_start", cols: sleepCols}
+	if err := mergeWhere(ctx, db, tenantID, userID, n, &l, sleepFamily); err != nil {
+		return Page[SleepSession]{}, err
+	}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (SleepSession, time.Time, int64, error) {
 		var s SleepSession
 		err := r.Scan(s.dest()...)
@@ -476,6 +523,9 @@ func Workouts(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Que
 		return Page[Workout]{}, err
 	}
 	l := list{table: "ohs_data.workouts", timeCol: "start_date", typeCol: "activity_type", cols: workoutCols}
+	if err := mergeWhere(ctx, db, tenantID, userID, n, &l, workoutFamily); err != nil {
+		return Page[Workout]{}, err
+	}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (Workout, time.Time, int64, error) {
 		var w Workout
 		err := r.Scan(w.dest()...)
@@ -606,10 +656,16 @@ type DailySummary struct {
 	RestingHR      *float64        `json:"resting_hr"`
 	HRVAvgMs       *float64        `json:"hrv_avg_ms"`
 	Metadata       json.RawMessage `json:"metadata"`
+	// Sources names, in the merged view, the source each figure comes from
+	// (keyed by the figure's JSON name). Absent in the all view, where the
+	// row is one source's.
+	Sources map[string]string `json:"sources,omitempty"`
 	Provenance
 }
 
-// Daily lists daily summaries. Start and End compare as calendar dates.
+// Daily lists daily summaries. Start and End compare as calendar dates. The
+// merged view (the default) has one summary per day, each figure from the
+// best ranked source that has it; the all view has one per source per day.
 func Daily(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query) (Page[DailySummary], error) {
 	n, err := q.normalize(false)
 	if err != nil {
@@ -617,6 +673,13 @@ func Daily(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query)
 	}
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[DailySummary]{}, err
+	}
+	if n.merged() {
+		p, err := policy(ctx, db, tenantID, userID, n.Query)
+		if err != nil {
+			return Page[DailySummary]{}, err
+		}
+		return dailyMerged(ctx, db, tenantID, userID, n, p)
 	}
 	l := list{table: "ohs_data.daily_summaries", timeCol: "summary_date", date: true, cols: dailyCols}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (DailySummary, time.Time, int64, error) {
