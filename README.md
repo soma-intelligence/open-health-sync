@@ -9,9 +9,11 @@
 
 # Open Health Sync
 
-**Health data from devices and apps, in one clean model.** Self-hosted, free, one Go binary plus Postgres.
+### One open API for wearable and health data. On your own server.
 
-Apple Health, Withings, Oura, WHOOP, Strava and Polar in. REST, read-only MCP and FHIR R4 out.
+Apple Health, Withings, Oura, WHOOP, Strava and Polar in.<br>
+One clean model out, over REST, a read-only MCP server for AI agents, and FHIR R4.<br>
+Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 
 [![CI](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/soma-intelligence/open-health-sync?color=0e9f8e)](https://github.com/soma-intelligence/open-health-sync/releases)
@@ -20,11 +22,24 @@ Apple Health, Withings, Oura, WHOOP, Strava and Polar in. REST, read-only MCP an
 [![Go version](https://img.shields.io/github/go-mod/go-version/soma-intelligence/open-health-sync?color=555)](go.mod)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-555)](LICENSE)
 
+<p>
+<a href="docs/connectors/apple-health.md"><img alt="Apple Health: available" src="https://img.shields.io/badge/Apple_Health-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/withings.md"><img alt="Withings: available" src="https://img.shields.io/badge/Withings-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/oura.md"><img alt="Oura: available" src="https://img.shields.io/badge/Oura-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/whoop.md"><img alt="WHOOP: available" src="https://img.shields.io/badge/WHOOP-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/strava.md"><img alt="Strava: available" src="https://img.shields.io/badge/Strava-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/polar.md"><img alt="Polar: available" src="https://img.shields.io/badge/Polar-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/README.md"><img alt="Garmin: planned" src="https://img.shields.io/badge/Garmin-planned-8a8f98?style=flat-square"></a>
+<a href="docs/connectors/README.md"><img alt="Fitbit: planned" src="https://img.shields.io/badge/Fitbit-planned-8a8f98?style=flat-square"></a>
+<a href="docs/connectors/README.md"><img alt="Health Connect: planned" src="https://img.shields.io/badge/Health_Connect-planned-8a8f98?style=flat-square"></a>
+<a href="docs/connectors/README.md"><img alt="Dexcom: planned" src="https://img.shields.io/badge/Dexcom-planned-8a8f98?style=flat-square"></a>
+</p>
+
 ```bash
 docker pull ghcr.io/soma-intelligence/open-health-sync:0.0.2
 ```
 
-[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
+[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
 <sub><b>v0.0.2, early preview.</b> APIs, configuration and schema may change in any 0.x release.</sub>
 
@@ -35,6 +50,65 @@ pulls from providers, accepts uploads from phones, stores each payload verbatim,
 canonical model with one set of units, and serves it over a REST API and a read-only MCP server.
 It is not a dashboard, a coaching app or a hosted service, and it is not a medical device or
 clinical software.
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**🔌 Six sources, one model**<br>
+Every provider maps into the same records, with one unit per quantity (UCUM, LOINC). Heart rate
+is `bpm`, whatever the source called it.
+
+</td>
+<td width="33%" valign="top">
+
+**⚡ Always current**<br>
+Provider webhooks trigger a pull of just what changed. A backstop pull catches anything lost,
+and `/freshness` says how up to date each source is.
+
+</td>
+<td width="33%" valign="top">
+
+**🧾 Nothing thrown away**<br>
+Every payload is kept verbatim on disk or S3. Fix a mapper, re-process a user from the raw
+files. Re-sent uploads are de-duplicated.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**🤖 Ready for AI agents**<br>
+A read-only MCP server: a person points their own agent at their own data, with a token that
+can only read.
+
+</td>
+<td valign="top">
+
+**🏥 Standards out**<br>
+FHIR R4 Observations checked against the official HL7 validator, plus an OpenAPI 3.1 REST API.
+
+</td>
+<td valign="top">
+
+**🔒 Yours, and erasable**<br>
+Self-hosted, no call home. `DELETE /v1/users/{id}` is a hard delete of rows and raw files.
+Provider deletions are honored too.
+
+</td>
+</tr>
+</table>
+
+## What you can build
+
+- **A health app backend.** Your iOS app uploads HealthKit data, your users connect their
+  Oura, WHOOP or Withings accounts, and your app reads one API instead of six.
+- **An AI agent over your own data.** Run it at home, connect your devices, and give your desktop
+  agent a read-only view of your sleep, workouts and heart rate through MCP.
+- **A study that collects from participants' wearables.** Raw payloads kept for audit, hard
+  deletes for withdrawals, FHIR R4 out for the analysis side.
+- **A personal data archive.** Load years of history from the Health app export in one command,
+  and keep it on a machine you own.
 
 ## Why
 
@@ -346,19 +420,29 @@ and units):
 
 ## FAQ
 
-**Who sees my data?**
+<details>
+<summary><b>Who sees my data?</b></summary>
+
 Only whoever runs the instance. Open Health Sync is self-hosted software, not a service: there
 is no account to create with us, no analytics and no call home. The server talks to the
 providers you enable (the ones whose keys you set) and to your own database and raw store.
 Logs never contain tokens, keys or health values.
 
-**Where does the data live?**
+</details>
+
+<details>
+<summary><b>Where does the data live?</b></summary>
+
 In two places you control: Postgres with TimescaleDB (connections and jobs in the `ohs_sync`
 schema, normalized records in `ohs_data`) and the raw store, a local folder or an S3 compatible
 bucket. With compose, those are the `pgdata` and `raw` volumes. Back them up together, with
 `OHS_ENCRYPTION_KEY`.
 
-**Is it HIPAA or GDPR compliant?**
+</details>
+
+<details>
+<summary><b>Is it HIPAA or GDPR compliant?</b></summary>
+
 No software is compliant on its own, and Open Health Sync is not certified, audited or covered
 by a business associate agreement. What it gives you: data stays on infrastructure you choose,
 `DELETE /v1/users/{id}` is a hard delete of raw files and rows (useful for erasure requests),
@@ -368,12 +452,20 @@ Health records themselves are not encrypted by `ohs`: use disk or database encry
 front of the API, and your own access controls. Whether a deployment meets HIPAA, GDPR or any
 other rule depends on how you run it.
 
-**What does it cost?**
+</details>
+
+<details>
+<summary><b>What does it cost?</b></summary>
+
 Nothing. The server is free and open source. You pay for wherever you run it, which can be a
 Raspberry Pi 5 with 4 GB. Each cloud provider (Withings, Oura, WHOOP, Strava, Polar) needs your
 own developer application, registered with the vendor.
 
-**Which devices does it work with?**
+</details>
+
+<details>
+<summary><b>Which devices does it work with?</b></summary>
+
 Anything that writes to Apple Health (Apple Watch, iPhone, and the apps and devices that sync
 into HealthKit), through an iOS app that uploads it. No SDK ships yet: your app implements the
 [upload contract](docs/connectors/apple-health.md). Without an app, `ohs import apple-health`
@@ -387,19 +479,33 @@ and more are [planned](docs/connectors/README.md), not available yet, and the
 [connector request form](https://github.com/soma-intelligence/open-health-sync/issues/new/choose)
 is open.
 
-**Why AGPL?**
+</details>
+
+<details>
+<summary><b>Why AGPL?</b></summary>
+
 So the layer stays open. Anyone can run, study and change it; if you run a modified Open Health
 Sync as a network service, you publish your changes under the same license. The client SDKs will
 be MIT licensed when they exist, so apps that talk to a server are not affected.
 
-**Can I use it commercially?**
+</details>
+
+<details>
+<summary><b>Can I use it commercially?</b></summary>
+
 Yes. A company can run it, unmodified or modified, to power its own product. The AGPL only asks
 that users who interact with a modified server over the network can get its source. This is not
 legal advice: read [LICENSE](LICENSE) or ask your counsel.
 
-**Is it a medical device?**
+</details>
+
+<details>
+<summary><b>Is it a medical device?</b></summary>
+
 No. It moves and normalizes data. It does not diagnose, score or advise, and it is not clinical
 software.
+
+</details>
 
 ## Status and roadmap
 
@@ -438,7 +544,9 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
 
 ## Contributing
 
-Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+Issues and pull requests are welcome, and connectors are the easiest way in: each one is
+self-contained. If Open Health Sync saves you from writing one more parser, a ⭐ helps other
+developers find it. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
 [code of conduct](CODE_OF_CONDUCT.md). To add a provider, start with
 [writing a connector](docs/writing-a-connector.md).
 
