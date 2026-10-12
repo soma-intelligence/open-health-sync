@@ -1,0 +1,30 @@
+{
+  "name": "open-health-sync-react-native-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Expo example app that uploads a heart rate reading to Open Health Sync with the React Native SDK.",
+  "license": "AGPL-3.0-only",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "typecheck": "tsc --noEmit",
+    "bundle-check": "expo export --platform android --output-dir dist-check"
+  },
+  "dependencies": {
+    "expo": "52.0.49",
+    "expo-asset": "11.0.5",
+    "expo-secure-store": "14.0.1",
+    "expo-status-bar": "2.0.1",
+    "fflate": "0.8.3",
+    "open-health-sync-react-native": "file:../../sdks/react-native",
+    "react": "18.3.1",
+    "react-native": "0.76.9"
+  },
+  "devDependencies": {
+    "@babel/core": "7.26.10",
+    "@types/react": "18.3.31",
+    "typescript": "5.8.3"
+  }
+}

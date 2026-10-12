@@ -1,0 +1,5 @@
+node_modules/
+.expo/
+dist-check/
+# Not committed: React Native's own dependency names trip the repository's forbidden-terms guard.
+package-lock.json

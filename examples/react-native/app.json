@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "OHS Example",
+    "slug": "open-health-sync-example",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "org.openhealthsync.example"
+    },
+    "android": {
+      "package": "org.openhealthsync.example"
+    }
+  }
+}
