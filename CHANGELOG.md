@@ -9,12 +9,6 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
-- Garmin connector (`garmin`, Garmin Connect Developer Program Health API): OAuth 2.0 with PKCE
-  (the verifier is derived from the OAuth state), pulls in 24 hour upload windows, ping and push
-  notifications with an optional inbound token, and disconnect revokes the registration. Maps
-  dailies, epochs, sleep with phases, activities, body composition, HRV (RMSSD), pulse ox,
-  respiration, VO2 max, blood pressure and skin temperature; stress and Body Battery stay raw.
-  Garmin issues keys to approved businesses only and has paused new applications.
 - Fitbit connector (`fitbit`) on the Google Health API v4, not the legacy Fitbit Web API: Google
   OAuth with granted-scope handling, paged pulls of 21 data types, webhooks checked with the
   subscriber secret and Google's ECDSA signature, and revoke on disconnect. Google is not
@@ -28,8 +22,9 @@ release may change the API, the configuration or the database schema.
 - intervals.icu connector (`intervals_icu`): OAuth 2.0, scheduled pulls of activities and daily
   wellness, and webhooks checked with the app's webhook secret. Activities keep their upstream
   source (Garmin, Wahoo, Zwift, Coros, Suunto, ...).
-- `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE.
-- None of these five connectors has been verified with a real account yet.
+- `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE
+  (for a future Garmin connector).
+- None of these four connectors has been verified with a real account yet.
 
 ### Fixed
 
