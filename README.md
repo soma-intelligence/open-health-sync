@@ -1,7 +1,7 @@
 <a href="#quickstart">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.png">
-  <img src="docs/assets/readme/hero-light.png" width="100%" alt="Open Health Sync: Apple Health and Withings, the two available sources, flow into one Go binary (raw store, normalize, Postgres) and out as a REST API and a read-only MCP server. Oura, Whoop, Ultrahuman, Garmin, Fitbit, Polar, Strava, Samsung Health via Health Connect, Health Connect, Dexcom, Coros and Suunto are listed as planned, not in this release. The JSON shown is a real heart rate sample read back from the API.">
+  <img src="docs/assets/readme/hero-light.png" width="100%" alt="Open Health Sync: six available sources (Apple Health, Withings, Oura, WHOOP, Strava, Polar) flow into one Go binary (background sync, raw store, normalize, Postgres) and out as a REST API, a read-only MCP server and FHIR R4. Garmin, Fitbit, Ultrahuman, Suunto, Coros, Dexcom, Health Connect and Samsung Health via Health Connect are listed as planned, not in this release. The JSON shown is a real heart rate sample read back from the API.">
 </picture>
 </a>
 
@@ -10,6 +10,8 @@
 # Open Health Sync
 
 **Health data from devices and apps, in one clean model.** Self-hosted, free, one Go binary plus Postgres.
+
+Apple Health, Withings, Oura, WHOOP, Strava and Polar in. REST, read-only MCP and FHIR R4 out.
 
 [![CI](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/soma-intelligence/open-health-sync?color=0e9f8e)](https://github.com/soma-intelligence/open-health-sync/releases)
@@ -60,6 +62,8 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 | A re-sent upload | stored twice | answered `200` with `"duplicate": true`, records de-duplicated by content hash |
 | Raw payloads | parsed, then thrown away | kept verbatim on disk or S3, so a user can be re-processed after a fix |
 | Is it done? | guess, or check the logs | `GET /coverage`: `pending_jobs`, `parked_jobs`, `rejected_records` |
+| Is it current? | a cron job and hope | webhook-triggered pulls, a backstop pull, `GET /freshness` per source |
+| A record deleted at the provider | stays in your tables | deleted here too, when the provider reports it |
 | A crash mid-run | rerun the script and hope | Postgres queue, retries with backoff, parked after 5 attempts |
 | Provider OAuth tokens | a plain column or a `.env` | sealed with AES-256-GCM under `OHS_ENCRYPTION_KEY` |
 | Delete a user | grep across tables and buckets | `DELETE /v1/users/{id}`, then poll `GET /v1/deletions/{job_id}` |
@@ -81,10 +85,16 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 - **Idempotent uploads.** Each Apple Health part is stored under its day, batch and part
   number. Re-sending the same bytes answers `200` with `"duplicate": true`; other bytes under a
   taken key are refused, never written over. Records are de-duplicated by content hash.
+- **Always current, without a sync button.** Provider webhooks trigger a pull of just what
+  changed, ahead of any routine work; a backstop pull every 6 hours (hourly when webhooks are
+  silent) catches anything lost. `GET /v1/users/{id}/freshness` says how up to date each source
+  is ([background sync](docs/background-sync.md)).
 - **Know when it's processed.** The coverage report counts records per provider and local day,
   plus jobs still pending, jobs parked after their retries, and lines that were not stored.
 - **Real erasure.** `DELETE /v1/users/{id}` removes the user's raw files and every row, then the
-  user. Not a soft flag. `OHS_RETENTION_DAYS` drops raw files and normalized data past an age.
+  user. Not a soft flag. When a provider reports that a record was deleted (Oura, WHOOP,
+  Strava), it is deleted here too. `OHS_RETENTION_DAYS` drops raw files and normalized data past
+  an age.
 - **Multi-tenant.** Tenant API keys (`ohs_sk_`) for your server, short-lived scoped user tokens
   (`ohs_ut_`, scopes `upload` and `read`) for one person's app or agent. Keys and tokens are
   stored as SHA-256 hashes.
@@ -95,8 +105,9 @@ Open Health Sync is that layer, written once, with the boring parts done properl
   process or apart.
 - **Runs small.** A Raspberry Pi 5 with 4 GB runs the full stack, with a compose overlay tuned
   for it.
-- **Open standards.** An OpenAPI 3.1 file describes the API, MCP is an open protocol, and
-  `ohs doctor` checks a configuration before you trust it.
+- **Open standards.** An OpenAPI 3.1 file describes the API, FHIR R4 Observations are checked
+  against the official HL7 validator ([`scripts/fhir-validate.sh`](scripts/fhir-validate.sh)),
+  MCP is an open protocol, and `ohs doctor` checks a configuration before you trust it.
 - **No scores, no AI inside.** It stops at clean, traceable data. Build insights on top.
 
 ### Sources and outputs
@@ -209,19 +220,20 @@ Data lives in the `pgdata` and `raw` volumes; `docker compose ... down` keeps th
 
 ```mermaid
 flowchart LR
-  AH["Apple Health<br/>app upload"] --> C
-  WI["Withings<br/>OAuth pull + push"] --> C
+  AH["Apple Health<br/>app upload, export import"] --> C
+  CL["Withings, Oura, WHOOP,<br/>Strava, Polar<br/>OAuth pull + webhooks"] --> C
   C["collect / ingest"] --> R[("raw store<br/>disk or S3")]
   R --> E["ETL<br/>normalize, dedup,<br/>units, local-day summaries"]
   E --> P[("Postgres<br/>+ TimescaleDB")]
   P --> API["REST API<br/>(OpenAPI)"]
   P --> MCP["MCP server<br/>(read only)"]
+  P --> FHIR["FHIR R4<br/>Observations"]
 ```
 
 1. **Collect.** Your iOS app posts HealthKit data to `POST /v1/ingest/apple-health` as gzip
    NDJSON parts, with a user token that has the `upload` scope and the headers `X-OHS-Type`,
-   `X-OHS-Day`, `X-OHS-Batch` and `X-OHS-Part`. Withings is pulled on a schedule and when it
-   sends a notification to `/inbound/withings`.
+   `X-OHS-Day`, `X-OHS-Batch` and `X-OHS-Part`. Withings, Oura, WHOOP, Strava and Polar are
+   pulled when they send a webhook (only what changed), with a backstop pull on a schedule.
 2. **Keep the raw payload.** The part is written to the raw store first, then a job is queued in
    Postgres. The answer names the raw key and whether the part was a duplicate.
 3. **Normalize.** The `etl` role maps each line to the canonical model, converts units, drops
@@ -336,7 +348,7 @@ and units):
 **Who sees my data?**
 Only whoever runs the instance. Open Health Sync is self-hosted software, not a service: there
 is no account to create with us, no analytics and no call home. The server talks to the
-providers you enable (Withings, when you set its keys) and to your own database and raw store.
+providers you enable (the ones whose keys you set) and to your own database and raw store.
 Logs never contain tokens, keys or health values.
 
 **Where does the data live?**
@@ -357,8 +369,8 @@ other rule depends on how you run it.
 
 **What does it cost?**
 Nothing. The server is free and open source. You pay for wherever you run it, which can be a
-Raspberry Pi 5 with 4 GB. Withings and Oura each need your own developer application,
-registered with the vendor.
+Raspberry Pi 5 with 4 GB. Each cloud provider (Withings, Oura, WHOOP, Strava, Polar) needs your
+own developer application, registered with the vendor.
 
 **Which devices does it work with?**
 Anything that writes to Apple Health (Apple Watch, iPhone, and the apps and devices that sync
@@ -390,8 +402,9 @@ software.
 
 ## Status and roadmap
 
-v0.0.2 is the latest release. What changed: [CHANGELOG.md](CHANGELOG.md). Install notes and
-the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
+v0.0.2 is the latest release. The Oura, WHOOP, Strava and Polar connectors, FHIR R4 output,
+Health app export import and background sync are on `main` and ship in the next release. What
+changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
 
@@ -417,7 +430,10 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
 - Connectors: [supported and planned sources](docs/connectors/README.md),
   [Apple Health](docs/connectors/apple-health.md),
-  [Withings](docs/connectors/withings.md), [Strava](docs/connectors/strava.md), [writing your own](docs/writing-a-connector.md).
+  [Withings](docs/connectors/withings.md), [Oura](docs/connectors/oura.md),
+  [WHOOP](docs/connectors/whoop.md), [Strava](docs/connectors/strava.md),
+  [Polar](docs/connectors/polar.md), [writing your own](docs/writing-a-connector.md).
+- [Background sync](docs/background-sync.md): webhooks, backstop pulls, freshness.
 
 ## Contributing
 
