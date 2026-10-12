@@ -108,9 +108,9 @@ Provider deletions are honored too.
 | ✅ | REST API (OpenAPI 3.1), read-only MCP server | ✅ | Apple Health, Withings |
 | 🔜 | FHIR R4 (Observations, checked with the HL7 validator) | 🔜 | Oura, WHOOP, Polar, Strava |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
-| 🛠 | Open mHealth output | 🛠 | Garmin, Fitbit and more |
+| 🔜 | Open mHealth output ([docs](docs/open-mhealth.md)) | 🛠 | Garmin, Fitbit and more |
 | 🛠 | Outgoing webhooks | 🛠 | Dexcom, FreeStyle Libre, Omron |
-| 🛠 | CSV and Parquet exports | 🛠 | Health Connect (Android) |
+| 🔜 | CSV and Parquet exports ([docs](docs/exports.md)) | 🛠 | Health Connect (Android) |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | | |
 
 A line moves up only when its pull request is merged, or its release is published. The 0.0.2
@@ -240,7 +240,9 @@ Want one sooner? Connectors are self-contained: read
 | FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | 🔜 On `main`, next release (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
 | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
-| Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
+| Open mHealth ([docs/open-mhealth.md](docs/open-mhealth.md)) | 🔜 On `main`, next release |
+| CSV and Parquet exports ([docs/exports.md](docs/exports.md)) | 🔜 On `main`, next release |
+| Outgoing webhooks | 🛠 Planned |
 | SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
 
 ## Quickstart
@@ -503,8 +505,8 @@ is open.
 <summary><b>Why AGPL?</b></summary>
 
 So the layer stays open. Anyone can run, study and change it; if you run a modified Open Health
-Sync as a network service, you publish your changes under the same license. The client SDKs will
-be MIT licensed when they exist, so apps that talk to a server are not affected.
+Sync as a network service, you publish your changes under the same license. The client SDKs,
+when they exist, will be AGPL too.
 
 </details>
 
@@ -542,7 +544,7 @@ Known limitations:
   real devices yet.
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
 
-Next: more connectors, standard outputs (more FHIR R4 resources, Open mHealth, exports, webhooks), then client
+Next: more connectors, standard outputs (more FHIR R4 resources, webhooks), then client
 SDKs. Requests are welcome as GitHub issues, including the connector request form.
 
 ## Documentation
@@ -583,4 +585,4 @@ data, keys or tokens in a public issue.
 ## License
 
 The server is AGPL-3.0-only, see [LICENSE](LICENSE). If you run a modified Open Health Sync as a
-service, you publish your changes. The client SDKs will be MIT licensed when they exist.
+service, you publish your changes. The client SDKs will be AGPL-3.0 too when they exist.
