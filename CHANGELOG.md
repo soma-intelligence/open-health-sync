@@ -9,6 +9,24 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `ohs import apple-health <export.zip|export.xml>`: loads the history of an Apple Health
+  export (the Health app's *Export All Health Data*) without an iOS app. Records, workouts with
+  their routes, blood pressure and food correlations, heartbeat series, audiograms and ECGs are
+  converted to the upload contract's lines and sent through `POST /v1/ingest/apple-health`, in
+  constant memory, with `--since`, `--tz`, `--dry-run` and a batch id derived from the export so
+  a re-run uploads nothing twice. See
+  [importing a Health app export](docs/connectors/apple-health.md#importing-a-health-app-export).
+- FHIR R4 output: `GET /v1/users/{id}/fhir/Observation` serves a user's records as FHIR R4
+  Observations in one paged `searchset` Bundle (`application/fhir+json`), in time order:
+  quantity samples; blood pressure, a systolic and a diastolic sample of the same reading paired
+  into the R4 blood pressure panel (85354-9, never split across pages); sleep sessions (93832-4,
+  stages and night averages as components); workouts (55411-3, activity type and measurements as
+  components); and daily summaries over the user's local day. Filtered by `type`, `code` (LOINC,
+  quantity type or record type), `category`, `start` and `end`;
+  `GET /v1/users/{id}/fhir/Observation/{observation_id}` reads one back. Vital signs meet the R4
+  vital signs and blood pressure profiles; LOINC and UCUM codes come from the quantity type
+  catalog. The golden files pass the official HL7 validator (`make fhir-validate`, not in CI).
+  Mapping and limits: [docs/fhir.md](docs/fhir.md).
 - `GET /v1/users/{id}/freshness`: how up to date each source of a user is (`synced_through`,
   `lag_seconds`, last notification, next pull, last error, and a `fresh`/`stale`/`failing`
   state), Apple Health uploads included. `/metrics` gains `ohs_sync_connections` by provider

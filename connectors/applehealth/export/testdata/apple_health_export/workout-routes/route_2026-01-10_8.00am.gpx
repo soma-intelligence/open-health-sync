@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Invented test route" xmlns="http://www.topografix.com/GPX/1/1">
+ <metadata><time>2026-01-10T07:31:00Z</time></metadata>
+ <trk>
+  <name>Route 2026-01-10 8:00am</name>
+  <trkseg>
+   <trkpt lon="2.000000" lat="45.000000"><ele>35.5</ele><time>2026-01-10T07:00:00Z</time><extensions><speed>2.9</speed><course>90.5</course><hAcc>4.0</hAcc><vAcc>3.0</vAcc></extensions></trkpt>
+   <trkpt lon="2.000100" lat="45.000100"><ele>36.0</ele><time>2026-01-10T07:00:01Z</time><extensions><speed>3.0</speed><course>91.0</course><hAcc>4.0</hAcc><vAcc>3.0</vAcc></extensions></trkpt>
+   <trkpt lon="2.000200" lat="45.000200"><ele>36.5</ele><time>2026-01-10T07:00:02Z</time></trkpt>
+  </trkseg>
+ </trk>
+</gpx>

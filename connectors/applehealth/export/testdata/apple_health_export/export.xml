@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE HealthData [
+<!-- An invented export for tests: no real person, no real measurement. -->
+<!ELEMENT HealthData (ExportDate,Me,(Record|Correlation|Workout|ActivitySummary|Audiogram)*)>
+<!ATTLIST HealthData locale CDATA #REQUIRED>
+]>
+<HealthData locale="en_US">
+ <ExportDate value="2026-07-15 09:00:00 +0200"/>
+ <Me HKCharacteristicTypeIdentifierBiologicalSex="HKBiologicalSexNotSet" HKCharacteristicTypeIdentifierBloodType="HKBloodTypeNotSet"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Test Watch" sourceVersion="10.0" device="&lt;&lt;HKDevice: 0x600000000000&gt;, name:Test Watch, manufacturer:Apple Inc., model:Watch, hardware:Watch7,1, software:10.0&gt;" unit="count/min" creationDate="2026-01-10 08:01:00 +0100" startDate="2026-01-10 08:00:00 +0100" endDate="2026-01-10 08:00:00 +0100" value="61">
+  <MetadataEntry key="HKMetadataKeyHeartRateMotionContext" value="1"/>
+ </Record>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Test Watch" unit="count/min" creationDate="2026-07-01 08:01:00 +0200" startDate="2026-07-01 08:00:00 +0200" endDate="2026-07-01 08:00:00 +0200" value="64.5">
+  <MetadataEntry key="HKTimeZone" value="Europe/Paris"/>
+ </Record>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Test Watch" unit="count/min" creationDate="2026-01-10 05:31:00 +0100" startDate="2026-01-10 05:30:00 +0100" endDate="2026-01-10 05:30:00 +0100" value="58">
+  <MetadataEntry key="HKTimeZone" value="America/New_York"/>
+ </Record>
+ <Record type="HKQuantityTypeIdentifierStepCount" sourceName="Test Phone" device="&lt;&lt;HKDevice: 0x600000000001&gt;, name:Test Phone, manufacturer:Apple Inc., model:iPhone, hardware:iPhone17,1, software:19.0&gt;" unit="count" creationDate="2026-03-29 03:31:00 +0200" startDate="2026-03-29 01:30:00 +0100" endDate="2026-03-29 03:30:00 +0200" value="120">
+  <MetadataEntry key="HKTimeZone" value="Europe/Paris"/>
+ </Record>
+ <Record type="HKQuantityTypeIdentifierStepCount" sourceName="Test Phone" unit="count" creationDate="2025-12-31 10:01:00 +0100" startDate="2025-12-31 10:00:00 +0100" endDate="2025-12-31 10:15:00 +0100" value="300"/>
+ <Record type="HKQuantityTypeIdentifierAppleWalkingSteadiness" sourceName="Test Phone" unit="%" creationDate="2026-01-10 09:00:00 +0100" startDate="2026-01-10 09:00:00 +0100" endDate="2026-01-10 09:00:00 +0100" value="0.9"/>
+ <Record type="HKQuantityTypeIdentifierBodyMass" sourceName="Health" unit="kg" creationDate="2026-01-10 07:00:00 +0100" startDate="2026-01-10 07:00:00 +0100" endDate="2026-01-10 07:00:00 +0100" value="70.5">
+  <MetadataEntry key="HKWasUserEntered" value="1"/>
+ </Record>
+ <Record type="HKQuantityTypeIdentifierDietaryProtein" sourceName="Test Food Log" unit="g" creationDate="2026-01-10 12:00:00 +0100" startDate="2026-01-10 12:00:00 +0100" endDate="2026-01-10 12:00:00 +0100" value="25"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Test Watch" creationDate="2026-01-10 07:00:00 +0100" startDate="2026-01-09 23:00:00 +0100" endDate="2026-01-10 07:00:00 +0100" value="HKCategoryValueSleepAnalysisInBed">
+  <MetadataEntry key="HKTimeZone" value="Europe/Paris"/>
+ </Record>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Test Watch" creationDate="2026-01-10 07:00:00 +0100" startDate="2026-01-09 23:15:00 +0100" endDate="2026-01-10 01:00:00 +0100" value="HKCategoryValueSleepAnalysisAsleepCore">
+  <MetadataEntry key="HKTimeZone" value="Europe/Paris"/>
+ </Record>
+ <Record type="HKCategoryTypeIdentifierMindfulSession" sourceName="Test Watch" creationDate="2026-01-10 18:10:00 +0100" startDate="2026-01-10 18:00:00 +0100" endDate="2026-01-10 18:10:00 +0100" value="HKCategoryValueNotApplicable"/>
+ <Record type="HKDataTypeIdentifierHeartbeatSeries" sourceName="Test Watch" creationDate="2026-01-10 23:59:59 +0100" startDate="2026-01-10 23:59:59 +0100" endDate="2026-01-11 00:00:01 +0100">
+  <HeartbeatSeries>
+   <InstantaneousBeatsPerMinute bpm="60" time="11:59:59.50 PM"/>
+   <InstantaneousBeatsPerMinute bpm="62" time="12:00:00.25 AM"/>
+   <InstantaneousBeatsPerMinute bpm="64" time="12:00:01.00 AM"/>
+  </HeartbeatSeries>
+ </Record>
+ <Correlation type="HKCorrelationTypeIdentifierBloodPressure" sourceName="Test Cuff" creationDate="2026-01-10 08:05:00 +0100" startDate="2026-01-10 08:05:00 +0100" endDate="2026-01-10 08:05:00 +0100">
+  <MetadataEntry key="HKTimeZone" value="Europe/Paris"/>
+  <Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" sourceName="Test Cuff" unit="mmHg" creationDate="2026-01-10 08:05:00 +0100" startDate="2026-01-10 08:05:00 +0100" endDate="2026-01-10 08:05:00 +0100" value="71"/>
+  <Record type="HKQuantityTypeIdentifierBloodPressureSystolic" sourceName="Test Cuff" unit="mmHg" creationDate="2026-01-10 08:05:00 +0100" startDate="2026-01-10 08:05:00 +0100" endDate="2026-01-10 08:05:00 +0100" value="112"/>
+ </Correlation>
+ <Correlation type="HKCorrelationTypeIdentifierFood" sourceName="Test Food Log" creationDate="2026-01-10 12:30:00 +0100" startDate="2026-01-10 12:30:00 +0100" endDate="2026-01-10 12:30:00 +0100">
+  <Record type="HKQuantityTypeIdentifierDietaryEnergyConsumed" sourceName="Test Food Log" unit="kcal" creationDate="2026-01-10 12:30:00 +0100" startDate="2026-01-10 12:30:00 +0100" endDate="2026-01-10 12:30:00 +0100" value="410"/>
+  <Record type="HKQuantityTypeIdentifierDietaryCarbohydrates" sourceName="Test Food Log" unit="g" creationDate="2026-01-10 12:30:00 +0100" startDate="2026-01-10 12:30:00 +0100" endDate="2026-01-10 12:30:00 +0100" value="52"/>
+ </Correlation>
+ <Workout workoutActivityType="HKWorkoutActivityTypeRunning" duration="30" durationUnit="min" sourceName="Test Watch" sourceVersion="10.0" device="&lt;&lt;HKDevice: 0x600000000000&gt;, name:Test Watch, manufacturer:Apple Inc., model:Watch, hardware:Watch7,1, software:10.0&gt;" creationDate="2026-01-10 08:31:00 +0100" startDate="2026-01-10 08:00:00 +0100" endDate="2026-01-10 08:30:00 +0100">
+  <MetadataEntry key="HKIndoorWorkout" value="0"/>
+  <MetadataEntry key="HKTimeZone" value="Europe/Paris"/>
+  <MetadataEntry key="HKElevationAscended" value="1250 cm"/>
+  <WorkoutEvent type="HKWorkoutEventTypePause" date="2026-01-10 08:10:00 +0100"/>
+  <WorkoutEvent type="HKWorkoutEventTypeSegment" date="2026-01-10 08:00:00 +0100" duration="10" durationUnit="min"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierActiveEnergyBurned" startDate="2026-01-10 08:00:00 +0100" endDate="2026-01-10 08:30:00 +0100" sum="300" unit="kcal"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierDistanceWalkingRunning" startDate="2026-01-10 08:00:00 +0100" endDate="2026-01-10 08:30:00 +0100" sum="5.2" unit="km"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierHeartRate" startDate="2026-01-10 08:00:00 +0100" endDate="2026-01-10 08:30:00 +0100" average="150" minimum="101" maximum="171" unit="count/min"/>
+  <WorkoutRoute sourceName="Test Watch" creationDate="2026-01-10 08:31:00 +0100" startDate="2026-01-10 08:00:00 +0100" endDate="2026-01-10 08:30:00 +0100">
+   <MetadataEntry key="HKMetadataKeySyncVersion" value="2"/>
+   <FileReference path="/workout-routes/route_2026-01-10_8.00am.gpx"/>
+  </WorkoutRoute>
+ </Workout>
+ <Workout workoutActivityType="HKWorkoutActivityTypeWalking" duration="1800" durationUnit="s" totalDistance="1" totalDistanceUnit="mi" totalEnergyBurned="418.4" totalEnergyBurnedUnit="kJ" sourceName="Test Watch" creationDate="2026-01-10 18:31:00 +0100" startDate="2026-01-10 18:00:00 +0100" endDate="2026-01-10 18:30:00 +0100"/>
+ <ActivitySummary dateComponents="2026-01-10" activeEnergyBurned="300" activeEnergyBurnedGoal="400" activeEnergyBurnedUnit="kcal"/>
+ <Audiogram type="HKDataTypeIdentifierAudiogram" sourceName="Test Hearing" creationDate="2026-01-10 10:30:00 +0100" startDate="2026-01-10 10:00:00 +0100" endDate="2026-01-10 10:30:00 +0100">
+  <SensitivityPoint frequencyValue="500" frequencyUnit="Hz" leftEarValue="10" leftEarUnit="dBHL" rightEarValue="15" rightEarUnit="dBHL"/>
+  <SensitivityPoint frequencyValue="1000" frequencyUnit="Hz" leftEarValue="12" leftEarUnit="dBHL" rightEarValue="18" rightEarUnit="dBHL"/>
+ </Audiogram>
+</HealthData>

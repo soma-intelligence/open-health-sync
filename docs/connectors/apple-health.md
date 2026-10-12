@@ -2,6 +2,8 @@
 
 Slug `apple_health`. A device connector: an iOS app (yours; no SDK ships yet) reads HealthKit
 and uploads the data, the server never talks to Apple. It needs no operator keys and is always enabled.
+Without an app, `ohs import apple-health` loads the export the Health app writes, history
+included ([below](#importing-a-health-app-export)).
 
 ## Upload contract
 
@@ -111,6 +113,89 @@ are; `jq -c 'if type == "array" then .[] else . end' FILE` turns one into NDJSON
 invalid on purpose: `bad_values.json` (a value that is not a number) and `missing_fields.json`
 (no `startDate`) are rejected and counted in `rejected_records`, and `unknown_type.json` and
 the unknown line of `mixed_types.json` are skipped.
+
+## Importing a Health app export
+
+The Health app on the iPhone exports everything it holds: tap your picture, then *Export All
+Health Data*. That gives `export.zip`, with `apple_health_export/export.xml` (every record),
+`workout-routes/*.gpx` and `electrocardiograms/*.csv`. `ohs import apple-health` turns it into
+the lines above and uploads them through `POST /v1/ingest/apple-health`, like an app would. The
+server needs nothing more; the command needs no database and runs on any machine with the
+`ohs` binary, a Raspberry Pi included.
+
+```sh
+ohs import apple-health export.zip --dry-run                      # convert and count only
+OHS_TOKEN=ohs_ut_... ohs import apple-health export.zip --url https://ohs.example.org
+```
+
+| Flag | |
+|---|---|
+| `--url` | Base URL of the instance (default `OHS_URL`). https, unless the host is localhost or `--allow-http` is given |
+| `--token` | A user token (`ohs_ut_`) with the `upload` scope (default `OHS_TOKEN`, which keeps it out of the shell history) |
+| `--since YYYY-MM-DD` | Keep samples whose local day is on or after this day |
+| `--tz ZONE` | IANA zone for samples without `HKTimeZone` (see time zones below) |
+| `--batch ID` | Batch id; by default derived from the export (see below) |
+| `--dry-run` | Convert and count, upload nothing |
+| `--concurrency N` | Parts uploaded at once, default 4 |
+
+It reads `export.xml` token by token straight out of the zip, without extracting it: memory
+stays around 150 MB whatever the size of the export (a 470 MB `export.xml` converts in about 35
+seconds on a laptop core). An extracted `export.xml` works too; the route and ECG folders are
+then read from next to it. It prints counts and HealthKit type names, never a health value or
+the token.
+
+**What is converted.**
+
+| In the export | Line |
+|---|---|
+| `Record` of a quantity type the server stores | quantity line; dietary types become nutrition logs |
+| `Record` of a category type the server stores | category line; the `HKCategoryValue...` name becomes HealthKit's integer (sleep stages included) |
+| `Record` `HKDataTypeIdentifierHeartbeatSeries` | heartbeat series line |
+| `Correlation` blood pressure, food | correlation line with its `objects` |
+| `Workout` | workout line: duration in seconds, distance in metres and energy in kilocalories from the attributes or the `WorkoutStatistics`, heart rate average, min and max, `WorkoutEvent`s kept as `workoutEvents` in the raw line |
+| `WorkoutRoute` (its GPX file) | route point lines, in the same part as their workout |
+| `Audiogram` | audiogram line |
+| `electrocardiograms/*.csv` | ECG recording line and its voltage lines (microvolts in the file, volts on the line), one part per ECG. The name and birth date in the file header are never read |
+
+Every `MetadataEntry` goes to the line's `metadata`; `HKWasUserEntered` also sets
+`wasUserEntered`; the `device` description gives `device`, `deviceModel`, `productType`,
+`deviceManufacturer` and `deviceSoftwareVersion`. Anything else (`ActivitySummary`, clinical
+records, types the server does not store) is left out and counted by type in the summary, as is
+a record that cannot be read (a date or value that does not parse).
+
+**Time zones.** `export.xml` writes dates as local time with the offset the phone applied when
+it wrote the export (`2026-01-10 08:00:00 +0100`); the import sends the exact instant in UTC.
+That offset is the export's, not necessarily the zone a sample was recorded in, so it is not
+kept. When HealthKit recorded `HKTimeZone`, it stays in the metadata and decides the local day,
+as for an upload from an app. Many samples carry none: the server then counts their local day
+in UTC. Pass `--tz Europe/Paris` to assume a zone for them; it is written as their `HKTimeZone`.
+A part's `X-OHS-Day` is the sample's local day in that zone, or the day as the export wrote it.
+
+**Parts and batches.** Lines are grouped into one part per data type and local day, at most
+8 MiB uncompressed. A workout with a route is a part of its own, so the server attaches the
+points to it; so is each ECG. The batch id is derived from the export's `ExportDate`, the size
+of `export.xml` and the options (`ahx-20260715T070000Z-1a2b3c4d5e6f`), and the conversion is
+deterministic: running the same import again sends the same bytes under the same keys, and the
+server answers each part `duplicate: true`. So an interrupted import is resumed by running it
+again. Other options give another batch; the rows still are not stored twice, since records are
+de-duplicated by content. A 409 means other bytes already sit under a key of this batch: pass a
+new `--batch`.
+
+429 and 5xx answers and network errors are retried with backoff (honouring `Retry-After`), up
+to 6 tries per part. 401 and 403 stop the import at once: check the token and its `upload` scope.
+
+**Limits.**
+
+- Heartbeat beats carry only a time of day in the export, in the phone's 12 or 24 hour format;
+  a series whose times do not parse is counted as unreadable.
+- ECG files are read with their English header (`Recorded Date`, `Classification`,
+  `Sample Rate`). In another language the recording date is still found; the classification
+  becomes 100 (unrecognized) and the sampling frequency defaults to 512 Hz.
+- The export lists the members of a correlation both inside it and as top-level records, as
+  HealthKit queries return them to an app. Blood pressure members are stored once (same content
+  hash); a food correlation also makes its own nutrition log, as an app upload would.
+- A route longer than one part (about 40,000 points) continues in the next part; those points
+  are attached by time once the workout is stored.
 
 ## Processing notes
 

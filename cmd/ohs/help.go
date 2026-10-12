@@ -35,6 +35,7 @@ Commands:
   doctor    check the configuration, database, raw store and connectors
   admin     create tenants, create, list and revoke their API keys
   mcp       serve MCP on stdin and stdout for a local agent (Claude Desktop, Claude Code)
+  import    load an existing history from a file export: apple-health
   version   print the version and commit
   help      print this help, or the help of one command: ohs help <command>
 
@@ -105,6 +106,29 @@ every call to the instance's /mcp endpoint and needs no database.
                 (ohs_ut_)
 
 Setup for each client: docs/mcp.md.
+`,
+	"import": `usage: ohs import apple-health <export.zip|export.xml> [flags]
+
+Loads the history of an Apple Health export ("Export All Health Data" in the
+Health app on the iPhone) into an instance, through the same upload API an
+iOS app uses: records, workouts with their routes, ECGs. It reads the zip as
+it is, in constant memory, and needs no database.
+
+  --url URL         base URL of the instance (default OHS_URL); https unless
+                    the host is local
+  --token TOKEN     a user token (ohs_ut_) with the upload scope (default
+                    OHS_TOKEN, which keeps it out of the shell history)
+  --since DAY       keep samples from this local day on (YYYY-MM-DD)
+  --tz ZONE         IANA zone (Europe/Paris) for samples the export gives no
+                    HKTimeZone for; without it their days are UTC days
+  --batch ID        batch id; the default is derived from the export, so
+                    running the same import again uploads nothing twice
+  --dry-run         convert and count, upload nothing
+  --concurrency N   parts uploaded at once (default 4)
+  --allow-http      accept a plain http URL off localhost
+
+Prints counts only, never a health value or the token. Details:
+docs/connectors/apple-health.md.
 `,
 }
 

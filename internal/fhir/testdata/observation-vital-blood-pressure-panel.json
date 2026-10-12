@@ -1,0 +1,105 @@
+{
+  "resourceType": "Observation",
+  "id": "bp-1003",
+  "meta": {
+    "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health",
+    "profile": [
+      "http://hl7.org/fhir/StructureDefinition/vitalsigns",
+      "http://hl7.org/fhir/StructureDefinition/bp"
+    ],
+    "tag": [
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+        "code": "apple"
+      }
+    ]
+  },
+  "identifier": [
+    {
+      "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health/external-id",
+      "value": "bp-reading-0001-sys"
+    },
+    {
+      "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health/external-id",
+      "value": "bp-reading-0001-dia"
+    }
+  ],
+  "status": "final",
+  "category": [
+    {
+      "coding": [
+        {
+          "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+          "code": "vital-signs",
+          "display": "Vital Signs"
+        }
+      ],
+      "text": "Vital Signs"
+    }
+  ],
+  "code": {
+    "coding": [
+      {
+        "system": "http://loinc.org",
+        "code": "85354-9"
+      },
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type",
+        "code": "blood_pressure"
+      }
+    ],
+    "text": "blood pressure"
+  },
+  "subject": {
+    "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+  },
+  "effectiveDateTime": "2026-03-01T08:00:00Z",
+  "issued": "2026-03-01T09:15:32.25Z",
+  "device": {
+    "display": "apple_watch"
+  },
+  "component": [
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "8480-6"
+          },
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type",
+            "code": "blood_pressure_systolic"
+          }
+        ],
+        "text": "systolic blood pressure"
+      },
+      "valueQuantity": {
+        "value": 118,
+        "unit": "mmHg",
+        "system": "http://unitsofmeasure.org",
+        "code": "mm[Hg]"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "8462-4"
+          },
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type",
+            "code": "blood_pressure_diastolic"
+          }
+        ],
+        "text": "diastolic blood pressure"
+      },
+      "valueQuantity": {
+        "value": 76,
+        "unit": "mmHg",
+        "system": "http://unitsofmeasure.org",
+        "code": "mm[Hg]"
+      }
+    }
+  ]
+}
