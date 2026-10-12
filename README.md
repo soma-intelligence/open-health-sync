@@ -138,6 +138,7 @@ Want one sooner? Connectors are self-contained: read
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
 | Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
 | SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
+| Health records (EHR): lab results, conditions, medications and allergies read through SMART on FHIR, served as FHIR R4 | 🛠 Planned, after the SDKs |
 
 ## Quickstart
 
@@ -405,7 +406,7 @@ Known limitations:
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
 
 Next: more connectors, standard outputs (more FHIR R4 resources, Open mHealth, exports, webhooks), then client
-SDKs. Requests are welcome as GitHub issues, including the connector request form.
+SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as GitHub issues, including the connector request form.
 
 ## Documentation
 
