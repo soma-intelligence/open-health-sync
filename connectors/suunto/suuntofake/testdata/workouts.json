@@ -1,0 +1,47 @@
+[
+  {
+    "workoutKey": "aaaaaaaaaaaaaaaaaaaa0001",
+    "workoutId": 900001,
+    "activityId": 1,
+    "startTime": 1772442000000,
+    "stopTime": 1772445720000,
+    "totalTime": 3600.4,
+    "totalDistance": 10000,
+    "totalAscent": 120,
+    "totalDescent": 118,
+    "energyConsumption": 650,
+    "stepCount": 9000,
+    "avgSpeed": 2.777,
+    "maxSpeed": 4.5,
+    "timeOffsetInMinutes": 60,
+    "hrdata": {"workoutAvgHR": 150, "workoutMaxHR": 180, "avg": 150, "hrmax": 180, "max": 195, "min": 90, "userMaxHR": 195},
+    "gear": {"displayName": "Invented Watch 1", "name": "Invented Watch 1", "swVersion": "1.0.0"}
+  },
+  {
+    "workoutKey": "aaaaaaaaaaaaaaaaaaaa0002",
+    "workoutId": 900002,
+    "activityId": 52,
+    "startTime": 1772529000000,
+    "totalTime": 2700,
+    "totalDistance": 0,
+    "energyConsumption": 400,
+    "timeOffsetInMinutes": -330,
+    "hrdata": {"avg": 140, "hrmax": 170, "max": 195}
+  },
+  {
+    "workoutKey": "aaaaaaaaaaaaaaaaaaaa0003",
+    "workoutId": 900003,
+    "activityId": 23,
+    "startTime": 1772456400000,
+    "stopTime": 1772460000000,
+    "totalTime": 3300,
+    "energyConsumption": 300
+  },
+  {
+    "workoutKey": "aaaaaaaaaaaaaaaaaaaa0004",
+    "workoutId": 900004,
+    "activityId": 999,
+    "startTime": 1772100000000,
+    "totalTime": 1200
+  }
+]
