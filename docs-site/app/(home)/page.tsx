@@ -5,6 +5,22 @@ import type { ReactNode } from "react";
 import { asset } from "@/lib/asset";
 import { latestVersion, repoUrl } from "@/lib/shared";
 
+// The README's "Sources and outputs" table, in short.
+const available = [
+  "Apple Health, Withings, Oura, WHOOP, Strava and Polar",
+  "REST API described by OpenAPI 3.1",
+  "Read-only MCP server",
+  "FHIR R4 Observations",
+];
+const planned = [
+  "Open mHealth output",
+  "Outgoing webhooks",
+  "CSV and Parquet exports",
+  "Swift, Kotlin, React Native and Flutter SDKs",
+  "Garmin, Fitbit and more",
+  "Dexcom, FreeStyle Libre, Omron and Health Connect",
+];
+
 export const metadata: Metadata = { alternates: { canonical: asset("") || "/" } };
 
 function Feature({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
@@ -79,6 +95,34 @@ export default function HomePage() {
         <Feature icon={<Server className="size-4" />} title="Runs small">
           A Raspberry Pi 5 with 4 GB runs the whole stack. The queue lives in Postgres: no broker.
         </Feature>
+      </section>
+
+      <section className="mt-16 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border bg-fd-card p-5">
+          <h2 className="mb-3 font-medium">Available</h2>
+          <ul className="space-y-2 text-sm text-fd-muted-foreground">
+            {available.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <p className="mt-4 text-xs text-fd-muted-foreground">
+            Oura, WHOOP, Strava, Polar and FHIR R4 are on main and ship after v{latestVersion}.{" "}
+            <Link
+              href="/documentation/connectors/sources"
+              className="text-fd-primary underline-offset-4 hover:underline"
+            >
+              Every source
+            </Link>
+          </p>
+        </div>
+        <div className="rounded-xl border border-dashed p-5">
+          <h2 className="mb-3 font-medium">Planned</h2>
+          <ul className="space-y-2 text-sm text-fd-muted-foreground">
+            {planned.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
       </section>
 
       <section className="mt-16 flex flex-col items-center gap-2 rounded-2xl border border-dashed p-8 text-center">
