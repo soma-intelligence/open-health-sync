@@ -320,6 +320,11 @@ restores despite it. Restore the `.env` of the same date, so the key matches.
   after 10 minutes, but whoever completes it connects the account they sign in with to the
   user it was minted for. Tenants must hand an authorize URL only to the user it belongs to,
   and never post it somewhere others can open it.
+- **Compression.** Chunks of `quantity_samples` older than 30 days are compressed by a
+  TimescaleDB background job. Late data for an old period (a re-upload, a history import) is
+  written to the uncompressed part of the chunk and folded in when the job runs again.
+  `SELECT * FROM chunk_compression_stats('ohs_data.quantity_samples')` shows the sizes before
+  and after.
 - **Large uploads.** An instance processes a bounded number of uploads at once
   (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi) and answers 503 with `Retry-After` above it;
   clients retry.

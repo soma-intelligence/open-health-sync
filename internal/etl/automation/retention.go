@@ -183,14 +183,33 @@ func (r *Retention) pruneUser(ctx context.Context, tenant, user uuid.UUID, cutof
 		if t.date {
 			bound = cutoffDate // a date column: whole days before the cutoff day
 		}
-		tag, err := r.Pool.Exec(ctx,
-			fmt.Sprintf(`DELETE FROM ohs_data.%s WHERE tenant_id = $1 AND user_id = $2 AND %s < $3`, t.table, t.col),
-			tenant, user, bound)
+		n, err := pruneTable(ctx, r.Pool, t.table, t.col, tenant, user, bound)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("prune %s: %w", t.table, err))
 			continue
 		}
-		rowsDeleted += tag.RowsAffected()
+		rowsDeleted += n
 	}
 	return rowsDeleted, prefixes, errors.Join(errs...)
+}
+
+// pruneTable deletes one user's rows of table older than bound. Old rows sit in
+// compressed chunks, so the delete may decompress as many batches as it needs
+// rather than stop at the per-transaction default.
+func pruneTable(ctx context.Context, pool *pgxpool.Pool, table, col string, tenant, user uuid.UUID, bound time.Time) (int64, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0`); err != nil {
+		return 0, err
+	}
+	tag, err := tx.Exec(ctx,
+		fmt.Sprintf(`DELETE FROM ohs_data.%s WHERE tenant_id = $1 AND user_id = $2 AND %s < $3`, table, col),
+		tenant, user, bound)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), tx.Commit(ctx)
 }

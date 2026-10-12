@@ -251,6 +251,13 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 		`SELECT 1 FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, j.tenant, j.user); err != nil {
 		return false, fmt.Errorf("lock user: %w", err)
 	}
+	// A user's rows in a compressed chunk are whole batches (compression is
+	// segmented by tenant and user), which TimescaleDB drops without
+	// decompressing. Lift the per-transaction decompression limit anyway, so an
+	// erasure can never stop half way on a server with a low limit.
+	if _, err := tx.Exec(ctx, `SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0`); err != nil {
+		return false, fmt.Errorf("allow decompression: %w", err)
+	}
 	tables, err := userTables(ctx, tx)
 	if err != nil {
 		return false, err

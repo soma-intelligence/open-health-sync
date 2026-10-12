@@ -21,7 +21,8 @@ import (
 // for high-volume data. Every row carries the tenant and user of the job, and
 // every conflict target is the table's dedup unique: (tenant_id, user_id,
 // content_hash, <time column>) on hypertables, (tenant_id, user_id,
-// content_hash) on plain tables. Record families live in writer_samples.go
+// content_hash) on plain tables. quantity_samples, which is compressed, has no
+// such unique and dedups by time window instead (see insertMissing). Record families live in writer_samples.go
 // (flat tables) and writer_parents.go (parents with child rows).
 
 // Unqualified table names, the keys of Counts.
@@ -285,8 +286,8 @@ func insertParentWithFallback(ctx context.Context, tx TxLike, insertSQL string, 
 	return id, false, nil
 }
 
-// writeHighFrequencyCopy stages rows with COPY into a temporary table and moves
-// them into the target with INSERT ... SELECT ... ON CONFLICT DO NOTHING.
+// stage copies rows into a temporary table shaped like the write columns of
+// table and returns its quoted name and the number of rows copied.
 //
 // The staging table is a projection of the write columns (CREATE TABLE AS ...
 // WITH NO DATA): no indexes, defaults or constraints, so the COPY is a pure
@@ -295,21 +296,31 @@ func insertParentWithFallback(ctx context.Context, tx TxLike, insertSQL string, 
 // second COPY into the same target inside one transaction (two workouts with
 // GPS routes in one upload) would otherwise fail. Duplicate rows inside one
 // batch must be filtered by the caller (copyDedupe): staging has no unique.
-func (w *Writer) writeHighFrequencyCopy(ctx context.Context, tx TxLike, table string, columns []string, rows [][]any, conflictCols string) (written, skipped int, err error) {
-	temp := pgx.Identifier{"_tmp_" + table}.Sanitize()
-	cols := quoteCols(columns)
+func stage(ctx context.Context, tx TxLike, table string, columns []string, rows [][]any) (temp string, copied int64, err error) {
+	temp = pgx.Identifier{"_tmp_" + table}.Sanitize()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(
 		`CREATE TEMPORARY TABLE IF NOT EXISTS %s ON COMMIT DROP AS SELECT %s FROM %s WITH NO DATA`,
-		temp, cols, pgx.Identifier{"ohs_data", table}.Sanitize())); err != nil {
-		return 0, 0, fmt.Errorf("create staging for %s: %w", table, err)
+		temp, quoteCols(columns), pgx.Identifier{"ohs_data", table}.Sanitize())); err != nil {
+		return "", 0, fmt.Errorf("create staging for %s: %w", table, err)
 	}
 	if _, err := tx.Exec(ctx, "TRUNCATE TABLE "+temp); err != nil {
-		return 0, 0, fmt.Errorf("truncate staging for %s: %w", table, err)
+		return "", 0, fmt.Errorf("truncate staging for %s: %w", table, err)
 	}
-	copied, err := tx.CopyFrom(ctx, pgx.Identifier{"_tmp_" + table}, columns, pgx.CopyFromRows(rows))
+	copied, err = tx.CopyFrom(ctx, pgx.Identifier{"_tmp_" + table}, columns, pgx.CopyFromRows(rows))
 	if err != nil {
-		return 0, 0, fmt.Errorf("copy to staging for %s: %w", table, err)
+		return "", 0, fmt.Errorf("copy to staging for %s: %w", table, err)
 	}
+	return temp, copied, nil
+}
+
+// writeHighFrequencyCopy stages rows with COPY into a temporary table and moves
+// them into the target with INSERT ... SELECT ... ON CONFLICT DO NOTHING.
+func (w *Writer) writeHighFrequencyCopy(ctx context.Context, tx TxLike, table string, columns []string, rows [][]any, conflictCols string) (written, skipped int, err error) {
+	temp, copied, err := stage(ctx, tx, table, columns, rows)
+	if err != nil {
+		return 0, 0, err
+	}
+	cols := quoteCols(columns)
 	insert := fmt.Sprintf(`INSERT INTO %s (%s) SELECT %s FROM %s`, qualified(table), cols, cols, temp)
 	if conflictCols != "" {
 		insert += doNothing(conflictCols)
@@ -320,6 +331,84 @@ func (w *Writer) writeHighFrequencyCopy(ctx context.Context, tx TxLike, table st
 	}
 	written = int(tag.RowsAffected())
 	return written, int(copied) - written, nil
+}
+
+// --- Window dedup (tables without a dedup unique) ---
+//
+// A compressed TimescaleDB chunk checks a unique index by decompressing whole
+// batches, which makes a late upload into an old period tens of times slower
+// and, past timescaledb.max_tuples_decompressed_per_dml_transaction, fail. A
+// table that is compressed therefore has no dedup unique: the writer reads the
+// stored (time, content_hash) pairs of the batch's time window for this user
+// (one segment of each compressed chunk) and inserts only the missing rows,
+// under a per-user lock so two jobs of one user cannot both insert a row.
+
+// lockUserTable serializes the writers of one user's rows in table until the
+// transaction ends.
+func lockUserTable(ctx context.Context, tx TxLike, table string, sc scope) error {
+	key := qualified(table) + ":" + sc.tenant.String() + ":" + sc.user.String()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key); err != nil {
+		return fmt.Errorf("lock %s for user: %w", table, err)
+	}
+	return nil
+}
+
+// window is the time range [lo, hi] a batch covers.
+type window struct{ lo, hi time.Time }
+
+// extend widens the window to include at.
+func (wd *window) extend(at time.Time) {
+	if wd.lo.IsZero() || at.Before(wd.lo) {
+		wd.lo = at
+	}
+	if wd.hi.IsZero() || at.After(wd.hi) {
+		wd.hi = at
+	}
+}
+
+// insertMissing inserts the staged rows of temp whose (timeCol, content_hash)
+// is not stored yet for the scope's user, and returns how many it inserted.
+func insertMissing(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp string, columns []string, wd window) (int, error) {
+	cols := quoteCols(columns)
+	at := pgx.Identifier{timeCol}.Sanitize()
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`WITH stored AS MATERIALIZED (
+			SELECT %[1]s AS at, content_hash FROM %[2]s
+			WHERE tenant_id = $1 AND user_id = $2 AND %[1]s BETWEEN $3 AND $4)
+		INSERT INTO %[2]s (%[3]s)
+		SELECT %[3]s FROM %[4]s s
+		WHERE NOT EXISTS (SELECT 1 FROM stored WHERE stored.at = s.%[1]s AND stored.content_hash = s.content_hash)`,
+		at, qualified(table), cols, temp), sc.tenant, sc.user, wd.lo, wd.hi)
+	if err != nil {
+		return 0, fmt.Errorf("insert missing into %s: %w", table, err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+// updateStored applies latest wins (see latestWins) from the staged rows of
+// temp to the stored rows with the same (timeCol, content_hash), and returns
+// how many stored rows changed.
+func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp string, figures []string, wd window) (int, error) {
+	at := pgx.Identifier{timeCol}.Sanitize()
+	set := make([]string, 0, len(figures)+1)
+	stored := make([]string, 0, len(figures))
+	merged := make([]string, 0, len(figures))
+	for _, f := range figures {
+		m := fmt.Sprintf("COALESCE(s.%s, t.%s)", f, f)
+		set = append(set, f+" = "+m)
+		stored = append(stored, "t."+f)
+		merged = append(merged, m)
+	}
+	set = append(set, "metadata = s.metadata")
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET %[2]s FROM %[3]s s
+		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[4]s BETWEEN $3 AND $4
+		  AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash
+		  AND (%[5]s) IS DISTINCT FROM (%[6]s)`,
+		qualified(table), strings.Join(set, ", "), temp, at, strings.Join(stored, ", "), strings.Join(merged, ", ")),
+		sc.tenant, sc.user, wd.lo, wd.hi)
+	if err != nil {
+		return 0, fmt.Errorf("update stored %s: %w", table, err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // copyDedupeKey is a staged row's identity within one job: the target's dedup
