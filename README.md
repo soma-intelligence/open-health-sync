@@ -107,7 +107,7 @@ Integration paths, vendor programs and tracking issues for each:
 
 | Source | Status | How the data arrives |
 |---|---|---|
-| Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)); `ohs import apple-health` loads a Health app export |
+| Apple Health | ✅ Available | your iOS app uploads HealthKit data with the [Swift SDK](docs/sdks/swift.md#healthkit-sync) or its own code ([contract](docs/connectors/apple-health.md)); `ohs import apple-health` loads a Health app export |
 | Withings | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
 | Oura | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/oura.md)) |
 | Whoop | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
@@ -117,9 +117,9 @@ Integration paths, vendor programs and tracking issues for each:
 | Ultrahuman, Suunto | 🛠 Planned | partner programs |
 | Coros, Dexcom | 🛠 Planned | cloud API, OAuth |
 | FreeStyle Libre, Omron | 🛠 Planned | not researched yet |
-| Health Connect | 🛠 Planned | on-device, through the planned Kotlin SDK |
+| Health Connect | 🛠 Planned | on-device, through the Kotlin SDK (Health Connect reading planned) |
 | Samsung Health, Zepp / Amazfit | 🛠 Planned, via Health Connect | their apps write to Health Connect on Android |
-| Google Fit | Deprecated by Google | use Health Connect (planned Kotlin SDK) |
+| Google Fit | Deprecated by Google | use Health Connect |
 | Eight Sleep | No public API | nothing official to build on |
 
 Want one sooner? Connectors are self-contained: read
@@ -134,7 +134,7 @@ Want one sooner? Connectors are self-contained: read
 | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
 | Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
-| SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
+| Client SDKs: Kotlin, Swift (with HealthKit sync), React Native, Flutter, MIT licensed ([docs/sdks](docs/sdks/README.md)) | ✅ Available from this repository, not on package registries yet |
 
 ## Quickstart
 
@@ -359,8 +359,9 @@ registered with the vendor.
 
 **Which devices does it work with?**
 Anything that writes to Apple Health (Apple Watch, iPhone, and the apps and devices that sync
-into HealthKit), through an iOS app that uploads it. No SDK ships yet: your app implements the
-[upload contract](docs/connectors/apple-health.md). Without an app, `ohs import apple-health`
+into HealthKit), through an iOS app that uploads it: the [Swift SDK](docs/sdks/swift.md#healthkit-sync) reads
+HealthKit and uploads what changed, or your app implements the
+[upload contract](docs/connectors/apple-health.md) itself. Without an app, `ohs import apple-health`
 loads the export the Health app writes, history included. Withings scales, watches and sleep devices
 through the user's Withings account. Oura rings, WHOOP bands, Polar watches and Strava activities
 work through the user's own account with each; these connectors are available but not yet
@@ -371,8 +372,8 @@ is open.
 
 **Why AGPL?**
 So the layer stays open. Anyone can run, study and change it; if you run a modified Open Health
-Sync as a network service, you publish your changes under the same license. The client SDKs will
-be MIT licensed when they exist, so apps that talk to a server are not affected.
+Sync as a network service, you publish your changes under the same license. The client SDKs in
+[sdks/](sdks) are MIT licensed, so apps that embed them are not affected.
 
 **Can I use it commercially?**
 Yes. A company can run it, unmodified or modified, to power its own product. The AGPL only asks
@@ -394,13 +395,15 @@ Known limitations:
   visibility timeout.
 - One database and one raw store per instance; no multi-region replication.
 - FHIR R4 serves Observations only (samples, blood pressure, sleep, workouts, daily summaries); no
-  webhooks or mobile SDKs yet.
+  webhooks yet.
+- The client SDKs are 0.1.0 and not on package registries yet; install them from this
+  repository. Reading Health Connect from the Kotlin SDK is planned.
 - The Withings portal steps and the units of physical effort and VO2 max are not verified on
   real devices yet.
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
 
-Next: more connectors, standard outputs (more FHIR R4 resources, Open mHealth, exports, webhooks), then client
-SDKs. Requests are welcome as GitHub issues, including the connector request form.
+Next: more connectors, standard outputs (more FHIR R4 resources, Open mHealth, exports, webhooks), then
+Health Connect in the Kotlin SDK. Requests are welcome as GitHub issues, including the connector request form.
 
 ## Documentation
 
@@ -409,6 +412,8 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
 - [MCP server](docs/mcp.md): tools, credentials, desktop and remote agents.
 - [FHIR R4 output](docs/fhir.md): the user's records as Observations, the mapping and its limits.
 - [Data model](docs/data-model.md): every canonical type and quantity name, with units.
+- [Client SDKs](docs/sdks/README.md): [Kotlin](docs/sdks/kotlin.md), [Swift](docs/sdks/swift.md),
+  [React Native](docs/sdks/react-native.md), [Flutter](docs/sdks/flutter.md).
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
 - Connectors: [supported and planned sources](docs/connectors/README.md),
   [Apple Health](docs/connectors/apple-health.md),
@@ -435,4 +440,5 @@ data, keys or tokens in a public issue.
 ## License
 
 The server is AGPL-3.0-only, see [LICENSE](LICENSE). If you run a modified Open Health Sync as a
-service, you publish your changes. The client SDKs will be MIT licensed when they exist.
+service, you publish your changes. The client SDKs in [sdks/](sdks) are MIT, see
+[sdks/LICENSE](sdks/LICENSE).

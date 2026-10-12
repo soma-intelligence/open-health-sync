@@ -119,6 +119,19 @@ const sources: Record<string, Target[]> = {
   ],
 };
 
+// The SDK overview, then one page per SDK guide under docs/sdks.
+sources["docs/sdks/README.md"] = [
+  {
+    page: "(guides)/sdks/index",
+    title: "Client SDKs",
+    description: "Kotlin, Swift, React Native and Flutter clients: what they share and which credential goes where.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "sdks")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md") continue;
+  sources[`docs/sdks/${file}`] = [{ page: `(guides)/sdks/${file.replace(/\.md$/, "")}` }];
+}
+
 // Each provider guide under docs/connectors becomes a page of its own.
 for (const file of readdirSync(join(repo, "docs", "connectors")).sort()) {
   if (!file.endsWith(".md") || file === "README.md") continue;
@@ -142,6 +155,11 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/rotating-secrets": "RotateCw",
   "(guides)/self-hosting/operating-notes": "NotebookPen",
   "(guides)/guides/fhir": "HeartPulse",
+  "(guides)/sdks/index": "Package",
+  "(guides)/sdks/kotlin": "Smartphone",
+  "(guides)/sdks/swift": "Tablet",
+  "(guides)/sdks/react-native": "Atom",
+  "(guides)/sdks/flutter": "Feather",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).
