@@ -287,3 +287,18 @@ func dietaryNutrient(hkType string) (string, bool) {
 	n, ok := dietaryNutrients[hkType[len(dietaryPrefix):]]
 	return n, ok
 }
+
+// StoresType reports whether the connector stores samples of a HealthKit
+// quantity or category type identifier (dietary types included). A line of
+// any other quantity or category type is skipped by Map. Clients use it to
+// leave out, and count, what the server would drop anyway.
+func StoresType(id string) bool {
+	if _, ok := quantityTypeCanonical[id]; ok {
+		return true
+	}
+	if _, ok := categoryTypeCanonical[id]; ok {
+		return true
+	}
+	_, ok := dietaryNutrient(id)
+	return ok
+}

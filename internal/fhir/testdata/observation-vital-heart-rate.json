@@ -1,0 +1,57 @@
+{
+  "resourceType": "Observation",
+  "id": "qs-1001",
+  "meta": {
+    "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health",
+    "profile": [
+      "http://hl7.org/fhir/StructureDefinition/vitalsigns",
+      "http://hl7.org/fhir/StructureDefinition/heartrate"
+    ],
+    "tag": [
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+        "code": "apple"
+      }
+    ]
+  },
+  "status": "final",
+  "category": [
+    {
+      "coding": [
+        {
+          "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+          "code": "vital-signs",
+          "display": "Vital Signs"
+        }
+      ],
+      "text": "Vital Signs"
+    }
+  ],
+  "code": {
+    "coding": [
+      {
+        "system": "http://loinc.org",
+        "code": "8867-4"
+      },
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type",
+        "code": "heart_rate"
+      }
+    ],
+    "text": "heart rate"
+  },
+  "subject": {
+    "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+  },
+  "effectiveDateTime": "2026-03-01T08:00:00Z",
+  "issued": "2026-03-01T09:15:30.25Z",
+  "valueQuantity": {
+    "value": 61,
+    "unit": "bpm",
+    "system": "http://unitsofmeasure.org",
+    "code": "/min"
+  },
+  "device": {
+    "display": "apple_watch"
+  }
+}

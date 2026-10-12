@@ -1,0 +1,221 @@
+{
+  "resourceType": "Observation",
+  "id": "sleep-7007",
+  "meta": {
+    "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/oura",
+    "tag": [
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+        "code": "oura"
+      }
+    ]
+  },
+  "identifier": [
+    {
+      "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/oura/external-id",
+      "value": "sleep-invented-42"
+    }
+  ],
+  "status": "final",
+  "code": {
+    "coding": [
+      {
+        "system": "http://loinc.org",
+        "code": "93832-4"
+      },
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type",
+        "code": "sleep_session"
+      }
+    ],
+    "text": "sleep session"
+  },
+  "subject": {
+    "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+  },
+  "effectivePeriod": {
+    "start": "2026-02-28T22:40:00Z",
+    "end": "2026-03-01T06:55:00Z"
+  },
+  "issued": "2026-03-01T09:15:30.25Z",
+  "valueQuantity": {
+    "value": 26400,
+    "unit": "s",
+    "system": "http://unitsofmeasure.org",
+    "code": "s"
+  },
+  "device": {
+    "display": "oura_ring"
+  },
+  "component": [
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "deep_sleep_seconds"
+          }
+        ],
+        "text": "deep sleep duration"
+      },
+      "valueQuantity": {
+        "value": 5400,
+        "unit": "s",
+        "system": "http://unitsofmeasure.org",
+        "code": "s"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "rem_sleep_seconds"
+          }
+        ],
+        "text": "REM sleep duration"
+      },
+      "valueQuantity": {
+        "value": 6300,
+        "unit": "s",
+        "system": "http://unitsofmeasure.org",
+        "code": "s"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "light_sleep_seconds"
+          }
+        ],
+        "text": "light sleep duration"
+      },
+      "valueQuantity": {
+        "value": 14700,
+        "unit": "s",
+        "system": "http://unitsofmeasure.org",
+        "code": "s"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "awake_seconds"
+          }
+        ],
+        "text": "awake duration"
+      },
+      "valueQuantity": {
+        "value": 3300,
+        "unit": "s",
+        "system": "http://unitsofmeasure.org",
+        "code": "s"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "sleep_score"
+          }
+        ],
+        "text": "sleep score"
+      },
+      "valueQuantity": {
+        "value": 81,
+        "unit": "score",
+        "system": "http://unitsofmeasure.org",
+        "code": "{score}"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "80404-7"
+          },
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "hrv_avg_ms"
+          }
+        ],
+        "text": "average heart rate variability"
+      },
+      "valueQuantity": {
+        "value": 48.5,
+        "unit": "ms",
+        "system": "http://unitsofmeasure.org",
+        "code": "ms"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "40443-4"
+          },
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "resting_hr"
+          }
+        ],
+        "text": "resting heart rate"
+      },
+      "valueQuantity": {
+        "value": 51,
+        "unit": "bpm",
+        "system": "http://unitsofmeasure.org",
+        "code": "/min"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "9279-1"
+          },
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "respiratory_rate"
+          }
+        ],
+        "text": "average respiratory rate"
+      },
+      "valueQuantity": {
+        "value": 14.2,
+        "unit": "bpm",
+        "system": "http://unitsofmeasure.org",
+        "code": "/min"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "59408-5"
+          },
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+            "code": "spo2_avg"
+          }
+        ],
+        "text": "average oxygen saturation"
+      },
+      "valueQuantity": {
+        "value": 96,
+        "unit": "percent",
+        "system": "http://unitsofmeasure.org",
+        "code": "%"
+      }
+    }
+  ]
+}

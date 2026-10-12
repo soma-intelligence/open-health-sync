@@ -107,7 +107,7 @@ Integration paths, vendor programs and tracking issues for each:
 
 | Source | Status | How the data arrives |
 |---|---|---|
-| Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)) |
+| Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)); `ohs import apple-health` loads a Health app export |
 | Withings | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
 | Oura | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/oura.md)) |
 | Whoop | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
@@ -130,8 +130,10 @@ Want one sooner? Connectors are self-contained: read
 |---|---|
 | REST JSON, described by [api/openapi.yaml](api/openapi.yaml) | ✅ Available |
 | MCP server, read only ([docs/mcp.md](docs/mcp.md)) | ✅ Available |
+| FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | ✅ Available (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
 | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
-| Outgoing webhooks, FHIR R4, Open mHealth, CSV and Parquet exports | 🛠 Planned |
+| FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
+| Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
 | SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
 
 ## Quickstart
@@ -183,6 +185,18 @@ Wait until processing is done (`pending_jobs` is 0), then read the normalized sa
 curl -s "$OHS/v1/users/$USER_ID/coverage" -H "Authorization: Bearer $KEY"
 curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bearer $KEY"
 ```
+
+**Load your existing history.** On the iPhone, Health app, your picture, *Export All Health
+Data* gives `export.zip`. Copy it to any machine with the `ohs` binary and load it with the
+user's token (`--dry-run` first counts what it would send):
+
+```sh
+OHS_TOKEN=$TOKEN ohs import apple-health export.zip --url $OHS
+```
+
+Records, workouts with their routes and ECGs go through the same upload API, in constant memory.
+Running it again uploads nothing twice. Details:
+[importing an export](docs/connectors/apple-health.md#importing-a-health-app-export).
 
 `ohs doctor` checks the configuration at any time:
 `docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor`.
@@ -346,7 +360,8 @@ registered with the vendor.
 **Which devices does it work with?**
 Anything that writes to Apple Health (Apple Watch, iPhone, and the apps and devices that sync
 into HealthKit), through an iOS app that uploads it. No SDK ships yet: your app implements the
-[upload contract](docs/connectors/apple-health.md). Withings scales, watches and sleep devices
+[upload contract](docs/connectors/apple-health.md). Without an app, `ohs import apple-health`
+loads the export the Health app writes, history included. Withings scales, watches and sleep devices
 through the user's Withings account. Oura rings, WHOOP bands, Polar watches and Strava activities
 work through the user's own account with each; these connectors are available but not yet
 verified with a real account. Garmin, Fitbit, Samsung Health through Health Connect and more are
@@ -378,12 +393,13 @@ Known limitations:
 - After a hard kill, a job that was in flight is picked up again only after its 10 minute
   visibility timeout.
 - One database and one raw store per instance; no multi-region replication.
-- No FHIR, webhooks or mobile SDKs yet.
+- FHIR R4 serves Observations only (samples, blood pressure, sleep, workouts, daily summaries); no
+  webhooks or mobile SDKs yet.
 - The Withings portal steps and the units of physical effort and VO2 max are not verified on
   real devices yet.
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
 
-Next: more connectors, standard outputs (FHIR R4, Open mHealth, exports, webhooks), then client
+Next: more connectors, standard outputs (more FHIR R4 resources, Open mHealth, exports, webhooks), then client
 SDKs. Requests are welcome as GitHub issues, including the connector request form.
 
 ## Documentation
@@ -391,6 +407,7 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
 - [Self-hosting](docs/self-hosting.md): configuration, images, Raspberry Pi, S3, operating notes.
 - [API guide](docs/api.md) and the [OpenAPI file](api/openapi.yaml), the source of truth.
 - [MCP server](docs/mcp.md): tools, credentials, desktop and remote agents.
+- [FHIR R4 output](docs/fhir.md): the user's records as Observations, the mapping and its limits.
 - [Data model](docs/data-model.md): every canonical type and quantity name, with units.
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
 - Connectors: [supported and planned sources](docs/connectors/README.md),
