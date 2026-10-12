@@ -9,6 +9,23 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Dexcom connector (`dexcom`, API v3, OAuth 2.0, scheduled pulls): CGM estimated glucose values
+  as `blood_glucose`, with trend and out-of-range status. `OHS_DEXCOM_REGION` picks the US, EU,
+  Japan or sandbox host. Not yet verified with a real account; see
+  [docs/connectors/dexcom.md](docs/connectors/dexcom.md).
+- OMRON connector (`omron`, OMRON Wellness partner API, OAuth 2.0, scheduled pulls): blood
+  pressure (paired into the FHIR panel), pulse, possible AFib flags, weight and body
+  composition. Not yet verified with a real account; see
+  [docs/connectors/omron.md](docs/connectors/omron.md).
+- Health Connect connector (`health_connect`) and `POST /v1/ingest/health-connect`: an Android
+  app uploads Health Connect records (steps, heart rate, HRV, SpO2, temperature, blood pressure,
+  glucose, body measurements, sleep, exercise, deletions). See
+  [docs/connectors/health-connect.md](docs/connectors/health-connect.md).
+- FHIR: a glucose sample measured in interstitial fluid (a CGM reading) is coded with LOINC
+  `99504-3` instead of `2339-0`.
+- FreeStyle Libre research notes: Abbott has no public API; readings arrive through Health
+  Connect or Apple Health.
+
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
   verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).

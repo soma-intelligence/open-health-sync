@@ -40,15 +40,26 @@ There are two ways data arrives, and a connector can do both.
   <Card title="Polar" href="/docs/connectors/polar">
     Cloud. Exercises, activity, sleep, Nightly Recharge and heart rate, with webhooks.
   </Card>
+  <Card title="Health Connect" href="/docs/connectors/health-connect">
+    On-device. Your Android app uploads Health Connect records, from any app that writes there.
+  </Card>
+  <Card title="Dexcom" href="/docs/connectors/dexcom">
+    Cloud. CGM glucose readings, coded as interstitial glucose in FHIR.
+  </Card>
+  <Card title="OMRON" href="/docs/connectors/omron">
+    Cloud, partner API. Blood pressure, pulse, possible AFib flags, weight and body composition.
+  </Card>
 </Cards>
 
 <Callout title="Not yet verified with real accounts">
-  Withings, Oura, WHOOP, Strava and Polar pass their tests against recorded responses, but none
-  has been run against a real account yet. Tell us how it goes in an
+  Withings, Oura, WHOOP, Strava, Polar, Dexcom and OMRON pass their tests against recorded
+  responses or a fake of the API, but none has been run against a real account yet, and the
+  Health Connect upload has not been run from a real phone. Tell us how it goes in an
   [issue](https://github.com/soma-intelligence/open-health-sync/issues).
 </Callout>
 
-Garmin, Fitbit, Health Connect, Dexcom and more are planned. The
+Garmin, Fitbit and more are planned. FreeStyle Libre has no public API; its readings arrive
+through Health Connect or Apple Health ([notes](/docs/connectors/freestyle-libre)). The
 [sources page](/docs/connectors/sources) has the status, integration path and tracking issue of
 each one.
 

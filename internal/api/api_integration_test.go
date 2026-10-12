@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/connectors/applehealth"
+	"github.com/soma-intelligence/open-health-sync/connectors/healthconnect"
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -61,13 +62,15 @@ func newEnv(t *testing.T, tweak ...func(*api.Deps)) *env {
 	require.NoError(t, err)
 	m := &automation.Metrics{}
 	deps := api.Deps{
-		Pool:       pool,
-		Store:      st,
-		Raw:        raw,
-		Providers:  []connector.Connector{applehealth.New()},
-		Device:     applehealth.New(),
-		Metrics:    true,
-		ETLMetrics: m,
+		Pool:      pool,
+		Store:     st,
+		Raw:       raw,
+		Providers: []connector.Connector{applehealth.New()},
+		Device:    applehealth.New(),
+		// The Health Connect route shares the upload handler.
+		HealthConnect: healthconnect.New(),
+		Metrics:       true,
+		ETLMetrics:    m,
 	}
 	for _, f := range tweak {
 		f(&deps)
@@ -487,6 +490,10 @@ func TestMintToken(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, r.code, string(r.body))
 	// A tenant key does not.
 	r = e.do("POST", "/v1/ingest/apple-health", e.keyA, []byte("x"))
+	assert.Equal(t, http.StatusForbidden, r.code)
+	r = e.do("POST", "/v1/ingest/health-connect", tok.Token, []byte("x"))
+	assert.Equal(t, http.StatusBadRequest, r.code, string(r.body))
+	r = e.do("POST", "/v1/ingest/health-connect", e.keyA, []byte("x"))
 	assert.Equal(t, http.StatusForbidden, r.code)
 
 	// Read only: up to 30 days.

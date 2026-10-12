@@ -113,11 +113,13 @@ Integration paths, vendor programs and tracking issues for each:
 | Whoop | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
 | Strava | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
 | Polar | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
+| Health Connect | ✅ Available, not yet verified with a real phone | your Android app uploads Health Connect records ([contract](docs/connectors/health-connect.md)) |
+| Dexcom | ✅ Available, not yet verified with a real account | CGM glucose: OAuth, scheduled pulls ([guide](docs/connectors/dexcom.md)) |
+| OMRON | ✅ Available, not yet verified with a real account | blood pressure and weight: partner API, OAuth, scheduled pulls ([guide](docs/connectors/omron.md)) |
 | Garmin, Fitbit | 🛠 Planned ([#9](https://github.com/soma-intelligence/open-health-sync/issues/9)) | partner program (Garmin); Fitbit Web API moving to the Google Health API |
 | Ultrahuman, Suunto | 🛠 Planned | partner programs |
-| Coros, Dexcom | 🛠 Planned | cloud API, OAuth |
-| FreeStyle Libre, Omron | 🛠 Planned | not researched yet |
-| Health Connect | 🛠 Planned | on-device, through the planned Kotlin SDK |
+| Coros | 🛠 Planned | cloud API, OAuth |
+| FreeStyle Libre | No public API | through Health Connect or Apple Health ([notes](docs/connectors/freestyle-libre.md)) |
 | Samsung Health, Zepp / Amazfit | 🛠 Planned, via Health Connect | their apps write to Health Connect on Android |
 | Google Fit | Deprecated by Google | use Health Connect (planned Kotlin SDK) |
 | Eight Sleep | No public API | nothing official to build on |
@@ -363,8 +365,11 @@ into HealthKit), through an iOS app that uploads it. No SDK ships yet: your app 
 [upload contract](docs/connectors/apple-health.md). Without an app, `ohs import apple-health`
 loads the export the Health app writes, history included. Withings scales, watches and sleep devices
 through the user's Withings account. Oura rings, WHOOP bands, Polar watches and Strava activities
-work through the user's own account with each; these connectors are available but not yet
-verified with a real account. Garmin, Fitbit, Samsung Health through Health Connect and more are
+work through the user's own account with each, as do Dexcom CGMs and OMRON blood pressure
+monitors and scales; these connectors are available but not yet verified with a real account.
+On Android, anything that writes to Health Connect (Samsung Health, Fitbit, CGM apps such as
+FreeStyle Libre) arrives through an app that uploads it ([contract](docs/connectors/health-connect.md)).
+Garmin, Fitbit's cloud API and more are
 [planned](docs/connectors/README.md), not available yet, and the
 [connector request form](https://github.com/soma-intelligence/open-health-sync/issues/new/choose)
 is open.

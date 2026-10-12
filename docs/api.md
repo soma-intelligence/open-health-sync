@@ -125,7 +125,10 @@ pull, the last error, and a `state` (`fresh`, `stale`, `failing`, `syncing`, `ne
 
 `POST /v1/ingest/apple-health` takes one gzip NDJSON part with a user token that has the `upload`
 scope. The contract (headers, size, idempotency) is in
-[connectors/apple-health.md](connectors/apple-health.md).
+[connectors/apple-health.md](connectors/apple-health.md). `POST /v1/ingest/health-connect` takes
+Android Health Connect records the same way; its line format is in
+[connectors/health-connect.md](connectors/health-connect.md). Both routes share the limit of
+uploads in flight.
 
 ## Reading data
 

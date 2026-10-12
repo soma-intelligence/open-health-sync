@@ -37,6 +37,9 @@ type Deps struct {
 	Providers []connector.Connector
 	// Device handles POST /v1/ingest/apple-health. Nil leaves the route out.
 	Device connector.DeviceConnector
+	// HealthConnect handles POST /v1/ingest/health-connect. Nil leaves the
+	// route out.
+	HealthConnect connector.DeviceConnector
 	// IngestLimit bounds uploads in flight (0 means DefaultIngestLimit).
 	IngestLimit int
 	// Metrics mounts GET /metrics (OHS_METRICS).

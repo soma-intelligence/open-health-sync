@@ -10,6 +10,7 @@
 package fhir
 
 import (
+	"encoding/json"
 	"math"
 	"strconv"
 	"strings"
@@ -154,7 +155,7 @@ func FromQuantitySample(user uuid.UUID, s read.CodedSample) Observation {
 		o.Identifier = []Identifier{{System: Namespace + "/provider/" + s.Provider + "/external-id", Value: ext}}
 	}
 
-	loinc := deref(s.LOINCCode)
+	loinc := sampleLOINC(s)
 	vs, isVital := vitalSigns[s.Type]
 	if isVital && vs.loinc != loinc {
 		// The catalog codes this type differently from what the profile
@@ -217,6 +218,28 @@ func FromQuantitySample(user uuid.UUID, s read.CodedSample) Observation {
 		o.Device = &Reference{Display: d}
 	}
 	return o
+}
+
+// LOINCInterstitialGlucose is glucose measured in interstitial fluid, what a
+// continuous glucose monitor reads (the code the HL7 CGM implementation guide
+// uses). The catalog codes blood_glucose with 2339-0, glucose in blood.
+const LOINCInterstitialGlucose = "99504-3"
+
+// sampleLOINC is the LOINC code of s: the catalog's, except for a glucose
+// value whose metadata says it was measured in interstitial fluid (a CGM
+// reading from Dexcom, or from Health Connect with that specimen source).
+func sampleLOINC(s read.CodedSample) string {
+	loinc := deref(s.LOINCCode)
+	if s.Type != "blood_glucose" || len(s.Metadata) == 0 {
+		return loinc
+	}
+	var md struct {
+		Specimen string `json:"specimen"`
+	}
+	if json.Unmarshal(s.Metadata, &md) == nil && md.Specimen == "interstitial_fluid" {
+		return LOINCInterstitialGlucose
+	}
+	return loinc
 }
 
 func absent(code, display string) *CodeableConcept {

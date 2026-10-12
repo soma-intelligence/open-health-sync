@@ -729,6 +729,77 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /v1/ingest/health-connect:
+    post:
+      tags: [ingest]
+      operationId: ingestHealthConnect
+      summary: Upload one part of Android Health Connect records
+      description: |
+        One gzip NDJSON part (at most 64 MiB, never truncated), one Health Connect record per
+        line, each a JSON object with a `recordType` (the line format is in
+        docs/connectors/health-connect.md). Same headers, limits and answers as the Apple Health
+        upload.
+        Re-sending the same part is safe: the answer is 200 with `duplicate: true`. Other
+        bytes under a (day, batch, part) already stored are a 409. Each instance processes a
+        bounded number of uploads at once; above it the answer is 503 with `Retry-After`.
+      security:
+        - userToken: [upload]
+      parameters:
+        - name: X-OHS-Type
+          in: header
+          required: true
+          description: Health Connect record type of the lines of the part (for example BloodGlucose).
+          schema: { type: string }
+        - name: X-OHS-Day
+          in: header
+          required: true
+          schema: { type: string, format: date }
+        - name: X-OHS-Batch
+          in: header
+          required: true
+          schema: { type: string, maxLength: 128 }
+        - name: X-OHS-Part
+          in: header
+          required: true
+          schema: { type: integer, minimum: 0, maximum: 1000000 }
+      requestBody:
+        required: true
+        content:
+          application/gzip:
+            schema: { type: string, contentEncoding: binary }
+          application/octet-stream:
+            schema: { type: string, contentEncoding: binary }
+      responses:
+        "200":
+          description: Stored (or already stored) and queued for processing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [key, duplicate]
+                properties:
+                  key: { type: string, description: Raw object key. }
+                  duplicate: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "410":
+          description: The user started being deleted while this upload was stored (its token was accepted just before); nothing is kept.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "503":
+          description: Too many uploads in progress on this instance.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Seconds to wait before retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /oauth/{provider}/callback:
     parameters:
       - $ref: "#/components/parameters/Provider"
