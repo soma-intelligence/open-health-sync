@@ -136,7 +136,9 @@ Want one sooner? Connectors are self-contained: read
 | FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | ✅ Available (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
 | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
-| Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
+| Open mHealth JSON ([docs/open-mhealth.md](docs/open-mhealth.md)) | ✅ Available |
+| CSV and Parquet exports ([docs/exports.md](docs/exports.md)) | ✅ Available |
+| Outgoing webhooks | 🛠 Planned |
 | SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
 
 ## Quickstart
@@ -404,7 +406,7 @@ Known limitations:
   real devices yet.
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
 
-Next: more connectors, standard outputs (more FHIR R4 resources, Open mHealth, exports, webhooks), then client
+Next: more connectors, standard outputs (more FHIR R4 resources, webhooks), then client
 SDKs. Requests are welcome as GitHub issues, including the connector request form.
 
 ## Documentation
