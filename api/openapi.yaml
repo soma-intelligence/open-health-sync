@@ -21,7 +21,11 @@ info:
 
     **FHIR.** `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood
     pressure readings, sleep sessions, workouts and daily summaries as FHIR R4 Observations
-    (`application/fhir+json`); see docs/fhir.md.
+    (`application/fhir+json`); see docs/fhir.md. `GET /v1/users/{id}/omh/data-points` serves
+    them as Open mHealth data points; see docs/open-mhealth.md.
+
+    **Exports.** `GET /v1/users/{id}/exports/{dataset}` streams every record of one list in a
+    time window as a single CSV or Parquet file; see docs/exports.md.
 
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
     of another tenant is a 404, never a 403.
@@ -48,6 +52,8 @@ tags:
   - name: connections
   - name: read
   - name: fhir
+  - name: omh
+  - name: exports
   - name: ingest
   - name: provider-facing
   - name: mcp
@@ -657,6 +663,96 @@ paths:
           content:
             application/fhir+json:
               schema: { $ref: "#/components/schemas/FHIRObservation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/omh/data-points:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [omh]
+      operationId: listOMHDataPoints
+      summary: The user's records as Open mHealth data points
+      description: |
+        The user's records as Open mHealth data points (a `header` and a `body` that follows one
+        schema of the Open mHealth catalog, checked against the official schemas): heart rate,
+        steps, blood pressure, body weight, height, BMI, body fat, body temperature, oxygen
+        saturation, respiratory rate, blood glucose and active energy samples, sleep sessions
+        (`sleep-episode`) and workouts (`physical-activity`). In the order and with the cursor of
+        the FHIR search; a record without an Open mHealth schema (another quantity type, a
+        daily summary, a value in another unit) is left out, so a page can hold fewer than
+        `limit` data points and still have a `next_cursor`. The mapping is in
+        docs/open-mhealth.md.
+      parameters:
+        - name: schema
+          in: query
+          description: |
+            Only the data points of one schema, bare (`heart-rate`) or with its namespace and,
+            optionally, its version (`omh:heart-rate`, `omh:heart-rate:2.0`). One value; a
+            schema the mapping does not emit is a 400.
+          schema: { type: string, examples: [omh:heart-rate] }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by time.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OMHDataPointPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/exports/{dataset}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: dataset
+        in: path
+        required: true
+        description: The list to export. Another name is a 404.
+        schema:
+          type: string
+          enum: [samples, category-samples, sleep, workouts, nutrition, daily]
+    get:
+      tags: [exports]
+      operationId: exportDataset
+      summary: One list of the user as a CSV or Parquet file
+      description: |
+        Every record of one list in `[start, end)`, as one file streamed in a single response
+        (`Content-Disposition: attachment`). The columns are the members of the list's JSON
+        records, in the same order and with the same names and values: times in UTC, a missing
+        value empty (CSV) or null (Parquet), `metadata` as JSON text. `samples` holds every
+        quantity type unless `type` names one. The file is not paged: `cursor` and `limit` are
+        a 400. A failure once the file has started cuts the connection, so a truncated file
+        never looks complete. See docs/exports.md.
+      parameters:
+        - name: format
+          in: query
+          description: "`csv` (the default) or `parquet`."
+          schema: { type: string, enum: [csv, parquet], default: csv }
+        - name: type
+          in: query
+          description: The canonical type to keep, for the lists that have one (samples, category-samples, workouts).
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+      responses:
+        "200":
+          description: The file.
+          headers:
+            Content-Disposition:
+              description: '`attachment; filename="<dataset>-<user id>.<format>"`'
+              schema: { type: string }
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.apache.parquet:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -1390,6 +1486,45 @@ components:
       properties:
         reference: { type: string, examples: ["Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"] }
         display: { type: string }
+    OMHDataPoint:
+      type: object
+      description: |
+        One Open mHealth data point (omh:data-point:1.0): a header (omh:header:1.2) and a body
+        that follows the schema `header.schema_id` names (docs/open-mhealth.md).
+      required: [header, body]
+      properties:
+        header:
+          type: object
+          required: [id, creation_date_time, schema_id, acquisition_provenance, user_id]
+          properties:
+            id:
+              type: string
+              description: The record's id, the same as its FHIR Observation id (`qs-`, `bp-`, `sleep-`, `workout-`).
+              examples: [qs-1234]
+            creation_date_time: { type: string, format: date-time, description: When the record was stored. }
+            schema_id:
+              type: object
+              required: [namespace, name, version]
+              properties:
+                namespace: { type: string, const: omh }
+                name: { type: string, examples: [heart-rate] }
+                version: { type: string, examples: ["2.0"] }
+            acquisition_provenance:
+              type: object
+              required: [source_name]
+              properties:
+                source_name: { type: string, description: The provider the record came from. }
+                source_data_point_id: { type: string, description: "The provider's own id of the record." }
+                modality: { type: string, enum: [sensed, self-reported] }
+            user_id: { type: string, format: uuid }
+        body:
+          type: object
+          description: The measure, in the shape of its schema.
+    OMHDataPointPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/OMHDataPoint" } }
     FHIRObservation:
       type: object
       description: |

@@ -1,0 +1,9 @@
+{
+ "data": {
+  "id": "uh-user-42",
+  "email": "ring.user@example.org",
+  "timezone": "Europe/Paris"
+ },
+ "error": null,
+ "status": 200
+}

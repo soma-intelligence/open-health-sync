@@ -75,6 +75,8 @@ func NewRouter(d Deps) http.Handler {
 	s.mountDeletion(mux)
 	s.mountReads(mux)
 	s.mountFHIR(mux)
+	s.mountOMH(mux)
+	s.mountExports(mux)
 	s.mountIngest(mux)
 	s.mountCollect(mux)
 	s.mountMCP(mux)

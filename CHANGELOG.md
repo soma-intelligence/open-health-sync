@@ -15,6 +15,34 @@ release may change the API, the configuration or the database schema.
   (Dart). Each covers every API route with typed models, paging, problem errors, an upload
   part builder and retried uploads. CI runs their tests and each quickstart example against a
   live server. Guides: [docs/sdks](docs/sdks/README.md).
+- Open mHealth output: `GET /v1/users/{id}/omh/data-points` serves heart rate, steps, blood
+  pressure pairs, body weight, height, BMI, body fat, body temperature, SpO2, respiratory rate,
+  blood glucose, active energy, sleep sessions (`sleep-episode`) and workouts
+  (`physical-activity`) as Open mHealth data points, in the order and with the cursor of the FHIR
+  search, filtered by `schema`. Every mapping is checked against the official Open mHealth
+  schemas, vendored with their own test data, by the unit tests. See
+  [docs/open-mhealth.md](docs/open-mhealth.md).
+- CSV and Parquet exports: `GET /v1/users/{id}/exports/{dataset}` streams every sample, category
+  sample, sleep session, workout, nutrition log or daily summary of a user in a time window as
+  one CSV or Parquet file, with the columns of the REST records (typed, UTC timestamps, JSON
+  metadata). See [docs/exports.md](docs/exports.md).
+- Fitbit connector (`fitbit`) on the Google Health API v4, not the legacy Fitbit Web API: Google
+  OAuth with granted-scope handling, paged pulls of 21 data types, webhooks checked with the
+  subscriber secret and Google's ECDSA signature, and revoke on disconnect. Google is not
+  onboarding new projects yet.
+- Suunto connector (`suunto`, Suunto Cloud API, partner program): OAuth 2.0 with the API Zone
+  subscription key, workouts from `/v3/workouts`, HMAC-signed notifications; 24/7 sleep, recovery
+  and daily activity are stored raw only until their schema is confirmed.
+- Ultrahuman connector (`ultrahuman`, Partnership API): OAuth 2.0 and one metrics call per day.
+  Ring heart rate, HRV (RMSSD), skin temperature, steps, resting heart rate, VO2 max, sleep with
+  stages, and M1 CGM glucose (mmol/L converted to mg/dL).
+- intervals.icu connector (`intervals_icu`): OAuth 2.0, scheduled pulls of activities and daily
+  wellness, and webhooks checked with the app's webhook secret. Activities keep their upstream
+  source (Garmin, Wahoo, Zwift, Coros, Suunto, ...).
+- `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE
+  (for a future Garmin connector).
+- None of these four connectors has been verified with a real account yet.
+
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
   verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
@@ -91,6 +119,11 @@ release may change the API, the configuration or the database schema.
   and state, `ohs_sync_max_lag_seconds` and `ohs_sync_push_silent_connections`.
 - Docs: [background sync](docs/background-sync.md), including what the iOS and Android SDKs
   need to upload in the background.
+
+### Fixed
+
+- `OHS_<SLUG>_<FIELD>` keys of a provider slug that contains an underscore (`intervals_icu`) are
+  now read under the whole slug.
 
 ### Changed
 

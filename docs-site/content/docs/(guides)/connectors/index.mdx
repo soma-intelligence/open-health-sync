@@ -22,34 +22,48 @@ There are two ways data arrives, and a connector can do both.
 ## Available today
 
 <Cards>
-  <Card title="Apple Health" href="/docs/connectors/apple-health">
+  <Card title="Apple Health" href="/documentation/connectors/apple-health">
     On-device. Your iOS app uploads gzip NDJSON parts. No keys needed, always enabled.
   </Card>
-  <Card title="Withings" href="/docs/connectors/withings">
+  <Card title="Withings" href="/documentation/connectors/withings">
     Cloud. OAuth, scheduled pulls and push notifications. Bring your own developer app.
   </Card>
-  <Card title="Oura" href="/docs/connectors/oura">
+  <Card title="Oura" href="/documentation/connectors/oura">
     Cloud. Sleep, readiness, activity, heart rate and workouts, with optional webhooks.
   </Card>
-  <Card title="WHOOP" href="/docs/connectors/whoop">
+  <Card title="WHOOP" href="/documentation/connectors/whoop">
     Cloud. Strain, recovery, sleep stages and workouts, with webhooks.
   </Card>
-  <Card title="Strava" href="/docs/connectors/strava">
+  <Card title="Strava" href="/documentation/connectors/strava">
     Cloud. Activities as workouts, with webhook events.
   </Card>
-  <Card title="Polar" href="/docs/connectors/polar">
+  <Card title="Polar" href="/documentation/connectors/polar">
     Cloud. Exercises, activity, sleep, Nightly Recharge and heart rate, with webhooks.
+  </Card>
+  <Card title="Fitbit" href="/documentation/connectors/fitbit">
+    Cloud, through the Google Health API. Activity, heart rate, HRV, SpO2, sleep, workouts and
+    body, with signed webhooks. Google is not onboarding new projects yet.
+  </Card>
+  <Card title="Suunto" href="/documentation/connectors/suunto">
+    Cloud, partner program. Workouts, with signed notifications.
+  </Card>
+  <Card title="Ultrahuman" href="/documentation/connectors/ultrahuman">
+    Cloud, Partnership API. Ring sleep, heart rate, HRV, temperature, steps and M1 glucose.
+  </Card>
+  <Card title="intervals.icu" href="/documentation/connectors/intervals-icu">
+    Cloud. Activities from Garmin, Wahoo, Zwift, Coros and more, plus daily wellness, with
+    webhooks.
   </Card>
 </Cards>
 
 <Callout title="Not yet verified with real accounts">
-  Withings, Oura, WHOOP, Strava and Polar pass their tests against recorded responses, but none
-  has been run against a real account yet. Tell us how it goes in an
+  Every cloud connector passes its tests against recorded responses and a fake of the provider,
+  but none has been run against a real account yet. Tell us how it goes in an
   [issue](https://github.com/soma-intelligence/open-health-sync/issues).
 </Callout>
 
-Garmin, Fitbit, Health Connect, Dexcom and more are planned. The
-[sources page](/docs/connectors/sources) has the status, integration path and tracking issue of
+Garmin, Health Connect, Dexcom, Coros and more are planned. The
+[sources page](/documentation/connectors/sources) has the status, integration path and tracking issue of
 each one.
 
 ## Turning a connector on
@@ -74,5 +88,5 @@ instance.
 ## Build one
 
 Connectors are self-contained packages under `connectors/`, and need no change to the core.
-Start with [Write a connector](/docs/connectors/writing-a-connector), and pick a
+Start with [Write a connector](/documentation/connectors/writing-a-connector), and pick a
 [good first issue](https://github.com/soma-intelligence/open-health-sync/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22).
