@@ -7,7 +7,7 @@ icon: Scale
 Open Health Sync is a self-hosted health data aggregator: one Go binary and Postgres that pull
 data from wearables and health apps, keep every raw payload, normalize it to one model with one
 set of units, and serve it as a REST API, FHIR R4, Open mHealth, CSV or Parquet files, and a
-read-only MCP server for AI agents. It is free and licensed AGPL-3.0.
+read-only MCP server for AI agents, with signed webhooks when data changes. It is free and licensed AGPL-3.0.
 
 This page answers the questions people ask before picking a tool. Facts about other projects
 were checked in October 2026; they change, so check their own pages too.
@@ -44,8 +44,9 @@ summaries) with LOINC codes and UCUM units, checked with the official HL7 valida
 
 ### Which devices and apps does it support?
 
-Apple Health, Withings, Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman and intervals.icu
-are available. Garmin, Dexcom, Health Connect and others are planned. The
+Thirteen sources are available: Apple Health, Health Connect (and through it Samsung Health and
+other Android apps), Withings, Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman,
+intervals.icu, Dexcom and OMRON. Garmin and others are planned. The
 [connectors page](/documentation/connectors) lists the status and integration path of each.
 
 ## Compared with the other options

@@ -174,6 +174,15 @@ It is left out when none of them describes the measurement, rather than set to a
 | `activity` | steps, flights, distances, active energy, Apple exercise, move and stand time, push count, physical effort, walking and running speed, running and cycling power, running form metrics, strain and workout strain, and the other activity counts of the catalog (and their intraday variants); workouts; daily summaries |
 | none | everything else: body composition, heart rate variability, VO2 max, the other temperatures, readiness scores, audio exposure, respiratory function, insulin, falls, UV, electrodermal activity, vascular age, pulse wave velocity, names outside the catalog, and sleep sessions (no HL7 category describes sleep) |
 
+### Glucose from a CGM
+
+The catalog codes `blood_glucose` with LOINC `2339-0`, glucose in blood. A continuous glucose
+monitor measures the fluid under the skin instead, so a glucose sample whose
+`metadata.specimen` is `interstitial_fluid` (every [Dexcom](connectors/dexcom.md) reading, and
+[Health Connect](connectors/health-connect.md) readings with that specimen source) is coded
+with LOINC `99504-3`, glucose in interstitial fluid, the code the HL7 CGM implementation guide
+uses. A `code` search for `2339-0` finds both kinds, through the catalog; a search for `99504-3` finds nothing yet.
+
 ### Vital signs
 
 R4 requires an Observation that carries one of its vital signs LOINC codes to meet the matching

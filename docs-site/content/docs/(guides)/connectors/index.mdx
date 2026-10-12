@@ -54,15 +54,26 @@ There are two ways data arrives, and a connector can do both.
     Cloud. Activities from Garmin, Wahoo, Zwift, Coros and more, plus daily wellness, with
     webhooks.
   </Card>
+  <Card title="Health Connect" href="/documentation/connectors/health-connect">
+    On-device. Your Android app uploads Health Connect records, from any app that writes there.
+  </Card>
+  <Card title="Dexcom" href="/documentation/connectors/dexcom">
+    Cloud. CGM glucose readings, coded as interstitial glucose in FHIR.
+  </Card>
+  <Card title="OMRON" href="/documentation/connectors/omron">
+    Cloud, partner API. Blood pressure, pulse, possible AFib flags, weight and body composition.
+  </Card>
 </Cards>
 
 <Callout title="Not yet verified with real accounts">
   Every cloud connector passes its tests against recorded responses and a fake of the provider,
-  but none has been run against a real account yet. Tell us how it goes in an
+  but none has been run against a real account yet, and the Health Connect upload has not been
+  run from a real phone. Tell us how it goes in an
   [issue](https://github.com/soma-intelligence/open-health-sync/issues).
 </Callout>
 
-Garmin, Health Connect, Dexcom, Coros and more are planned. The
+Garmin, Coros and more are planned. FreeStyle Libre has no public API; its readings arrive
+through Health Connect or Apple Health ([notes](/documentation/connectors/freestyle-libre)). The
 [sources page](/documentation/connectors/sources) has the status, integration path and tracking issue of
 each one.
 

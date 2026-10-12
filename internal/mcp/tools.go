@@ -17,6 +17,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // Arguments. They mirror the REST query parameters.
@@ -162,6 +163,11 @@ func addTools(s *sdk.Server, t *tools) {
 		})
 	add(s, "get_coverage", "What has been synced: records per provider per local day with per metric counts, and the processing jobs still pending.", t.coverage)
 	add(s, "list_connections", "The user's provider connections with their status and last sync time.", t.connections)
+	if t.d.Webhooks != nil {
+		add(s, "list_webhooks", "The tenant's outgoing webhook endpoints (tenant API key only) with their event types, "+
+			"status and delivery health, and with deliveries=true each endpoint's latest deliveries. "+
+			"Endpoints are created and changed through the REST API (/v1/webhooks); this server stays read-only.", t.listWebhooks)
+	}
 }
 
 // add registers a tool whose handler returns the result value or an error.
@@ -361,4 +367,36 @@ func (t *tools) connections(ctx context.Context, a userArgs) (any, error) {
 		return nil, readErr(err, errUserNotFound)
 	}
 	return newPage(cs, ""), nil
+}
+
+type webhooksArgs struct {
+	Deliveries bool `json:"deliveries,omitempty" jsonschema:"also return each endpoint's 10 latest deliveries"`
+}
+
+type webhookView struct {
+	webhook.Endpoint
+	Deliveries []webhook.Delivery `json:"recent_deliveries,omitempty"`
+}
+
+func (t *tools) listWebhooks(ctx context.Context, a webhooksArgs) (any, error) {
+	if t.p.UserID != nil {
+		return nil, toolError("list_webhooks needs a tenant API key")
+	}
+	list, err := t.d.Webhooks.List(ctx, t.p.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]webhookView, 0, len(list))
+	for _, e := range list {
+		v := webhookView{Endpoint: e}
+		if a.Deliveries {
+			ds, _, err := t.d.Webhooks.ListDeliveries(ctx, t.p.TenantID, e.ID, webhook.DeliveryQuery{Limit: 10})
+			if err != nil && !errors.Is(err, webhook.ErrNotFound) {
+				return nil, err
+			}
+			v.Deliveries = ds
+		}
+		out = append(out, v)
+	}
+	return newPage(out, ""), nil
 }
