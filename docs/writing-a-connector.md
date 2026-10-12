@@ -22,6 +22,7 @@ several at once; the registry checks which ones it implements.
 |---|---|---|
 | `OAuthConnector` | `AuthorizeURL`, `Exchange`, `Refresh`, `Fetch` | providers the server pulls from |
 | `PushConnector` | `HandleInbound` | providers that send notifications |
+| `StateExchanger` | `ExchangeState` | providers that require PKCE: the callback hands the OAuth state to the exchange, so the code verifier can be derived from it (an HMAC under the client secret) instead of stored |
 | `NotifiedFetcher` | `FetchNotified` | pull only what a notification names (its `InboundEvent.DataType`), to spare the provider's rate limit |
 | `DeviceConnector` | `ParseUpload` | on-device stores uploaded by an SDK |
 | `KeyedConnector` | `RequiredKeys` | operator keys: the connector is off until each is set |

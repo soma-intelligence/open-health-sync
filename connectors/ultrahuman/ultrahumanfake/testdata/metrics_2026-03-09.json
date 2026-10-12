@@ -1,0 +1,303 @@
+{
+ "data": {
+  "metric_data": [
+   {
+    "type": "hr",
+    "object": {
+     "day_start_timestamp": 1773010800,
+     "title": "Heart Rate",
+     "unit": "bpm",
+     "values": [
+      {
+       "value": 58,
+       "timestamp": 1773018000
+      },
+      {
+       "value": 0,
+       "timestamp": 1773018300
+      },
+      {
+       "value": 61,
+       "timestamp": 1773043200
+      },
+      {
+       "value": 72,
+       "timestamp": 1773063000
+      }
+     ],
+     "last_reading": {
+      "value": 72,
+      "timestamp": 1773063000
+     }
+    }
+   },
+   {
+    "type": "temp",
+    "object": {
+     "day_start_timestamp": 1773010800,
+     "title": "Skin Temperature",
+     "unit": "°C",
+     "values": [
+      {
+       "value": 34.5,
+       "timestamp": 1773018000
+      },
+      {
+       "value": 35.25,
+       "timestamp": 1773021600
+      }
+     ]
+    }
+   },
+   {
+    "type": "hrv",
+    "object": {
+     "day_start_timestamp": 1773010800,
+     "title": "HRV",
+     "subtitle": "Average",
+     "avg": 50,
+     "values": [
+      {
+       "value": 48,
+       "timestamp": 1773018000
+      },
+      {
+       "value": 52,
+       "timestamp": 1773021600
+      }
+     ]
+    }
+   },
+   {
+    "type": "steps",
+    "object": {
+     "day_start_timestamp": 1773010800,
+     "subtitle": "Average",
+     "total": 8000,
+     "avg": 6000,
+     "values": [
+      {
+       "value": 0,
+       "timestamp": 1773039600
+      },
+      {
+       "value": 120,
+       "timestamp": 1773040500
+      },
+      {
+       "value": 340,
+       "timestamp": 1773054000
+      }
+     ]
+    }
+   },
+   {
+    "type": "night_rhr",
+    "object": {
+     "day_start_timestamp": 1773010800,
+     "title": "Resting HR",
+     "avg": 55,
+     "values": [
+      {
+       "value": 54,
+       "timestamp": 1773018000
+      },
+      {
+       "value": 56,
+       "timestamp": 1773021600
+      }
+     ]
+    }
+   },
+   {
+    "type": "temperature_deviation",
+    "object": {
+     "day_start_timestamp": 1773010800,
+     "title": "Temperature Deviation",
+     "value": -0.25,
+     "unit": "°C"
+    }
+   },
+   {
+    "type": "sleep_rhr",
+    "object": {
+     "value": 53,
+     "day_start_timestamp": 1773010800
+    }
+   },
+   {
+    "type": "avg_sleep_hrv",
+    "object": {
+     "value": 50,
+     "day_start_timestamp": 1773010800
+    }
+   },
+   {
+    "type": "Sleep",
+    "object": {
+     "day_start_timestamp": 1773010800,
+     "bedtime_start": 1773007200,
+     "bedtime_end": 1773036000,
+     "quick_metrics": [
+      {
+       "title": "TIME IN BED",
+       "display_text": "8h 0m",
+       "value": 28800,
+       "type": "time_in_bed"
+      },
+      {
+       "title": "TOTAL SLEEP",
+       "display_text": "7h 0m",
+       "value": 25200,
+       "type": "total_sleep"
+      },
+      {
+       "title": "EFFICIENCY",
+       "display_text": "88%",
+       "value": 88,
+       "type": "sleep_efic"
+      },
+      {
+       "title": "AVG HRV",
+       "display_text": "50",
+       "value": 50,
+       "type": "avg_hrv"
+      }
+     ],
+     "quick_metrics_tiled": [
+      {
+       "title": "TOTAL SLEEP",
+       "value": "<b>7h</b>",
+       "type": "total_sleep"
+      }
+     ],
+     "sleep_stages": [
+      {
+       "title": "Deep Sleep",
+       "type": "deep_sleep",
+       "percentage": 20,
+       "stage_time": 5400
+      },
+      {
+       "title": "Light Sleep",
+       "type": "light_sleep",
+       "percentage": 50,
+       "stage_time": 14400
+      },
+      {
+       "title": "REM Sleep",
+       "type": "rem_sleep",
+       "percentage": 20,
+       "stage_time": 5400
+      },
+      {
+       "title": "Awake",
+       "type": "awake",
+       "percentage": 10,
+       "stage_time": 3600
+      }
+     ],
+     "sleep_graph": {
+      "title": "Time In Bed",
+      "data": [
+       {
+        "start": 1773007200,
+        "end": 1773009000,
+        "type": "awake"
+       },
+       {
+        "start": 1773009000,
+        "end": 1773014400,
+        "type": "light_sleep"
+       },
+       {
+        "start": 1773014400,
+        "end": 1773019800,
+        "type": "deep_sleep"
+       },
+       {
+        "start": 1773019800,
+        "end": 1773025200,
+        "type": "rem_sleep"
+       },
+       {
+        "start": 1773025200,
+        "end": 1773036000,
+        "type": "light_sleep"
+       }
+      ]
+     },
+     "summary": [
+      {
+       "title": "Sleep Efficiency",
+       "state": "optimal",
+       "state_title": "Optimal",
+       "score": 88
+      }
+     ],
+     "spo2": {
+      "title": "Average Oxygen Saturation",
+      "value": 97,
+      "is_beta": true
+     },
+     "toss_turn": {
+      "title": "Toss & Turn",
+      "value": 10
+     }
+    }
+   },
+   {
+    "type": "recovery_index",
+    "object": {
+     "value": 80,
+     "title": "Recovery Index",
+     "day_start_timestamp": 1773010800
+    }
+   },
+   {
+    "type": "movement_index",
+    "object": {
+     "value": 60,
+     "title": "Movement Index",
+     "day_start_timestamp": 1773010800
+    }
+   },
+   {
+    "type": "vo2_max",
+    "object": {
+     "value": 44.5,
+     "title": "VO2 Max",
+     "day_start_timestamp": 1773010800
+    }
+   },
+   {
+    "type": "metabolic_score",
+    "object": {
+     "value": null,
+     "title": "Metabolic Score",
+     "day_start_timestamp": 1773010800
+    }
+   },
+   {
+    "type": "glucose",
+    "object": {
+     "day_start_timestamp": 1773010800,
+     "title": "Glucose",
+     "unit": "mg/dL",
+     "values": [
+      {
+       "value": 95,
+       "timestamp": 1773046800
+      },
+      {
+       "value": 102,
+       "timestamp": 1773047100
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "error": null,
+ "status": 200
+}
