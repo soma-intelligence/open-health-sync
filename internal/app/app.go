@@ -23,6 +23,7 @@ import (
 	_ "github.com/soma-intelligence/open-health-sync/connectors/all"
 
 	"github.com/soma-intelligence/open-health-sync/connectors/applehealth"
+	"github.com/soma-intelligence/open-health-sync/connectors/healthconnect"
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
@@ -224,6 +225,9 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		}
 		if c, ok := providers.lookup(applehealth.Slug); ok {
 			deps.Device, _ = connector.AsDevice(c)
+		}
+		if c, ok := providers.lookup(healthconnect.Slug); ok {
+			deps.HealthConnect, _ = connector.AsDevice(c)
 		}
 		srv := &http.Server{
 			Addr:              cfg.Listen,

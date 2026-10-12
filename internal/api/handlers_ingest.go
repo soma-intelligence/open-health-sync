@@ -7,23 +7,38 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
+	"github.com/soma-intelligence/open-health-sync/internal/connector"
 )
 
 // ingestRetryAfter is the Retry-After (seconds) of a refused upload.
 const ingestRetryAfter = "5"
 
 func (s *server) mountIngest(mux *http.ServeMux) {
-	if s.d.Device == nil {
-		return
-	}
 	n := s.d.IngestLimit
 	if n <= 0 {
 		n = DefaultIngestLimit
 	}
-	upload := collect.NewUploadHandler(collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: s.d.Device})
-	// Authenticate first, so an anonymous caller gets 401 and never a slot.
-	mux.Handle("POST /v1/ingest/apple-health",
-		auth.Middleware(s.lookup, auth.UserUpload)(limitInFlight(n, s.metrics, upload)))
+	// One limiter for every device route: the limit bounds the memory of the
+	// process, whichever store the uploads come from.
+	limit := newInFlightLimiter(n, s.metrics)
+	for path, dev := range map[string]connector.DeviceConnector{
+		"POST /v1/ingest/apple-health":   s.d.Device,
+		"POST /v1/ingest/health-connect": s.d.HealthConnect,
+	} {
+		if dev == nil {
+			continue
+		}
+		upload := collect.NewUploadHandler(collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: dev})
+		// Authenticate first, so an anonymous caller gets 401 and never a slot.
+		mux.Handle(path, auth.Middleware(s.lookup, auth.UserUpload)(limit(upload)))
+	}
+}
+
+// newInFlightLimiter returns a wrapper that lets at most n requests through
+// at once across every handler it wraps.
+func newInFlightLimiter(n int, m *httpMetrics) func(http.Handler) http.Handler {
+	slots := make(chan struct{}, n)
+	return func(next http.Handler) http.Handler { return limitSlots(slots, m, next) }
 }
 
 // limitInFlight lets at most n requests through at once. One upload can hold
@@ -31,7 +46,11 @@ func (s *server) mountIngest(mux *http.ServeMux) {
 // A request over the limit is refused at once with 503 and Retry-After; it is
 // never queued.
 func limitInFlight(n int, m *httpMetrics, next http.Handler) http.Handler {
-	slots := make(chan struct{}, n)
+	return limitSlots(make(chan struct{}, n), m, next)
+}
+
+// limitSlots is limitInFlight over a shared set of slots.
+func limitSlots(slots chan struct{}, m *httpMetrics, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case slots <- struct{}{}:

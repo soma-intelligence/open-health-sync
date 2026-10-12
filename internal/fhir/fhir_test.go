@@ -74,6 +74,11 @@ func goldenCases() map[string]read.CodedSample {
 	glucose := sample(3003, "blood_glucose", 97, "mg/dL", "2339-0", "mg/dL")
 	glucose.Provider, glucose.Source, glucose.Device, glucose.DeviceModel = "withings", nil, nil, ptr("Invented Meter 1")
 
+	// A CGM reading (Dexcom): interstitial fluid, not blood.
+	cgm := sample(3004, "blood_glucose", 112, "mg/dL", "2339-0", "mg/dL")
+	cgm.Provider, cgm.Source, cgm.Device, cgm.DeviceModel = "dexcom", ptr("dexcom"), nil, ptr("g7")
+	cgm.Metadata = json.RawMessage(`{"specimen":"interstitial_fluid","trend":"flat"}`)
+
 	noLOINC := sample(4004, "body_fat_mass", 18.4, "kg", "", "kg")
 
 	unknown := sample(5005, "undeclared_metric", 7.5, "furlongs", "", "")
@@ -90,6 +95,7 @@ func goldenCases() map[string]read.CodedSample {
 		"observation-vital-resting-heart-rate":  sample(1004, "resting_heart_rate", 52, "bpm", "40443-4", "/min"),
 		"observation-activity-period":           period,
 		"observation-laboratory-blood-glucose":  glucose,
+		"observation-laboratory-cgm-glucose":    cgm,
 		"observation-no-loinc-no-category":      noLOINC,
 		"observation-unknown-type-unknown-unit": unknown,
 		"observation-value-not-a-number":        nan,
