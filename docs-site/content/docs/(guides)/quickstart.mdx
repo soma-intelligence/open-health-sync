@@ -1,0 +1,208 @@
+---
+title: Quickstart
+description: Run an instance, upload one heart rate reading and read it back normalized. About five minutes from a clean machine.
+icon: Rocket
+---
+
+You will start Open Health Sync and its database with Docker Compose, create a tenant, upload one
+Apple Health reading the way an iOS app would, and read it back in canonical units.
+
+<Callout title="What you need">
+  Docker with Compose v2.24 or later, plus `curl`, `jq` and `openssl`. Compose pulls the published
+  image `ghcr.io/soma-intelligence/open-health-sync` (amd64 and arm64), so a Raspberry Pi works
+  too.
+</Callout>
+
+<Steps>
+<Step>
+
+### Get the compose files
+
+```sh
+git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-health-sync
+```
+
+Every command below runs from the repository root.
+
+</Step>
+<Step>
+
+### Create the configuration
+
+Copy the example file and put a fresh encryption key in it. The key seals provider OAuth tokens
+at rest: keep it with your backups.
+
+```sh
+cp .env.example .env
+sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+```
+
+</Step>
+<Step>
+
+### Start the stack
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
+```
+
+`--wait` returns once Postgres and `ohs` are healthy. The `ohs` container applies the database
+migrations, then serves the API on port 8080.
+
+<Accordions>
+  <Accordion title="Port 8080 is already taken">
+    Set `OHS_HTTP_PORT` and a matching `OHS_PUBLIC_URL` in `.env`, for example `8081` and
+    `http://localhost:8081`, then run the same command again. Use that port everywhere below.
+  </Accordion>
+</Accordions>
+
+</Step>
+<Step>
+
+### Create a tenant
+
+A tenant is a customer of the instance: your backend. Its API key is printed once.
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
+```
+
+```text title="Output"
+tenant dev created (id 7b1c...)
+API key, shown only this once, store it now:
+ohs_sk_...
+```
+
+Keep it in your shell:
+
+```sh
+export OHS=http://localhost:8080
+export KEY=ohs_sk_...    # the key printed above
+```
+
+</Step>
+<Step>
+
+### Create a user and a token for their app
+
+Your backend creates an end user, then mints a short-lived token their phone app holds. This one
+may only upload.
+
+```sh
+USER_ID=$(curl -s -X POST $OHS/v1/users -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{"external_ref":"demo"}' | jq -r .id)
+TOKEN=$(curl -s -X POST $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{"scopes":["upload"]}' | jq -r .token)
+```
+
+</Step>
+<Step>
+
+### Upload one reading
+
+This is what an iOS app sends: one gzip NDJSON part per HealthKit type. Here, a single heart rate
+reading of 72 `count/min`.
+
+```sh
+DAY=$(date -u +%Y-%m-%d); NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf '{"quantityType":"HKQuantityTypeIdentifierHeartRate","startDate":"%s","endDate":"%s","value":72,"unit":"count/min","sourceName":"Demo Watch","metadata":{"HKTimeZone":"UTC"}}\n' "$NOW" "$NOW" \
+  | gzip | curl -s -X POST $OHS/v1/ingest/apple-health \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/gzip" \
+    -H "X-OHS-Type: HKQuantityTypeIdentifierHeartRate" -H "X-OHS-Day: $DAY" \
+    -H "X-OHS-Batch: demo1" -H "X-OHS-Part: 0" --data-binary @-
+```
+
+```json title="Response"
+{"key":"raw/<tenant>/<user>/apple_health/2026-10-11/demo1_0.ndjson.gz","duplicate":false}
+```
+
+The payload is now in the raw store, verbatim, and a job is queued. Send the same bytes again and
+the answer says `"duplicate":true`: nothing is stored twice.
+
+</Step>
+<Step>
+
+### Read it back
+
+Processing is asynchronous. The coverage report says when it is done: wait for `pending_jobs` to
+reach 0.
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/coverage" -H "Authorization: Bearer $KEY" \
+  | jq '{pending_jobs, parked_jobs, rejected_records}'
+```
+
+```json title="Response"
+{ "pending_jobs": 0, "parked_jobs": 0, "rejected_records": 0 }
+```
+
+Then read the sample back:
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bearer $KEY" \
+  | jq '.data[0]'
+```
+
+```json title="Response"
+{
+  "type": "heart_rate",
+  "value": 72,
+  "unit": "bpm",
+  "start_date": "2026-10-11T09:30:00Z",
+  "end_date": "2026-10-11T09:30:00Z",
+  "source_name": "Demo Watch",
+  "metadata": {
+    "timezone": "UTC",
+    "HKTimeZone": "UTC",
+    "sourceName": "Demo Watch",
+    "original_unit": "count/min",
+    "original_value": 72
+  },
+  "provider": "apple_health",
+  "source": "apple_health",
+  "ingested_at": "2026-10-11T09:30:04.820258Z"
+}
+```
+
+`count/min` became `heart_rate` in `bpm`, what Apple Health sent is kept in `metadata`, and the
+record carries its provenance. A few empty fields are left out above.
+
+</Step>
+</Steps>
+
+## Check the instance
+
+`ohs doctor` checks the configuration, the database, the raw store and every connector, one line
+each:
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
+```
+
+```text title="Output"
+ok    config
+ok    database
+ok    raw store
+ok    public url (http://localhost:8080)
+skip  connector withings: disabled (no keys)
+ok    connector apple_health
+```
+
+Data lives in the `pgdata` and `raw` volumes; `docker compose ... down` keeps them.
+
+## Where to next
+
+<Cards>
+  <Card title="Connect Withings" href="/documentation/guides/connect-a-provider">
+    Register a developer app, set two keys, and send a user through consent.
+  </Card>
+  <Card title="Upload from your iOS app" href="/documentation/connectors/apple-health">
+    The upload contract: headers, sizes, idempotency and line formats.
+  </Card>
+  <Card title="Give the data to an AI agent" href="/documentation/guides/ai-agents">
+    Mint a read-only token and add `ohs mcp` to your agent.
+  </Card>
+  <Card title="Run it for real" href="/documentation/self-hosting/production">
+    TLS, a reverse proxy, backups and the settings that matter in production.
+  </Card>
+</Cards>

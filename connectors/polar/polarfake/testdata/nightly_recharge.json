@@ -1,0 +1,22 @@
+{
+  "recharges": [
+    {
+      "polar_user": "https://www.polaraccesslink.com/v3/users/10101010",
+      "date": "2026-03-04",
+      "heart_rate_avg": 55,
+      "beat_to_beat_avg": 1090,
+      "heart_rate_variability_avg": 45,
+      "breathing_rate_avg": 14.5,
+      "nightly_recharge_status": 4,
+      "ans_charge": 2.5,
+      "ans_charge_status": 3,
+      "hrv_samples": {"00:00": 40, "00:05": 50},
+      "breathing_samples": {"00:00": 14.0, "00:05": 15.0}
+    },
+    {
+      "polar_user": "https://www.polaraccesslink.com/v3/users/10101010",
+      "date": "2026-02-01",
+      "heart_rate_variability_avg": 40
+    }
+  ]
+}

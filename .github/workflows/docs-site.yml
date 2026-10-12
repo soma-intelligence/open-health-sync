@@ -1,0 +1,38 @@
+name: docs-site
+
+# Builds the documentation site whenever its sources change, and keeps the static
+# output as a downloadable artifact so a pull request can be previewed locally.
+on:
+  push:
+    branches: [main]
+    paths: ["docs-site/**", "docs/**", "api/openapi.yaml", "deploy/docker-compose.yml"]
+  pull_request:
+    paths: ["docs-site/**", "docs/**", "api/openapi.yaml", "deploy/docker-compose.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run types:check
+      - run: npm run build
+      - run: npm run check:links
+      - name: Keep the static site
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: docs-site
+          path: docs-site/out
+          retention-days: 14

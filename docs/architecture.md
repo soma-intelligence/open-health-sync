@@ -24,7 +24,7 @@ extension. The binary runs up to three roles in one process or split across seve
 | Role | Runs |
 |---|---|
 | `api` | The HTTP server: public REST API, upload endpoint, OAuth callback, inbound hooks, MCP, health and metrics. |
-| `collect` | The pull scheduler (every active connection is pulled every 6 hours, plus on push notifications) and OAuth token refresh. |
+| `collect` | Background sync: pulls on push notifications within seconds, plus a backstop pull every 6 hours while notifications arrive and every hour when they do not; renews provider subscriptions that went silent; OAuth token refresh. See [background sync](background-sync.md). |
 | `etl` | The ETL workers (two tiers, `standard` and `high_freq`, four jobs at a time each), the user deletion worker, and the upkeep jobs described under Reliability. |
 
 One process with all roles is the simplest deployment. To scale, run several `api` instances
@@ -33,8 +33,9 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
 
 ## Pipeline
 
-1. **Capture.** A device upload (`POST /v1/ingest/apple-health`) or a provider pull writes the
-   payload to the raw store, verbatim, as gzip NDJSON, one data type per object. The key is
+1. **Capture.** A device upload (`POST /v1/ingest/apple-health`), a provider pull, or a
+   provider notice a pull cannot fetch back (a deleted record) writes the payload to the raw
+   store, verbatim, as gzip NDJSON, one data type per object. The key is
    `raw/<tenant>/<user>/<provider>/<yyyy-mm-dd>/<batch>_<part>.ndjson.gz`. A raw object is
    never rewritten.
 2. **Queue.** In the same transaction as the `raw_objects` row, an `etl_jobs` row is inserted.
@@ -44,7 +45,13 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
 4. **Process.** Units are converted to the storage unit of each quantity name, values are
    validated against plausible ranges (hard bounds reject a record, soft bounds flag it),
    duplicates are dropped by content hash, and sources are attributed.
-5. **Write.** Records go to the `ohs_data` hypertables. Daily totals for step count, energy,
+5. **Write.** A deletion the provider reported (`MapResult.Deletions`) is applied first: the
+   stored rows of that provider record go (its sleep or workout with their children, and the
+   samples stored under its id or `<id>_<suffix>`, found through an index on provider and
+   external id), the daily summary figures it filled are cleared when the deletion names them,
+   and a tombstone in `ohs_data.deleted_records` keeps any later copy of it from being written.
+   A Replaceable sleep, workout or (opted in with `SupersedeMoved`) quantity sample whose start
+   moved replaces the stored copy of the same provider record instead of adding a second one. Records go to the `ohs_data` hypertables. Daily totals for step count, energy,
    distance and flights are derived per user, provider and local day when the provider sent no
    daily summary of its own. The local day comes from the sample's `timezone` metadata (UTC when
    absent). Where several sources report the same day, the largest per-source sum wins, so a
@@ -67,8 +74,15 @@ Three schemas:
   `failed_records`.
 
 Every row in `ohs_sync` and `ohs_data` carries `tenant_id` and `user_id`, except the two
-reference tables. Only hypertables are used: no continuous aggregates and no compression
-policies, so the data layer stays inside the Apache licensed part of TimescaleDB.
+reference tables. `quantity_samples`, the largest table, is compressed once a chunk is 30 days
+old (about 7 times smaller on disk). Compression is a Timescale License feature, included in
+the default `timescale/timescaledb` image; on an Apache-only build the migration leaves the
+table uncompressed and everything else works the same. No continuous aggregates are used.
+
+Duplicates are dropped on write. Most tables do it with a unique index on `(tenant_id,
+user_id, content_hash, <time>)`. `quantity_samples` has no such index, because checking a unique
+index on a compressed chunk decompresses whole batches: the writer reads the stored hashes of
+the batch's time window for that user and inserts only the missing rows, under a per-user lock.
 
 The raw store is a local folder (`OHS_RAW_STORE=file:///var/lib/ohs/raw`) or any S3 compatible
 store (`s3://bucket?endpoint=...&region=...&path_style=true`). Writes are conditional (never

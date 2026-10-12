@@ -22,6 +22,8 @@ several at once; the registry checks which ones it implements.
 |---|---|---|
 | `OAuthConnector` | `AuthorizeURL`, `Exchange`, `Refresh`, `Fetch` | providers the server pulls from |
 | `PushConnector` | `HandleInbound` | providers that send notifications |
+| `StateExchanger` | `ExchangeState` | providers that require PKCE: the callback hands the OAuth state to the exchange, so the code verifier can be derived from it (an HMAC under the client secret) instead of stored |
+| `NotifiedFetcher` | `FetchNotified` | pull only what a notification names (its `InboundEvent.DataType`), to spare the provider's rate limit |
 | `DeviceConnector` | `ParseUpload` | on-device stores uploaded by an SDK |
 | `KeyedConnector` | `RequiredKeys` | operator keys: the connector is off until each is set |
 | `Configurable` | `Configure` | receives its keys once at startup |
@@ -47,6 +49,51 @@ Rules that matter:
   grant, and `connector.RateLimited(headers, now)` on HTTP 429, so the scheduler backs off
   without counting a failed attempt.
 - **Never log tokens or health values.**
+
+## Deleted records
+
+When the provider says one of its records is gone (a sleep the user removed, a deleted
+workout), `Map` returns a `model.Deletion{ExternalID: <provider record id>}` in
+`MapResult.Deletions` instead of nothing. The ETL then, in the job's transaction and for the
+job's tenant and user only:
+
+- removes the sleep sessions (with their phases), workouts (with route points and track
+  summaries) and nutrition logs stored with that provider and `ExternalID`;
+- removes the quantity and category samples of the record: `ExternalID` equal to the id or
+  `<id>_<suffix>` (one record giving several samples), whenever they start, and whether or not
+  a sleep or workout of that id is stored (a record that only gave samples is deleted the same
+  way). The lookup uses an index on provider and `ExternalID`, so it does not scan the table;
+- when the deletion names `ClearSummaryFields` (daily summary columns such as
+  `recovery_score`, `resting_hr`), sets those figures to NULL in the provider's daily summaries
+  of the days its removed samples name in `Metadata["summary_date"]`
+  (`model.MetadataSummaryDate`, `YYYY-MM-DD`), and deletes a summary left without any figure.
+  Only summary figure names are accepted; any other name is ignored;
+- records a tombstone in `ohs_data.deleted_records`. A record whose id is tombstoned is never
+  written again, so a re-pull, an old raw object processed again, or a deletion that arrives
+  before the record cannot bring it back. Applying a deletion twice is harmless.
+
+So give every record you may later delete a stable `ExternalID`, and its derived samples the id
+or `<id>_<suffix>`. A deletion is final for that id: do not emit one for a record that can come
+back. When a record also fills figures of your daily summary, stamp the summary's day on its
+samples (`Metadata["summary_date"]`), set `DailySummary.RecordID` to the record id when the
+summary carries that record's figures only (a tombstoned record's summary is then not written
+again), and list the figures in the deletion's `ClearSummaryFields`.
+
+### Records whose start moves
+
+A Replaceable record is updated in place when its copy comes back under the same content hash
+and start. A sleep session or workout whose start moved supersedes the stored copy of the same
+`ExternalID` automatically. A quantity sample does so only when it sets `SupersedeMoved`: the
+writer then deletes the stored samples of the same provider, `ExternalID` and quantity type
+under another start before writing it. Set it only when the `ExternalID` names one figure of
+one record (`<record id>_<quantity>`), never on samples that share an `ExternalID` across starts
+(a day's heart rate series under one id), or all but one of them would be deleted.
+
+A deletion that arrives as a notification follows the raw-first rule like everything else:
+`HandleInbound` returns an `InboundEvent` with `Lines` set (usually the notification body,
+verbatim) and a data type of your choosing. The core stores those lines as a raw object for each
+connection of the provider user and queues it for the ETL, and `Map` turns the stored line into
+the `Deletion`. `Map` stays pure, and the raw store keeps the evidence.
 
 ## A minimal device connector
 

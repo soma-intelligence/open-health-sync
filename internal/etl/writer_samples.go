@@ -4,6 +4,7 @@ package etl
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -67,52 +68,138 @@ func quantitySampleRow(sc scope, s model.QuantitySample) []any {
 	}
 }
 
-// quantityLatestWins is the conflict action for a Replaceable quantity sample.
-var quantityLatestWins = latestWins(tQuantity, hyperConflict("start_date"), []string{"value", "unit"})
+// quantityFigures are the columns a Replaceable quantity sample replaces.
+var quantityFigures = []string{"value", "unit"}
 
-// writeQuantitySamples writes quantity samples, switching to COPY above the
-// threshold. Replaceable figures always take batched INSERTs: the COPY path
-// ends in DO NOTHING, which would freeze them.
+// writeQuantitySamples writes quantity samples. quantity_samples has no dedup
+// unique, because it is compressed after a while: duplicates are found in the
+// stored rows of the batch's time window (see insertMissing). Inside the batch,
+// the first copy of an insert-only row wins and the last copy of a Replaceable
+// row wins.
 func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, samples []model.QuantitySample) (written, skipped int, err error) {
 	insertOnly, upsert, superseded := replaceableSplit(samples,
 		func(s model.QuantitySample) bool { return s.Replaceable },
 		func(s model.QuantitySample) copyDedupeKey {
 			return copyDedupeKey{hash: s.ContentHash, stamp: s.StartDate.UnixNano()}
 		})
-
+	if err := lockUserTable(ctx, tx, tQuantity, sc); err != nil {
+		return 0, 0, err
+	}
 	if len(insertOnly) > 0 {
-		var n, k int
-		if len(insertOnly) > w.cfg.CopyThreshold {
-			seen := make(copyDedupe, len(insertOnly))
-			rows := make([][]any, 0, len(insertOnly))
-			dupes := 0
-			for _, s := range insertOnly {
-				if seen.staged(s.ContentHash, s.StartDate) {
-					dupes++
-					continue
-				}
-				rows = append(rows, quantitySampleRow(sc, s))
+		seen := make(copyDedupe, len(insertOnly))
+		rows := make([][]any, 0, len(insertOnly))
+		var wd window
+		for _, s := range insertOnly {
+			if seen.staged(s.ContentHash, s.StartDate) {
+				continue
 			}
-			n, k, err = w.writeHighFrequencyCopy(ctx, tx, tQuantity, quantitySampleColumns, rows, hyperConflict("start_date"))
-			k += dupes
-		} else {
-			n, k, err = w.insertBatches(ctx, tx, tQuantity, insertHead(tQuantity, quantitySampleColumns),
-				doNothing(hyperConflict("start_date")), len(quantitySampleColumns), rowsOf(insertOnly, sc, quantitySampleRow))
+			wd.extend(s.StartDate)
+			rows = append(rows, quantitySampleRow(sc, s))
 		}
+		temp, _, err := stage(ctx, tx, tQuantity, quantitySampleColumns, rows)
 		if err != nil {
-			return written, skipped, err
+			return 0, 0, err
 		}
-		written, skipped = written+n, skipped+k
+		n, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, quantitySampleColumns, wd)
+		if err != nil {
+			return 0, 0, err
+		}
+		written, skipped = written+n, skipped+len(insertOnly)-n
+	}
+	upsert, moved := supersedeMovedSplit(sc, upsert)
+	superseded += moved
+	if err := supersedeMovedSamples(ctx, tx, sc, upsert); err != nil {
+		return written, skipped, err
 	}
 	if len(upsert) > 0 {
-		n, k, err := w.insertBatches(ctx, tx, tQuantity, insertHead(tQuantity, quantitySampleColumns),
-			quantityLatestWins, len(quantitySampleColumns), rowsOf(upsert, sc, quantitySampleRow))
+		rows := make([][]any, 0, len(upsert))
+		var wd window
+		for _, s := range upsert {
+			wd.extend(s.StartDate)
+			rows = append(rows, quantitySampleRow(sc, s))
+		}
+		temp, _, err := stage(ctx, tx, tQuantity, quantitySampleColumns, rows)
 		if err != nil {
 			return written, skipped, err
 		}
-		written, skipped = written+n, skipped+k
+		changed, err := updateStored(ctx, tx, sc, tQuantity, "start_date", temp, quantityFigures, wd)
+		if err != nil {
+			return written, skipped, err
+		}
+		added, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, quantitySampleColumns, wd)
+		if err != nil {
+			return written, skipped, err
+		}
+		written, skipped = written+changed+added, skipped+len(upsert)-changed-added
 	}
 	return written, skipped + superseded, nil
+}
+
+// quantitySupersede deletes the stored copies of SupersedeMoved samples under
+// another start: same provider, external id and quantity type ($3 to $5, one
+// element per sample), another start_date ($6). The dedup unique includes
+// start_date, so the upsert alone cannot reach them. The external id is
+// matched on the index of migration 0014.
+const quantitySupersede = `DELETE FROM ohs_data.quantity_samples q
+	USING unnest($3::text[], $4::text[], $5::text[], $6::timestamptz[]) AS n(provider, external_id, quantity_type, start_date)
+	WHERE q.tenant_id = $1 AND q.user_id = $2
+	  AND q.provider = n.provider AND q.external_id IS NOT NULL AND q.external_id COLLATE "C" = n.external_id
+	  AND q.quantity_type = n.quantity_type AND q.start_date <> n.start_date`
+
+// supersedes reports a sample whose stored copies under another start the
+// writer deletes (QuantitySample.SupersedeMoved).
+func supersedes(s model.QuantitySample) bool {
+	return s.SupersedeMoved && s.Replaceable && s.ExternalID != ""
+}
+
+// supersedeKey is the provider record figure a SupersedeMoved sample is.
+type supersedeKey struct{ provider, externalID, quantityType string }
+
+// supersedeMovedSplit keeps, of several SupersedeMoved copies of one figure
+// in the batch (a start that moved between two pulls of one object), the last
+// one, and counts the others.
+func supersedeMovedSplit(sc scope, samples []model.QuantitySample) ([]model.QuantitySample, int) {
+	last := map[supersedeKey]int{}
+	for i, s := range samples {
+		if supersedes(s) {
+			last[supersedeKey{sc.providerOr(s.Provider), s.ExternalID, s.QuantityType}] = i
+		}
+	}
+	if len(last) == 0 {
+		return samples, 0
+	}
+	out := samples[:0:0]
+	for i, s := range samples {
+		if supersedes(s) && last[supersedeKey{sc.providerOr(s.Provider), s.ExternalID, s.QuantityType}] != i {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, len(samples) - len(out)
+}
+
+// supersedeMovedSamples deletes, before the upsert, the stored copies of the
+// SupersedeMoved samples whose start moved. They are not counted: the new
+// copy is the record's figure.
+func supersedeMovedSamples(ctx context.Context, tx TxLike, sc scope, samples []model.QuantitySample) error {
+	var providers, ids, types []string
+	var starts []time.Time
+	for _, s := range samples {
+		if !supersedes(s) {
+			continue
+		}
+		providers = append(providers, sc.providerOr(s.Provider))
+		ids = append(ids, s.ExternalID)
+		types = append(types, s.QuantityType)
+		starts = append(starts, s.StartDate)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, quantitySupersede, sc.tenant, sc.user, providers, ids, types, starts); err != nil {
+		return fmt.Errorf("supersede moved samples: %w", err)
+	}
+	return nil
 }
 
 // rowsOf maps records to rows with fn.

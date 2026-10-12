@@ -1,0 +1,11 @@
+{
+  "weight": 70.5,
+  "height": 175,
+  "maximum_heart_rate": 190,
+  "resting_heart_rate": 50,
+  "aerobic_threshold": 130,
+  "anaerobic_threshold": 160,
+  "vo2_max": 48,
+  "created": "2026-01-01T12:00:00Z",
+  "modified": "2026-03-06T08:00:00Z"
+}

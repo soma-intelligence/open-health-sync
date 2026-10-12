@@ -254,7 +254,12 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	if !ok {
 		return errors.New("provider not available")
 	}
-	tokens, err := oc.Exchange(ctx, code, h.d.CallbackURL(provider))
+	var tokens connector.Tokens
+	if se, ok := oc.(connector.StateExchanger); ok {
+		tokens, err = se.ExchangeState(ctx, code, q.Get("state"), h.d.CallbackURL(provider))
+	} else {
+		tokens, err = oc.Exchange(ctx, code, h.d.CallbackURL(provider))
+	}
 	if err != nil {
 		return fmt.Errorf("exchange: %w", err)
 	}

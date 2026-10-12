@@ -7,8 +7,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // ProviderKeys holds the OHS_<SLUG>_<FIELD> values of one provider, keyed by FIELD
@@ -56,6 +59,31 @@ var reserved = map[string]bool{
 // (missing, not base64, wrong length).
 var ErrEncryptionKey = errors.New("OHS_ENCRYPTION_KEY")
 
+// keyHint ends every OHS_ENCRYPTION_KEY error. Changing the key of an
+// instance that already stores OAuth tokens makes them unreadable.
+const keyHint = ": generate one with `openssl rand -base64 32` (or run `ohs doctor`), " +
+	"and keep the same key for the life of the instance"
+
+// ErrPublicURL and ErrLogLevel are wrapped by the Load errors about
+// OHS_PUBLIC_URL and OHS_LOG_LEVEL, settings only serve reads.
+var (
+	ErrPublicURL = errors.New("OHS_PUBLIC_URL")
+	ErrLogLevel  = errors.New("OHS_LOG_LEVEL")
+)
+
+// CheckPublicURL accepts an absolute http(s) URL with a host and no query or
+// fragment: OAuth callbacks are built by appending a path to it.
+func CheckPublicURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%w %q must be an absolute http or https URL, for example https://health.example.org", ErrPublicURL, raw)
+	}
+	if u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(raw, "?") || strings.HasSuffix(raw, "#") {
+		return fmt.Errorf("%w %q must not have a query or fragment: callback paths are appended to it", ErrPublicURL, raw)
+	}
+	return nil
+}
+
 var validRoles = map[string]bool{"api": true, "collect": true, "etl": true}
 
 // Load builds a Config. env looks up one variable; environ is the full
@@ -78,21 +106,29 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		Providers:       map[string]ProviderKeys{},
 	}
 	if c.DatabaseURL == "" {
-		return Config{}, fmt.Errorf("OHS_DATABASE_URL is required")
+		return Config{}, fmt.Errorf("OHS_DATABASE_URL is required (postgres://user:password@host:5432/db?sslmode=disable)")
 	}
 
 	raw := get("OHS_ENCRYPTION_KEY", "")
 	if raw == "" {
-		return Config{}, fmt.Errorf("%w is required (32 bytes, base64)", ErrEncryptionKey)
+		return Config{}, fmt.Errorf("%w is required (32 random bytes, base64)%s", ErrEncryptionKey, keyHint)
 	}
 	key, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return Config{}, fmt.Errorf("%w is not valid base64", ErrEncryptionKey)
+		return Config{}, fmt.Errorf("%w is not valid base64%s", ErrEncryptionKey, keyHint)
 	}
 	if len(key) != 32 {
-		return Config{}, fmt.Errorf("%w must decode to 32 bytes, got %d", ErrEncryptionKey, len(key))
+		return Config{}, fmt.Errorf("%w must decode to 32 bytes, got %d%s", ErrEncryptionKey, len(key), keyHint)
 	}
 	c.EncryptionKey = key
+
+	if err := CheckPublicURL(c.PublicURL); err != nil {
+		return Config{}, err
+	}
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(c.LogLevel)); err != nil {
+		return Config{}, fmt.Errorf("%w: %q is not one of debug, info, warn, error", ErrLogLevel, c.LogLevel)
+	}
 
 	for _, r := range strings.Split(get("OHS_ROLES", "api,collect,etl"), ",") {
 		r = strings.TrimSpace(r)
@@ -143,15 +179,62 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		if reserved[rest] {
 			continue
 		}
-		slug, field, ok := strings.Cut(rest, "_")
-		if !ok || slug == "" || field == "" {
+		slug, field, ok := splitProviderKey(rest)
+		if !ok {
 			continue
 		}
-		slug = strings.ToLower(slug)
 		if c.Providers[slug] == nil {
 			c.Providers[slug] = ProviderKeys{}
 		}
 		c.Providers[slug][field] = v
 	}
 	return c, nil
+}
+
+// multiWordSlugs are the provider slugs that hold an underscore
+// ("intervals_icu"), declared by RegisterSlug. OHS_INTERVALS_ICU_CLIENT_ID
+// cannot be split on its first underscore like OHS_WITHINGS_CLIENT_ID: it
+// would read as field ICU_CLIENT_ID of a provider "intervals".
+var (
+	slugMu         sync.RWMutex
+	multiWordSlugs = map[string]bool{}
+)
+
+// RegisterSlug declares a provider slug, so Load files the
+// OHS_<SLUG>_<FIELD> variables of a slug holding an underscore under it. A
+// slug without one needs no declaration. The connector registry calls it for
+// every registered connector, before Load runs (registration happens in
+// init).
+func RegisterSlug(slug string) {
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if !strings.Contains(slug, "_") {
+		return
+	}
+	slugMu.Lock()
+	defer slugMu.Unlock()
+	multiWordSlugs[slug] = true
+}
+
+// splitProviderKey splits OHS_ less a prefix into a lower-case slug and a
+// field. The longest declared multi-word slug that prefixes the name wins;
+// otherwise the name splits on its first underscore.
+func splitProviderKey(rest string) (slug, field string, ok bool) {
+	upper := strings.ToUpper(rest)
+	best := ""
+	slugMu.RLock()
+	for s := range multiWordSlugs {
+		p := strings.ToUpper(s) + "_"
+		if len(s) > len(best) && strings.HasPrefix(upper, p) && len(rest) > len(p) {
+			best = s
+		}
+	}
+	slugMu.RUnlock()
+	if best != "" {
+		return best, rest[len(best)+1:], true
+	}
+	slug, field, ok = strings.Cut(rest, "_")
+	if !ok || slug == "" || field == "" {
+		return "", "", false
+	}
+	return strings.ToLower(slug), field, true
 }

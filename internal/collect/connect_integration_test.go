@@ -58,6 +58,13 @@ func newConnEnv(t *testing.T) *connEnv {
 
 func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	t.Helper()
+	return newConnEnvWrapped(t, cfg, func(c fakeConnector) connector.Connector { return c })
+}
+
+// newConnEnvWrapped registers wrap(fake) as the provider, so a test can add
+// optional connector interfaces.
+func newConnEnvWrapped(t *testing.T, cfg collect.SchedulerConfig, wrap func(fakeConnector) connector.Connector) *connEnv {
+	t.Helper()
 	ctx := context.Background()
 	pool, err := db.Open(ctx, db.TestDB(t))
 	require.NoError(t, err)
@@ -72,7 +79,7 @@ func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	e := &connEnv{pool: pool, raw: raw, box: box, store: tenant.New(pool), fake: newFakeProvider()}
 	t.Cleanup(e.fake.Close)
 	reg := connector.NewRegistry()
-	reg.Register(fakeConnector{f: e.fake})
+	reg.Register(wrap(fakeConnector{f: e.fake}))
 
 	ta, keyA, err := e.store.CreateTenant(ctx, "A")
 	require.NoError(t, err)
@@ -97,6 +104,7 @@ func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	e.mux = http.NewServeMux()
 	e.mux.Handle("POST /v1/users/{id}/connections/{provider}", tk(h.StartConnection()))
 	e.mux.Handle("GET /v1/users/{id}/connections", tk(h.ListConnections()))
+	e.mux.Handle("GET /v1/users/{id}/freshness", tk(h.Freshness()))
 	e.mux.Handle("DELETE /v1/users/{id}/connections/{provider}", tk(h.DeleteConnection()))
 	e.mux.Handle("GET /oauth/{provider}/callback", h.OAuthCallback())
 	e.mux.Handle("POST /inbound/{provider}", h.Inbound())
@@ -430,6 +438,50 @@ func TestRefreshRenewsExpiringTokens(t *testing.T) {
 	assert.Equal(t, "Bearer "+string(plain), e.fake.lastAuthorization(), "the pull used the refreshed token")
 }
 
+// RFC 6749 section 6: a refresh response MAY carry a new refresh token, and
+// the client must then discard the old one; when it carries none, the old one
+// stays valid and is kept. A provider that rotates (the fake's default) gets
+// the new token stored; one that does not keeps the stored token, which the
+// next refresh sends again.
+func TestRefreshKeepsRefreshTokenWhenNoneIssued(t *testing.T) {
+	e := newConnEnv(t)
+	ctx := context.Background()
+	e.connect(t, e.keyA, e.userA, "pu-1")
+	aad := []byte(e.tenantA.String() + "|" + e.userA.String() + "|" + fakeSlug)
+	storedRefresh := func() string {
+		t.Helper()
+		var enc []byte
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT refresh_token_enc FROM ohs_sync.connections
+			WHERE tenant_id = $1 AND user_id = $2`, e.tenantA, e.userA).Scan(&enc))
+		plain, err := e.box.OpenFor(enc, aad)
+		require.NoError(t, err)
+		return string(plain)
+	}
+	original := storedRefresh()
+	require.NotEmpty(t, original)
+
+	// The provider refuses the access token and issues no new refresh token.
+	e.fake.refreshMode.Store("keep")
+	e.fake.rejectCurrentTokens()
+	e.drain(t)
+	require.Equal(t, int64(1), e.fake.refreshN.Load())
+	assert.Equal(t, original, e.fake.lastRefresh.Load(), "the refresh spent the stored token")
+	assert.Equal(t, original, storedRefresh(), "no new refresh token: the old one is kept")
+	assert.Equal(t, collect.StatusActive, e.connStatus(t, e.userA))
+
+	// Next time it rotates: the kept token is the one sent, and the new one
+	// replaces it.
+	e.fake.refreshMode.Store("ok")
+	e.fake.rejectCurrentTokens()
+	e.notify(t, "pu-1", 1760000000, 1760003600)
+	e.drain(t)
+	require.Equal(t, int64(2), e.fake.refreshN.Load())
+	assert.Equal(t, original, e.fake.lastRefresh.Load(), "the kept token still works")
+	rotated := storedRefresh()
+	assert.NotEqual(t, original, rotated, "a rotated token replaces the old one")
+	assert.True(t, strings.HasPrefix(rotated, "refresh-secret-"))
+}
+
 func TestRefreshNeedsReauth(t *testing.T) {
 	e := newConnEnv(t)
 	ctx := context.Background()
@@ -579,13 +631,16 @@ func TestInboundEnqueuesPull(t *testing.T) {
 	assert.Equal(t, 1, e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs WHERE status = 'pending'`))
 }
 
-func TestScheduleEverySixHours(t *testing.T) {
+func TestScheduleEverySixHoursWhileNotificationsArrive(t *testing.T) {
 	e := newConnEnv(t)
 	ctx := context.Background()
 	connectedAt := time.Date(2026, 10, 10, 13, 5, 0, 0, time.UTC)
 	e.setNow(connectedAt)
 	e.connect(t, e.keyA, e.userA, "pu-1")
 	e.drain(t)
+	// A notification arrived recently: the regular pull is a 6 hour backstop.
+	_, err := e.pool.Exec(ctx, `UPDATE ohs_sync.connections SET last_event_at = $1`, connectedAt)
+	require.NoError(t, err)
 
 	// Same slot as the connect: the backfill covers it.
 	n, err := e.sched.Schedule(ctx)
@@ -800,6 +855,56 @@ func TestInboundFansOutAcrossTenants(t *testing.T) {
 	assert.Equal(t, 1, e.jobs(t, e.userA, "pending"))
 	assert.Equal(t, 1, e.jobs(t, userB.ID, "pending"))
 	assert.Equal(t, 1, e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs WHERE tenant_id = $1 AND status = 'pending'`, e.tenantB))
+}
+
+// An event carrying raw lines is stored raw first, for every connection of
+// the provider user, and queued for the ETL; nothing is pulled. The same
+// notification delivered again is stored once.
+func TestInboundStoresRawLines(t *testing.T) {
+	e := newConnEnv(t)
+	ctx := context.Background()
+	userB, err := e.store.CreateUser(ctx, e.tenantB, "b-1")
+	require.NoError(t, err)
+	e.connect(t, e.keyA, e.userA, "shared")
+	e.connect(t, e.keyB, userB.ID, "shared")
+	e.drain(t)
+	pulls := e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs`)
+	raws := e.scalar(t, `SELECT count(*) FROM ohs_sync.raw_objects`)
+
+	body := []byte(`{"userid":"shared","deleted":"rec-1"}`)
+	for range 2 {
+		req := httptest.NewRequest(http.MethodPost, "/inbound/"+fakeSlug, bytes.NewReader(body))
+		req.Header.Set("X-Fake-Signature", sign(body))
+		rec := httptest.NewRecorder()
+		e.mux.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+	assert.Equal(t, pulls, e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs`), "a stored notice queues no pull")
+	assert.Equal(t, raws+2, e.scalar(t, `SELECT count(*) FROM ohs_sync.raw_objects`), "one object per connection, once")
+	for _, o := range []struct{ tenant, user uuid.UUID }{{e.tenantA, e.userA}, {e.tenantB, userB.ID}} {
+		var key string
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT key FROM ohs_sync.raw_objects
+			WHERE tenant_id = $1 AND user_id = $2 AND data_type = 'deletion'`, o.tenant, o.user).Scan(&key))
+		assert.Equal(t, 1, e.scalar(t, `SELECT count(*) FROM ohs_sync.etl_jobs WHERE tenant_id = $1 AND user_id = $2 AND key = $3`,
+			o.tenant, o.user, key))
+		rc, err := e.deps.Raw.Get(ctx, key)
+		require.NoError(t, err)
+		zr, err := gzip.NewReader(rc)
+		require.NoError(t, err)
+		stored, err := io.ReadAll(zr)
+		require.NoError(t, err)
+		rc.Close()
+		assert.Equal(t, string(body)+"\n", string(stored), "the notification is stored verbatim")
+	}
+
+	// A provider user with no connection: accepted, nothing stored.
+	body = []byte(`{"userid":"nobody","deleted":"rec-2"}`)
+	req := httptest.NewRequest(http.MethodPost, "/inbound/"+fakeSlug, bytes.NewReader(body))
+	req.Header.Set("X-Fake-Signature", sign(body))
+	rec := httptest.NewRecorder()
+	e.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, raws+2, e.scalar(t, `SELECT count(*) FROM ohs_sync.raw_objects`))
 }
 
 func TestInboundTooLargeAndProbe(t *testing.T) {

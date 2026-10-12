@@ -68,6 +68,37 @@ type Subscriber interface {
 	Unsubscribe(ctx context.Context, c Connection, callbackURL string) error
 }
 
+// ChallengeResponder is optionally implemented by a PushConnector whose
+// provider validates the callback URL with a GET that must be answered with a
+// body, such as the hub.challenge echo of a Strava push subscription. The
+// probe route (GET and HEAD /inbound/<slug>) hands it the request. It returns
+// the content type and body of a 200 answer (a nil body answers 200 with no
+// body, as for any provider), or an error, which the route answers 401 like a
+// refused notification. It must not block: providers wait a few seconds.
+type ChallengeResponder interface {
+	AnswerChallenge(r *http.Request) (contentType string, body []byte, err error)
+}
+
+// NotifiedFetcher is optionally implemented by an OAuthConnector whose
+// notifications name what changed (InboundEvent.DataType). FetchNotified
+// pulls only what such a notification can concern, usually one or two
+// provider calls instead of one per data type, which keeps the app's rate
+// limit for what just changed. dataType is a value the connector put in
+// InboundEvent.DataType.
+type NotifiedFetcher interface {
+	FetchNotified(ctx context.Context, c Connection, from, to time.Time, dataType string, emit RawSink) error
+}
+
+// StateExchanger is optionally implemented by an OAuthConnector whose
+// provider requires PKCE, such as Garmin. AuthorizeURL and the exchange are
+// separate requests, so the connector derives the code verifier from the
+// OAuth state (for example an HMAC of it under its client secret) instead of
+// storing it. The callback hands the state back: when a connector implements
+// this interface, ExchangeState is called instead of Exchange.
+type StateExchanger interface {
+	ExchangeState(ctx context.Context, code, state, redirect string) (Tokens, error)
+}
+
 // AsOAuth reports whether c can be pulled from with OAuth.
 func AsOAuth(c Connector) (OAuthConnector, bool) { o, ok := c.(OAuthConnector); return o, ok }
 

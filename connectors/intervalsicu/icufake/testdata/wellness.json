@@ -1,0 +1,43 @@
+[
+  {
+    "id": "2026-02-20",
+    "weight": 71.0,
+    "updated": "2026-02-20T07:00:00.000+00:00"
+  },
+  {
+    "id": "2026-03-01",
+    "weight": 70.5,
+    "restingHR": 52,
+    "hrv": 65.0,
+    "hrvSDNN": 80.0,
+    "sleepSecs": 27000,
+    "sleepScore": 85,
+    "sleepQuality": 2,
+    "avgSleepingHR": 50,
+    "steps": 9000,
+    "spO2": 97.0,
+    "respiration": 14.5,
+    "bodyFat": 18.5,
+    "vo2max": 52,
+    "systolic": 120,
+    "diastolic": 80,
+    "kcalConsumed": 2400,
+    "updated": "2026-03-01T21:00:00.000+00:00"
+  },
+  {
+    "id": "2026-03-02",
+    "weight": null,
+    "restingHR": 54,
+    "hrv": null,
+    "sleepSecs": null,
+    "sleepScore": null,
+    "steps": 0,
+    "updated": "2026-03-02T21:00:00.000+00:00"
+  },
+  {
+    "id": "2026-03-03",
+    "spO2": 0.96,
+    "bodyFat": 0.185,
+    "updated": "2026-03-03T07:00:00.000+00:00"
+  }
+]

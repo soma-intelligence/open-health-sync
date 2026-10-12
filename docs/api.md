@@ -4,6 +4,12 @@
 response shape. This guide explains how the pieces fit. Examples assume
 `OHS=http://localhost:8080` and a tenant key in `KEY`.
 
+A running server serves the description of its own version at `GET /openapi.yaml`, without
+credentials and readable from any origin. Import `$OHS/openapi.yaml` by URL into Postman
+(Import, Link), Insomnia or [editor.swagger.io](https://editor.swagger.io) (File, Import URL),
+or render a local page with `npx @redocly/cli build-docs $OHS/openapi.yaml`. The server has no
+documentation page of its own, so it never loads third party scripts next to health data.
+
 ## Credentials
 
 Every call carries `Authorization: Bearer <secret>`.
@@ -44,6 +50,10 @@ configuration. The response is `Cache-Control: no-store`; the token is shown onc
   `{"type":"about:blank","title":"Bad Request","status":400,"detail":"..."}`.
   A user, workout or sleep session of another tenant is a 404, never a 403. A 401 carries
   `WWW-Authenticate: Bearer`.
+- **Request ids.** Every response carries `X-Request-Id`, and a problem body repeats it as
+  `request_id`. Send your own `X-Request-Id` (1 to 128 letters, digits, `-`, `_`, `.`) to have
+  it kept, for example your proxy's. Every log line about the call carries it as `request_id`,
+  so quote it when you ask the operator about a failed call.
 - **Idempotency.** Send `Idempotency-Key` (1 to 255 characters) on `POST /v1/users`. A retry with the same key and request within
   24 hours gets the first response back with `Idempotent-Replayed: true`. The same key with a
   different request is a 422; a retry while the first call still runs is a 409. Other routes
@@ -105,6 +115,11 @@ and expires after 10 minutes.
 `disconnected`), `last_sync_at` and `initial_backfill_at`. A connection in `needs_reauth` needs
 the user to go through consent again. `DELETE /v1/users/{id}/connections/{provider}` revokes the
 grant (best effort) and stops pulling; data already collected is kept.
+
+`GET /v1/users/{id}/freshness` says how up to date each source of the user is, Apple Health
+uploads included: `synced_through`, `lag_seconds`, the last provider notification, the next
+pull, the last error, and a `state` (`fresh`, `stale`, `failing`, `syncing`, `needs_reauth`,
+`disconnected`). Show it in your app, or alert on it. See [background sync](background-sync.md).
 
 ## Uploading device data
 
@@ -196,6 +211,47 @@ providers and days, not narrowed by the filters), each line once even if the obj
 processed again; an object that failed as a whole, with no line singled out, counts as one. A
 line the server later recovers, after a fix, stops counting. A non-zero value after `pending_jobs` reaches 0 means some uploaded lines were
 not stored; an operator finds each line and its reason in `ohs_data.failed_records`.
+
+## FHIR R4
+
+`GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood pressure readings
+(a systolic and a diastolic sample paired into one panel), sleep sessions, workouts and daily
+summaries as FHIR R4 Observations, in one `searchset` Bundle (`application/fhir+json`) in time
+order, paged by its `next` link, and `GET /v1/users/{id}/fhir/Observation/{observation_id}` reads
+one back. Filters: `type`, `code` (`http://loinc.org|8867-4`), `category` (`vital-signs`,
+`laboratory`, `activity`), `start`, `end`. The mapping, the profiles met and the limits are in
+[fhir.md](fhir.md).
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/fhir/Observation?type=heart_rate&start=2026-03-01&limit=50" \
+  -H "Authorization: Bearer $KEY"
+```
+
+## Open mHealth
+
+`GET /v1/users/{id}/omh/data-points` serves heart rate, steps, blood pressure, body
+measurements, vital signs, blood glucose, active energy, sleep sessions and workouts as
+[Open mHealth](https://www.openmhealth.org/) data points (a `header` and a `body` that follows one
+schema of the catalog, checked against the official schemas in CI), in the order of the FHIR
+search, paged like every list. Filters: `schema` (`omh:heart-rate`), `start`, `end`. The mapping
+and its limits are in [open-mhealth.md](open-mhealth.md).
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/omh/data-points?schema=omh:blood-pressure&start=2026-03-01" \
+  -H "Authorization: Bearer $KEY"
+```
+
+## Exports
+
+`GET /v1/users/{id}/exports/{dataset}` streams every record of one list (`samples`,
+`category-samples`, `sleep`, `workouts`, `nutrition` or `daily`) in `[start, end)` as one CSV
+(`format=csv`, the default) or Parquet (`format=parquet`) file, with the columns of the list's
+JSON records. Not paged. See [exports.md](exports.md).
+
+```sh
+curl -sOJ "$OHS/v1/users/$USER_ID/exports/samples?format=parquet&start=2026-01-01" \
+  -H "Authorization: Bearer $KEY"
+```
 
 ## MCP
 

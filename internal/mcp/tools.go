@@ -127,7 +127,9 @@ type tools struct {
 func addTools(s *sdk.Server, t *tools) {
 	add(s, "list_users", "List the users of the tenant (tenant API key only), oldest first.", t.listUsers)
 	add(s, "list_quantity_types", "List the quantity types the server knows, with the unit their samples are stored in. Use them as the type of get_samples.", t.quantityTypes)
-	add(s, "get_samples", "Quantity samples of one type (heart rate, steps, weight...), oldest first.",
+	add(s, "get_samples", "Quantity samples of one type (heart rate, steps, weight...), oldest first. "+
+		"Raw points: heart rate alone can be thousands a day, so pass a narrow start and end; "+
+		"for daily totals and averages use get_daily instead.",
 		func(ctx context.Context, a samplesArgs) (any, error) {
 			return listTool(ctx, t, a.userArgs, read.Query{Type: a.Type}, a.windowArgs, a.pageArgs, read.Samples)
 		})

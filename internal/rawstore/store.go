@@ -16,6 +16,8 @@ package rawstore
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -89,4 +91,26 @@ func Ping(ctx context.Context, s Store) error {
 	}
 	_, err := s.List(ctx, pingPrefix)
 	return err
+}
+
+// writeProbePrefix is outside raw/, so the file scanner and retention never
+// see a probe, even one a crash left behind.
+const writeProbePrefix = "probe/.ohs-write-check/"
+
+// CheckWritable writes a small object and deletes it, proving the store
+// accepts writes: a read-only mount or a directory owned by another user
+// lists fine but fails every upload.
+func CheckWritable(ctx context.Context, s Store) error {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return err
+	}
+	dir := writeProbePrefix + hex.EncodeToString(b[:]) + "/"
+	if err := s.Put(ctx, dir+"probe", strings.NewReader("ok")); err != nil {
+		return fmt.Errorf("not writable: %w", err)
+	}
+	if err := s.DeletePrefix(ctx, dir); err != nil {
+		return fmt.Errorf("cannot delete the write probe %s: %w", dir, err)
+	}
+	return nil
 }

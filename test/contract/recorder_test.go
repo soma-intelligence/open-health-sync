@@ -24,6 +24,10 @@ import (
 func init() {
 	// Device uploads are gzip bytes; validate them as an opaque file.
 	openapi3filter.RegisterBodyDecoder("application/gzip", openapi3filter.FileBodyDecoder)
+	// Parquet exports are binary files.
+	openapi3filter.RegisterBodyDecoder("application/vnd.apache.parquet", openapi3filter.FileBodyDecoder)
+	// FHIR responses are JSON under their own media type.
+	openapi3filter.RegisterBodyDecoder("application/fhir+json", openapi3filter.JSONBodyDecoder)
 }
 
 // Call is one recorded exchange.
@@ -174,7 +178,7 @@ func flatten(err error) string {
 // kin-openapi accepts unknown members by default, as JSON Schema does.
 func undocumentedFields(op *openapi3.Operation, res *http.Response, body []byte) []string {
 	ct, _, _ := mime.ParseMediaType(res.Header.Get("Content-Type"))
-	if ct != "application/json" && ct != "application/problem+json" {
+	if ct != "application/json" && ct != "application/problem+json" && ct != "application/fhir+json" {
 		return nil
 	}
 	ref := op.Responses.Status(res.StatusCode)

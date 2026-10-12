@@ -20,6 +20,11 @@ func TestMapResultCounts(t *testing.T) {
 	}
 	assert.False(t, mr.IsEmpty())
 	assert.Equal(t, 3, mr.RecordCount())
+
+	// A result that only deletes is not empty: the ETL must apply it.
+	del := MapResult{Deletions: []Deletion{{ExternalID: "sleep-1"}}}
+	assert.False(t, del.IsEmpty())
+	assert.Equal(t, 1, del.RecordCount())
 }
 
 func TestEveryRecordCarriesATenant(t *testing.T) {

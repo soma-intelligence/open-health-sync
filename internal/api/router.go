@@ -8,6 +8,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +19,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/mcp"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -44,6 +46,9 @@ type Deps struct {
 	// Collect serves the connection, OAuth callback and notification routes.
 	// Nil leaves them out.
 	Collect *collect.Handlers
+	// PublicURL (OHS_PUBLIC_URL) starts the absolute links of FHIR
+	// responses. Empty means the request's own scheme and host.
+	PublicURL string
 }
 
 type server struct {
@@ -69,11 +74,41 @@ func NewRouter(d Deps) http.Handler {
 	s.mountTokens(mux)
 	s.mountDeletion(mux)
 	s.mountReads(mux)
+	s.mountFHIR(mux)
+	s.mountOMH(mux)
+	s.mountExports(mux)
 	s.mountIngest(mux)
 	s.mountCollect(mux)
 	s.mountMCP(mux)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { notFound(w, "route") })
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// The catch-all matches every method, so the mux never answers 405
+		// itself: a known path called with the wrong method lands here.
+		if allow := allowedMethods(mux, r); len(allow) > 0 {
+			list := strings.Join(allow, ", ")
+			w.Header().Set("Allow", list)
+			problem(w, http.StatusMethodNotAllowed, r.Method+" is not allowed here; this route takes "+list)
+			return
+		}
+		notFound(w, "route")
+	})
 	return s.instrument(mux)
+}
+
+// allowedMethods lists the methods a route other than the catch-all serves
+// for r's path, sorted.
+func allowedMethods(mux *http.ServeMux, r *http.Request) []string {
+	var allow []string
+	for _, m := range []string{http.MethodDelete, http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodPost, http.MethodPut} {
+		if m == r.Method {
+			continue
+		}
+		probe := r.Clone(r.Context())
+		probe.Method = m
+		if _, pattern := mux.Handler(probe); pattern != "" && pattern != "/" {
+			allow = append(allow, m)
+		}
+	}
+	return allow
 }
 
 // mountMCP serves the read-only MCP server at /mcp to a tenant key or a user
@@ -88,12 +123,16 @@ func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerF
 	mux.Handle(pattern, auth.Middleware(s.lookup, auth.TenantKey)(h))
 }
 
-// instrument counts every request by its matched pattern, logs it at debug
-// level (route pattern, never the query string or a header) and turns a panic
-// into a 500.
+// instrument gives every request an id (X-Request-Id, kept from the caller
+// when well formed), counts it by its matched pattern, logs it at debug level
+// (route pattern, never the query string or a header) and turns a panic into
+// a 500.
 func (s *server) instrument(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		id := reqid.Sanitize(r.Header.Get(reqid.Header))
+		w.Header().Set(reqid.Header, id)
+		r = r.WithContext(reqid.With(r.Context(), id))
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
 			if v := recover(); v != nil {

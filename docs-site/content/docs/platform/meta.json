@@ -1,0 +1,7 @@
+{
+  "title": "Hosted platform",
+  "description": "A managed instance, coming soon",
+  "root": true,
+  "icon": "Cloud",
+  "pages": ["index"]
+}

@@ -451,9 +451,17 @@ func TestIdempotentCreateUser(t *testing.T) {
 	e.do("POST", "/v1/users", e.keyA, map[string]any{"external_ref": "dup"})
 	r = e.do("POST", "/v1/users", e.keyA, map[string]any{"external_ref": "dup"}, "Idempotency-Key", "k-2")
 	assert.Equal(t, http.StatusConflict, r.code)
+	var first map[string]any
+	r.json(t, &first)
+	assert.Equal(t, r.header.Get("X-Request-Id"), first["request_id"], "a problem inside the wrapper names the request id")
 	r = e.do("POST", "/v1/users", e.keyA, map[string]any{"external_ref": "dup"}, "Idempotency-Key", "k-2")
 	assert.Equal(t, http.StatusConflict, r.code)
 	assert.Equal(t, "application/problem+json", r.header.Get("Content-Type"))
+	var replay map[string]any
+	r.json(t, &replay)
+	assert.Equal(t, r.header.Get("X-Request-Id"), replay["request_id"], "a replayed problem names this request's id")
+	assert.NotEqual(t, first["request_id"], replay["request_id"])
+	assert.Equal(t, first["detail"], replay["detail"])
 }
 
 func TestMintToken(t *testing.T) {

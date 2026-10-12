@@ -25,11 +25,12 @@ recovery). `make guard` runs the repository checks described below.
 ## Layout
 
 ```
-cmd/ohs/            the binary: serve, up, migrate, admin, doctor, mcp, version
+cmd/ohs/            the binary: serve, up, migrate, admin, doctor, mcp, import, version
 internal/           the core packages (app, api, auth, tenant, collect, etl, model, queue, ...)
 connectors/         one directory per provider, plus connectors/all that links them
 api/openapi.yaml    the public API, the source of truth
 docs/               user documentation
+docs-site/          the documentation website, built from docs/ and the OpenAPI file
 deploy/             Dockerfile and compose files
 ```
 

@@ -1,0 +1,102 @@
+---
+title: Connect a cloud provider
+description: From an empty instance to a user's Withings data, with the OAuth flow your app drives.
+icon: Link
+---
+
+This walks through Withings. Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman and intervals.icu follow the same OAuth flow: only the
+developer portal, the keys and the scopes differ, and each [connector page](/documentation/connectors)
+lists them.
+
+<Steps>
+<Step>
+
+### Register a developer app
+
+Create an application in the Withings developer dashboard, and set its callback URL to:
+
+```text
+<OHS_PUBLIC_URL>/oauth/withings/callback
+```
+
+It must match exactly, including the scheme, so give a real instance an https `OHS_PUBLIC_URL`.
+Copy the client ID and the client secret. Details, scopes and data produced:
+[Withings connector](/documentation/connectors/withings).
+
+</Step>
+<Step>
+
+### Set the keys and check
+
+```sh title=".env"
+OHS_PUBLIC_URL=https://ohs.example.org
+OHS_WITHINGS_CLIENT_ID=...
+OHS_WITHINGS_CLIENT_SECRET=...
+```
+
+Restart, then run `ohs doctor`:
+
+```text title="Output"
+ok    connector withings
+      withings callback: https://ohs.example.org/oauth/withings/callback
+```
+
+</Step>
+<Step>
+
+### Ask for a consent URL
+
+Your server asks for it, for one user, and says where to send them back:
+
+```sh
+curl -s -X POST $OHS/v1/users/$USER_ID/connections/withings \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"redirect_uri":"https://app.example.org/connected"}'
+# {"authorize_url":"https://account.withings.com/oauth2_user/authorize2?..."}
+```
+
+`redirect_uri` must be an absolute https URL (http is allowed for localhost). Without it the user
+sees a small built-in result page.
+
+</Step>
+<Step>
+
+### Send the user through consent
+
+Open `authorize_url` for that user only. After consent, Withings calls Open Health Sync, which
+sends the user to:
+
+```text
+https://app.example.org/connected?status=connected&provider=withings
+```
+
+On failure, `status=error`. The consent link is single use and expires after 10 minutes.
+
+</Step>
+<Step>
+
+### Watch the data land
+
+A new connection is backfilled over the last 30 days. After that, each Withings notification
+triggers a pull, and a backstop pull runs every 6 hours, or every hour while no notifications
+arrive ([background sync](/documentation/concepts/background-sync)).
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/connections" -H "Authorization: Bearer $KEY"
+curl -s "$OHS/v1/users/$USER_ID/coverage?provider=withings" -H "Authorization: Bearer $KEY"
+```
+
+A connection's `status` is `active`, `needs_reauth` (the user must consent again) or
+`disconnected`, with its `last_sync_at` and `initial_backfill_at`.
+
+</Step>
+</Steps>
+
+<Callout title="Notifications need a public URL">
+  Withings notifications reach `<OHS_PUBLIC_URL>/inbound/withings`, so the instance must be
+  reachable from the internet for them. Without it nothing breaks: the hourly backstop pull still
+  collects everything.
+</Callout>
+
+To disconnect, `DELETE /v1/users/{id}/connections/withings` revokes the grant and stops pulling;
+data already collected is kept.

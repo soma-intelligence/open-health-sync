@@ -60,6 +60,7 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 	if len(wants) == 0 {
 		panic("auth: MiddlewareAny needs at least one scope")
 	}
+	forbidden := forbiddenDetail(wants)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw, ok := bearer(r)
@@ -79,12 +80,26 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 				return
 			}
 			if !slices.ContainsFunc(wants, func(want Scope) bool { return allowed(p, want) }) {
-				WriteProblem(w, http.StatusForbidden, "Forbidden", "this credential cannot call this endpoint")
+				WriteProblem(w, http.StatusForbidden, "Forbidden", forbidden)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 		})
 	}
+}
+
+// forbiddenDetail tells a caller with the wrong credential which one the
+// endpoint takes.
+func forbiddenDetail(wants []Scope) string {
+	parts := make([]string, 0, len(wants))
+	for _, w := range wants {
+		if w == TenantKey {
+			parts = append(parts, "a tenant API key ("+PrefixSecretKey+")")
+		} else {
+			parts = append(parts, "a user token ("+PrefixUserToken+") with scope "+string(w))
+		}
+	}
+	return "this endpoint needs " + strings.Join(parts, " or ")
 }
 
 func allowed(p Principal, want Scope) bool {

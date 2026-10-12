@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
@@ -52,57 +54,81 @@ func (s *pullSink) Emit(ctx context.Context, dataType string, day time.Time, lin
 	if len(lines) == 0 {
 		return nil
 	}
-	body, err := gzipLines(lines)
-	if err != nil {
-		return err
-	}
-
 	s.mu.Lock()
 	part := s.part
 	s.part++
 	s.mu.Unlock()
 
+	j := s.job
+	stored, err := storeRaw(ctx, s.d, rawTarget{
+		tenant: j.TenantID, user: j.UserID, provider: j.Provider, dataType: dataType,
+		day: day, batch: s.batch, part: part,
+	}, lines)
+	if err != nil {
+		return err
+	}
+	s.count(stored)
+	return nil
+}
+
+// rawTarget is where one raw object goes: its owner, data type and key parts.
+type rawTarget struct {
+	tenant, user uuid.UUID
+	provider     string
+	dataType     string
+	day          time.Time
+	batch        string
+	part         int
+}
+
+// storeRaw stores lines as one raw object of t and queues its standard tier
+// ETL job: the file first, then the raw_objects row and the job in one
+// transaction. It returns false, storing nothing, when this user already has
+// these bytes registered (or a concurrent writer registered them first), and
+// errInactive when the user is gone or being deleted.
+func storeRaw(ctx context.Context, d Deps, t rawTarget, lines [][]byte) (bool, error) {
+	body, err := gzipLines(lines)
+	if err != nil {
+		return false, err
+	}
 	sum := sha256.Sum256(body)
 	hash := hex.EncodeToString(sum[:])
-	j := s.job
-	key := rawstore.Key(j.TenantID, j.UserID, j.Provider, day, s.batch, part)
+	key := rawstore.Key(t.tenant, t.user, t.provider, t.day, t.batch, t.part)
 
-	if _, found, err := findRaw(ctx, s.d.Pool, j.TenantID, j.UserID, key, hash); err != nil {
-		return err
+	if _, found, err := findRaw(ctx, d.Pool, t.tenant, t.user, key, hash); err != nil {
+		return false, err
 	} else if found {
-		s.count(false)
-		return nil
+		return false, nil
 	}
-	if err := userActive(ctx, s.d.Pool, j.TenantID, j.UserID); err != nil {
-		return err
+	if err := userActive(ctx, d.Pool, t.tenant, t.user); err != nil {
+		return false, err
 	}
-	if err := putRaw(ctx, s.d.Raw, key, body); err != nil {
+	if err := putRaw(ctx, d.Raw, key, body); err != nil {
 		if errors.Is(err, errOtherBytes) {
-			return fmt.Errorf("collect: raw key %s already holds other bytes", key)
+			return false, fmt.Errorf("collect: raw key %s already holds other bytes", key)
 		}
-		return err
+		return false, err
 	}
-	inserted, err := registerRaw(ctx, s.d.Pool, rawObject{
-		tenant: j.TenantID, user: j.UserID, provider: j.Provider, key: key, hash: hash, size: len(body),
-		batch: s.batch, part: part, dataType: dataType, tier: queue.TierStandard,
+	inserted, err := registerRaw(ctx, d.Pool, rawObject{
+		tenant: t.tenant, user: t.user, provider: t.provider, key: key, hash: hash, size: len(body),
+		batch: t.batch, part: t.part, dataType: t.dataType, tier: queue.TierStandard,
 	})
 	if errors.Is(err, errInactive) {
 		// The user started being deleted between the check and the
 		// registration: the file just written is removed again, or it
 		// could outlive the deletion's own raw sweep.
-		if derr := s.d.Raw.DeletePrefix(context.WithoutCancel(ctx), key); derr != nil {
-			slog.WarnContext(ctx, "collect: could not remove the file of a refused pull",
-				"tenant_id", j.TenantID, "user_id", j.UserID, "provider", j.Provider, "error", derr)
+		if derr := d.Raw.DeletePrefix(context.WithoutCancel(ctx), key); derr != nil {
+			slog.WarnContext(ctx, "collect: could not remove the file of a refused write",
+				"tenant_id", t.tenant, "user_id", t.user, "provider", t.provider, "error", derr)
 		}
-		return errInactive
+		return false, errInactive
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	// Not inserted: a concurrent pull registered the same bytes first. The
+	// Not inserted: a concurrent writer registered the same bytes first. The
 	// file just written is then an orphan the daily scan reports.
-	s.count(inserted)
-	return nil
+	return inserted, nil
 }
 
 func (s *pullSink) count(stored bool) {

@@ -233,6 +233,35 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	require.NotNil(t, page.NextCursor)
 	assert.Equal(t, 200, c.json("GET", u+"/samples?type=heart_rate&limit=100&cursor="+*page.NextCursor, key, "").status)
 
+	// FHIR: a page of Observations, its next link, and one Observation by id.
+	r = c.json("GET", u+"/fhir/Observation?type=heart_rate&limit=2", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	var bundle struct {
+		Link []struct {
+			Relation string `json:"relation"`
+			URL      string `json:"url"`
+		} `json:"link"`
+		Entry []struct {
+			FullURL string `json:"fullUrl"`
+		} `json:"entry"`
+	}
+	r.json(t, &bundle)
+	require.Len(t, bundle.Entry, 2)
+	var next string
+	for _, l := range bundle.Link {
+		if l.Relation == "next" {
+			next = l.URL
+		}
+	}
+	require.True(t, strings.HasPrefix(next, base+"/"), "next link %q under OHS_PUBLIC_URL", next)
+	assert.Equal(t, 200, c.json("GET", strings.TrimPrefix(next, base), key, "").status)
+	require.True(t, strings.HasPrefix(bundle.Entry[0].FullURL, base+"/"))
+	assert.Equal(t, 200, c.json("GET", strings.TrimPrefix(bundle.Entry[0].FullURL, base), key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation?code=http://loinc.org%7C8867-4&limit=5", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation?start=2026-01-10&end=2026-01-11", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/fhir/Observation?code=8867-4", key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/fhir/Observation/qs-999999999", key, "").status, "no such row")
+
 	r = c.json("GET", u+"/sleep", key, "")
 	require.Equal(t, 200, r.status)
 	var sleep struct{ Data []struct{ ID int64 } }
@@ -248,6 +277,46 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	r = c.json("GET", u+"/workouts/"+strconv.FormatInt(workouts.Data[0].ID, 10)+"/route", key, "")
 	assert.Equal(t, 200, r.status, "a workout without GPS has an empty route: %s", r.body)
 	assert.JSONEq(t, `{"data":[],"next_cursor":null}`, string(r.body))
+
+	// FHIR: sleep sessions, workouts and daily summaries are Observations too.
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation/sleep-"+strconv.FormatInt(sleep.Data[0].ID, 10), key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation/workout-"+strconv.FormatInt(workouts.Data[0].ID, 10), key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation?category=activity&limit=3", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation?code=http://loinc.org%7C85354-9", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation?code="+
+		"https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type%7Csleep_session", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/fhir/Observation?category=vitals", key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/fhir/Observation/bp-999999999", key, "").status)
+
+	// Open mHealth: a page of data points, its next cursor, one schema, a refusal.
+	r = c.json("GET", u+"/omh/data-points?limit=2", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	var omhPage struct {
+		Data       []json.RawMessage `json:"data"`
+		NextCursor *string           `json:"next_cursor"`
+	}
+	r.json(t, &omhPage)
+	require.NotEmpty(t, omhPage.Data)
+	require.NotNil(t, omhPage.NextCursor)
+	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?limit=2&cursor="+*omhPage.NextCursor, key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?schema=omh:heart-rate&start=2026-01-10&end=2026-01-11", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/omh/data-points?schema=heart_rate", key, "").status)
+
+	// Exports: CSV and Parquet files, and the refusals.
+	for _, p := range []string{
+		u + "/exports/samples",
+		u + "/exports/samples?format=parquet&type=heart_rate",
+		u + "/exports/sleep?format=csv&start=2026-01-01&end=2026-02-01",
+		u + "/exports/workouts?format=parquet",
+		u + "/exports/category-samples",
+		u + "/exports/nutrition?format=parquet",
+		u + "/exports/daily",
+	} {
+		r := c.json("GET", p, key, "")
+		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)
+	}
+	assert.Equal(t, 400, c.json("GET", u+"/exports/samples?format=xlsx", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/exports/samples?limit=10", key, "").status)
 
 	// Connections: an Apple Health user has none (device uploads are not connections).
 	r = c.json("GET", u+"/connections", key, "")

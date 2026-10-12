@@ -4,6 +4,7 @@ package config
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -144,5 +145,89 @@ func TestLoadIngestConcurrency(t *testing.T) {
 		if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_INGEST_CONCURRENCY") {
 			t.Fatalf("%q: %v", v, err)
 		}
+	}
+}
+
+func TestLoadPublicURL(t *testing.T) {
+	for _, v := range []string{"localhost:8080", "ftp://x", "https://", "https://x/?a=1", "https://x/#f", "not a url"} {
+		m := base()
+		m["OHS_PUBLIC_URL"] = v
+		if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_PUBLIC_URL") {
+			t.Errorf("%q: got %v, want an OHS_PUBLIC_URL error", v, err)
+		}
+	}
+	for _, v := range []string{"https://health.example.org", "https://example.org/ohs/", "http://192.168.1.20:8080"} {
+		m := base()
+		m["OHS_PUBLIC_URL"] = v
+		if _, err := load(t, m); err != nil {
+			t.Errorf("%q: %v", v, err)
+		}
+	}
+}
+
+func TestLoadLogLevel(t *testing.T) {
+	m := base()
+	m["OHS_LOG_LEVEL"] = "verbose"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_LOG_LEVEL") {
+		t.Fatalf("got %v", err)
+	}
+	m["OHS_LOG_LEVEL"] = "DEBUG"
+	if _, err := load(t, m); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A key error tells the operator how to make a key.
+func TestLoadKeyErrorsSayHowToFix(t *testing.T) {
+	for _, k := range []string{"", "!!", base64.StdEncoding.EncodeToString([]byte("short"))} {
+		m := base()
+		m["OHS_ENCRYPTION_KEY"] = k
+		_, err := load(t, m)
+		if err == nil || !strings.Contains(err.Error(), "openssl rand -base64 32") {
+			t.Errorf("key %q: %v", k, err)
+		}
+	}
+}
+
+func TestLoadSentinels(t *testing.T) {
+	m := base()
+	m["OHS_PUBLIC_URL"] = "localhost:1"
+	if _, err := load(t, m); !errors.Is(err, ErrPublicURL) {
+		t.Fatalf("public url: %v", err)
+	}
+	m = base()
+	m["OHS_LOG_LEVEL"] = "loud"
+	if _, err := load(t, m); !errors.Is(err, ErrLogLevel) {
+		t.Fatalf("log level: %v", err)
+	}
+	if CheckPublicURL("https://x/?q") == nil || CheckPublicURL("https://x") != nil {
+		t.Fatal("CheckPublicURL")
+	}
+}
+
+func TestLoadMultiWordSlug(t *testing.T) {
+	RegisterSlug("multi_word")
+	RegisterSlug("multi_word_longer")
+	RegisterSlug("single") // no underscore: nothing to declare
+	m := base()
+	m["OHS_MULTI_WORD_CLIENT_ID"] = "a"
+	m["OHS_MULTI_WORD_LONGER_CLIENT_ID"] = "b"
+	m["OHS_MULTI_OTHER"] = "c"
+	m["OHS_WITHINGS_CLIENT_ID"] = "d"
+	c, err := load(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Providers["multi_word"]["CLIENT_ID"]; got != "a" {
+		t.Fatalf("multi_word: %v", c.Providers["multi_word"])
+	}
+	if got := c.Providers["multi_word_longer"]["CLIENT_ID"]; got != "b" {
+		t.Fatalf("multi_word_longer (longest slug wins): %v", c.Providers)
+	}
+	if c.Providers["multi"]["OTHER"] != "c" || c.Providers["withings"]["CLIENT_ID"] != "d" {
+		t.Fatalf("first underscore split: %v", c.Providers)
+	}
+	if _, ok := c.Providers["multi"]["WORD_CLIENT_ID"]; ok {
+		t.Fatalf("multi-word key filed under its first word: %v", c.Providers)
 	}
 }

@@ -1,0 +1,94 @@
+---
+title: Binaries and source
+description: Run the release binary against your own Postgres, or build everything from source.
+icon: Package
+---
+
+## Release binaries
+
+Each [GitHub release](https://github.com/soma-intelligence/open-health-sync/releases) has
+binaries for Linux and macOS, amd64 and arm64, with a `checksums.txt`. Bring your own Postgres
+with TimescaleDB.
+
+<Steps>
+<Step>
+
+### Download and verify
+
+Each archive is named `ohs_<version>_<os>_<arch>.tar.gz` (`os` is `linux` or `darwin`, `arch`
+is `amd64` or `arm64`) and holds the `ohs` binary, the license and the README. Download yours and
+`checksums.txt` from the release page, then check and unpack it:
+
+```sh
+sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
+tar xzf ohs_*_linux_amd64.tar.gz
+sudo install ohs_*_linux_amd64/ohs /usr/local/bin/ohs
+```
+
+The macOS binaries are not signed yet: clear the quarantine flag with
+`xattr -d com.apple.quarantine ohs`.
+
+</Step>
+<Step>
+
+### Configure
+
+`ohs` reads `OHS_*` environment variables only. The two it cannot start without:
+
+```sh
+export OHS_DATABASE_URL='postgres://ohs:secret@localhost:5432/ohs?sslmode=disable&pool_max_conns=20'
+export OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)   # keep it
+export OHS_RAW_STORE=file:///var/lib/ohs/raw
+```
+
+The rest is in [Configuration](/documentation/self-hosting/configuration).
+
+</Step>
+<Step>
+
+### Run
+
+```sh
+ohs doctor              # check everything first
+ohs up                  # migrate, then serve
+ohs admin tenant create --name dev
+```
+
+Run it under systemd, launchd or your process manager of choice. On `SIGTERM` it gives work in
+flight 25 seconds to finish.
+
+</Step>
+</Steps>
+
+## Build from source
+
+You need Go 1.26.
+
+```sh
+make build        # bin/ohs
+make test         # unit tests, no Docker
+```
+
+To run compose with an image built from your checkout (tagged `ohs:local`), add the build
+overlay. It needs the `docker buildx` plugin:
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml up -d --build
+```
+
+<Accordions>
+  <Accordion title={'failed to parse platform : "" is an invalid OS component'}>
+    Compose fell back to the classic builder because buildx is missing. The Dockerfile
+    cross-compiles with `FROM --platform=$BUILDPLATFORM`, which only BuildKit understands.
+    Install buildx, or build the image with the script the end to end suites use (it needs Go
+    1.26), then start without `--build`:
+
+    ```sh
+    scripts/image-without-buildx.sh ohs:local
+    docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml up -d
+    ```
+
+  </Accordion>
+</Accordions>
+
+Add the build overlay before any other overlay (Raspberry Pi, S3).

@@ -1,0 +1,102 @@
+---
+title: Docker Compose
+description: The published image and a pinned TimescaleDB, in one command.
+icon: Container
+---
+
+The compose file in `deploy/docker-compose.yml` runs two containers: `postgres` (TimescaleDB,
+pinned by its multi-arch digest) and `ohs` (the published image). It needs Docker Compose v2.24 or
+later and `openssl`. Run every command from the repository root.
+
+<Steps>
+<Step>
+
+### Configure
+
+```sh
+git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-health-sync
+cp .env.example .env
+sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+```
+
+`OHS_ENCRYPTION_KEY` must hold 32 random bytes in base64. It encrypts the OAuth tokens stored in
+the database: keep it with your backups.
+
+</Step>
+<Step>
+
+### Start and check
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
+docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
+```
+
+The `ohs` container runs `ohs up`: pending migrations, then the server. Its healthcheck is
+`ohs doctor --quick` (database and raw store).
+
+</Step>
+<Step>
+
+### Create a tenant
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
+```
+
+The key is printed once. Continue with the [quickstart](/documentation/quickstart#create-a-user-and-a-token-for-their-app)
+to upload and read data.
+
+</Step>
+</Steps>
+
+<Callout title="Keep --env-file .env on every command">
+  Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `POSTGRES_PASSWORD`, `S3_*`)
+  from the shell or `--env-file`, not from the repository root. The containers read `.env`
+  themselves either way.
+</Callout>
+
+<Accordions>
+  <Accordion title="The ohs container restarts in a loop">
+    `OHS_ENCRYPTION_KEY` is probably empty: `ohs` exits at start and is never healthy. Run
+    `ohs doctor`, which prints a freshly generated key, paste it into `.env`, and run the same
+    `up -d` command again so the container is recreated with the new environment.
+  </Accordion>
+</Accordions>
+
+## Port and a second install
+
+The API is published on host port 8080. To use another one, set both in `.env`:
+
+```sh title=".env"
+OHS_HTTP_PORT=8081
+OHS_PUBLIC_URL=http://localhost:8081
+```
+
+`ohs doctor` cannot tell when they disagree, and OAuth callbacks use `OHS_PUBLIC_URL`.
+
+The compose project is named `ohs`, which also names its containers and volumes. A second install
+on the same host needs its own project name and its own port, or it takes over the first one's
+containers and data. Run it from its own checkout, with its own `.env`, and pass the project name
+on every command:
+
+```sh
+docker compose -p ohs-test --env-file .env -f deploy/docker-compose.yml up -d --wait
+```
+
+## Images and architectures
+
+Each release publishes `ghcr.io/soma-intelligence/open-health-sync` for `linux/amd64` and
+`linux/arm64`, tagged with the version and `edge`. The image is distroless (static, nonroot).
+The compose file uses `${OHS_VERSION:-<current release>}`: set `OHS_VERSION` in `.env` to pin
+another release.
+
+## Where the data lives
+
+| Volume | Holds |
+| --- | --- |
+| `pgdata` | Postgres: tenants, users, connections, jobs and every normalized record |
+| `raw` | the raw store: every payload, verbatim |
+
+`docker compose ... down` keeps both. `down -v` deletes them, with everything in them.
+Back them up together with `.env`: see [Backup and restore](/documentation/self-hosting/backup).

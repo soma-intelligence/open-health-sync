@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -61,6 +63,29 @@ func (c *capture) sendTo(w http.ResponseWriter) {
 	}
 	w.WriteHeader(c.status)
 	_, _ = w.Write(c.body.Bytes())
+}
+
+// withRequestID sets request_id in a JSON object body, other members kept
+// as they are. A body that is not a JSON object, or an empty id, is returned
+// unchanged.
+func withRequestID(body []byte, id string) []byte {
+	if id == "" {
+		return body
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	v, err := json.Marshal(id)
+	if err != nil {
+		return body
+	}
+	m["request_id"] = v
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return append(out, '\n')
 }
 
 type panicValue struct{ v any }
@@ -117,7 +142,9 @@ func (s *server) idempotent(next http.Handler) http.Handler {
 						err = errPanicked
 					}
 				}()
-				c := &capture{header: http.Header{}}
+				// The captured header carries the request id, so a problem
+				// written by the handler names it like any other.
+				c := &capture{header: http.Header{reqid.Header: {reqid.From(r.Context())}}}
 				next.ServeHTTP(c, r)
 				if c.status == 0 {
 					c.status = http.StatusOK
@@ -150,6 +177,11 @@ func (s *server) idempotent(next http.Handler) http.Handler {
 			ct := "application/json"
 			if status >= 400 {
 				ct = "application/problem+json"
+			}
+			if status >= 400 {
+				// A stored problem names the first call's id: answer with
+				// this request's, the one in X-Request-Id.
+				stored = withRequestID(stored, reqid.From(r.Context()))
 			}
 			w.Header().Set("Content-Type", ct)
 			w.Header().Set(HeaderIdempotentReplayed, "true")

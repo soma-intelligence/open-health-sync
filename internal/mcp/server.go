@@ -69,7 +69,10 @@ const instructions = `Open Health Sync: read-only access to health data (quantit
 	`With a tenant API key, call list_users first and pass user_id to every other tool; ` +
 	`with a personal user token, omit user_id. Times are RFC 3339 UTC or YYYY-MM-DD; ` +
 	`start is inclusive, end exclusive. Lists return at most limit records (default 100, ` +
-	`max 1000): when truncated is true, call again with cursor set to next_cursor.`
+	`max 1000): when truncated is true, call again with cursor set to next_cursor. ` +
+	`For trends over days or weeks start with get_daily (one row per day); raw samples ` +
+	`can number thousands a day, so call get_samples with a narrow start and end. ` +
+	`get_coverage shows which days and metrics hold data at all.`
 
 func newServer(d Deps, p auth.Principal, cache *sdk.SchemaCache) *sdk.Server {
 	s := sdk.NewServer(&sdk.Implementation{Name: "open-health-sync", Title: "Open Health Sync", Version: Version},

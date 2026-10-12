@@ -1,0 +1,17 @@
+{
+  "data": [
+    {
+      "id": "workout-0001",
+      "activity": "running",
+      "calories": 400,
+      "day": "2026-03-02",
+      "distance": 5000,
+      "end_datetime": "2026-03-02T18:45:00+01:00",
+      "intensity": "moderate",
+      "label": null,
+      "source": "confirmed",
+      "start_datetime": "2026-03-02T18:00:00+01:00"
+    }
+  ],
+  "next_token": null
+}

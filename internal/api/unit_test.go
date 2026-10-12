@@ -99,3 +99,13 @@ func TestParseTime(t *testing.T) {
 		assert.Error(t, err, bad)
 	}
 }
+
+func TestProblemRequestIDRewritten(t *testing.T) {
+	body := []byte(`{"type":"about:blank","title":"Conflict","status":409,"detail":"x","request_id":"old"}` + "\n")
+	got := string(withRequestID(body, "new"))
+	assert.Contains(t, got, `"request_id":"new"`)
+	assert.Contains(t, got, `"detail":"x"`)
+	assert.NotContains(t, got, "old")
+	assert.Equal(t, "not json", string(withRequestID([]byte("not json"), "new")))
+	assert.Equal(t, `{"a":1}`, string(withRequestID([]byte(`{"a":1}`), "")))
+}

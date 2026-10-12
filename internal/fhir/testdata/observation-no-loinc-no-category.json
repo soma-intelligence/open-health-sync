@@ -1,0 +1,37 @@
+{
+  "resourceType": "Observation",
+  "id": "qs-4004",
+  "meta": {
+    "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health",
+    "tag": [
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+        "code": "apple"
+      }
+    ]
+  },
+  "status": "final",
+  "code": {
+    "coding": [
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type",
+        "code": "body_fat_mass"
+      }
+    ],
+    "text": "body fat mass"
+  },
+  "subject": {
+    "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+  },
+  "effectiveDateTime": "2026-03-01T08:00:00Z",
+  "issued": "2026-03-01T09:15:30.25Z",
+  "valueQuantity": {
+    "value": 18.4,
+    "unit": "kg",
+    "system": "http://unitsofmeasure.org",
+    "code": "kg"
+  },
+  "device": {
+    "display": "apple_watch"
+  }
+}

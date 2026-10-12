@@ -22,15 +22,24 @@ var (
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: ohs <version|migrate|serve|up|admin|doctor|mcp>")
+		return usageErr("usage: ohs <command>, one of up, serve, migrate, doctor, admin, mcp, import, version: run `ohs help` for details")
 	}
 	name, rest := args[0], args[1:]
+	switch name {
+	case "help", "-h", "-help", "--help":
+		return help(rest, out)
+	case "--version", "-v":
+		name, rest = "version", nil
+	}
+	if _, known := commandHelp[name]; known && wantsHelp(rest) {
+		return help([]string{name}, out)
+	}
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	switch name {
 	case "version":
-		if err := fs.Parse(rest); err != nil {
-			return err
+		if err := fs.Parse(rest); err != nil || fs.NArg() != 0 {
+			return usageErr("usage: ohs version")
 		}
 		_, err := fmt.Fprintf(out, "ohs %s (%s)\n", version, commit)
 		return err
@@ -46,14 +55,16 @@ func run(args []string, out io.Writer) error {
 		return runUp(rest, out)
 	case "mcp":
 		return runMCP(rest, out)
+	case "import":
+		return runImport(rest, out)
 	default:
-		return fmt.Errorf("unknown command %q", name)
+		return usageErr(fmt.Sprintf("unknown command %q: run `ohs help` for the list", name))
 	}
 }
 
 const migrateUsage = "usage: ohs migrate <up|down --all|version>"
 
-var errDownNeedsAll = errors.New("migrate down reverts every migration and drops all Open Health Sync data " +
+var errDownNeedsAll = usageErr("migrate down reverts every migration and drops all Open Health Sync data " +
 	"(schemas ohs_core, ohs_sync, ohs_data); run `ohs migrate down --all` to confirm")
 
 func runMigrate(rest []string, out io.Writer) error {
@@ -65,7 +76,7 @@ func runMigrate(rest []string, out io.Writer) error {
 	var args []string
 	for {
 		if err := fs.Parse(rest); err != nil {
-			return fmt.Errorf("%w (%s)", err, migrateUsage)
+			return usageErr(fmt.Sprintf("%v (%s)", err, migrateUsage))
 		}
 		if fs.NArg() == 0 {
 			break
@@ -74,11 +85,11 @@ func runMigrate(rest []string, out io.Writer) error {
 		rest = fs.Args()[1:]
 	}
 	if len(args) != 1 {
-		return errors.New(migrateUsage)
+		return usageErr(migrateUsage)
 	}
 	action := args[0]
 	if action != "up" && action != "down" && action != "version" {
-		return errors.New(migrateUsage)
+		return usageErr(migrateUsage)
 	}
 	if action == "down" && !*all {
 		return errDownNeedsAll
@@ -106,15 +117,16 @@ func runMigrate(rest []string, out io.Writer) error {
 	return err
 }
 
-// databaseURL reads OHS_DATABASE_URL through config.Load. migrate needs no
-// encryption key, so only a missing or invalid OHS_ENCRYPTION_KEY falls back to
-// the variable alone; any other configuration error is returned.
+// databaseURL reads OHS_DATABASE_URL through config.Load. migrate and admin
+// need neither the encryption key nor the settings only serve reads, so an
+// error about OHS_ENCRYPTION_KEY, OHS_PUBLIC_URL or OHS_LOG_LEVEL falls back
+// to the variable alone; any other configuration error is returned.
 func databaseURL() (string, error) {
 	cfg, err := config.Load(os.LookupEnv, os.Environ())
 	if err == nil {
 		return cfg.DatabaseURL, nil
 	}
-	if !errors.Is(err, config.ErrEncryptionKey) {
+	if !errors.Is(err, config.ErrEncryptionKey) && !errors.Is(err, config.ErrPublicURL) && !errors.Is(err, config.ErrLogLevel) {
 		return "", err
 	}
 	return os.Getenv("OHS_DATABASE_URL"), nil // Load checked it is set
@@ -123,6 +135,6 @@ func databaseURL() (string, error) {
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "ohs:", err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }

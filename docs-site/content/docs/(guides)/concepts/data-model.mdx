@@ -1,0 +1,71 @@
+---
+title: Data model and units
+description: One canonical model, one unit per quantity, local days, provenance on every record.
+icon: Shapes
+---
+
+Every source maps into the same records. Whatever a provider calls it, heart rate is `heart_rate`
+in `bpm`.
+
+| Record | Holds |
+| --- | --- |
+| **QuantitySample** | one scalar measurement: heart rate, steps, SpO2, weight... |
+| **CategorySample** | a categorical event: a stand hour, a menstrual flow entry |
+| **SleepSession** and **SleepPhase** | a night with its duration breakdown, then each stage |
+| **Workout** and **RoutePoint** | a session with its metrics, then its GPS track |
+| **NutritionLog** | a food or drink entry with its nutrients |
+| **DailySummary** | totals per local day, from the provider or rolled up from samples |
+| **ECGRecording**, **HeartbeatSample** | stored today; their read routes are planned |
+| **Observation** | a generic coded fact for the long tail; no connector writes it yet |
+
+Every field, and the full list of quantity names, is in the
+[data model reference](/documentation/api-reference/data-model).
+
+## One unit per quantity
+
+Each quantity name has one storage unit, a UCUM unit and a LOINC code where one exists. Values are
+converted on the way in, and what the provider sent is kept in `metadata`:
+
+```json
+{
+  "type": "heart_rate",
+  "value": 72.5,
+  "unit": "bpm",
+  "metadata": { "original_unit": "count/min", "original_value": 72.5, "timezone": "Europe/Paris" }
+}
+```
+
+`GET /v1/users/{id}/samples` answers 400 for a `type` outside the catalog (a typo such as
+`heartrate`), so a wrong name is never mistaken for missing data. The MCP tool
+`list_quantity_types` lists the catalog too.
+
+## Local days, not UTC days
+
+A daily summary belongs to the **local** calendar day of its records, taken from the sample's
+time zone (UTC when the source sends none). A run at 23:30 in Paris counts on that day in Paris,
+not on the next day in UTC.
+
+When a provider sends no daily summary of its own, step, energy, distance and flight totals are
+derived from samples. Where several sources report the same day, the largest per-source total
+wins, so an iPhone and an Apple Watch are not added together.
+
+## Provenance
+
+Every record carries where it came from:
+
+<TypeTable
+  type={{
+    provider: { type: 'string', description: 'The integration it came through, such as apple_health or withings.' },
+    source: { type: 'string', description: 'The vendor that produced it, when known.' },
+    device: { type: 'string', description: 'The device that measured it, when known.' },
+    ingested_at: { type: 'string (RFC 3339)', description: 'When Open Health Sync stored it.' },
+  }}
+/>
+
+## Duplicates and plausibility
+
+- Records are de-duplicated by content hash: the same reading uploaded twice is stored once.
+- A value outside its hard plausible range rejects the record; outside the soft range it is stored
+  and flagged in its metadata.
+- Rejected lines are counted in the coverage report's `rejected_records`. See
+  [Processing and coverage](/documentation/concepts/processing).

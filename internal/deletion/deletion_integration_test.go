@@ -429,3 +429,26 @@ func (f *failingStore) DeletePrefix(ctx context.Context, p string) error {
 	}
 	return f.Store.DeletePrefix(ctx, p)
 }
+
+// Rows in compressed chunks are deleted too, whatever the server's
+// per-transaction decompression limit.
+func TestDeleteRemovesRowsInCompressedChunks(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	a := e.newUser(t, "a")
+	e.ingest(t, a)
+	require.NotEmpty(t, e.rowsFor(t, a.id)["ohs_data.quantity_samples"])
+	_, err := e.pool.Exec(ctx, `SELECT compress_chunk(c) FROM show_chunks('ohs_data.quantity_samples') c`)
+	require.NoError(t, err)
+	// A limit far below one compressed batch.
+	_, err = e.pool.Exec(ctx, `DO $$ BEGIN EXECUTE format(
+		'ALTER DATABASE %I SET timescaledb.max_tuples_decompressed_per_dml_transaction = 1', current_database()); END $$`)
+	require.NoError(t, err)
+	e.pool.Reset() // new connections pick up the database setting
+
+	require.Equal(t, http.StatusAccepted, e.requestDelete(t, a.id).Code)
+	n, err := e.worker(&fakeRevoker{}).Pass(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	assert.Empty(t, e.rowsFor(t, a.id))
+}

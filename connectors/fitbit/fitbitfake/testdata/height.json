@@ -1,0 +1,14 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT"
+  },
+  "height": {
+   "sampleTime": {
+    "physicalTime": "2026-01-01T09:00:00Z",
+    "utcOffset": "3600s"
+   },
+   "heightMillimeters": "1780"
+  }
+ }
+]

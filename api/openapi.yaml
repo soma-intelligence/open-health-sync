@@ -19,8 +19,20 @@ info:
     until it is null. Time windows are half open: `start` <= record time < `end`.
     `start` and `end` take an RFC 3339 time or a `YYYY-MM-DD` date (midnight UTC).
 
+    **FHIR.** `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood
+    pressure readings, sleep sessions, workouts and daily summaries as FHIR R4 Observations
+    (`application/fhir+json`); see docs/fhir.md. `GET /v1/users/{id}/omh/data-points` serves
+    them as Open mHealth data points; see docs/open-mhealth.md.
+
+    **Exports.** `GET /v1/users/{id}/exports/{dataset}` streams every record of one list in a
+    time window as a single CSV or Parquet file; see docs/exports.md.
+
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
     of another tenant is a 404, never a 403.
+
+    **Request ids.** Every response carries `X-Request-Id` (the caller's own when it is 1
+    to 128 letters, digits, `-`, `_` or `.`, else a fresh one); a problem body repeats it as
+    `request_id`, and the server logs carry it too.
 
     **Idempotency.** `Idempotency-Key` (1 to 255 characters) is honoured on
     `POST /v1/users`: a retry with the same key and the same request within 24 hours gets the first response back, with
@@ -31,13 +43,17 @@ info:
     name: AGPL-3.0-only
     identifier: AGPL-3.0-only
 servers:
-  - url: http://localhost:8080
+  - url: /
+    description: The instance serving this document (GET /openapi.yaml), or set your own.
 tags:
   - name: providers
   - name: users
   - name: tokens
   - name: connections
   - name: read
+  - name: fhir
+  - name: omh
+  - name: exports
   - name: ingest
   - name: provider-facing
   - name: mcp
@@ -239,6 +255,39 @@ paths:
                   data:
                     type: array
                     items: { $ref: "#/components/schemas/Connection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/freshness:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [connections]
+      operationId: getFreshness
+      summary: How up to date each of the user's sources is
+      description: |
+        One entry per provider connection, then one per device source (Apple Health) that uploaded,
+        ordered by provider. `synced_through` is the end of the most recent window pulled (the time of
+        the last upload for a device source) and `lag_seconds` is how far behind now it is. Providers
+        that send notifications are pulled within seconds of a change; the regular pull is a backstop,
+        every 6 hours while notifications arrive (`push_healthy`) and every hour otherwise.
+        `state` is `fresh`, `stale` (behind by more than two pull intervals, or no upload for 26 hours),
+        `failing` (the last 3 pulls failed, see `last_error`), `syncing` (first pull not done),
+        `needs_reauth` or `disconnected`.
+      responses:
+        "200":
+          description: Freshness of every source.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [as_of, data]
+                properties:
+                  as_of: { type: string, format: date-time }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SourceFreshness" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -527,6 +576,187 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/fhir/Observation:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: searchFHIRObservations
+      summary: The user's records as FHIR R4 Observations
+      description: |
+        The user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,
+        `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
+        panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
+        workouts (`workout-`) and daily summaries (`daily-`), merged in time order (a
+        sample's start, a bedtime, a workout's start, a day at midnight UTC), then by kind
+        and id. Paged like every list: the Bundle's `next` link carries the cursor, and
+        there is no `next` link on the last page; `total` is left out. A blood pressure pair
+        is never split across pages, and its two samples are not listed on their own.
+        Vital signs meet the R4 vital signs profiles they claim in `meta.profile`. The
+        mapping (codes, units, categories, provenance and limits) is in docs/fhir.md. The
+        filters below combine: a record is listed when it matches all of them. Errors are
+        `application/problem+json` like the rest of the API.
+      parameters:
+        - name: type
+          in: query
+          description: |
+            Canonical quantity type, for example heart_rate: only quantity samples of that
+            type, and the blood pressure panels holding a sample of it. Optional; a name
+            outside the quantity type catalog is a 400 (unless this user has samples of it).
+          schema: { type: string }
+        - name: code
+          in: query
+          description: |
+            A FHIR token `system|code` matched against `Observation.code`: a LOINC code
+            (`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure
+            panels, 93832-4 the sleep sessions, 55411-3 the workouts), a quantity type
+            (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
+            like `type`), or a record type
+            (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
+            `blood_pressure`, `sleep_session`, `workout` or `daily_summary`). One value; other
+            systems are a 400. A code no Observation carries is an empty Bundle.
+          schema: { type: string, examples: ["http://loinc.org|8867-4"] }
+        - name: category
+          in: query
+          description: |
+            An HL7 observation category code, bare or as
+            `http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,
+            `laboratory` or `activity` (activity samples, workouts and daily summaries). One
+            value. Another code of that system is an empty Bundle; anything else is a 400.
+          schema: { type: string, examples: [vital-signs] }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by effective start time.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Observation/{observation_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: observation_id
+        in: path
+        required: true
+        description: |
+          The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's
+          id), `sleep-`, `workout-` or `daily-`, then the stored row id.
+        schema: { type: string, examples: [qs-1234, bp-1235, sleep-77] }
+    get:
+      tags: [fhir]
+      operationId: readFHIRObservation
+      summary: One FHIR R4 Observation
+      description: |
+        The Observation an entry's `fullUrl` points to. Not the user's, not an id of these
+        forms, or not of that shape (`qs-` of a sample that is half of a blood pressure
+        panel, `bp-` of a sample that is not) is a 404.
+      responses:
+        "200":
+          description: The Observation.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRObservation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/omh/data-points:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [omh]
+      operationId: listOMHDataPoints
+      summary: The user's records as Open mHealth data points
+      description: |
+        The user's records as Open mHealth data points (a `header` and a `body` that follows one
+        schema of the Open mHealth catalog, checked against the official schemas): heart rate,
+        steps, blood pressure, body weight, height, BMI, body fat, body temperature, oxygen
+        saturation, respiratory rate, blood glucose and active energy samples, sleep sessions
+        (`sleep-episode`) and workouts (`physical-activity`). In the order and with the cursor of
+        the FHIR search; a record without an Open mHealth schema (another quantity type, a
+        daily summary, a value in another unit) is left out, so a page can hold fewer than
+        `limit` data points and still have a `next_cursor`. The mapping is in
+        docs/open-mhealth.md.
+      parameters:
+        - name: schema
+          in: query
+          description: |
+            Only the data points of one schema, bare (`heart-rate`) or with its namespace and,
+            optionally, its version (`omh:heart-rate`, `omh:heart-rate:2.0`). One value; a
+            schema the mapping does not emit is a 400.
+          schema: { type: string, examples: [omh:heart-rate] }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by time.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OMHDataPointPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/exports/{dataset}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: dataset
+        in: path
+        required: true
+        description: The list to export. Another name is a 404.
+        schema:
+          type: string
+          enum: [samples, category-samples, sleep, workouts, nutrition, daily]
+    get:
+      tags: [exports]
+      operationId: exportDataset
+      summary: One list of the user as a CSV or Parquet file
+      description: |
+        Every record of one list in `[start, end)`, as one file streamed in a single response
+        (`Content-Disposition: attachment`). The columns are the members of the list's JSON
+        records, in the same order and with the same names and values: times in UTC, a missing
+        value empty (CSV) or null (Parquet), `metadata` as JSON text. `samples` holds every
+        quantity type unless `type` names one. The file is not paged: `cursor` and `limit` are
+        a 400. A failure once the file has started cuts the connection, so a truncated file
+        never looks complete. See docs/exports.md.
+      parameters:
+        - name: format
+          in: query
+          description: "`csv` (the default) or `parquet`."
+          schema: { type: string, enum: [csv, parquet], default: csv }
+        - name: type
+          in: query
+          description: The canonical type to keep, for the lists that have one (samples, category-samples, workouts).
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+      responses:
+        "200":
+          description: The file.
+          headers:
+            Content-Disposition:
+              description: '`attachment; filename="<dataset>-<user id>.<format>"`'
+              schema: { type: string }
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.apache.parquet:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/ingest/apple-health:
     post:
       tags: [ingest]
@@ -629,12 +859,35 @@ paths:
   /inbound/{provider}:
     parameters:
       - $ref: "#/components/parameters/Provider"
+    get:
+      tags: [provider-facing]
+      operationId: inboundProbe
+      summary: Notification URL check and subscription challenge
+      security: []
+      description: |
+        Providers check that a notification URL answers before they subscribe it. The answer
+        is 200 with no body, or, for a provider that sends a subscription challenge (Strava's
+        `hub.challenge`, Oura's `challenge`), 200 with the provider's expected echo. A
+        challenge whose verify token does not match is 401. HEAD is answered like GET.
+      responses:
+        "200":
+          description: Reachable; the challenge echo when the provider sent one.
+          content:
+            application/json:
+              schema: { type: object }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [provider-facing]
       operationId: inbound
       summary: Provider notification endpoint
       security: []
-      description: Verified with the provider's own signature scheme. Accepted events queue pulls.
+      description: |
+        Verified with the provider's own signature scheme. An accepted event queues a pull for
+        every active connection of the provider user, or, for a notice a pull cannot fetch back
+        (a deleted record), is stored as a raw object for each of them and queued for the ETL,
+        which removes the record. A notice that cannot be stored is 500, so the provider
+        retries.
       requestBody:
         content:
           application/json:
@@ -646,6 +899,12 @@ paths:
         "204": { description: Accepted. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "500":
+          description: The notification could not be stored; the provider should retry.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /mcp:
     post:
@@ -693,6 +952,20 @@ paths:
                 type: object
                 properties:
                   status: { type: string, const: ok }
+  /openapi.yaml:
+    get:
+      tags: [ops]
+      operationId: openapi
+      summary: This OpenAPI description, as served by this version
+      description: Readable from any origin (`Access-Control-Allow-Origin` is `*`), so a hosted
+        Swagger UI, Redoc or Postman can import it by URL.
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI 3.1 document.
+          content:
+            application/yaml:
+              schema: { type: string }
   /readyz:
     get:
       tags: [ops]
@@ -835,6 +1108,9 @@ components:
         title: { type: string }
         status: { type: integer }
         detail: { type: string }
+        request_id:
+          type: string
+          description: The X-Request-Id of the response, to quote when reporting the error.
 
     PageBase:
       type: object
@@ -925,6 +1201,25 @@ components:
         initial_backfill_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    SourceFreshness:
+      type: object
+      required: [provider, kind, status, state, synced_through, lag_seconds, push_healthy, pull_every_seconds, consecutive_failures]
+      properties:
+        provider: { type: string }
+        kind: { type: string, enum: [oauth, device] }
+        status: { type: string, enum: [active, needs_reauth, disconnected] }
+        state: { type: string, enum: [fresh, stale, failing, syncing, needs_reauth, disconnected] }
+        synced_through: { type: [string, "null"], format: date-time }
+        lag_seconds: { type: [integer, "null"] }
+        last_sync_at: { type: [string, "null"], format: date-time }
+        last_event_at: { type: [string, "null"], format: date-time, description: Last provider notification. }
+        push_healthy: { type: boolean }
+        pull_every_seconds: { type: integer, description: Regular pull interval; 0 for a device source. }
+        next_pull_at: { type: [string, "null"], format: date-time }
+        last_attempt_at: { type: [string, "null"], format: date-time }
+        last_error: { type: [string, "null"] }
+        consecutive_failures: { type: integer }
 
     Provenance:
       type: object
@@ -1171,3 +1466,161 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/DailySummary" } }
+
+    FHIRCoding:
+      type: object
+      properties:
+        system: { type: string, format: uri }
+        code: { type: string }
+        display: { type: string }
+    FHIRCodeableConcept:
+      type: object
+      properties:
+        coding:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/FHIRCoding" }
+        text: { type: string }
+    FHIRReference:
+      type: object
+      properties:
+        reference: { type: string, examples: ["Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"] }
+        display: { type: string }
+    OMHDataPoint:
+      type: object
+      description: |
+        One Open mHealth data point (omh:data-point:1.0): a header (omh:header:1.2) and a body
+        that follows the schema `header.schema_id` names (docs/open-mhealth.md).
+      required: [header, body]
+      properties:
+        header:
+          type: object
+          required: [id, creation_date_time, schema_id, acquisition_provenance, user_id]
+          properties:
+            id:
+              type: string
+              description: The record's id, the same as its FHIR Observation id (`qs-`, `bp-`, `sleep-`, `workout-`).
+              examples: [qs-1234]
+            creation_date_time: { type: string, format: date-time, description: When the record was stored. }
+            schema_id:
+              type: object
+              required: [namespace, name, version]
+              properties:
+                namespace: { type: string, const: omh }
+                name: { type: string, examples: [heart-rate] }
+                version: { type: string, examples: ["2.0"] }
+            acquisition_provenance:
+              type: object
+              required: [source_name]
+              properties:
+                source_name: { type: string, description: The provider the record came from. }
+                source_data_point_id: { type: string, description: "The provider's own id of the record." }
+                modality: { type: string, enum: [sensed, self-reported] }
+            user_id: { type: string, format: uuid }
+        body:
+          type: object
+          description: The measure, in the shape of its schema.
+    OMHDataPointPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/OMHDataPoint" } }
+    FHIRObservation:
+      type: object
+      description: |
+        A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
+        session, a workout or a daily summary (docs/fhir.md).
+      required: [resourceType, id, status, code, subject]
+      properties:
+        resourceType: { type: string, const: Observation }
+        id: { type: string, pattern: "^[A-Za-z0-9\\-\\.]{1,64}$", examples: [qs-1234] }
+        meta:
+          type: object
+          properties:
+            source:
+              type: string
+              format: uri
+              description: The provider the record came through.
+            profile:
+              type: array
+              items: { type: string, format: uri }
+            tag:
+              type: array
+              description: The vendor that produced the record, when known.
+              items: { $ref: "#/components/schemas/FHIRCoding" }
+        identifier:
+          type: array
+          description: The provider's own id of the record (of each sample of a panel), when it has one.
+          items:
+            type: object
+            properties:
+              system: { type: string, format: uri }
+              value: { type: string }
+        status: { type: string, const: final }
+        category:
+          type: array
+          items: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        code: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        subject: { $ref: "#/components/schemas/FHIRReference" }
+        effectiveDateTime: { type: string, format: date-time }
+        effectivePeriod:
+          type: object
+          properties:
+            start: { type: string, format: date-time }
+            end: { type: string, format: date-time }
+        issued:
+          type: string
+          format: date-time
+          description: When the record was ingested (the later of a panel's two samples).
+        valueQuantity: { $ref: "#/components/schemas/FHIRQuantity" }
+        dataAbsentReason: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        device: { $ref: "#/components/schemas/FHIRReference" }
+        component:
+          type: array
+          minItems: 1
+          description: |
+            The two values of a blood pressure panel, or a sleep session's, workout's or daily
+            summary's other fields; a field without a value is left out.
+          items:
+            type: object
+            required: [code]
+            properties:
+              code: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+              valueQuantity: { $ref: "#/components/schemas/FHIRQuantity" }
+              valueCodeableConcept: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+              dataAbsentReason: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+    FHIRQuantity:
+      type: object
+      properties:
+        value: { type: number }
+        unit: { type: string }
+        system: { type: string, const: "http://unitsofmeasure.org" }
+        code: { type: string, examples: ["/min"] }
+    FHIRBundle:
+      type: object
+      description: A FHIR R4 searchset Bundle of Observations.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link:
+          type: array
+          items:
+            type: object
+            required: [relation, url]
+            properties:
+              relation: { type: string, enum: [self, next] }
+              url: { type: string, format: uri }
+        entry:
+          type: array
+          description: Absent on an empty page (FHIR JSON has no empty arrays).
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource: { $ref: "#/components/schemas/FHIRObservation" }
+              search:
+                type: object
+                properties:
+                  mode: { type: string, const: match }

@@ -12,7 +12,8 @@
 # Without a list the guard fails in GitHub Actions (GITHUB_ACTIONS set) and
 # only warns elsewhere.
 #
-# The public repository and image names below are removed from every line
+# The public repository, image and MCP registry names and the maintainer's
+# public GitHub handle below are removed from every line
 # before matching, so they never trip a term on their own. Only exact
 # tokens are removed: an allowed name glued to more name characters
 # (`evil-` before it, `-internal` after it) is left in place and still
@@ -26,7 +27,9 @@ cd "$(git rev-parse --show-toplevel)"
 
 allowed=(
   "ghcr.io/soma-intelligence/open-health-sync"
+  "io.github.soma-intelligence/open-health-sync"
   "soma-intelligence/open-health-sync"
+  "QuentinCar0n"
 )
 
 terms=""

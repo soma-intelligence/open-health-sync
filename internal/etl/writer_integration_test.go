@@ -304,3 +304,225 @@ func TestWriter_SecondCopyInOneTransactionReusesStaging(t *testing.T) {
 	c := e.write(smallCopy, &model.MapResult{Workouts: ws, RoutePoints: pts})
 	assert.Equal(t, 16, c["route_points"].Written)
 }
+
+// compressQuantity compresses every chunk of quantity_samples, as the policy
+// does once a chunk is 30 days old.
+func (e *env) compressQuantity() {
+	e.t.Helper()
+	e.exec(`SELECT compress_chunk(c, if_not_compressed => true) FROM show_chunks('ohs_data.quantity_samples') c`)
+}
+
+func TestWriter_QuantityDedupsAgainstCompressedChunks(t *testing.T) {
+	e := newEnv(t)
+	base := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
+	day := time.Date(2026, 1, 6, 0, 0, 0, 0, time.UTC)
+	c := e.write(smallCopy, &model.MapResult{QuantitySamples: append(points(300, base), dayFigure("d1", day, 100, true))})
+	assert.Equal(t, TableCount{Written: 301}, c["quantity_samples"])
+	e.compressQuantity()
+
+	// A re-upload of the same period: every row is a duplicate, found in the
+	// compressed chunk with the default decompression limit.
+	c = e.write(smallCopy, &model.MapResult{QuantitySamples: points(300, base)})
+	assert.Equal(t, TableCount{Skipped: 300}, c["quantity_samples"])
+
+	// New rows in the compressed period are written, a changed Replaceable
+	// figure replaces the stored one, an unchanged one is skipped.
+	late := points(310, base)[300:]
+	for i := range late {
+		late[i].ContentHash = fmt.Sprintf("late%d", i)
+	}
+	c = e.write(smallCopy, &model.MapResult{QuantitySamples: append(late, dayFigure("d1", day, 250, true))})
+	assert.Equal(t, TableCount{Written: 11}, c["quantity_samples"])
+	c = e.write(smallCopy, &model.MapResult{QuantitySamples: []model.QuantitySample{dayFigure("d1", day, 250, true)}})
+	assert.Equal(t, TableCount{Skipped: 1}, c["quantity_samples"])
+
+	assert.Equal(t, 311, e.count("quantity_samples"))
+	assert.EqualValues(t, 250, e.scalar(`SELECT value FROM ohs_data.quantity_samples WHERE content_hash = 'd1'`))
+}
+
+func TestWriter_QuantityConcurrentJobsOfOneUserWriteOnce(t *testing.T) {
+	e := newEnv(t)
+	base := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+	const writers = 4
+	results := make(chan Counts, writers)
+	for range writers {
+		go func() {
+			ctx := context.Background()
+			tx, err := e.pool.Begin(ctx)
+			if err != nil {
+				results <- nil
+				return
+			}
+			defer tx.Rollback(ctx) //nolint:errcheck
+			c, err := NewWriter(smallCopy).WriteAccumulated(ctx, tx, scope{tenant: e.tenant, user: e.user, provider: "dev"},
+				&model.MapResult{QuantitySamples: points(200, base)})
+			if err != nil || tx.Commit(ctx) != nil {
+				results <- nil
+				return
+			}
+			results <- c
+		}()
+	}
+	written := 0
+	for range writers {
+		c := <-results
+		require.NotNil(t, c, "a writer failed")
+		written += c["quantity_samples"].Written
+	}
+	assert.Equal(t, 200, written, "the per-user lock lets exactly one job write each row")
+	assert.Equal(t, 200, e.count("quantity_samples"))
+}
+
+func TestWriter_ReplaceableWorkoutLatestWins(t *testing.T) {
+	e := newEnv(t)
+	start := time.Date(2026, 8, 18, 7, 0, 0, 0, time.UTC)
+	d1, d2, kcal := 5000.0, 5200.0, 300.0
+	wk := func(activity string, dist *float64, kcal *float64, replaceable bool, hash string) model.Workout {
+		return model.Workout{Provider: "dev", ActivityType: activity, StartDate: start, EndDate: start.Add(time.Hour),
+			DistanceM: dist, ActiveEnergyKcal: kcal, ContentHash: hash, Replaceable: replaceable}
+	}
+	c := e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("running", &d1, &kcal, true, "edit")}})
+	assert.Equal(t, 1, c["workouts"].Written)
+
+	// The edited copy (new type, new distance, no energy) replaces the figures
+	// it carries and keeps the energy; still one row.
+	c = e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("hiking", &d2, nil, true, "edit")}})
+	assert.Equal(t, 1, c["workouts"].Written)
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+	assert.Equal(t, "hiking", e.scalar(`SELECT activity_type FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+	assert.EqualValues(t, 5200, e.scalar(`SELECT distance_m FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+	assert.EqualValues(t, 300, e.scalar(`SELECT active_energy_kcal FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+
+	// A re-send that changes nothing writes nothing.
+	c = e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("hiking", &d2, nil, true, "edit")}})
+	assert.Equal(t, TableCount{Skipped: 1}, c["workouts"])
+
+	// Not replaceable: first write wins.
+	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("running", &d1, nil, false, "fixed")}})
+	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("cycling", &d2, nil, false, "fixed")}})
+	assert.Equal(t, "running", e.scalar(`SELECT activity_type FROM ohs_data.workouts WHERE content_hash = 'fixed'`))
+}
+
+// A Replaceable sleep session re-sent with new figures and a new hypnogram
+// replaces the stored one: figures latest wins (an omitted one keeps its
+// value), phases replaced. A copy whose start moved supersedes the stored one.
+// A session that is not Replaceable keeps its first version.
+func TestWriter_ReplaceableSleepLatestWins(t *testing.T) {
+	e := newEnv(t)
+	start := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
+	ip := func(v int) *int { return &v }
+	fp := func(v float64) *float64 { return &v }
+	night := func(at time.Time, total, deep *int, score *float64, replaceable bool, hash string) model.SleepSession {
+		return model.SleepSession{Provider: "dev", ExternalID: "n-" + hash, BedtimeStart: at, BedtimeEnd: at.Add(8 * time.Hour),
+			TotalSleepSeconds: total, DeepSleepSeconds: deep, SleepScore: score,
+			ContentHash: hash, Replaceable: replaceable, Metadata: map[string]any{"v": score}}
+	}
+	phase := func(stage string, from, to time.Duration, hash string) model.SleepPhase {
+		return model.SleepPhase{Phase: stage, StartDate: start.Add(from), EndDate: start.Add(to),
+			DurationS: int((to - from).Seconds()), ParentContentHash: hash}
+	}
+	phases := func() []any {
+		rows, err := e.pool.Query(context.Background(), `SELECT p.phase || '@' || extract(epoch FROM p.end_date - p.start_date)::int
+			FROM ohs_data.sleep_phases p JOIN ohs_data.sleep_sessions s ON s.id = p.session_id
+			WHERE p.tenant_id = $1 AND p.user_id = $2 AND s.content_hash = 'night' ORDER BY p.start_date`, e.tenant, e.user)
+		require.NoError(t, err)
+		var out []any
+		for rows.Next() {
+			var v string
+			require.NoError(t, rows.Scan(&v))
+			out = append(out, v)
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+	q := func(sql string) any {
+		return e.scalar(sql+` FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2 AND content_hash = 'night'`, e.tenant, e.user)
+	}
+
+	c := e.write(smallCopy, &model.MapResult{
+		SleepSessions: []model.SleepSession{night(start, ip(25000), ip(4000), fp(70), true, "night")},
+		SleepPhases:   []model.SleepPhase{phase("deep", 0, time.Hour, "night"), phase("light", time.Hour, 2*time.Hour, "night")},
+	})
+	assert.Equal(t, TableCount{Written: 1}, c["sleep_sessions"])
+	assert.Equal(t, TableCount{Written: 2}, c["sleep_phases"])
+
+	// Re-scored: new total and score, no deep figure, a corrected hypnogram.
+	c = e.write(smallCopy, &model.MapResult{
+		SleepSessions: []model.SleepSession{night(start, ip(26000), nil, fp(82), true, "night")},
+		SleepPhases: []model.SleepPhase{phase("deep", 0, time.Hour, "night"),
+			phase("rem", time.Hour, 90*time.Minute, "night"), phase("light", 90*time.Minute, 2*time.Hour, "night")},
+	})
+	assert.Equal(t, TableCount{Written: 1}, c["sleep_sessions"])
+	assert.Equal(t, TableCount{Written: 2, Skipped: 1}, c["sleep_phases"], "the unchanged deep phase is kept")
+	assert.EqualValues(t, 1, q(`SELECT count(*)`))
+	assert.EqualValues(t, 26000, q(`SELECT total_sleep_seconds`))
+	assert.EqualValues(t, 4000, q(`SELECT deep_sleep_seconds`), "an omitted figure keeps its stored value")
+	assert.EqualValues(t, 82, q(`SELECT sleep_score`))
+	assert.EqualValues(t, 82, q(`SELECT (metadata->>'v')::float`))
+	assert.Equal(t, []any{"deep@3600", "rem@1800", "light@1800"}, phases())
+
+	// The same copy again writes nothing.
+	c = e.write(smallCopy, &model.MapResult{
+		SleepSessions: []model.SleepSession{night(start, ip(26000), nil, fp(82), true, "night")},
+		SleepPhases: []model.SleepPhase{phase("deep", 0, time.Hour, "night"),
+			phase("rem", time.Hour, 90*time.Minute, "night"), phase("light", 90*time.Minute, 2*time.Hour, "night")},
+	})
+	assert.Equal(t, TableCount{Skipped: 1}, c["sleep_sessions"])
+	assert.Equal(t, TableCount{Skipped: 3}, c["sleep_phases"])
+
+	// A copy without a hypnogram keeps the stored phases.
+	e.write(smallCopy, &model.MapResult{SleepSessions: []model.SleepSession{night(start, ip(26100), nil, fp(82), true, "night")}})
+	assert.Equal(t, []any{"deep@3600", "rem@1800", "light@1800"}, phases())
+
+	// Another user's copy of the same provider record is never touched.
+	other := e.newUser(e.tenant)
+	e.writeFor(e.tenant, other, smallCopy, &model.MapResult{
+		SleepSessions: []model.SleepSession{night(start, ip(1), nil, nil, true, "night")}})
+
+	// The night moved by ten minutes (WHOOP and Polar hash on the record id
+	// alone): the new row supersedes the old one, which takes its phases with
+	// it, and the new hypnogram is stored.
+	moved := start.Add(10 * time.Minute)
+	c = e.write(smallCopy, &model.MapResult{
+		SleepSessions: []model.SleepSession{night(moved, ip(25500), nil, fp(80), true, "night")},
+		SleepPhases:   []model.SleepPhase{phase("light", 10*time.Minute, 2*time.Hour, "night")},
+	})
+	assert.Equal(t, TableCount{Written: 1}, c["sleep_sessions"])
+	assert.EqualValues(t, 1, q(`SELECT count(*)`))
+	assert.Equal(t, moved, q(`SELECT bedtime_start`).(time.Time).UTC())
+	assert.Equal(t, []any{"light@6600"}, phases())
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.sleep_phases WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user),
+		"no phase of the superseded row is left behind")
+
+	// Moved again without a hypnogram: the stored phases move to the new row.
+	e.write(smallCopy, &model.MapResult{SleepSessions: []model.SleepSession{night(start, ip(25500), nil, fp(80), true, "night")}})
+	assert.EqualValues(t, 1, q(`SELECT count(*)`))
+	assert.Equal(t, []any{"light@6600"}, phases())
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2`, e.tenant, other))
+
+	// Not replaceable: first write wins, the session and its figures stay.
+	e.write(smallCopy, &model.MapResult{SleepSessions: []model.SleepSession{night(start, ip(100), nil, fp(10), false, "fixed")}})
+	c = e.write(smallCopy, &model.MapResult{SleepSessions: []model.SleepSession{night(start, ip(200), nil, fp(20), false, "fixed")}})
+	assert.Equal(t, TableCount{Skipped: 1}, c["sleep_sessions"])
+	assert.EqualValues(t, 100, e.scalar(`SELECT total_sleep_seconds FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND content_hash = 'fixed'`, e.tenant))
+	assert.EqualValues(t, 10, e.scalar(`SELECT sleep_score FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND content_hash = 'fixed'`, e.tenant))
+}
+
+// A Replaceable workout whose start moved supersedes the stored copy of the
+// same provider record, and the stored route points move to the new row.
+func TestWriter_ReplaceableWorkoutMovedStartSupersedes(t *testing.T) {
+	e := newEnv(t)
+	start := time.Date(2026, 8, 18, 7, 0, 0, 0, time.UTC)
+	wk := func(at time.Time) model.Workout {
+		return model.Workout{Provider: "dev", ExternalID: "w1", ActivityType: "running", StartDate: at,
+			EndDate: at.Add(time.Hour), ContentHash: "w1", Replaceable: true}
+	}
+	e.write(smallCopy, &model.MapResult{
+		Workouts:    []model.Workout{wk(start)},
+		RoutePoints: []model.RoutePoint{{Timestamp: start.Add(time.Minute), Latitude: 1, Longitude: 2, ParentContentHash: "w1"}},
+	})
+	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk(start.Add(5 * time.Minute))}})
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.route_points r JOIN ohs_data.workouts w ON w.id = r.workout_id
+		WHERE r.tenant_id = $1 AND w.start_date = $2`, e.tenant, start.Add(5*time.Minute)))
+}

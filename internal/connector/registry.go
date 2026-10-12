@@ -94,7 +94,12 @@ func (r *Registry) All() []Connector {
 var defaultRegistry = NewRegistry()
 
 // Register adds c to the default registry.
-func Register(c Connector) { defaultRegistry.Register(c) }
+// A slug holding an underscore is declared to the configuration loader, so
+// its OHS_<SLUG>_<FIELD> keys are read under the whole slug.
+func Register(c Connector) {
+	defaultRegistry.Register(c)
+	config.RegisterSlug(c.Slug())
+}
 
 // Get looks slug up in the default registry.
 func Get(slug string) (Connector, bool) { return defaultRegistry.Get(slug) }

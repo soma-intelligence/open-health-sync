@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"io"
 	"os"
@@ -23,13 +22,14 @@ func runServe(rest []string, _ io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(rest); err != nil || fs.NArg() != 0 {
-		return errors.New(serveUsage)
+		return usageErr(serveUsage)
 	}
 	cfg, err := config.Load(os.LookupEnv, os.Environ())
 	if err != nil {
 		return err
 	}
 	mcp.Version = version
+	app.Version = version
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return app.Run(ctx, cfg)
