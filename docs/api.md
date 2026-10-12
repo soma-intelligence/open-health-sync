@@ -228,6 +228,32 @@ curl -s "$OHS/v1/users/$USER_ID/fhir/Observation?type=heart_rate&start=2026-03-0
   -H "Authorization: Bearer $KEY"
 ```
 
+## Open mHealth
+
+`GET /v1/users/{id}/omh/data-points` serves heart rate, steps, blood pressure, body
+measurements, vital signs, blood glucose, active energy, sleep sessions and workouts as
+[Open mHealth](https://www.openmhealth.org/) data points (a `header` and a `body` that follows one
+schema of the catalog, checked against the official schemas in CI), in the order of the FHIR
+search, paged like every list. Filters: `schema` (`omh:heart-rate`), `start`, `end`. The mapping
+and its limits are in [open-mhealth.md](open-mhealth.md).
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/omh/data-points?schema=omh:blood-pressure&start=2026-03-01" \
+  -H "Authorization: Bearer $KEY"
+```
+
+## Exports
+
+`GET /v1/users/{id}/exports/{dataset}` streams every record of one list (`samples`,
+`category-samples`, `sleep`, `workouts`, `nutrition` or `daily`) in `[start, end)` as one CSV
+(`format=csv`, the default) or Parquet (`format=parquet`) file, with the columns of the list's
+JSON records. Not paged. See [exports.md](exports.md).
+
+```sh
+curl -sOJ "$OHS/v1/users/$USER_ID/exports/samples?format=parquet&start=2026-01-01" \
+  -H "Authorization: Bearer $KEY"
+```
+
 ## Webhooks
 
 Rather than polling coverage, register an endpoint with `POST /v1/webhooks` and be told when a

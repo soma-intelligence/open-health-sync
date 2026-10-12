@@ -24,6 +24,8 @@ import (
 func init() {
 	// Device uploads are gzip bytes; validate them as an opaque file.
 	openapi3filter.RegisterBodyDecoder("application/gzip", openapi3filter.FileBodyDecoder)
+	// Parquet exports are binary files.
+	openapi3filter.RegisterBodyDecoder("application/vnd.apache.parquet", openapi3filter.FileBodyDecoder)
 	// FHIR responses are JSON under their own media type.
 	openapi3filter.RegisterBodyDecoder("application/fhir+json", openapi3filter.JSONBodyDecoder)
 }

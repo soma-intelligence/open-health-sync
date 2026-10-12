@@ -265,15 +265,27 @@ type Sample struct {
 
 // Samples lists quantity samples of one type (q.Type is required).
 func Samples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query) (Page[Sample], error) {
-	n, err := q.normalize(true)
+	return samples(ctx, db, tenantID, userID, q, true)
+}
+
+// AllSamples lists quantity samples of every type, or of one when q.Type is
+// set, by start date then id (the exports read it).
+func AllSamples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query) (Page[Sample], error) {
+	return samples(ctx, db, tenantID, userID, q, false)
+}
+
+func samples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query, typeRequired bool) (Page[Sample], error) {
+	n, err := q.normalize(typeRequired)
 	if err != nil {
 		return Page[Sample]{}, err
 	}
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[Sample]{}, err
 	}
-	if err := knownQuantityType(ctx, db, tenantID, userID, n.Type); err != nil {
-		return Page[Sample]{}, err
+	if n.Type != "" {
+		if err := knownQuantityType(ctx, db, tenantID, userID, n.Type); err != nil {
+			return Page[Sample]{}, err
+		}
 	}
 	l := list{table: "ohs_data.quantity_samples", timeCol: "start_date", typeCol: "quantity_type", cols: sampleCols}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (Sample, time.Time, int64, error) {

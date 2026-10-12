@@ -9,6 +9,17 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Open mHealth output: `GET /v1/users/{id}/omh/data-points` serves heart rate, steps, blood
+  pressure pairs, body weight, height, BMI, body fat, body temperature, SpO2, respiratory rate,
+  blood glucose, active energy, sleep sessions (`sleep-episode`) and workouts
+  (`physical-activity`) as Open mHealth data points, in the order and with the cursor of the FHIR
+  search, filtered by `schema`. Every mapping is checked against the official Open mHealth
+  schemas, vendored with their own test data, by the unit tests. See
+  [docs/open-mhealth.md](docs/open-mhealth.md).
+- CSV and Parquet exports: `GET /v1/users/{id}/exports/{dataset}` streams every sample, category
+  sample, sleep session, workout, nutrition log or daily summary of a user in a time window as
+  one CSV or Parquet file, with the columns of the REST records (typed, UTC timestamps, JSON
+  metadata). See [docs/exports.md](docs/exports.md).
 - Outgoing webhooks ([docs/webhooks.md](docs/webhooks.md)): `POST /v1/webhooks` registers an
   endpoint for `data.written`, `data.deleted`, `user.deleted` and `connection.needs_reauth`
   events. Requests are signed per Standard Webhooks (HMAC-SHA256, `whsec_` secrets sealed with

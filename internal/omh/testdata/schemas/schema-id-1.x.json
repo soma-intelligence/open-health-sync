@@ -1,0 +1,36 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "deprecation": {
+        "reason": "This schema is now deprecated, in favor of the IEEE 1752.1 schema of the same name.",
+        "supersededBy": "https://w3id.org/ieee/ieee-1752-schema/schema-id.json",
+        "date": "2026-06-14"
+    },
+    "description": "This schema represents a JSON Schema identifier.",
+
+    "type": "object",
+
+    "properties": {
+        "namespace": {
+            "description": "The namespace of the schema. A namespace serves to disambiguate schemas with conflicting names.",
+            "type": "string"
+        },
+        "name": {
+            "description": "The name of the schema.",
+            "type": "string"
+        },
+        "version": {
+            "description": "The version of the schema, e.g. 1.0.",
+            "type": "string"
+        },
+        "url": {
+            "description": "A URL to retrieve the schema. If a URL is not specified, it is assumed that the schema can be located using other means.",
+            "type": "string",
+            "format": "uri"
+        }
+    },
+    "required": [
+        "namespace",
+        "name",
+        "version"
+    ]
+}

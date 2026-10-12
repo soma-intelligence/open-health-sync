@@ -117,6 +117,20 @@ const sources: Record<string, Target[]> = {
       description: "Read quantity samples as FHIR R4 Observations.",
     },
   ],
+  "docs/open-mhealth.md": [
+    {
+      page: "(guides)/guides/open-mhealth",
+      title: "Open mHealth output",
+      description: "Read records as Open mHealth data points, checked against the official schemas.",
+    },
+  ],
+  "docs/exports.md": [
+    {
+      page: "(guides)/guides/exports",
+      title: "CSV and Parquet exports",
+      description: "Download every record of a list as one CSV or Parquet file.",
+    },
+  ],
   "docs/webhooks.md": [
     {
       page: "(guides)/guides/webhooks",
@@ -149,25 +163,29 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/rotating-secrets": "RotateCw",
   "(guides)/self-hosting/operating-notes": "NotebookPen",
   "(guides)/guides/fhir": "HeartPulse",
+  "(guides)/guides/open-mhealth": "Activity",
+  "(guides)/guides/exports": "FileDown",
   "(guides)/guides/webhooks": "Webhook",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).
 const handWritten: Record<string, string> = {
-  "docs/self-hosting.md": "/docs/self-hosting",
-  "docs/self-hosting.md#quick-start": "/docs/self-hosting/docker-compose",
-  "docs/self-hosting.md#port-and-a-second-install": "/docs/self-hosting/docker-compose#port-and-a-second-install",
-  "docs/self-hosting.md#images-and-architectures": "/docs/self-hosting/docker-compose#images-and-architectures",
-  "docs/self-hosting.md#build-from-source": "/docs/self-hosting/binaries#build-from-source",
-  "docs/self-hosting.md#raspberry-pi-5-4-gb": "/docs/self-hosting/raspberry-pi",
-  "docs/self-hosting.md#s3-compatible-raw-store": "/docs/self-hosting/s3",
-  "README.md": "/docs",
-  "README.md#quickstart": "/docs/quickstart",
+  "docs/self-hosting.md": "/documentation/self-hosting",
+  "docs/self-hosting.md#quick-start": "/documentation/self-hosting/docker-compose",
+  "docs/self-hosting.md#port-and-a-second-install":
+    "/documentation/self-hosting/docker-compose#port-and-a-second-install",
+  "docs/self-hosting.md#images-and-architectures":
+    "/documentation/self-hosting/docker-compose#images-and-architectures",
+  "docs/self-hosting.md#build-from-source": "/documentation/self-hosting/binaries#build-from-source",
+  "docs/self-hosting.md#raspberry-pi-5-4-gb": "/documentation/self-hosting/raspberry-pi",
+  "docs/self-hosting.md#s3-compatible-raw-store": "/documentation/self-hosting/s3",
+  "README.md": "/documentation",
+  "README.md#quickstart": "/documentation/quickstart",
 };
 
 function pageUrl(page: string): string {
   const slugs = page.split("/").filter((s) => !/^\(.*\)$/.test(s) && s !== "index");
-  return `/docs${slugs.length ? `/${slugs.join("/")}` : ""}`;
+  return `/documentation${slugs.length ? `/${slugs.join("/")}` : ""}`;
 }
 
 function slugsOf(markdown: string): string[] {

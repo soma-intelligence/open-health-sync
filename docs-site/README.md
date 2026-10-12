@@ -52,8 +52,10 @@ address so canonical links and social previews resolve, and `NEXT_PUBLIC_BASE_PA
 under a path. The API reference has no "try it" console: an instance only answers cross-origin
 requests for `/openapi.yaml`.
 
-The public site is served under `/open-health-sync` by another site that forwards that path to
-a Vercel project built from this directory, so the docs deploy with every change to `main`:
+The guides live under `/documentation`. The public site forwards `/open-health-sync/documentation`
+and the other paths under `/open-health-sync` (assets, search, `llms.txt`) to a Vercel project
+built from this directory, so the docs deploy with every change to `main`. The forwarding site
+shows its own page at `/open-health-sync` itself, in place of this site's home page:
 
 - Vercel project: this repository, Root Directory `docs-site`, framework Next.js, with
   "Include files outside the root directory" on (the build reads `docs/`, `api/` and `deploy/`).
