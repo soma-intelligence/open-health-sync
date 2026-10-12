@@ -288,6 +288,36 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 400, c.json("GET", u+"/fhir/Observation?category=vitals", key, "").status)
 	assert.Equal(t, 404, c.json("GET", u+"/fhir/Observation/bp-999999999", key, "").status)
 
+	// Open mHealth: a page of data points, its next cursor, one schema, a refusal.
+	r = c.json("GET", u+"/omh/data-points?limit=2", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	var omhPage struct {
+		Data       []json.RawMessage `json:"data"`
+		NextCursor *string           `json:"next_cursor"`
+	}
+	r.json(t, &omhPage)
+	require.NotEmpty(t, omhPage.Data)
+	require.NotNil(t, omhPage.NextCursor)
+	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?limit=2&cursor="+*omhPage.NextCursor, key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?schema=omh:heart-rate&start=2026-01-10&end=2026-01-11", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/omh/data-points?schema=heart_rate", key, "").status)
+
+	// Exports: CSV and Parquet files, and the refusals.
+	for _, p := range []string{
+		u + "/exports/samples",
+		u + "/exports/samples?format=parquet&type=heart_rate",
+		u + "/exports/sleep?format=csv&start=2026-01-01&end=2026-02-01",
+		u + "/exports/workouts?format=parquet",
+		u + "/exports/category-samples",
+		u + "/exports/nutrition?format=parquet",
+		u + "/exports/daily",
+	} {
+		r := c.json("GET", p, key, "")
+		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)
+	}
+	assert.Equal(t, 400, c.json("GET", u+"/exports/samples?format=xlsx", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/exports/samples?limit=10", key, "").status)
+
 	// Connections: an Apple Health user has none (device uploads are not connections).
 	r = c.json("GET", u+"/connections", key, "")
 	assert.Equal(t, 200, r.status, "%s", r.body)
