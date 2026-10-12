@@ -29,20 +29,20 @@ func TestBackfillWindows(t *testing.T) {
 
 func TestRegularWindow(t *testing.T) {
 	slot := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
-	from, to := regularWindow(slot, nil)
+	from, to := regularWindow(slot, PullEvery, nil)
 	assert.Equal(t, slot, to)
 	assert.Equal(t, slot.Add(-7*time.Hour), from)
 
 	recent := slot.Add(-2 * time.Hour)
-	from, _ = regularWindow(slot, &recent)
+	from, _ = regularWindow(slot, PullEvery, &recent)
 	assert.Equal(t, slot.Add(-7*time.Hour), from, "a recent sync does not shrink the window")
 
 	old := slot.Add(-30 * time.Hour)
-	from, _ = regularWindow(slot, &old)
+	from, _ = regularWindow(slot, PullEvery, &old)
 	assert.Equal(t, old.Add(-time.Hour), from, "after an outage the window reaches back")
 
 	ancient := slot.Add(-60 * 24 * time.Hour)
-	from, _ = regularWindow(slot, &ancient)
+	from, _ = regularWindow(slot, PullEvery, &ancient)
 	assert.Equal(t, slot.Add(-7*24*time.Hour), from, "catch up is bounded")
 }
 
