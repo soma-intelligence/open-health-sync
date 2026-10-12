@@ -9,6 +9,12 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Personal use and recipes: `ohs admin personal setup` readies a one person install (a
+  `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
+  single file Python tools with no dependency that run against it: sleep report, heart rate and
+  HRV trend, source comparison, weekly digest, HTML dashboard, full export, read-only AI token,
+  account connection. Each has a page under [docs/recipes](docs/recipes/README.md), and the
+  quickstart end to end suite runs them all.
 - Open mHealth output: `GET /v1/users/{id}/omh/data-points` serves heart rate, steps, blood
   pressure pairs, body weight, height, BMI, body fat, body temperature, SpO2, respiratory rate,
   blood glucose, active energy, sleep sessions (`sleep-episode`) and workouts

@@ -33,7 +33,7 @@ Commands:
   serve     run the roles listed in OHS_ROLES (api, collect, etl)
   migrate   apply or inspect the database schema: up, version, down --all
   doctor    check the configuration, database, raw store and connectors
-  admin     create tenants, create, list and revoke their API keys
+  admin     create tenants, create, list and revoke their API keys, personal setup
   mcp       serve MCP on stdin and stdout for a local agent (Claude Desktop, Claude Code)
   import    load an existing history from a file export: apple-health
   version   print the version and commit
@@ -89,6 +89,13 @@ paste into .env.
                                  revoke one key, named by the prefix key list
                                  shows or by the whole key (a whole user
                                  token is revoked the same way)
+  personal setup [--person <name>] [--url <url>]
+                                 ready a one person install: the "personal"
+                                 tenant, a user (default "me") and a new API
+                                 key, printed as OHS_URL, OHS_KEY and OHS_USER
+                                 lines for the recipes; run it again for a new
+                                 key, or with another --person for a second
+                                 person of the household
 
 A new key (ohs_sk_...) is printed once: store it, it cannot be shown again.
 To rotate: key create, deploy the new key, key revoke the old one.
