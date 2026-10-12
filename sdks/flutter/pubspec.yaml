@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+name: open_health_sync
+description: >-
+  Dart client for the Open Health Sync REST API, for Flutter apps (iOS, Android,
+  desktop, web) and Dart servers. License MIT.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/soma-intelligence/open-health-sync
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  archive: ^4.0.0
+  http: ^1.2.0
+
+dev_dependencies:
+  lints: ">=4.0.0 <7.0.0"
+  test: ^1.25.0
