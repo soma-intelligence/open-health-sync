@@ -9,6 +9,58 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
+  sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
+  verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
+- WHOOP connector (#6): bring your own WHOOP developer app, OAuth connection, scheduled pulls
+  of cycles, recoveries, sleeps, workouts and body measurements from the API v2, and signed
+  webhooks for recovery, sleep and workout updates. Not yet verified with a real account.
+- Strava connector (`strava`, API v3, OAuth 2.0, scheduled pulls and webhook events): activities
+  as workouts. Not yet verified with a real account; see
+  [docs/connectors/strava.md](docs/connectors/strava.md).
+- `GET /inbound/{provider}` lets a connector answer a provider's subscription challenge
+  (Strava's `hub.challenge`), through the optional `connector.ChallengeResponder` interface.
+- `Workout.Replaceable`: a connector can mark a workout so an edited copy from the provider
+  replaces the stored one instead of being skipped.
+- `SleepSession.Replaceable`: a re-scored or edited sleep session replaces the stored figures
+  and its sleep phases instead of keeping the first copy; a Replaceable session or workout whose
+  start moved supersedes the stored copy of the same provider record. Migration `0011` indexes
+  that lookup. Oura, WHOOP and Polar now mark their sleep sessions and workouts Replaceable.
+- Quantity name `hrv_rmssd` (milliseconds) for HRV reported as RMSSD, kept apart from
+  `hrv_sdnn`. Migration `0010` registers it in `quantity_codes`.
+- Polar connector (AccessLink v3): OAuth connect with user registration, scheduled pulls of
+  exercises, sleep with hypnogram, Nightly Recharge, daily activity, continuous heart rate and
+  physical info, and AccessLink webhooks with optional signature verification
+  (`OHS_POLAR_WEBHOOK_SECRET`). Not yet verified with a real account.
+- Provider deletions: `Map` can return `model.Deletion` records (`MapResult.Deletions`). The
+  ETL removes the stored sleep sessions, workouts, category samples and nutrition logs of that
+  provider record, with their phases, route points, track summaries and derived quantity
+  samples, scoped to the job's tenant and user, and records a tombstone in the new
+  `ohs_data.deleted_records` table (migration `0012`) so the record is never written again,
+  whichever arrives first.
+- `QuantitySample.SupersedeMoved`: a Replaceable sample whose `ExternalID` names one figure of
+  one record replaces the stored copy of the same provider, external id and quantity type under
+  another start (an edited sleep or workout, a shifted cycle) instead of adding a second row.
+  WHOOP sets it on all its samples, Oura on the samples of a night.
+- `Deletion.ClearSummaryFields`, `DailySummary.RecordID` and the `summary_date` sample metadata
+  (`model.MetadataSummaryDate`): a deletion clears the daily summary figures its record filled
+  (allow-listed column names only), and a deleted record's summary is not written again. WHOOP
+  clears a recovery's `recovery_score` and `resting_hr` on `recovery.deleted` and
+  `sleep.deleted`.
+- `connector.InboundEvent.Lines`: a notification that a pull cannot fetch back (a delete
+  notice) is stored verbatim as a raw object for every connection of the provider user and
+  queued for the ETL, instead of queueing a pull.
+- WHOOP `sleep.deleted` and `workout.deleted` webhooks and Strava activity `delete` events (with
+  `OHS_STRAVA_SUBSCRIPTION_ID` set) now remove the record.
+- Oura webhooks (optional, `OHS_OURA_VERIFICATION_TOKEN`): the subscription challenge is
+  answered, notifications are verified with `x-oura-signature`, create and update events queue
+  a pull, and deleted sleep periods, workouts and sessions are removed. Subscriptions are
+  created once by the operator; see [docs/connectors/oura.md](docs/connectors/oura.md).
+- Oura daily sleep score (`sleep_score`), daily stress (`stress_high_time`,
+  `recovery_high_time`, in minutes), meditation and breathing sessions (`mindful_session`
+  category samples) and VO2 max (`vo2_max`). Migration `0013` registers the new quantity
+  names. The consent now asks for the `session` scope.
+
 - `ohs import apple-health <export.zip|export.xml>`: loads the history of an Apple Health
   export (the Health app's *Export All Health Data*) without an iOS app. Records, workouts with
   their routes, blood pressure and food correlations, heartbeat series, audiograms and ECGs are
@@ -63,6 +115,39 @@ release may change the API, the configuration or the database schema.
   can never stop half way on compressed data.
 - The ETL retries an object's write transaction up to 3 times on a deadlock or serialization
   failure, which late data can hit while the compression job compresses the same chunk.
+- Oura sleep periods of type `deleted` or `rest` (rejected by the user) remove the stored
+  session of that id instead of being skipped. An Oura data endpoint answering 404 is skipped
+  with a warning instead of failing the pull.
+- Oura connector checked against Oura's OpenAPI document (1.37). The consent asks for
+  `spo2Daily`; the old `spo2` is not an Oura scope. Heart rate is filed under its UTC day (Oura
+  sends it in UTC). Records at a half or quarter hour offset (+05:30, +05:45, -03:30...) land on
+  the user's local day instead of the UTC day. A null contributor is no longer stored as 0, and
+  a zero-length sleep period or a timestamp outside 2000 to 2199 is not stored.
+- Oura pulls retry a 5xx answer twice with backoff. A data type that fails no longer stops the
+  others: the pull stores what it could and fails with the errors at the end. Paging survives
+  an empty page and stops on a repeated `next_token`, and date windows overlap by a day so no
+  day is missed. An `invalid_client` answer of the token endpoint is reported as an
+  application error instead of marking every user `needs_reauth`.
+- Oura webhooks accept data and event types in any case and a signature over the compacted
+  body, and queue no pull for a data type the connector does not store.
+- WHOOP checked against the published API v2: `recovery.deleted` webhooks are applied
+  (recovery samples are now identified by their sleep), the cycle's `step_count` fills the
+  daily summary's steps, offsets that are not whole hours (`+05:30`, `+05:45`) give the right
+  local day, and an ongoing cycle (no `end`) maps.
+- WHOOP pulls are sturdier: one request schedule per process across concurrent pulls, a wait
+  for `X-RateLimit-Reset` when the window is spent, retries on HTTP 500/502/503/504, a data
+  type whose scope was not granted skipped instead of failing the pull, a failing data type no
+  longer stopping the others, and a guard against a repeated `next_token`. A grant without a
+  refresh token (`offline` unticked) is refused, and deleting a user revokes the WHOOP grant.
+- A provider deletion now removes the quantity and category samples stored under the record id
+  or `<id>_<suffix>` whenever they start, also when no sleep or workout of that id is stored (a
+  WHOOP `recovery.deleted` while the sleep stays, a record that only gave samples). Before, only
+  quantity samples within a day of a deleted sleep or workout went, and category samples only
+  matched the exact id. Migration `0014` adds partial indexes on (`tenant_id`, `user_id`,
+  `provider`, `external_id` in the "C" collation) of `quantity_samples` and `category_samples`
+  so the lookup is an index range, not a scan.
+- A token refresh that returns no new refresh token keeps the stored one (RFC 6749 section 6);
+  this was already the behaviour and is now covered by a test.
 
 ## [0.0.2] - 2026-10-11
 

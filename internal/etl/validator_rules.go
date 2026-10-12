@@ -103,6 +103,12 @@ var rangeRules = map[string]rangeRule{
 		// means no beat-to-beat variability at all, which no live heart produces.
 		HardMin: 0, HardMax: unbounded, SoftMin: 3, SoftMax: 300,
 	},
+	model.QTHRVRMSSD: {
+		Unit: "ms",
+		// Same reasoning as SDNN: an RMSSD of 0 is a dropped reading. Nightly
+		// RMSSD rarely passes 250 ms even in endurance athletes.
+		HardMin: 0, HardMax: unbounded, SoftMin: 3, SoftMax: 300,
+	},
 	"vo2_max": {
 		Unit: "mL/kg/min",
 		// The human record is around 96; 90 as the soft ceiling leaves room for
@@ -418,6 +424,20 @@ var rangeRules = map[string]rangeRule{
 	model.QTReadinessScore: {
 		Unit:    "score",
 		HardMin: 0, HardMax: 100, SoftMin: 1, SoftMax: 100,
+	},
+	model.QTSleepScore: {
+		Unit:    "score",
+		HardMin: 0, HardMax: 100, SoftMin: 1, SoftMax: 100,
+	},
+	// Minutes of one day: more than 1440 cannot happen. Most of a day spent
+	// in high stress (soft ceiling 16 h) is possible but worth a flag.
+	model.QTStressHighTime: {
+		Unit:    "min",
+		HardMin: 0, HardMax: 1440, SoftMin: 0, SoftMax: 960,
+	},
+	model.QTRecoveryHighTime: {
+		Unit:    "min",
+		HardMin: 0, HardMax: 1440, SoftMin: 0, SoftMax: 960,
 	},
 
 	// --- Legacy aliases without a declared storage unit ---------------------

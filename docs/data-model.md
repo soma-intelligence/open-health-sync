@@ -49,6 +49,7 @@ Stored in `ohs_data.quantity_samples`.
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
 | `Replaceable` | `bool` | Writer instruction, not a column: a later value for a still open window replaces the stored one. |
+| `SupersedeMoved` | `bool` | Writer instruction, not a column: the external id names one figure of one record, so a stored copy under another start is deleted. |
 
 ### CategorySample
 
@@ -97,6 +98,7 @@ Stored in `ohs_data.sleep_sessions`.
 | `SpO2Avg` | `*float64` |  |
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
+| `Replaceable` | `bool` | Writer instruction, not a column: a re-scored session replaces the stored figures and phases. |
 
 ### SleepPhase
 
@@ -140,6 +142,7 @@ Stored in `ohs_data.workouts`.
 | `VO2Max` | `*float64` |  |
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
+| `Replaceable` | `bool` | Writer instruction, not a column: an edited workout replaces the stored figures. |
 
 ### RoutePoint
 
@@ -251,6 +254,7 @@ Stored in `ohs_data.daily_summaries`.
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
 | `Replaceable` | `bool` | Writer instruction, not a column: the latest summary for the day wins. |
+| `RecordID` | `string` | Writer instruction, not a column: the provider record whose figures the summary carries; not written once that record is deleted. |
 
 ### HeartbeatSample
 
@@ -315,6 +319,7 @@ MapResult holds all canonical records produced from a single input record.
 | `Observations` | `[]Observation` |  |
 | `HighFrequency` | `bool` | The result holds high volume data and is written with COPY. |
 | `SourceKey` | `string` | Raw object the batch was mapped from. Child records use it to find a parent that arrived in another object. |
+| `Deletions` | `[]Deletion` | Provider records the provider deleted: their stored rows are removed and a tombstone in `ohs_data.deleted_records` keeps them from being written again. |
 
 ## Quantity names and storage units
 
@@ -361,6 +366,7 @@ stored as 0 to 100, not as fractions.
 | `headphone_audio_exposure` | `dBASPL` |
 | `heart_rate` | `bpm` |
 | `height` | `cm` |
+| `hrv_rmssd` | `ms` |
 | `hrv_sdnn` | `ms` |
 | `inhaler_usage` | `count` |
 | `insulin_delivery` | `IU` |
@@ -376,6 +382,7 @@ stored as 0 to 100, not as fractions.
 | `push_count` | `count` |
 | `readiness_hrv_balance` | `index` |
 | `readiness_score` | `score` |
+| `recovery_high_time` | `min` |
 | `respiratory_rate` | `bpm` |
 | `resting_heart_rate` | `bpm` |
 | `running_ground_contact_time` | `ms` |
@@ -384,9 +391,11 @@ stored as 0 to 100, not as fractions.
 | `running_stride_length` | `m` |
 | `running_vertical_oscillation` | `cm` |
 | `skin_temperature` | `celsius` |
+| `sleep_score` | `score` |
 | `step_count` | `count` |
 | `step_count_intraday` | `count` |
 | `strain` | `index` |
+| `stress_high_time` | `min` |
 | `underwater_depth` | `m` |
 | `uv_exposure` | `index` |
 | `vascular_age` | `years` |

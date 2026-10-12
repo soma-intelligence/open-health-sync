@@ -68,6 +68,17 @@ type Subscriber interface {
 	Unsubscribe(ctx context.Context, c Connection, callbackURL string) error
 }
 
+// ChallengeResponder is optionally implemented by a PushConnector whose
+// provider validates the callback URL with a GET that must be answered with a
+// body, such as the hub.challenge echo of a Strava push subscription. The
+// probe route (GET and HEAD /inbound/<slug>) hands it the request. It returns
+// the content type and body of a 200 answer (a nil body answers 200 with no
+// body, as for any provider), or an error, which the route answers 401 like a
+// refused notification. It must not block: providers wait a few seconds.
+type ChallengeResponder interface {
+	AnswerChallenge(r *http.Request) (contentType string, body []byte, err error)
+}
+
 // NotifiedFetcher is optionally implemented by an OAuthConnector whose
 // notifications name what changed (InboundEvent.DataType). FetchNotified
 // pulls only what such a notification can concern, usually one or two

@@ -1,0 +1,7 @@
+{
+  "data": [
+    {"id": "spo2-0001", "day": "2026-03-01", "spo2_percentage": {"average": 97.0}, "breathing_disturbance_index": 5},
+    {"id": "spo2-0002", "day": "2026-03-02", "spo2_percentage": null, "breathing_disturbance_index": null}
+  ],
+  "next_token": null
+}

@@ -54,11 +54,26 @@ type Connection struct {
 	LastSyncAt time.Time
 }
 
-// InboundEvent is a provider notification that new data is available.
+// InboundEvent is a provider notification: new data to pull, or raw lines to
+// store.
+//
+// Without Lines, the core queues a pull of [From, To] for every active
+// connection of ProviderUserID (DataType is informative: a pull fetches every
+// data type).
+//
+// With Lines, nothing is pulled: the core stores the lines verbatim as one raw
+// object of DataType for every active connection of ProviderUserID, and the
+// ETL hands each line to Map like a pulled one. This is for what a pull cannot
+// fetch back, such as a deletion notice: the connector puts the notification
+// body in Lines, and Map turns the stored line into a model.Deletion. Raw first
+// holds, Map stays pure, and a redelivered notification (same bytes) is stored
+// once. Each line is one JSON object without a newline. From and To are
+// ignored.
 type InboundEvent struct {
 	ProviderUserID string
 	DataType       string
 	From, To       time.Time
+	Lines          [][]byte
 }
 
 // UploadMeta describes one uploaded device part.

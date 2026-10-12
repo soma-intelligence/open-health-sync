@@ -1,0 +1,38 @@
+{
+  "data": [
+    {
+      "id": "session-0001",
+      "day": "2026-03-01",
+      "start_datetime": "2026-03-01T18:00:00+01:00",
+      "end_datetime": "2026-03-01T18:10:00+01:00",
+      "type": "meditation",
+      "heart_rate": {"interval": 5, "items": [60, 58, 57], "timestamp": "2026-03-01T18:00:00.000+01:00"},
+      "heart_rate_variability": {"interval": 5, "items": [40, 42, 45], "timestamp": "2026-03-01T18:00:00.000+01:00"},
+      "mood": "good",
+      "motion_count": {"interval": 5, "items": [0, 1, 0], "timestamp": "2026-03-01T18:00:00.000+01:00"}
+    },
+    {
+      "id": "session-0002",
+      "day": "2026-03-02",
+      "start_datetime": "2026-03-02T13:00:00+01:00",
+      "end_datetime": "2026-03-02T13:20:00+01:00",
+      "type": "nap",
+      "heart_rate": null,
+      "heart_rate_variability": null,
+      "mood": null,
+      "motion_count": null
+    },
+    {
+      "id": "session-0003",
+      "day": "2026-03-02",
+      "start_datetime": "2026-03-02T21:00:00+01:00",
+      "end_datetime": "2026-03-02T21:05:00+01:00",
+      "type": "breathing",
+      "heart_rate": null,
+      "heart_rate_variability": null,
+      "mood": null,
+      "motion_count": null
+    }
+  ],
+  "next_token": null
+}

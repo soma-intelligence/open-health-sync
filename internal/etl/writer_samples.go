@@ -4,6 +4,7 @@ package etl
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -105,6 +106,11 @@ func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, 
 		}
 		written, skipped = written+n, skipped+len(insertOnly)-n
 	}
+	upsert, moved := supersedeMovedSplit(sc, upsert)
+	superseded += moved
+	if err := supersedeMovedSamples(ctx, tx, sc, upsert); err != nil {
+		return written, skipped, err
+	}
 	if len(upsert) > 0 {
 		rows := make([][]any, 0, len(upsert))
 		var wd window
@@ -127,6 +133,73 @@ func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, 
 		written, skipped = written+changed+added, skipped+len(upsert)-changed-added
 	}
 	return written, skipped + superseded, nil
+}
+
+// quantitySupersede deletes the stored copies of SupersedeMoved samples under
+// another start: same provider, external id and quantity type ($3 to $5, one
+// element per sample), another start_date ($6). The dedup unique includes
+// start_date, so the upsert alone cannot reach them. The external id is
+// matched on the index of migration 0014.
+const quantitySupersede = `DELETE FROM ohs_data.quantity_samples q
+	USING unnest($3::text[], $4::text[], $5::text[], $6::timestamptz[]) AS n(provider, external_id, quantity_type, start_date)
+	WHERE q.tenant_id = $1 AND q.user_id = $2
+	  AND q.provider = n.provider AND q.external_id IS NOT NULL AND q.external_id COLLATE "C" = n.external_id
+	  AND q.quantity_type = n.quantity_type AND q.start_date <> n.start_date`
+
+// supersedes reports a sample whose stored copies under another start the
+// writer deletes (QuantitySample.SupersedeMoved).
+func supersedes(s model.QuantitySample) bool {
+	return s.SupersedeMoved && s.Replaceable && s.ExternalID != ""
+}
+
+// supersedeKey is the provider record figure a SupersedeMoved sample is.
+type supersedeKey struct{ provider, externalID, quantityType string }
+
+// supersedeMovedSplit keeps, of several SupersedeMoved copies of one figure
+// in the batch (a start that moved between two pulls of one object), the last
+// one, and counts the others.
+func supersedeMovedSplit(sc scope, samples []model.QuantitySample) ([]model.QuantitySample, int) {
+	last := map[supersedeKey]int{}
+	for i, s := range samples {
+		if supersedes(s) {
+			last[supersedeKey{sc.providerOr(s.Provider), s.ExternalID, s.QuantityType}] = i
+		}
+	}
+	if len(last) == 0 {
+		return samples, 0
+	}
+	out := samples[:0:0]
+	for i, s := range samples {
+		if supersedes(s) && last[supersedeKey{sc.providerOr(s.Provider), s.ExternalID, s.QuantityType}] != i {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, len(samples) - len(out)
+}
+
+// supersedeMovedSamples deletes, before the upsert, the stored copies of the
+// SupersedeMoved samples whose start moved. They are not counted: the new
+// copy is the record's figure.
+func supersedeMovedSamples(ctx context.Context, tx TxLike, sc scope, samples []model.QuantitySample) error {
+	var providers, ids, types []string
+	var starts []time.Time
+	for _, s := range samples {
+		if !supersedes(s) {
+			continue
+		}
+		providers = append(providers, sc.providerOr(s.Provider))
+		ids = append(ids, s.ExternalID)
+		types = append(types, s.QuantityType)
+		starts = append(starts, s.StartDate)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, quantitySupersede, sc.tenant, sc.user, providers, ids, types, starts); err != nil {
+		return fmt.Errorf("supersede moved samples: %w", err)
+	}
+	return nil
 }
 
 // rowsOf maps records to rows with fn.

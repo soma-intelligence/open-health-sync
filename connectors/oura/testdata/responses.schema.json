@@ -1,0 +1,1684 @@
+{
+ "components": {
+  "schemas": {
+   "Array_Union_float__NoneType__Bits64_": {
+    "items": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "type": "array"
+   },
+   "CreateWebhookSubscriptionRequest": {
+    "properties": {
+     "callback_url": {
+      "type": "string"
+     },
+     "data_type": {
+      "$ref": "#/components/schemas/ExtApiV2DataType"
+     },
+     "event_type": {
+      "$ref": "#/components/schemas/WebhookOperation"
+     },
+     "verification_token": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "callback_url",
+     "verification_token",
+     "event_type",
+     "data_type"
+    ],
+    "type": "object"
+   },
+   "ExtApiV2DataType": {
+    "enum": [
+     "tag",
+     "enhanced_tag",
+     "workout",
+     "session",
+     "sleep",
+     "daily_sleep",
+     "daily_readiness",
+     "daily_activity",
+     "daily_spo2",
+     "sleep_time",
+     "rest_mode_period",
+     "ring_configuration",
+     "daily_stress",
+     "daily_cardiovascular_age",
+     "daily_resilience",
+     "vo2_max",
+     "meal"
+    ],
+    "type": "string"
+   },
+   "ISODate": {
+    "type": "string"
+   },
+   "LocalizedDateTime": {
+    "type": "string"
+   },
+   "MultiDocumentResponse_PublicDailyActivity_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicDailyActivity"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "MultiDocumentResponse_PublicDailyReadiness_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicDailyReadiness"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "MultiDocumentResponse_PublicDailySleep_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicDailySleep"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "MultiDocumentResponse_PublicDailySpO2_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicDailySpO2"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "MultiDocumentResponse_PublicDailyStress_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicDailyStress"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "MultiDocumentResponse_PublicModifiedSleepModel_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicModifiedSleepModel"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "MultiDocumentResponse_PublicSession_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicSession"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "MultiDocumentResponse_PublicVO2Max_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicVO2Max"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "MultiDocumentResponse_PublicWorkout_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicWorkout"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data",
+     "next_token"
+    ],
+    "type": "object"
+   },
+   "PersonalInfoResponse": {
+    "properties": {
+     "age": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "biological_sex": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "email": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "height": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "id": {
+      "type": "string"
+     },
+     "weight": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "type": "object"
+   },
+   "PublicActivityContributors": {
+    "properties": {
+     "meet_daily_targets": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "move_every_hour": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "recovery_time": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "stay_active": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "training_frequency": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "training_volume": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "PublicDailyActivity": {
+    "properties": {
+     "active_calories": {
+      "type": "integer"
+     },
+     "average_met_minutes": {
+      "type": "number"
+     },
+     "class_5_min": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "contributors": {
+      "$ref": "#/components/schemas/PublicActivityContributors"
+     },
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "equivalent_walking_distance": {
+      "type": "integer"
+     },
+     "high_activity_met_minutes": {
+      "type": "integer"
+     },
+     "high_activity_time": {
+      "type": "integer"
+     },
+     "id": {
+      "type": "string"
+     },
+     "inactivity_alerts": {
+      "type": "integer"
+     },
+     "low_activity_met_minutes": {
+      "type": "integer"
+     },
+     "low_activity_time": {
+      "type": "integer"
+     },
+     "medium_activity_met_minutes": {
+      "type": "integer"
+     },
+     "medium_activity_time": {
+      "type": "integer"
+     },
+     "met": {
+      "$ref": "#/components/schemas/PublicSample"
+     },
+     "meters_to_target": {
+      "type": "integer"
+     },
+     "non_wear_time": {
+      "type": "integer"
+     },
+     "resting_time": {
+      "type": "integer"
+     },
+     "score": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "sedentary_met_minutes": {
+      "type": "integer"
+     },
+     "sedentary_time": {
+      "type": "integer"
+     },
+     "steps": {
+      "type": "integer"
+     },
+     "target_calories": {
+      "type": "integer"
+     },
+     "target_meters": {
+      "type": "integer"
+     },
+     "timestamp": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     },
+     "total_calories": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "active_calories",
+     "average_met_minutes",
+     "contributors",
+     "day",
+     "equivalent_walking_distance",
+     "high_activity_met_minutes",
+     "high_activity_time",
+     "inactivity_alerts",
+     "low_activity_met_minutes",
+     "low_activity_time",
+     "medium_activity_met_minutes",
+     "medium_activity_time",
+     "met",
+     "meters_to_target",
+     "non_wear_time",
+     "resting_time",
+     "sedentary_met_minutes",
+     "sedentary_time",
+     "steps",
+     "target_calories",
+     "target_meters",
+     "timestamp",
+     "total_calories"
+    ],
+    "type": "object"
+   },
+   "PublicDailyReadiness": {
+    "properties": {
+     "contributors": {
+      "$ref": "#/components/schemas/PublicReadinessContributors"
+     },
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "id": {
+      "type": "string"
+     },
+     "score": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "temperature_deviation": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "temperature_trend_deviation": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "timestamp": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     }
+    },
+    "required": [
+     "id",
+     "contributors",
+     "day",
+     "timestamp"
+    ],
+    "type": "object"
+   },
+   "PublicDailySleep": {
+    "properties": {
+     "contributors": {
+      "$ref": "#/components/schemas/PublicSleepContributors"
+     },
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "id": {
+      "type": "string"
+     },
+     "score": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "timestamp": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     }
+    },
+    "required": [
+     "id",
+     "contributors",
+     "day",
+     "timestamp"
+    ],
+    "type": "object"
+   },
+   "PublicDailySpO2": {
+    "properties": {
+     "breathing_disturbance_index": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "id": {
+      "type": "string"
+     },
+     "spo2_percentage": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSpo2AggregatedValues"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "day"
+    ],
+    "type": "object"
+   },
+   "PublicDailyStress": {
+    "properties": {
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "day_summary": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicDailyStressSummary"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "id": {
+      "type": "string"
+     },
+     "recovery_high": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "stress_high": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "day"
+    ],
+    "type": "object"
+   },
+   "PublicDailyStressSummary": {
+    "enum": [
+     "restored",
+     "normal",
+     "stressful"
+    ],
+    "type": "string"
+   },
+   "PublicHeartRateRow": {
+    "properties": {
+     "bpm": {
+      "type": "integer"
+     },
+     "source": {
+      "$ref": "#/components/schemas/PublicHeartRateSource"
+     },
+     "timestamp": {
+      "$ref": "#/components/schemas/UtcDateTime"
+     },
+     "timestamp_unix": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "timestamp",
+     "timestamp_unix",
+     "bpm",
+     "source"
+    ],
+    "type": "object"
+   },
+   "PublicHeartRateSource": {
+    "enum": [
+     "awake",
+     "workout",
+     "rest",
+     "sleep",
+     "live",
+     "session"
+    ],
+    "type": "string"
+   },
+   "PublicModifiedSleepModel": {
+    "properties": {
+     "app_sleep_phase_5_min": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "average_breath": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "average_heart_rate": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "average_hrv": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "awake_time": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "bedtime_end": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     },
+     "bedtime_start": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     },
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "deep_sleep_duration": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "efficiency": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "heart_rate": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSample"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "hrv": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSample"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "id": {
+      "type": "string"
+     },
+     "latency": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "light_sleep_duration": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "low_battery_alert": {
+      "type": "boolean"
+     },
+     "lowest_heart_rate": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "movement_30_sec": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "period": {
+      "type": "integer"
+     },
+     "readiness": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicReadiness"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "readiness_score_delta": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "rem_sleep_duration": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "restless_periods": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "ring_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "sleep_algorithm_version": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSleepAlgorithmVersion"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "sleep_analysis_reason": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSleepAnalysisReason"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "sleep_phase_30_sec": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "sleep_phase_5_min": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "sleep_score_delta": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "time_in_bed": {
+      "type": "integer"
+     },
+     "total_sleep_duration": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "type": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSleepType"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "bedtime_end",
+     "bedtime_start",
+     "day",
+     "low_battery_alert",
+     "period",
+     "time_in_bed"
+    ],
+    "type": "object"
+   },
+   "PublicMomentMood": {
+    "enum": [
+     "bad",
+     "worse",
+     "same",
+     "good",
+     "great"
+    ],
+    "type": "string"
+   },
+   "PublicMomentType": {
+    "enum": [
+     "breathing",
+     "meditation",
+     "nap",
+     "relaxation",
+     "rest",
+     "body_status"
+    ],
+    "type": "string"
+   },
+   "PublicReadiness": {
+    "properties": {
+     "contributors": {
+      "$ref": "#/components/schemas/PublicReadinessContributors"
+     },
+     "score": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "temperature_deviation": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "temperature_trend_deviation": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "contributors"
+    ],
+    "type": "object"
+   },
+   "PublicReadinessContributors": {
+    "properties": {
+     "activity_balance": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "body_temperature": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "hrv_balance": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "previous_day_activity": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "previous_night": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "recovery_index": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "resting_heart_rate": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "sleep_balance": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "sleep_regularity": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "PublicSample": {
+    "properties": {
+     "interval": {
+      "type": "number"
+     },
+     "items": {
+      "$ref": "#/components/schemas/Array_Union_float__NoneType__Bits64_"
+     },
+     "timestamp": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     }
+    },
+    "required": [
+     "interval",
+     "items",
+     "timestamp"
+    ],
+    "type": "object"
+   },
+   "PublicSession": {
+    "properties": {
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "end_datetime": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     },
+     "heart_rate": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSample"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "heart_rate_variability": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSample"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "id": {
+      "type": "string"
+     },
+     "mood": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicMomentMood"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "motion_count": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicSample"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "start_datetime": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     },
+     "type": {
+      "$ref": "#/components/schemas/PublicMomentType"
+     }
+    },
+    "required": [
+     "id",
+     "day",
+     "end_datetime",
+     "start_datetime",
+     "type"
+    ],
+    "type": "object"
+   },
+   "PublicSleepAlgorithmVersion": {
+    "enum": [
+     "v1",
+     "v2"
+    ],
+    "type": "string"
+   },
+   "PublicSleepAnalysisReason": {
+    "enum": [
+     "foreground_sleep_analysis",
+     "bedtime_edit",
+     "background_sleep_analysis",
+     "background_created_foreground_updated"
+    ],
+    "type": "string"
+   },
+   "PublicSleepContributors": {
+    "properties": {
+     "deep_sleep": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "efficiency": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "latency": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "rem_sleep": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "restfulness": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "timing": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "total_sleep": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "PublicSleepType": {
+    "enum": [
+     "deleted",
+     "sleep",
+     "long_sleep",
+     "late_nap",
+     "rest"
+    ],
+    "type": "string"
+   },
+   "PublicSpo2AggregatedValues": {
+    "properties": {
+     "average": {
+      "type": "number"
+     }
+    },
+    "required": [
+     "average"
+    ],
+    "type": "object"
+   },
+   "PublicVO2Max": {
+    "properties": {
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "id": {
+      "type": "string"
+     },
+     "timestamp": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     },
+     "vo2_max": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "day",
+     "timestamp",
+     "vo2_max"
+    ],
+    "type": "object"
+   },
+   "PublicWorkout": {
+    "properties": {
+     "activity": {
+      "type": "string"
+     },
+     "calories": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "day": {
+      "$ref": "#/components/schemas/ISODate"
+     },
+     "distance": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "end_datetime": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     },
+     "id": {
+      "type": "string"
+     },
+     "intensity": {
+      "$ref": "#/components/schemas/PublicWorkoutIntensity"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "source": {
+      "$ref": "#/components/schemas/PublicWorkoutSource"
+     },
+     "start_datetime": {
+      "$ref": "#/components/schemas/LocalizedDateTime"
+     }
+    },
+    "required": [
+     "id",
+     "activity",
+     "day",
+     "end_datetime",
+     "intensity",
+     "source",
+     "start_datetime"
+    ],
+    "type": "object"
+   },
+   "PublicWorkoutIntensity": {
+    "enum": [
+     "easy",
+     "moderate",
+     "hard"
+    ],
+    "type": "string"
+   },
+   "PublicWorkoutSource": {
+    "enum": [
+     "manual",
+     "autodetected",
+     "confirmed",
+     "workout_heart_rate"
+    ],
+    "type": "string"
+   },
+   "TimeSeriesResponse_PublicHeartRateRow_": {
+    "properties": {
+     "data": {
+      "items": {
+       "$ref": "#/components/schemas/PublicHeartRateRow"
+      },
+      "type": "array"
+     },
+     "next_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "data"
+    ],
+    "type": "object"
+   },
+   "UtcDateTime": {
+    "type": "string"
+   },
+   "WebhookOperation": {
+    "enum": [
+     "create",
+     "update",
+     "delete"
+    ],
+    "type": "string"
+   },
+   "WebhookSubscriptionModel": {
+    "properties": {
+     "callback_url": {
+      "type": "string"
+     },
+     "data_type": {
+      "$ref": "#/components/schemas/ExtApiV2DataType"
+     },
+     "event_type": {
+      "$ref": "#/components/schemas/WebhookOperation"
+     },
+     "expiration_time": {
+      "format": "date-time",
+      "type": "string"
+     },
+     "id": {
+      "format": "uuid4",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "callback_url",
+     "event_type",
+     "data_type",
+     "expiration_time"
+    ],
+    "type": "object"
+   }
+  }
+ },
+ "x-derived-from": "Oura API v2 OpenAPI document openapi-1.37 (info.version 2.0): response structure only",
+ "x-endpoints": {
+  "daily_activity": {
+   "path": "/v2/usercollection/daily_activity",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicDailyActivity_"
+  },
+  "daily_readiness": {
+   "path": "/v2/usercollection/daily_readiness",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicDailyReadiness_"
+  },
+  "daily_sleep": {
+   "path": "/v2/usercollection/daily_sleep",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicDailySleep_"
+  },
+  "daily_spo2": {
+   "path": "/v2/usercollection/daily_spo2",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicDailySpO2_"
+  },
+  "daily_stress": {
+   "path": "/v2/usercollection/daily_stress",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicDailyStress_"
+  },
+  "heartrate": {
+   "path": "/v2/usercollection/heartrate",
+   "query": [
+    "end_datetime",
+    "fields",
+    "latest",
+    "next_token",
+    "start_datetime"
+   ],
+   "schema": "#/components/schemas/TimeSeriesResponse_PublicHeartRateRow_"
+  },
+  "personal_info": {
+   "path": "/v2/usercollection/personal_info",
+   "query": null,
+   "schema": "#/components/schemas/PersonalInfoResponse"
+  },
+  "session": {
+   "path": "/v2/usercollection/session",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicSession_"
+  },
+  "sleep": {
+   "path": "/v2/usercollection/sleep",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicModifiedSleepModel_"
+  },
+  "vo2_max": {
+   "path": "/v2/usercollection/vO2_max",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicVO2Max_"
+  },
+  "workout": {
+   "path": "/v2/usercollection/workout",
+   "query": [
+    "end_date",
+    "fields",
+    "next_token",
+    "start_date"
+   ],
+   "schema": "#/components/schemas/MultiDocumentResponse_PublicWorkout_"
+  }
+ },
+ "x-oauth": {
+  "authorizationUrl": "https://cloud.ouraring.com/oauth/authorize",
+  "scopes": [
+   "daily",
+   "email",
+   "heartrate",
+   "personal",
+   "session",
+   "spo2Daily",
+   "tag",
+   "workout"
+  ],
+  "tokenUrl": "https://api.ouraring.com/oauth/token"
+ }
+}

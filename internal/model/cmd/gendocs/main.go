@@ -67,9 +67,13 @@ var notes = map[string]string{
 	"QuantitySample.DeviceModel":         "Model of the device that took the reading.",
 	"QuantitySample.WasUserEntered":      "Null when the source does not say.",
 	"QuantitySample.Replaceable":         "Writer instruction, not a column: a later value for a still open window replaces the stored one.",
+	"QuantitySample.SupersedeMoved":      "Writer instruction, not a column: the external id names one figure of one record, so a stored copy under another start is deleted.",
 	"DailySummary.SummaryDate":           "The user's local calendar day.",
 	"DailySummary.Replaceable":           "Writer instruction, not a column: the latest summary for the day wins.",
+	"DailySummary.RecordID":              "Writer instruction, not a column: the provider record whose figures the summary carries; not written once that record is deleted.",
 	"NutritionLog.Replaceable":           "Writer instruction, not a column.",
+	"Workout.Replaceable":                "Writer instruction, not a column: an edited workout replaces the stored figures.",
+	"SleepSession.Replaceable":           "Writer instruction, not a column: a re-scored session replaces the stored figures and phases.",
 	"NutritionLog.NutrientsJSON":         "Extended nutrients by name.",
 	"SleepPhase.Phase":                   "`deep`, `rem`, `light`, `awake`, `in_bed` or `asleep_core`, after label normalization.",
 	"SleepPhase.ParentContentHash":       "Content hash of the parent session. Empty for an orphan phase.",
@@ -82,6 +86,7 @@ var notes = map[string]string{
 	"Observation.TypeConcept":            "`device`, `survey`, `ehr` or `derived`.",
 	"MapResult.HighFrequency":            "The result holds high volume data and is written with COPY.",
 	"MapResult.SourceKey":                "Raw object the batch was mapped from. Child records use it to find a parent that arrived in another object.",
+	"MapResult.Deletions":                "Provider records the provider deleted: their stored rows are removed and a tombstone in `ohs_data.deleted_records` keeps them from being written again.",
 }
 
 const header = `# Data model

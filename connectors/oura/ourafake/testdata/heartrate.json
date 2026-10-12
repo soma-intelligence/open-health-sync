@@ -1,0 +1,10 @@
+{
+  "data": [
+    {"bpm": 60, "source": "awake", "timestamp": "2026-03-01T10:00:00+00:00", "timestamp_unix": 1772359200000},
+    {"bpm": 62, "source": "awake", "timestamp": "2026-03-01T10:05:00+00:00", "timestamp_unix": 1772359500000},
+    {"bpm": 50, "source": "sleep", "timestamp": "2026-03-01T23:30:00+00:00", "timestamp_unix": 1772407800000},
+    {"bpm": 52, "source": "sleep", "timestamp": "2026-03-02T01:00:00+00:00", "timestamp_unix": 1772413200000},
+    {"bpm": 120, "source": "workout", "timestamp": "2026-03-02T17:30:00+00:00", "timestamp_unix": 1772472600000}
+  ],
+  "next_token": null
+}

@@ -42,6 +42,7 @@ func TestCanonicalQuantityConstants(t *testing.T) {
 		QTHeartRate:                "heart_rate",
 		QTRestingHeartRate:         "resting_heart_rate",
 		QTHRVSDNN:                  "hrv_sdnn",
+		QTHRVRMSSD:                 "hrv_rmssd",
 		QTOxygenSaturation:         "oxygen_saturation",
 		QTRespiratoryRate:          "respiratory_rate",
 		QTBodyTemperature:          "body_temperature",
@@ -58,5 +59,9 @@ func TestCanonicalQuantityConstants(t *testing.T) {
 	// The oura 0-100 index must be its own key, never the ms HRV key.
 	if QTReadinessHRVBalance == QTHRVSDNN {
 		t.Fatal("readiness_hrv_balance must not equal hrv_sdnn (index vs milliseconds)")
+	}
+	// RMSSD and SDNN are different statistics: two keys.
+	if QTHRVRMSSD == QTHRVSDNN {
+		t.Fatal("hrv_rmssd must not equal hrv_sdnn")
 	}
 }
