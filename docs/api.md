@@ -209,10 +209,12 @@ not stored; an operator finds each line and its reason in `ohs_data.failed_recor
 
 ## FHIR R4
 
-`GET /v1/users/{id}/fhir/Observation` serves the same quantity samples as FHIR R4 Observations,
-in a `searchset` Bundle (`application/fhir+json`) paged by its `next` link, and
-`GET /v1/users/{id}/fhir/Observation/{observation_id}` reads one back. Filters: `type`, `code`
-(`http://loinc.org|8867-4`), `start`, `end`. The mapping, the profiles met and the limits are in
+`GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood pressure readings
+(a systolic and a diastolic sample paired into one panel), sleep sessions, workouts and daily
+summaries as FHIR R4 Observations, in one `searchset` Bundle (`application/fhir+json`) in time
+order, paged by its `next` link, and `GET /v1/users/{id}/fhir/Observation/{observation_id}` reads
+one back. Filters: `type`, `code` (`http://loinc.org|8867-4`), `category` (`vital-signs`,
+`laboratory`, `activity`), `start`, `end`. The mapping, the profiles met and the limits are in
 [fhir.md](fhir.md).
 
 ```sh

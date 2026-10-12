@@ -64,3 +64,53 @@ func TestQueryValidate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, DefaultLimit, n.Limit)
 }
+
+func TestObservationCursor(t *testing.T) {
+	at := time.Date(2026, 3, 1, 9, 30, 0, 123456000, time.FixedZone("x", 3600))
+	gotT, gotK, gotID, err := decodeObsCursor(encodeObsCursor(at, KindWorkout, 42))
+	require.NoError(t, err)
+	assert.True(t, at.Equal(gotT))
+	assert.Equal(t, KindWorkout, gotK)
+	assert.Equal(t, int64(42), gotID)
+
+	enc := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	for _, bad := range []string{"%%", enc("2026-03-01T00:00:00Z|1"), enc("2026-03-01T00:00:00Z|0|1"),
+		enc("2026-03-01T00:00:00Z|5|1"), enc("2026-03-01T00:00:00Z|x|1"), enc("soon|1|1"),
+		enc("2026-03-01T00:00:00Z|1|x"), EncodeCursor(at, 42)} {
+		_, _, _, err := decodeObsCursor(bad)
+		assert.ErrorIs(t, err, ErrInvalidCursor, bad)
+	}
+	assert.NoError(t, CheckObservationQuery(Query{Cursor: encodeObsCursor(at, KindSleep, 1)}))
+	assert.ErrorIs(t, CheckObservationQuery(Query{Cursor: EncodeCursor(at, 1)}), ErrInvalidCursor,
+		"a REST list cursor is not a merged list cursor")
+	var qe *QueryError
+	assert.ErrorAs(t, CheckObservationQuery(Query{Limit: 5000}), &qe)
+}
+
+func TestObservationFilterAnd(t *testing.T) {
+	all := AllObservations()
+	types := func(ts ...string) ObservationFilter { return ObservationFilter{Quantities: true, Types: ts} }
+	panels := ObservationFilter{Quantities: true, PanelsOnly: true}
+	sleep := ObservationFilter{Sleep: true}
+	activity := ObservationFilter{Quantities: true, Types: []string{"step_count"}, Workouts: true, Daily: true}
+
+	assert.Equal(t, all, all.And(all))
+	assert.False(t, all.Empty())
+	assert.Equal(t, types("heart_rate"), all.And(types("heart_rate")))
+	assert.Equal(t, types("heart_rate"), types("heart_rate", "step_count").And(types("heart_rate")))
+	assert.True(t, types("heart_rate").And(types("step_count")).Empty())
+	assert.True(t, ObservationFilter{Quantities: true, Types: []string{}}.Empty(), "an empty type list keeps nothing")
+	assert.False(t, types().Empty(), "a nil type list keeps every type")
+	assert.True(t, ObservationFilter{}.Empty())
+
+	assert.Equal(t, panels, all.And(panels))
+	assert.Equal(t, panels, panels.And(types(Diastolic)))
+	assert.Equal(t, panels, types(Systolic, "heart_rate").And(panels))
+	assert.True(t, panels.And(types("heart_rate")).Empty())
+	assert.True(t, panels.And(sleep).Empty())
+
+	assert.Equal(t, sleep, all.And(sleep))
+	assert.True(t, sleep.And(activity).Empty())
+	assert.Equal(t, ObservationFilter{Workouts: true}, activity.And(ObservationFilter{Workouts: true}))
+	assert.Equal(t, types("step_count"), activity.And(types("step_count", "heart_rate")))
+}

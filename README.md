@@ -130,9 +130,9 @@ Want one sooner? Connectors are self-contained: read
 |---|---|
 | REST JSON, described by [api/openapi.yaml](api/openapi.yaml) | ✅ Available |
 | MCP server, read only ([docs/mcp.md](docs/mcp.md)) | ✅ Available |
-| FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | ✅ Available (Observations) |
+| FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | ✅ Available (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
 | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
-| FHIR R4 for sleep, workouts and daily summaries; FHIR bulk export | 🛠 Planned |
+| FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
 | Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
 | SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
 
@@ -392,7 +392,8 @@ Known limitations:
 - After a hard kill, a job that was in flight is picked up again only after its 10 minute
   visibility timeout.
 - One database and one raw store per instance; no multi-region replication.
-- FHIR R4 covers quantity samples only (as Observations); no webhooks or mobile SDKs yet.
+- FHIR R4 serves Observations only (samples, blood pressure, sleep, workouts, daily summaries); no
+  webhooks or mobile SDKs yet.
 - The Withings portal steps and the units of physical effort and VO2 max are not verified on
   real devices yet.
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
@@ -405,7 +406,7 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
 - [Self-hosting](docs/self-hosting.md): configuration, images, Raspberry Pi, S3, operating notes.
 - [API guide](docs/api.md) and the [OpenAPI file](api/openapi.yaml), the source of truth.
 - [MCP server](docs/mcp.md): tools, credentials, desktop and remote agents.
-- [FHIR R4 output](docs/fhir.md): quantity samples as Observations, the mapping and its limits.
+- [FHIR R4 output](docs/fhir.md): the user's records as Observations, the mapping and its limits.
 - [Data model](docs/data-model.md): every canonical type and quantity name, with units.
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
 - Connectors: [supported and planned sources](docs/connectors/README.md),

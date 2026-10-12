@@ -278,6 +278,16 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 200, r.status, "a workout without GPS has an empty route: %s", r.body)
 	assert.JSONEq(t, `{"data":[],"next_cursor":null}`, string(r.body))
 
+	// FHIR: sleep sessions, workouts and daily summaries are Observations too.
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation/sleep-"+strconv.FormatInt(sleep.Data[0].ID, 10), key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation/workout-"+strconv.FormatInt(workouts.Data[0].ID, 10), key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation?category=activity&limit=3", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation?code=http://loinc.org%7C85354-9", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Observation?code="+
+		"https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type%7Csleep_session", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/fhir/Observation?category=vitals", key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/fhir/Observation/bp-999999999", key, "").status)
+
 	// Connections: an Apple Health user has none (device uploads are not connections).
 	r = c.json("GET", u+"/connections", key, "")
 	assert.Equal(t, 200, r.status, "%s", r.body)

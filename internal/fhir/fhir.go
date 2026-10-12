@@ -2,7 +2,8 @@
 
 // Package fhir maps normalized records to FHIR R4 (4.0.1) JSON resources. It
 // holds only the few resource shapes the API serves, written with the
-// standard library: a quantity sample becomes an Observation, and a page of
+// standard library: a quantity sample, a blood pressure pair, a sleep
+// session, a workout or a daily summary becomes an Observation, and a page of
 // them a searchset Bundle. The mapping is described in docs/fhir.md; the
 // golden files under testdata are what the HL7 validator checks
 // (scripts/fhir-validate.sh).
@@ -118,6 +119,7 @@ type Observation struct {
 	ValueQuantity     *Quantity         `json:"valueQuantity,omitempty"`
 	DataAbsentReason  *CodeableConcept  `json:"dataAbsentReason,omitempty"`
 	Device            *Reference        `json:"device,omitempty"`
+	Component         []Component       `json:"component,omitempty"`
 }
 
 // ObservationID is the stable id of the Observation made from the quantity
@@ -129,11 +131,10 @@ func ObservationID(id int64) string {
 // ParseObservationID reverses ObservationID.
 func ParseObservationID(s string) (int64, bool) {
 	rest, ok := strings.CutPrefix(s, ObservationIDPrefix)
-	if !ok || rest == "" || rest[0] == '+' || rest[0] == '-' {
+	if !ok {
 		return 0, false
 	}
-	id, err := strconv.ParseInt(rest, 10, 64)
-	return id, err == nil && id > 0
+	return parseRowID(rest)
 }
 
 // FromQuantitySample maps one quantity sample of user to an Observation.

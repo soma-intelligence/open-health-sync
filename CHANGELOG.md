@@ -16,14 +16,17 @@ release may change the API, the configuration or the database schema.
   constant memory, with `--since`, `--tz`, `--dry-run` and a batch id derived from the export so
   a re-run uploads nothing twice. See
   [importing a Health app export](docs/connectors/apple-health.md#importing-a-health-app-export).
-- FHIR R4 output: `GET /v1/users/{id}/fhir/Observation` serves a user's quantity samples as
-  FHIR R4 Observations in a paged `searchset` Bundle (`application/fhir+json`), filtered by
-  `type`, LOINC `code`, `start` and `end`, and `GET /v1/users/{id}/fhir/Observation/{observation_id}`
-  reads one back. Vital signs meet the R4 vital signs profiles; LOINC and UCUM codes come from
-  the quantity type catalog. The golden files pass the official HL7 validator
-  (`make fhir-validate`, not in CI). Mapping and limits: [docs/fhir.md](docs/fhir.md).
-  Systolic and diastolic pressure are separate Observations without their LOINC codes until
-  they are paired into the R4 blood pressure panel.
+- FHIR R4 output: `GET /v1/users/{id}/fhir/Observation` serves a user's records as FHIR R4
+  Observations in one paged `searchset` Bundle (`application/fhir+json`), in time order:
+  quantity samples; blood pressure, a systolic and a diastolic sample of the same reading paired
+  into the R4 blood pressure panel (85354-9, never split across pages); sleep sessions (93832-4,
+  stages and night averages as components); workouts (55411-3, activity type and measurements as
+  components); and daily summaries over the user's local day. Filtered by `type`, `code` (LOINC,
+  quantity type or record type), `category`, `start` and `end`;
+  `GET /v1/users/{id}/fhir/Observation/{observation_id}` reads one back. Vital signs meet the R4
+  vital signs and blood pressure profiles; LOINC and UCUM codes come from the quantity type
+  catalog. The golden files pass the official HL7 validator (`make fhir-validate`, not in CI).
+  Mapping and limits: [docs/fhir.md](docs/fhir.md).
 
 ## [0.0.2] - 2026-10-11
 

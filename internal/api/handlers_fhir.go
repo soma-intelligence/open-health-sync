@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -22,8 +23,9 @@ func (s *server) mountFHIR(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/Observation/{observation_id}", s.fhirObservation)
 }
 
-// fhirObservations serves the user's quantity samples as a searchset Bundle
-// of Observations, paged like every list.
+// fhirObservations serves the user's records as a searchset Bundle of
+// Observations: quantity samples, blood pressure panels, sleep sessions,
+// workouts and daily summaries in one list, paged like every list.
 func (s *server) fhirObservations(w http.ResponseWriter, r *http.Request) {
 	p, user, ok := pathUser(w, r)
 	if !ok {
@@ -34,28 +36,33 @@ func (s *server) fhirObservations(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err.Error())
 		return
 	}
-	loinc, empty, msg := parseFHIRCode(r.URL.Query()["code"], &q)
+	qs := r.URL.Query()
+	fs, msg := parseFHIRSearch(qs)
 	if msg != "" {
 		badRequest(w, msg)
 		return
 	}
-	var pg read.Page[read.CodedSample]
-	if !empty {
-		pg, err = read.CodedSamples(r.Context(), s.d.Pool, p.TenantID, user, q, loinc)
-	} else {
-		// A code no Observation carries: an empty page, once the query and
-		// the user check out like any other.
-		if err = q.Check(); err == nil {
-			err = read.CheckUser(r.Context(), s.d.Pool, p.TenantID, user)
-		}
+	if err := read.CheckObservationQuery(q); err != nil {
+		readError(w, r, err, "user")
+		return
 	}
+	if err := read.CheckUser(r.Context(), s.d.Pool, p.TenantID, user); err != nil {
+		readError(w, r, err, "user")
+		return
+	}
+	f, err := s.observationFilter(r, p.TenantID, user, q.Type, fs)
+	if err != nil {
+		readError(w, r, err, "user")
+		return
+	}
+	pg, err := read.Observations(r.Context(), s.d.Pool, p.TenantID, user, q, f)
 	if err != nil {
 		readError(w, r, err, "user")
 		return
 	}
 	obs := make([]fhir.Observation, 0, len(pg.Records))
 	for _, rec := range pg.Records {
-		obs = append(obs, fhir.FromQuantitySample(user, rec))
+		obs = append(obs, fhir.FromRecord(user, rec))
 	}
 	base := s.fhirBase(r, user)
 	self := s.publicBase(r) + r.URL.Path
@@ -64,7 +71,6 @@ func (s *server) fhirObservations(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	if pg.NextCursor != "" {
-		qs := r.URL.Query()
 		qs.Set("cursor", pg.NextCursor)
 		next = s.publicBase(r) + r.URL.Path + "?" + qs.Encode()
 	}
@@ -77,46 +83,150 @@ func (s *server) fhirObservation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, ok := fhir.ParseObservationID(r.PathValue("observation_id"))
+	kind, panel, id, ok := fhir.ParseID(r.PathValue("observation_id"))
 	if !ok {
 		notFound(w, "observation")
 		return
 	}
-	rec, err := read.CodedSampleByID(r.Context(), s.d.Pool, p.TenantID, user, id)
+	rec, err := read.ObservationByID(r.Context(), s.d.Pool, p.TenantID, user, kind, panel, id)
 	if err != nil {
 		readError(w, r, err, "observation")
 		return
 	}
-	writeFHIR(w, fhir.FromQuantitySample(user, rec))
+	writeFHIR(w, fhir.FromRecord(user, rec))
 }
 
-// parseFHIRCode reads the FHIR code token: system|code, with system LOINC or
-// the Open Health Sync quantity type system (which sets q.Type). It returns
-// the LOINC code to filter on, empty true when no Observation can match, or
-// a message for a 400.
-func parseFHIRCode(values []string, q *read.Query) (loinc string, empty bool, msg string) {
-	switch {
-	case len(values) == 0:
-		return "", false, ""
-	case len(values) > 1 || strings.Contains(values[0], ","):
-		return "", false, "code takes a single system|code value"
+// fhirSearch is the code and category of a search, checked.
+type fhirSearch struct {
+	// codeSystem and code are the code token, when there is one.
+	codeSystem, code string
+	// category is an HL7 observation category code, when there is one.
+	category string
+}
+
+// hl7Categories are the codes of the HL7 observation category system: a
+// search for one the mapping never sets finds nothing, any other is a 400.
+var hl7Categories = []string{"social-history", "vital-signs", "imaging", "laboratory", "procedure",
+	"survey", "exam", "therapy", "activity"}
+
+// parseFHIRSearch reads the code and category search parameters: at most
+// one value each, a single token (no comma list). It returns a message for a
+// 400.
+func parseFHIRSearch(qs url.Values) (fhirSearch, string) {
+	var fs fhirSearch
+	for _, name := range []string{"code", "category"} {
+		switch v := qs[name]; {
+		case len(v) == 0:
+			continue
+		case len(v) > 1 || strings.Contains(v[0], ","):
+			return fs, name + " takes a single value"
+		}
 	}
-	system, code, ok := strings.Cut(values[0], "|")
-	if !ok || system == "" || code == "" {
-		return "", false, "code must be system|code, for example " + fhir.LOINC + "|8867-4"
+	if v := qs.Get("code"); qs.Has("code") {
+		system, c, ok := strings.Cut(v, "|")
+		if !ok || system == "" || c == "" {
+			return fs, "code must be system|code, for example " + fhir.LOINC + "|8867-4"
+		}
+		switch system {
+		case fhir.LOINC, fhir.QuantityTypeSystem, fhir.RecordTypeSystem:
+		default:
+			return fs, "code system not supported: use " + fhir.LOINC + ", " +
+				fhir.QuantityTypeSystem + " or " + fhir.RecordTypeSystem
+		}
+		fs.codeSystem, fs.code = system, c
 	}
+	if v := qs.Get("category"); qs.Has("category") {
+		c := v
+		if system, rest, ok := strings.Cut(v, "|"); ok {
+			if system != "" && system != fhir.ObservationCategory {
+				return fs, "category system not supported: use " + fhir.ObservationCategory
+			}
+			c = rest
+		}
+		if !slices.Contains(hl7Categories, c) {
+			return fs, "category must be an observation category code, for example " + fhir.CategoryVitalSigns
+		}
+		fs.category = c
+	}
+	return fs, ""
+}
+
+// observationFilter turns the type parameter and the code and category of
+// fs into the records the search keeps: those all of them keep. Its error is
+// a read error (an unknown quantity type is a QueryError).
+func (s *server) observationFilter(r *http.Request, tenantID, user uuid.UUID, typ string, fs fhirSearch) (read.ObservationFilter, error) {
+	f := read.AllObservations()
+	quantityType := func(qt string) (read.ObservationFilter, error) {
+		if err := read.CheckQuantityType(r.Context(), s.d.Pool, tenantID, user, qt); err != nil {
+			return read.ObservationFilter{}, err
+		}
+		return read.ObservationFilter{Quantities: true, Types: []string{qt}}, nil
+	}
+	if typ != "" {
+		g, err := quantityType(typ)
+		if err != nil {
+			return f, err
+		}
+		f = f.And(g)
+	}
+	if fs.code != "" {
+		g, err := s.codeFilter(r, fs.codeSystem, fs.code, quantityType)
+		if err != nil {
+			return f, err
+		}
+		f = f.And(g)
+	}
+	if fs.category != "" {
+		g := read.ObservationFilter{Quantities: true, Types: fhir.TypesWithCategory(fs.category)}
+		if g.Types == nil {
+			g.Types = []string{}
+		}
+		if fs.category == fhir.CategoryActivity {
+			g.Workouts, g.Daily = true, true
+		}
+		f = f.And(g)
+	}
+	return f, nil
+}
+
+// codeFilter keeps the records whose Observation.code carries system|code.
+func (s *server) codeFilter(r *http.Request, system, code string, quantityType func(string) (read.ObservationFilter, error)) (read.ObservationFilter, error) {
 	switch system {
 	case fhir.LOINC:
-		// R4 allows these only as panel components: no Observation has them.
-		return code, fhir.ComponentOnlyLOINC(code), ""
-	case fhir.QuantityTypeSystem:
-		if q.Type != "" && q.Type != code {
-			return "", true, ""
+		switch code {
+		case fhir.LOINCBloodPressurePanel, fhir.LOINCSystolic, fhir.LOINCDiastolic:
+			// The panels: R4 allows the codes of the two halves only as the
+			// panel's components, so a search for either finds the panel.
+			return read.ObservationFilter{Quantities: true, PanelsOnly: true}, nil
 		}
-		q.Type = code
-		return "", false, ""
+		types, err := read.TypesForLOINC(r.Context(), s.d.Pool, code)
+		if err != nil {
+			return read.ObservationFilter{}, err
+		}
+		for _, t := range fhir.TypesWithExtraLOINC(code) {
+			if !slices.Contains(types, t) {
+				types = append(types, t)
+			}
+		}
+		if types == nil {
+			types = []string{}
+		}
+		return read.ObservationFilter{Quantities: true, Types: types,
+			Sleep: code == fhir.LOINCSleepDuration, Workouts: code == fhir.LOINCExerciseDuration}, nil
+	case fhir.QuantityTypeSystem:
+		return quantityType(code)
 	}
-	return "", false, "code system not supported: use " + fhir.LOINC + " or " + fhir.QuantityTypeSystem
+	switch code { // fhir.RecordTypeSystem
+	case fhir.RecordBloodPressure:
+		return read.ObservationFilter{Quantities: true, PanelsOnly: true}, nil
+	case fhir.RecordSleepSession:
+		return read.ObservationFilter{Sleep: true}, nil
+	case fhir.RecordWorkout:
+		return read.ObservationFilter{Workouts: true}, nil
+	case fhir.RecordDailySummary:
+		return read.ObservationFilter{Daily: true}, nil
+	}
+	return read.ObservationFilter{}, nil
 }
 
 // publicBase is the scheme and host links start with: OHS_PUBLIC_URL, else

@@ -166,9 +166,6 @@ type list struct {
 	// parentCol, parentID add "AND parentCol = parentID" when parentCol is set.
 	parentCol string
 	parentID  int64
-	// loinc, when set, keeps the rows whose typeCol is a quantity type the
-	// catalog codes with this LOINC code.
-	loinc string
 }
 
 func run[T any](ctx context.Context, db Querier, tenantID, userID uuid.UUID, l list, q normalized,
@@ -190,9 +187,6 @@ func run[T any](ctx context.Context, db Querier, tenantID, userID uuid.UUID, l l
 	}
 	if l.typeCol != "" && q.Type != "" {
 		where = append(where, l.typeCol+" = "+arg(q.Type))
-	}
-	if l.typeCol != "" && l.loinc != "" {
-		where = append(where, l.typeCol+" IN (SELECT canonical_code FROM ohs_data.quantity_codes WHERE loinc_code = "+arg(l.loinc)+")")
 	}
 	if !q.Start.IsZero() {
 		where = append(where, l.timeCol+" >= "+bound(q.Start))
@@ -373,20 +367,30 @@ func Sleep(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query)
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[SleepSession]{}, err
 	}
-	l := list{table: "ohs_data.sleep_sessions", timeCol: "bedtime_start",
-		cols: `id, bedtime_start, bedtime_end, total_sleep_seconds, deep_sleep_seconds, rem_sleep_seconds,
-			light_sleep_seconds, awake_seconds, sleep_score, hrv_avg_ms, resting_hr, respiratory_rate, spo2_avg,
-			external_id, metadata, provider, source_slug, device_id, ingested_at`}
+	l := list{table: "ohs_data.sleep_sessions", timeCol: "bedtime_start", cols: sleepCols}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (SleepSession, time.Time, int64, error) {
 		var s SleepSession
-		err := r.Scan(&s.ID, &s.BedtimeStart, &s.BedtimeEnd, &s.TotalSleepSeconds, &s.DeepSleepSeconds,
-			&s.REMSleepSeconds, &s.LightSleepSeconds, &s.AwakeSeconds, &s.SleepScore, &s.HRVAvgMs, &s.RestingHR,
-			&s.RespiratoryRate, &s.SpO2Avg, &s.ExternalID, &s.Metadata, &s.Provider, &s.Source, &s.Device, &s.IngestedAt)
-		utc(&s.BedtimeStart)
-		utc(s.BedtimeEnd)
-		utc(&s.IngestedAt)
+		err := r.Scan(s.dest()...)
+		s.utc()
 		return s, s.BedtimeStart, s.ID, err
 	})
+}
+
+// sleepCols are the columns of a SleepSession, in the order of its dest.
+const sleepCols = `id, bedtime_start, bedtime_end, total_sleep_seconds, deep_sleep_seconds, rem_sleep_seconds,
+	light_sleep_seconds, awake_seconds, sleep_score, hrv_avg_ms, resting_hr, respiratory_rate, spo2_avg,
+	external_id, metadata, provider, source_slug, device_id, ingested_at`
+
+func (s *SleepSession) dest() []any {
+	return []any{&s.ID, &s.BedtimeStart, &s.BedtimeEnd, &s.TotalSleepSeconds, &s.DeepSleepSeconds,
+		&s.REMSleepSeconds, &s.LightSleepSeconds, &s.AwakeSeconds, &s.SleepScore, &s.HRVAvgMs, &s.RestingHR,
+		&s.RespiratoryRate, &s.SpO2Avg, &s.ExternalID, &s.Metadata, &s.Provider, &s.Source, &s.Device, &s.IngestedAt}
+}
+
+func (s *SleepSession) utc() {
+	utc(&s.BedtimeStart)
+	utc(s.BedtimeEnd)
+	utc(&s.IngestedAt)
 }
 
 // SleepPhase is one stage of a sleep session. Its provenance is the session's.
@@ -459,20 +463,30 @@ func Workouts(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Que
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[Workout]{}, err
 	}
-	l := list{table: "ohs_data.workouts", timeCol: "start_date", typeCol: "activity_type",
-		cols: `id, activity_type, start_date, end_date, duration_s, active_energy_kcal, distance_m, avg_heart_rate,
-			max_heart_rate, avg_speed_mps, elevation_gain_m, vo2_max, external_id, metadata,
-			provider, source_slug, device_id, ingested_at`}
+	l := list{table: "ohs_data.workouts", timeCol: "start_date", typeCol: "activity_type", cols: workoutCols}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (Workout, time.Time, int64, error) {
 		var w Workout
-		err := r.Scan(&w.ID, &w.ActivityType, &w.StartDate, &w.EndDate, &w.DurationS, &w.ActiveEnergyKcal,
-			&w.DistanceM, &w.AvgHeartRate, &w.MaxHeartRate, &w.AvgSpeedMps, &w.ElevationGainM, &w.VO2Max,
-			&w.ExternalID, &w.Metadata, &w.Provider, &w.Source, &w.Device, &w.IngestedAt)
-		utc(&w.StartDate)
-		utc(w.EndDate)
-		utc(&w.IngestedAt)
+		err := r.Scan(w.dest()...)
+		w.utc()
 		return w, w.StartDate, w.ID, err
 	})
+}
+
+// workoutCols are the columns of a Workout, in the order of its dest.
+const workoutCols = `id, activity_type, start_date, end_date, duration_s, active_energy_kcal, distance_m, avg_heart_rate,
+	max_heart_rate, avg_speed_mps, elevation_gain_m, vo2_max, external_id, metadata,
+	provider, source_slug, device_id, ingested_at`
+
+func (w *Workout) dest() []any {
+	return []any{&w.ID, &w.ActivityType, &w.StartDate, &w.EndDate, &w.DurationS, &w.ActiveEnergyKcal,
+		&w.DistanceM, &w.AvgHeartRate, &w.MaxHeartRate, &w.AvgSpeedMps, &w.ElevationGainM, &w.VO2Max,
+		&w.ExternalID, &w.Metadata, &w.Provider, &w.Source, &w.Device, &w.IngestedAt}
+}
+
+func (w *Workout) utc() {
+	utc(&w.StartDate)
+	utc(w.EndDate)
+	utc(&w.IngestedAt)
 }
 
 // RoutePoint is one GPS fix of a workout. Its provenance is the workout's.
@@ -592,21 +606,34 @@ func Daily(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query)
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[DailySummary]{}, err
 	}
-	l := list{table: "ohs_data.daily_summaries", timeCol: "summary_date", date: true,
-		cols: `id, summary_date, readiness_score, activity_score, sleep_score, recovery_score, strain_score,
-			step_count, active_kcal, total_kcal, distance_m, floors_climbed, resting_hr, hrv_avg_ms, metadata,
-			provider, source_slug, NULL::text, ingested_at`}
+	l := list{table: "ohs_data.daily_summaries", timeCol: "summary_date", date: true, cols: dailyCols}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (DailySummary, time.Time, int64, error) {
 		var d DailySummary
 		var day time.Time
-		err := r.Scan(&d.ID, &day, &d.ReadinessScore, &d.ActivityScore, &d.SleepScore, &d.RecoveryScore,
-			&d.StrainScore, &d.StepCount, &d.ActiveKcal, &d.TotalKcal, &d.DistanceM, &d.FloorsClimbed,
-			&d.RestingHR, &d.HRVAvgMs, &d.Metadata, &d.Provider, &d.Source, &d.Device, &d.IngestedAt)
-		day = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
-		d.Date = day.Format(time.DateOnly)
-		utc(&d.IngestedAt)
+		err := r.Scan(d.dest(&day)...)
+		day = d.finish(day)
 		return d, day, d.ID, err
 	})
+}
+
+// dailyCols are the columns of a DailySummary, in the order of its dest.
+const dailyCols = `id, summary_date, readiness_score, activity_score, sleep_score, recovery_score, strain_score,
+	step_count, active_kcal, total_kcal, distance_m, floors_climbed, resting_hr, hrv_avg_ms, metadata,
+	provider, source_slug, NULL::text, ingested_at`
+
+// dest scans the date into day; finish sets Date from it.
+func (d *DailySummary) dest(day *time.Time) []any {
+	return []any{&d.ID, day, &d.ReadinessScore, &d.ActivityScore, &d.SleepScore, &d.RecoveryScore,
+		&d.StrainScore, &d.StepCount, &d.ActiveKcal, &d.TotalKcal, &d.DistanceM, &d.FloorsClimbed,
+		&d.RestingHR, &d.HRVAvgMs, &d.Metadata, &d.Provider, &d.Source, &d.Device, &d.IngestedAt}
+}
+
+// finish sets Date from the scanned day and returns the day at midnight UTC.
+func (d *DailySummary) finish(day time.Time) time.Time {
+	day = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
+	d.Date = day.Format(time.DateOnly)
+	utc(&d.IngestedAt)
+	return day
 }
 
 // CoverageQuery bounds a coverage report: [Start, End) as calendar dates,

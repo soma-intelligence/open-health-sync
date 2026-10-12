@@ -136,3 +136,37 @@ var ucumUnits = map[string]string{
 	"index":     "{index}",
 	"score":     "{score}",
 }
+
+// TypesWithCategory lists, sorted, the quantity types whose Observations
+// carry category cat.
+func TypesWithCategory(cat string) []string {
+	var out []string
+	for _, m := range []map[string]bool{laboratory, activity} {
+		for qt := range m {
+			if category(qt) == cat {
+				out = append(out, qt)
+			}
+		}
+	}
+	for qt := range vitalSigns {
+		if category(qt) == cat {
+			out = append(out, qt)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// TypesWithExtraLOINC lists, sorted, the quantity types whose Observations
+// carry code on top of the catalog's own code, because their profile
+// requires it (8867-4 for resting heart rate, 2708-6 for SpO2).
+func TypesWithExtraLOINC(code string) []string {
+	var out []string
+	for qt, vs := range vitalSigns {
+		if code != "" && vs.extra == code {
+			out = append(out, qt)
+		}
+	}
+	slices.Sort(out)
+	return out
+}

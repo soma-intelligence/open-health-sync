@@ -19,8 +19,9 @@ info:
     until it is null. Time windows are half open: `start` <= record time < `end`.
     `start` and `end` take an RFC 3339 time or a `YYYY-MM-DD` date (midnight UTC).
 
-    **FHIR.** `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples as FHIR
-    R4 Observations (`application/fhir+json`); see docs/fhir.md.
+    **FHIR.** `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood
+    pressure readings, sleep sessions, workouts and daily summaries as FHIR R4 Observations
+    (`application/fhir+json`); see docs/fhir.md.
 
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
     of another tenant is a 404, never a 403.
@@ -542,26 +543,48 @@ paths:
     get:
       tags: [fhir]
       operationId: searchFHIRObservations
-      summary: Quantity samples as FHIR R4 Observations
+      summary: The user's records as FHIR R4 Observations
       description: |
-        The user's quantity samples as a FHIR R4 (4.0.1) `searchset` Bundle of Observations,
-        `Content-Type: application/fhir+json`. Paged like every list: the Bundle's `next` link
-        carries the cursor, and there is no `next` link on the last page; `total` is left out.
-        Vital signs meet the R4 vital signs profiles they claim in `meta.profile`. The mapping
-        (codes, units, categories, provenance and limits) is in docs/fhir.md. Errors are
+        The user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,
+        `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
+        panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
+        workouts (`workout-`) and daily summaries (`daily-`), merged in time order (a
+        sample's start, a bedtime, a workout's start, a day at midnight UTC), then by kind
+        and id. Paged like every list: the Bundle's `next` link carries the cursor, and
+        there is no `next` link on the last page; `total` is left out. A blood pressure pair
+        is never split across pages, and its two samples are not listed on their own.
+        Vital signs meet the R4 vital signs profiles they claim in `meta.profile`. The
+        mapping (codes, units, categories, provenance and limits) is in docs/fhir.md. The
+        filters below combine: a record is listed when it matches all of them. Errors are
         `application/problem+json` like the rest of the API.
       parameters:
         - name: type
           in: query
-          description: Canonical quantity type, for example heart_rate. Optional; a name outside the quantity type catalog is a 400 (unless this user has samples of it).
+          description: |
+            Canonical quantity type, for example heart_rate: only quantity samples of that
+            type, and the blood pressure panels holding a sample of it. Optional; a name
+            outside the quantity type catalog is a 400 (unless this user has samples of it).
           schema: { type: string }
         - name: code
           in: query
           description: |
-            A FHIR token `system|code`: `http://loinc.org|8867-4`, or the Open Health Sync
-            quantity type system (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`).
-            One value; other systems are a 400. A LOINC code no Observation carries is an empty Bundle.
+            A FHIR token `system|code` matched against `Observation.code`: a LOINC code
+            (`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure
+            panels, 93832-4 the sleep sessions, 55411-3 the workouts), a quantity type
+            (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
+            like `type`), or a record type
+            (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
+            `blood_pressure`, `sleep_session`, `workout` or `daily_summary`). One value; other
+            systems are a 400. A code no Observation carries is an empty Bundle.
           schema: { type: string, examples: ["http://loinc.org|8867-4"] }
+        - name: category
+          in: query
+          description: |
+            An HL7 observation category code, bare or as
+            `http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,
+            `laboratory` or `activity` (activity samples, workouts and daily summaries). One
+            value. Another code of that system is an empty Bundle; anything else is a 400.
+          schema: { type: string, examples: [vital-signs] }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
         - $ref: "#/components/parameters/Cursor"
@@ -583,13 +606,18 @@ paths:
       - name: observation_id
         in: path
         required: true
-        description: The Observation id, as the Bundle gives it (`qs-` and the stored row id).
-        schema: { type: string, examples: [qs-1234] }
+        description: |
+          The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's
+          id), `sleep-`, `workout-` or `daily-`, then the stored row id.
+        schema: { type: string, examples: [qs-1234, bp-1235, sleep-77] }
     get:
       tags: [fhir]
       operationId: readFHIRObservation
       summary: One FHIR R4 Observation
-      description: The Observation an entry's `fullUrl` points to. Not the user's (or not an id of this form) is a 404.
+      description: |
+        The Observation an entry's `fullUrl` points to. Not the user's, not an id of these
+        forms, or not of that shape (`qs-` of a sample that is half of a blood pressure
+        panel, `bp-` of a sample that is not) is a 404.
       responses:
         "200":
           description: The Observation.
@@ -1283,7 +1311,9 @@ components:
         display: { type: string }
     FHIRObservation:
       type: object
-      description: A FHIR R4 Observation made from one quantity sample (docs/fhir.md).
+      description: |
+        A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
+        session, a workout or a daily summary (docs/fhir.md).
       required: [resourceType, id, status, code, subject]
       properties:
         resourceType: { type: string, const: Observation }
@@ -1294,17 +1324,17 @@ components:
             source:
               type: string
               format: uri
-              description: The provider the sample came through.
+              description: The provider the record came through.
             profile:
               type: array
               items: { type: string, format: uri }
             tag:
               type: array
-              description: The vendor that produced the sample, when known.
+              description: The vendor that produced the record, when known.
               items: { $ref: "#/components/schemas/FHIRCoding" }
         identifier:
           type: array
-          description: The provider's own id of the sample, when it has one.
+          description: The provider's own id of the record (of each sample of a panel), when it has one.
           items:
             type: object
             properties:
@@ -1325,16 +1355,31 @@ components:
         issued:
           type: string
           format: date-time
-          description: When the sample was ingested.
-        valueQuantity:
-          type: object
-          properties:
-            value: { type: number }
-            unit: { type: string }
-            system: { type: string, const: "http://unitsofmeasure.org" }
-            code: { type: string, examples: ["/min"] }
+          description: When the record was ingested (the later of a panel's two samples).
+        valueQuantity: { $ref: "#/components/schemas/FHIRQuantity" }
         dataAbsentReason: { $ref: "#/components/schemas/FHIRCodeableConcept" }
         device: { $ref: "#/components/schemas/FHIRReference" }
+        component:
+          type: array
+          minItems: 1
+          description: |
+            The two values of a blood pressure panel, or a sleep session's, workout's or daily
+            summary's other fields; a field without a value is left out.
+          items:
+            type: object
+            required: [code]
+            properties:
+              code: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+              valueQuantity: { $ref: "#/components/schemas/FHIRQuantity" }
+              valueCodeableConcept: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+              dataAbsentReason: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+    FHIRQuantity:
+      type: object
+      properties:
+        value: { type: number }
+        unit: { type: string }
+        system: { type: string, const: "http://unitsofmeasure.org" }
+        code: { type: string, examples: ["/min"] }
     FHIRBundle:
       type: object
       description: A FHIR R4 searchset Bundle of Observations.
