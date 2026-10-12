@@ -1,7 +1,7 @@
 import { createGetUrl } from "fumadocs-core/source";
 
 export const appName = "Open Health Sync";
-export const docsRoute = "/docs";
+export const docsRoute = "/documentation";
 export const docsImageRoute = "/og/docs";
 export const docsContentRoute = "/llms.mdx/docs";
 

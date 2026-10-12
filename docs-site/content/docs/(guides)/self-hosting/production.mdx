@@ -53,7 +53,7 @@ server-side encryption.
 
 ### Back up, and test a restore
 
-Database, raw store and `.env`, taken together. See [Backup and restore](/docs/self-hosting/backup).
+Database, raw store and `.env`, taken together. See [Backup and restore](/documentation/self-hosting/backup).
 
 </Step>
 <Step>
@@ -61,7 +61,7 @@ Database, raw store and `.env`, taken together. See [Backup and restore](/docs/s
 ### Set a retention period
 
 `OHS_RETENTION_DAYS` deletes raw files and normalized data past an age. `0` keeps everything.
-See [Deletion and retention](/docs/concepts/deletion-and-retention).
+See [Deletion and retention](/documentation/concepts/deletion-and-retention).
 
 </Step>
 <Step>
@@ -70,7 +70,7 @@ See [Deletion and retention](/docs/concepts/deletion-and-retention).
 
 Uploads and user deletions only complete in a process that runs the `etl` role. If you split
 roles across processes, size each Postgres pool with `pool_max_conns`: see
-[Configuration](/docs/self-hosting/configuration#database-pool-size).
+[Configuration](/documentation/self-hosting/configuration#database-pool-size).
 
 </Step>
 <Step>
