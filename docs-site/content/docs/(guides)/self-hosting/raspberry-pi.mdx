@@ -11,7 +11,7 @@ file runs on a Pi. Add the Pi overlay, which trims memory use:
 docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.pi.yml up -d --wait
 ```
 
-Configure `.env` first, as in [Docker Compose](/docs/self-hosting/docker-compose#configure), and
+Configure `.env` first, as in [Docker Compose](/documentation/self-hosting/docker-compose#configure), and
 keep the same `-f` files on every later command.
 
 ## What the overlay changes

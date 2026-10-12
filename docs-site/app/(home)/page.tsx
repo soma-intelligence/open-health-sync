@@ -35,13 +35,13 @@ export default function HomePage() {
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
-            href="/docs/quickstart"
+            href="/documentation/quickstart"
             className="inline-flex items-center gap-2 rounded-full bg-fd-primary px-5 py-2.5 text-sm font-medium text-fd-primary-foreground transition-opacity hover:opacity-90"
           >
             Quickstart <ArrowRight className="size-4" />
           </Link>
           <Link
-            href="/docs"
+            href="/documentation"
             className="inline-flex items-center gap-2 rounded-full border bg-fd-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
           >
             Read the docs
@@ -85,7 +85,10 @@ export default function HomePage() {
         <h2 className="text-lg font-medium">Rather not run it yourself?</h2>
         <p className="max-w-xl text-sm text-fd-muted-foreground">
           A hosted Open Health Sync is in preparation, with the same API.{" "}
-          <Link href="/docs/platform" className="font-medium text-fd-primary underline-offset-4 hover:underline">
+          <Link
+            href="/documentation/platform"
+            className="font-medium text-fd-primary underline-offset-4 hover:underline"
+          >
             Read what is planned
           </Link>
           .

@@ -15,7 +15,7 @@ Data arrives two ways. A **device upload**: your iOS app posts HealthKit data to
 `POST /v1/ingest/apple-health` as gzip NDJSON parts, with a user token that has the `upload`
 scope. A **provider pull**: for an OAuth provider such as Withings or Oura, the server pulls each active
 connection when the provider sends a notification to `/inbound/{provider}`, and on a backstop
-schedule in case one was lost ([background sync](/docs/concepts/background-sync)).
+schedule in case one was lost ([background sync](/documentation/concepts/background-sync)).
 
 </Step>
 <Step>
@@ -31,7 +31,7 @@ transaction as its registry row, a job is queued in Postgres.
 
 ### Normalize
 
-The `etl` role maps each line to the [canonical model](/docs/concepts/data-model), converts units,
+The `etl` role maps each line to the [canonical model](/documentation/concepts/data-model), converts units,
 validates values against plausible ranges, drops duplicates by content hash, attributes the
 source and device, and rolls up daily summaries per **local** calendar day.
 
@@ -41,7 +41,7 @@ source and device, and rolls up daily summaries per **local** calendar day.
 ### Serve
 
 Reads are `GET /v1/users/{id}/...` with the tenant key, paged with a cursor. The
-[MCP server](/docs/guides/ai-agents) reads the same data, read only. Both go through one query
+[MCP server](/documentation/guides/ai-agents) reads the same data, read only. Both go through one query
 layer that always filters on tenant and user.
 
 </Step>
@@ -69,9 +69,9 @@ One process with all three is the simplest deployment, and the default. To scale
 ## Why keep the raw payload
 
 Because it makes mistakes cheap. When a mapper is fixed (a new type mapped, a unit corrected),
-any user can be [re-processed](/docs/self-hosting/operating-notes) from their raw files, and
+any user can be [re-processed](/documentation/self-hosting/operating-notes) from their raw files, and
 records are de-duplicated by content hash, so nothing is stored twice. A crash between writing
 the raw file and queuing its job is caught by the orphan scanner.
 
 The full design, with storage schemas and reliability details, is in
-[Architecture](/docs/concepts/architecture).
+[Architecture](/documentation/concepts/architecture).
