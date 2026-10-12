@@ -104,7 +104,8 @@ Open Health Sync is that layer, written once, with the boring parts done properl
   message broker, cache or worker fleet. The `api`, `collect` and `etl` roles run in one
   process or apart.
 - **Runs small.** A Raspberry Pi 5 with 4 GB runs the full stack, with a compose overlay tuned
-  for it.
+  for it. Samples older than 30 days are compressed, about 7 times smaller on disk, and
+  re-importing history into them stays fast.
 - **Open standards.** An OpenAPI 3.1 file describes the API, FHIR R4 Observations are checked
   against the official HL7 validator ([`scripts/fhir-validate.sh`](scripts/fhir-validate.sh)),
   MCP is an open protocol, and `ohs doctor` checks a configuration before you trust it.
@@ -403,7 +404,7 @@ software.
 ## Status and roadmap
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava and Polar connectors, FHIR R4 output,
-Health app export import and background sync are on `main` and ship in the next release. What
+Health app export import, background sync and sample compression are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
