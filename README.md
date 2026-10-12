@@ -1,7 +1,7 @@
 <a href="#quickstart">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.png">
-  <img src="docs/assets/readme/hero-light.png" width="100%" alt="Open Health Sync: six available sources (Apple Health, Withings, Oura, WHOOP, Strava, Polar) flow into one Go binary (background sync, raw store, normalize, Postgres) and out as a REST API, a read-only MCP server and FHIR R4. Garmin, Fitbit, Ultrahuman, Suunto, Coros, Dexcom, Health Connect and Samsung Health via Health Connect are listed as planned, not in this release. The JSON shown is a real heart rate sample read back from the API.">
+  <img src="docs/assets/readme/hero-light.png" width="100%" alt="Open Health Sync: ten sources flow into one Go binary (background sync, raw store, normalize, Postgres). Apple Health and Withings are in v0.0.2; Oura, WHOOP, Fitbit, Polar, Strava, Suunto, Ultrahuman and intervals.icu ship in the next release. Outputs: REST API and read-only MCP in v0.0.2; FHIR R4, Open mHealth and CSV/Parquet exports in the next release. Garmin, Coros, Dexcom, FreeStyle Libre, Omron, Health Connect and Samsung Health via Health Connect are planned. The JSON shown is a real heart rate sample read back from the API.">
 </picture>
 </a>
 
@@ -11,7 +11,7 @@
 
 ### One open API for wearable and health data. On your own server.
 
-Apple Health, Withings, Oura, WHOOP, Strava and Polar in.<br>
+Apple Health, Withings, Oura, WHOOP, Fitbit, Polar, Strava, Suunto, Ultrahuman and intervals.icu in.<br>
 One clean model out, over REST, a read-only MCP server for AI agents, and FHIR R4.<br>
 Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 
@@ -29,8 +29,11 @@ Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 <a href="docs/connectors/whoop.md"><img alt="WHOOP: next release" src="https://img.shields.io/badge/WHOOP-next_release-3b82c4?style=flat-square"></a>
 <a href="docs/connectors/strava.md"><img alt="Strava: next release" src="https://img.shields.io/badge/Strava-next_release-3b82c4?style=flat-square"></a>
 <a href="docs/connectors/polar.md"><img alt="Polar: next release" src="https://img.shields.io/badge/Polar-next_release-3b82c4?style=flat-square"></a>
+<a href="docs/connectors/fitbit.md"><img alt="Fitbit: next release" src="https://img.shields.io/badge/Fitbit-next_release-3b82c4?style=flat-square"></a>
+<a href="docs/connectors/suunto.md"><img alt="Suunto: next release" src="https://img.shields.io/badge/Suunto-next_release-3b82c4?style=flat-square"></a>
+<a href="docs/connectors/ultrahuman.md"><img alt="Ultrahuman: next release" src="https://img.shields.io/badge/Ultrahuman-next_release-3b82c4?style=flat-square"></a>
+<a href="docs/connectors/intervals-icu.md"><img alt="intervals.icu: next release" src="https://img.shields.io/badge/intervals.icu-next_release-3b82c4?style=flat-square"></a>
 <a href="docs/connectors/README.md"><img alt="Garmin: planned" src="https://img.shields.io/badge/Garmin-planned-8a8f98?style=flat-square"></a>
-<a href="docs/connectors/README.md"><img alt="Fitbit: planned" src="https://img.shields.io/badge/Fitbit-planned-8a8f98?style=flat-square"></a>
 <a href="docs/connectors/README.md"><img alt="Health Connect: planned" src="https://img.shields.io/badge/Health_Connect-planned-8a8f98?style=flat-square"></a>
 <a href="docs/connectors/README.md"><img alt="Dexcom: planned" src="https://img.shields.io/badge/Dexcom-planned-8a8f98?style=flat-square"></a>
 </p>
@@ -55,7 +58,7 @@ clinical software.
 <tr>
 <td width="33%" valign="top">
 
-**🔌 Six sources, one model**<br>
+**🔌 Ten sources, one model**<br>
 Every provider maps into the same records, with one unit per quantity (UCUM, LOINC). Heart rate
 is `bpm`, whatever the source called it.
 
@@ -107,11 +110,11 @@ Provider deletions are honored too.
 |:---:|---|:---:|---|
 | ✅ | REST API (OpenAPI 3.1), read-only MCP server | ✅ | Apple Health, Withings |
 | 🔜 | FHIR R4 (Observations, checked with the HL7 validator) | 🔜 | Oura, WHOOP, Polar, Strava |
+| 🔜 | Open mHealth output ([docs](docs/open-mhealth.md)) | 🔜 | Fitbit, Suunto, Ultrahuman, intervals.icu |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
-| 🔜 | Open mHealth output ([docs](docs/open-mhealth.md)) | 🛠 | Garmin, Fitbit and more |
+| 🔜 | CSV and Parquet exports ([docs](docs/exports.md)) | 🛠 | Garmin |
 | 🛠 | Outgoing webhooks | 🛠 | Dexcom, FreeStyle Libre, Omron |
-| 🔜 | CSV and Parquet exports ([docs](docs/exports.md)) | 🛠 | Health Connect (Android) |
-| 🛠 | Swift, Kotlin, React Native and Flutter SDKs | | |
+| 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Health Connect (Android) |
 
 A line moves up only when its pull request is merged, or its release is published. The 0.0.2
 image does not have the 🔜 lines yet. Details per source:
@@ -120,7 +123,7 @@ image does not have the 🔜 lines yet. Details per source:
 ## What you can build
 
 - **A health app backend.** Your iOS app uploads HealthKit data, your users connect their
-  Oura, WHOOP or Withings accounts, and your app reads one API instead of six.
+  Oura, WHOOP or Withings accounts, and your app reads one API instead of ten.
 - **An AI agent over your own data.** Run it at home, connect your devices, and give your desktop
   agent a read-only view of your sleep, workouts and heart rate through MCP.
 - **A study that collects from participants' wearables.** Raw payloads kept for audit, hard
@@ -316,7 +319,7 @@ Data lives in the `pgdata` and `raw` volumes; `docker compose ... down` keeps th
 ```mermaid
 flowchart LR
   AH["Apple Health<br/>app upload, export import"] --> C
-  CL["Withings, Oura, WHOOP,<br/>Strava, Polar<br/>OAuth pull + webhooks"] --> C
+  CL["Withings, Oura, WHOOP, Fitbit,<br/>Polar, Strava, Suunto,<br/>Ultrahuman, intervals.icu<br/>OAuth pull + webhooks"] --> C
   C["collect / ingest"] --> R[("raw store<br/>disk or S3")]
   R --> E["ETL<br/>normalize, dedup,<br/>units, local-day summaries"]
   E --> P[("Postgres<br/>+ TimescaleDB")]
@@ -327,8 +330,8 @@ flowchart LR
 
 1. **Collect.** Your iOS app posts HealthKit data to `POST /v1/ingest/apple-health` as gzip
    NDJSON parts, with a user token that has the `upload` scope and the headers `X-OHS-Type`,
-   `X-OHS-Day`, `X-OHS-Batch` and `X-OHS-Part`. Withings, Oura, WHOOP, Strava and Polar are
-   pulled when they send a webhook (only what changed), with a backstop pull on a schedule.
+   `X-OHS-Day`, `X-OHS-Batch` and `X-OHS-Part`. The cloud providers (Withings, Oura, WHOOP, Fitbit and
+   the others) are pulled when they send a webhook (only what changed), with a backstop pull on a schedule.
 2. **Keep the raw payload.** The part is written to the raw store first, then a job is queued in
    Postgres. The answer names the raw key and whether the part was a duplicate.
 3. **Normalize.** The `etl` role maps each line to the canonical model, converts units, drops
@@ -478,7 +481,7 @@ other rule depends on how you run it.
 <summary><b>What does it cost?</b></summary>
 
 Nothing. The server is free and open source. You pay for wherever you run it, which can be a
-Raspberry Pi 5 with 4 GB. Each cloud provider (Withings, Oura, WHOOP, Strava, Polar) needs your
+Raspberry Pi 5 with 4 GB. Each cloud provider (Withings, Oura, WHOOP, Fitbit and the others) needs your
 own developer application, registered with the vendor.
 
 </details>
@@ -529,7 +532,8 @@ software.
 
 ## Status and roadmap
 
-v0.0.2 is the latest release. The Oura, WHOOP, Strava and Polar connectors, FHIR R4 output,
+v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman and intervals.icu connectors,
+FHIR R4 and Open mHealth output, CSV and Parquet exports,
 Health app export import, background sync and sample compression are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
