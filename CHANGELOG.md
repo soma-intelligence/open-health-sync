@@ -56,7 +56,7 @@ release may change the API, the configuration or the database schema.
   segmented by tenant and user): about 7 times less disk in our benchmark of 10.5 million
   samples. Builds of TimescaleDB without compression keep the table as it is.
 - Duplicate quantity samples are now found by the writer, in the stored rows of the batch's
-  time window, instead of a unique index (migration 0008 drops `quantity_samples_dedup_key`).
+  time window, instead of a unique index (migration 0015 drops `quantity_samples_dedup_key`).
   A history import into a compressed period is about 34 times faster than with the index,
   and no longer fails on TimescaleDB's decompression limit.
 - User deletion and retention lift TimescaleDB's per-transaction decompression limit, so they
