@@ -7,7 +7,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * Parses an RFC 3339 timestamp as the server sends it (with or without fractional seconds,
  * up to nanoseconds) into a `Date`. Fractional digits beyond milliseconds are dropped first,
- * since `Date` holds milliseconds and some engines (Hermes among them) do not parse more
+ * since `Date` holds milliseconds and some engines (React Native's default among them) do not parse more
  * than three digits reliably. Throws a `RangeError` on anything else.
  */
 export function parseTimestamp(s: string): Date {
@@ -36,7 +36,7 @@ export function isDay(s: string): boolean {
  * The calendar day of `instant` in the IANA `timeZone` (for example "Europe/Paris"), as
  * `YYYY-MM-DD`. Use the zone the sample was recorded in (its `HKTimeZone`) so the part's
  * `X-OHS-Day` matches the day the server files the sample under. Needs `Intl` with time zone
- * data, which Hermes, JavaScriptCore, Node and browsers have.
+ * data, which both React Native engines, Node and browsers have.
  */
 export function localDay(instant: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {

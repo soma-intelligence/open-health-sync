@@ -1,7 +1,7 @@
 # React Native SDK
 
 `open-health-sync-react-native` is a TypeScript client for the [REST API](../api.md). It runs in
-React Native 0.72+ (Hermes or JavaScriptCore), Expo, Node 18+ and browsers. It calls the global
+React Native 0.72+ (either of its JavaScript engines), Expo, Node 18+ and browsers. It calls the global
 `fetch`, depends on nothing but `fflate` (gzip), and has no React dependency, so the same code
 works in an app, in a Node backend and in tests. The source is in
 [`sdks/react-native`](../../sdks/react-native). It is MIT licensed
@@ -111,7 +111,7 @@ Records have the fields of the OpenAPI schemas in camelCase (`start_date` become
 included. Fields the server adds later are left out, not an error.
 
 **Timestamps stay strings.** Time fields are RFC 3339 strings as the server writes them, up to
-nine fractional digits. A `Date` holds milliseconds only, and Hermes does not parse more than
+nine fractional digits. A `Date` holds milliseconds only, and React Native's default engine does not parse more than
 three fractional digits reliably, so nothing is converted for you. `parseTimestamp(s)` trims
 the fraction to milliseconds and returns a `Date`. `date` fields (daily summaries, coverage)
 are `YYYY-MM-DD` strings.
