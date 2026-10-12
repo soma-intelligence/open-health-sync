@@ -24,10 +24,10 @@ release may change the API, the configuration or the database schema.
   replaces the stored one instead of being skipped.
 - `SleepSession.Replaceable`: a re-scored or edited sleep session replaces the stored figures
   and its sleep phases instead of keeping the first copy; a Replaceable session or workout whose
-  start moved supersedes the stored copy of the same provider record. Migration `0009` indexes
+  start moved supersedes the stored copy of the same provider record. Migration `0011` indexes
   that lookup. Oura, WHOOP and Polar now mark their sleep sessions and workouts Replaceable.
 - Quantity name `hrv_rmssd` (milliseconds) for HRV reported as RMSSD, kept apart from
-  `hrv_sdnn`. Migration `0008` registers it in `quantity_codes`.
+  `hrv_sdnn`. Migration `0010` registers it in `quantity_codes`.
 - Polar connector (AccessLink v3): OAuth connect with user registration, scheduled pulls of
   exercises, sleep with hypnogram, Nightly Recharge, daily activity, continuous heart rate and
   physical info, and AccessLink webhooks with optional signature verification
@@ -36,7 +36,7 @@ release may change the API, the configuration or the database schema.
   ETL removes the stored sleep sessions, workouts, category samples and nutrition logs of that
   provider record, with their phases, route points, track summaries and derived quantity
   samples, scoped to the job's tenant and user, and records a tombstone in the new
-  `ohs_data.deleted_records` table (migration `0010`) so the record is never written again,
+  `ohs_data.deleted_records` table (migration `0012`) so the record is never written again,
   whichever arrives first.
 - `QuantitySample.SupersedeMoved`: a Replaceable sample whose `ExternalID` names one figure of
   one record replaces the stored copy of the same provider, external id and quantity type under
@@ -58,7 +58,7 @@ release may change the API, the configuration or the database schema.
   created once by the operator; see [docs/connectors/oura.md](docs/connectors/oura.md).
 - Oura daily sleep score (`sleep_score`), daily stress (`stress_high_time`,
   `recovery_high_time`, in minutes), meditation and breathing sessions (`mindful_session`
-  category samples) and VO2 max (`vo2_max`). Migration `0011` registers the new quantity
+  category samples) and VO2 max (`vo2_max`). Migration `0013` registers the new quantity
   names. The consent now asks for the `session` scope.
 
 - `ohs import apple-health <export.zip|export.xml>`: loads the history of an Apple Health
@@ -79,6 +79,28 @@ release may change the API, the configuration or the database schema.
   vital signs and blood pressure profiles; LOINC and UCUM codes come from the quantity type
   catalog. The golden files pass the official HL7 validator (`make fhir-validate`, not in CI).
   Mapping and limits: [docs/fhir.md](docs/fhir.md).
+- `GET /v1/users/{id}/freshness`: how up to date each source of a user is (`synced_through`,
+  `lag_seconds`, last notification, next pull, last error, and a `fresh`/`stale`/`failing`
+  state), Apple Health uploads included. `/metrics` gains `ohs_sync_connections` by provider
+  and state, `ohs_sync_max_lag_seconds` and `ohs_sync_push_silent_connections`.
+- Docs: [background sync](docs/background-sync.md), including what the iOS and Android SDKs
+  need to upload in the background.
+
+### Changed
+
+- The backstop pull adapts to notifications: every 6 hours while a connection's provider
+  notifications arrive, every hour when none came for 24 hours or the provider sends none
+  (before: every 6 hours for all).
+- A provider subscription that has heard nothing for 24 hours and is more than 7 days old is
+  renewed at the provider, which repairs a subscription the provider dropped silently.
+- Notification pulls go first: they are claimed before backfill and backstop pulls, so a
+  burst of slot jobs or a rate limit never delays data a provider just announced.
+- A Withings notification pulls only what it concerns (a measurement: measures and ECG;
+  activity: activity and intraday; sleep; workouts), 1 to 4 calls instead of 9, which
+  leaves the app's rate limit for fresh data. Connectors opt in with
+  `connector.NotifiedFetcher`.
+- Migration 0008 adds freshness columns to `ohs_sync.connections`; migration 0009 adds
+  `data_type` and `priority` to `ohs_sync.pull_jobs`.
 
 ### Changed
 
@@ -110,7 +132,7 @@ release may change the API, the configuration or the database schema.
   or `<id>_<suffix>` whenever they start, also when no sleep or workout of that id is stored (a
   WHOOP `recovery.deleted` while the sleep stays, a record that only gave samples). Before, only
   quantity samples within a day of a deleted sleep or workout went, and category samples only
-  matched the exact id. Migration `0012` adds partial indexes on (`tenant_id`, `user_id`,
+  matched the exact id. Migration `0014` adds partial indexes on (`tenant_id`, `user_id`,
   `provider`, `external_id` in the "C" collation) of `quantity_samples` and `category_samples`
   so the lookup is an index range, not a scan.
 - A token refresh that returns no new refresh token keeps the stored one (RFC 6749 section 6);

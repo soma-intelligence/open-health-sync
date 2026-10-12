@@ -253,6 +253,39 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/freshness:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [connections]
+      operationId: getFreshness
+      summary: How up to date each of the user's sources is
+      description: |
+        One entry per provider connection, then one per device source (Apple Health) that uploaded,
+        ordered by provider. `synced_through` is the end of the most recent window pulled (the time of
+        the last upload for a device source) and `lag_seconds` is how far behind now it is. Providers
+        that send notifications are pulled within seconds of a change; the regular pull is a backstop,
+        every 6 hours while notifications arrive (`push_healthy`) and every hour otherwise.
+        `state` is `fresh`, `stale` (behind by more than two pull intervals, or no upload for 26 hours),
+        `failing` (the last 3 pulls failed, see `last_error`), `syncing` (first pull not done),
+        `needs_reauth` or `disconnected`.
+      responses:
+        "200":
+          description: Freshness of every source.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [as_of, data]
+                properties:
+                  as_of: { type: string, format: date-time }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SourceFreshness" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/connections/{provider}:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1072,6 +1105,25 @@ components:
         initial_backfill_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    SourceFreshness:
+      type: object
+      required: [provider, kind, status, state, synced_through, lag_seconds, push_healthy, pull_every_seconds, consecutive_failures]
+      properties:
+        provider: { type: string }
+        kind: { type: string, enum: [oauth, device] }
+        status: { type: string, enum: [active, needs_reauth, disconnected] }
+        state: { type: string, enum: [fresh, stale, failing, syncing, needs_reauth, disconnected] }
+        synced_through: { type: [string, "null"], format: date-time }
+        lag_seconds: { type: [integer, "null"] }
+        last_sync_at: { type: [string, "null"], format: date-time }
+        last_event_at: { type: [string, "null"], format: date-time, description: Last provider notification. }
+        push_healthy: { type: boolean }
+        pull_every_seconds: { type: integer, description: Regular pull interval; 0 for a device source. }
+        next_pull_at: { type: [string, "null"], format: date-time }
+        last_attempt_at: { type: [string, "null"], format: date-time }
+        last_error: { type: [string, "null"] }
+        consecutive_failures: { type: integer }
 
     Provenance:
       type: object

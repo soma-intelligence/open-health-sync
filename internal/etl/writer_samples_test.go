@@ -15,7 +15,7 @@ import (
 func TestQuantitySupersedeStatement(t *testing.T) {
 	assert.Contains(t, quantitySupersede, "q.tenant_id = $1 AND q.user_id = $2")
 	assert.Contains(t, quantitySupersede, "q.provider = n.provider")
-	assert.Contains(t, quantitySupersede, `q.external_id COLLATE "C" = n.external_id`, "on the index of migration 0012")
+	assert.Contains(t, quantitySupersede, `q.external_id COLLATE "C" = n.external_id`, "on the index of migration 0014")
 	assert.Contains(t, quantitySupersede, "q.quantity_type = n.quantity_type")
 	assert.Contains(t, quantitySupersede, "q.start_date <> n.start_date", "the row the upsert targets stays")
 }

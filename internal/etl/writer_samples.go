@@ -125,7 +125,7 @@ func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, 
 // another start: same provider, external id and quantity type ($3 to $5, one
 // element per sample), another start_date ($6). The dedup unique includes
 // start_date, so the upsert alone cannot reach them. The external id is
-// matched on the index of migration 0012.
+// matched on the index of migration 0014.
 const quantitySupersede = `DELETE FROM ohs_data.quantity_samples q
 	USING unnest($3::text[], $4::text[], $5::text[], $6::timestamptz[]) AS n(provider, external_id, quantity_type, start_date)
 	WHERE q.tenant_id = $1 AND q.user_id = $2

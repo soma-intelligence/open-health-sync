@@ -58,6 +58,13 @@ func newConnEnv(t *testing.T) *connEnv {
 
 func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	t.Helper()
+	return newConnEnvWrapped(t, cfg, func(c fakeConnector) connector.Connector { return c })
+}
+
+// newConnEnvWrapped registers wrap(fake) as the provider, so a test can add
+// optional connector interfaces.
+func newConnEnvWrapped(t *testing.T, cfg collect.SchedulerConfig, wrap func(fakeConnector) connector.Connector) *connEnv {
+	t.Helper()
 	ctx := context.Background()
 	pool, err := db.Open(ctx, db.TestDB(t))
 	require.NoError(t, err)
@@ -72,7 +79,7 @@ func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	e := &connEnv{pool: pool, raw: raw, box: box, store: tenant.New(pool), fake: newFakeProvider()}
 	t.Cleanup(e.fake.Close)
 	reg := connector.NewRegistry()
-	reg.Register(fakeConnector{f: e.fake})
+	reg.Register(wrap(fakeConnector{f: e.fake}))
 
 	ta, keyA, err := e.store.CreateTenant(ctx, "A")
 	require.NoError(t, err)
@@ -97,6 +104,7 @@ func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 	e.mux = http.NewServeMux()
 	e.mux.Handle("POST /v1/users/{id}/connections/{provider}", tk(h.StartConnection()))
 	e.mux.Handle("GET /v1/users/{id}/connections", tk(h.ListConnections()))
+	e.mux.Handle("GET /v1/users/{id}/freshness", tk(h.Freshness()))
 	e.mux.Handle("DELETE /v1/users/{id}/connections/{provider}", tk(h.DeleteConnection()))
 	e.mux.Handle("GET /oauth/{provider}/callback", h.OAuthCallback())
 	e.mux.Handle("POST /inbound/{provider}", h.Inbound())
@@ -623,13 +631,16 @@ func TestInboundEnqueuesPull(t *testing.T) {
 	assert.Equal(t, 1, e.scalar(t, `SELECT count(*) FROM ohs_sync.pull_jobs WHERE status = 'pending'`))
 }
 
-func TestScheduleEverySixHours(t *testing.T) {
+func TestScheduleEverySixHoursWhileNotificationsArrive(t *testing.T) {
 	e := newConnEnv(t)
 	ctx := context.Background()
 	connectedAt := time.Date(2026, 10, 10, 13, 5, 0, 0, time.UTC)
 	e.setNow(connectedAt)
 	e.connect(t, e.keyA, e.userA, "pu-1")
 	e.drain(t)
+	// A notification arrived recently: the regular pull is a 6 hour backstop.
+	_, err := e.pool.Exec(ctx, `UPDATE ohs_sync.connections SET last_event_at = $1`, connectedAt)
+	require.NoError(t, err)
 
 	// Same slot as the connect: the backfill covers it.
 	n, err := e.sched.Schedule(ctx)

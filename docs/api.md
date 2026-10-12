@@ -116,6 +116,11 @@ and expires after 10 minutes.
 the user to go through consent again. `DELETE /v1/users/{id}/connections/{provider}` revokes the
 grant (best effort) and stops pulling; data already collected is kept.
 
+`GET /v1/users/{id}/freshness` says how up to date each source of the user is, Apple Health
+uploads included: `synced_through`, `lag_seconds`, the last provider notification, the next
+pull, the last error, and a `state` (`fresh`, `stale`, `failing`, `syncing`, `needs_reauth`,
+`disconnected`). Show it in your app, or alert on it. See [background sync](background-sync.md).
+
 ## Uploading device data
 
 `POST /v1/ingest/apple-health` takes one gzip NDJSON part with a user token that has the `upload`

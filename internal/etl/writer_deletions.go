@@ -27,7 +27,7 @@ import (
 //     whether or not a sleep or workout of that id was stored (a record that
 //     only gave samples, a WHOOP recovery whose sleep stays). The match is a
 //     range on the (tenant_id, user_id, provider, external_id COLLATE "C")
-//     index (migration 0012), see deletionExternalMatch;
+//     index (migration 0014), see deletionExternalMatch;
 //  4. the nutrition logs of that id are deleted;
 //  5. when the deletion names ClearSummaryFields, those figures are set to
 //     NULL in the provider's daily summaries of the days the removed quantity
@@ -77,7 +77,7 @@ var (
 // the id followed by "_", and the id followed by "`", the byte after "_".
 //
 // external_id is compared in the "C" collation, the one of the index of
-// migration 0012: in byte order every "<id>_..." lies in [id, id + "`"), so
+// migration 0014: in byte order every "<id>_..." lies in [id, id + "`"), so
 // the index answers a range scan bounded by the id, and starts_with (never
 // LIKE, so an id holding "%" or "_" is not a pattern) drops the few other ids
 // of that range ("<id>-2", "<id>0"). No time bound is needed, and none is

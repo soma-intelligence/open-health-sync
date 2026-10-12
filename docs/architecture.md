@@ -24,7 +24,7 @@ extension. The binary runs up to three roles in one process or split across seve
 | Role | Runs |
 |---|---|
 | `api` | The HTTP server: public REST API, upload endpoint, OAuth callback, inbound hooks, MCP, health and metrics. |
-| `collect` | The pull scheduler (every active connection is pulled every 6 hours, plus on push notifications) and OAuth token refresh. |
+| `collect` | Background sync: pulls on push notifications within seconds, plus a backstop pull every 6 hours while notifications arrive and every hour when they do not; renews provider subscriptions that went silent; OAuth token refresh. See [background sync](background-sync.md). |
 | `etl` | The ETL workers (two tiers, `standard` and `high_freq`, four jobs at a time each), the user deletion worker, and the upkeep jobs described under Reliability. |
 
 One process with all roles is the simplest deployment. To scale, run several `api` instances
