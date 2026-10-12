@@ -414,6 +414,7 @@ Health Connect in the Kotlin SDK. Requests are welcome as GitHub issues, includi
 - [Data model](docs/data-model.md): every canonical type and quantity name, with units.
 - [Client SDKs](docs/sdks/README.md): [Kotlin](docs/sdks/kotlin.md), [Swift](docs/sdks/swift.md),
   [React Native](docs/sdks/react-native.md), [Flutter](docs/sdks/flutter.md).
+- [Example apps](examples/README.md): iOS (HealthKit), Android and React Native, built on the SDKs.
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
 - Connectors: [supported and planned sources](docs/connectors/README.md),
   [Apple Health](docs/connectors/apple-health.md),

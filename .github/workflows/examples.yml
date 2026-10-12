@@ -1,0 +1,61 @@
+name: examples
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "sdks/**"
+      - ".github/workflows/examples.yml"
+  pull_request:
+    paths:
+      - "examples/**"
+      - "sdks/**"
+      - ".github/workflows/examples.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the debug APK
+        working-directory: examples/android
+        run: ./gradlew --no-daemon assembleDebug
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - name: Build for the iOS simulator
+        working-directory: examples/ios
+        run: |
+          xcodegen generate
+          xcodebuild build -project OHSExample.xcodeproj -scheme OHSExampleApp \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO -quiet
+
+  react-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: SDK dependencies (the app links it by path)
+        working-directory: sdks/react-native
+        run: npm ci --no-audit --no-fund
+      - name: Type check and bundle the Android JavaScript
+        working-directory: examples/react-native
+        # No lockfile in the repository (see examples/react-native/.gitignore); versions are pinned.
+        run: |
+          npm install --no-audit --no-fund
+          npx tsc --noEmit
+          npx expo export --platform android --output-dir dist-check

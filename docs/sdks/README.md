@@ -16,6 +16,9 @@ says how). Package names and coordinates are set when the first version is publi
 
 **Licence: AGPL-3.0-only**, like the server ([LICENSE](../../LICENSE)).
 
+Example apps for iOS, Android and React Native, built on these SDKs, are in
+[examples/](../../examples/README.md).
+
 ## What every SDK does
 
 - **Every API route.** Users, tokens, connections, freshness, the read routes (samples, category
