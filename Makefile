@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test integration contract e2e reliability guard release-check
+.PHONY: setup build image test integration contract e2e reliability guard fhir-validate release-check
 
 setup:
 	git config core.hooksPath .githooks
@@ -46,6 +46,11 @@ reliability:
 guard:
 	scripts/guard_test.sh
 	scripts/guard.sh
+
+# The FHIR golden files through the official HL7 validator (FHIR R4). Needs
+# Java 17+ and the network; not part of CI. See docs/fhir.md.
+fhir-validate:
+	scripts/fhir-validate.sh
 
 # Checks to run before tagging a release, with the tag to come:
 #   make release-check RELEASE_TAG=v0.0.2

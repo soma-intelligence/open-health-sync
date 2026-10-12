@@ -46,6 +46,9 @@ type Deps struct {
 	// Collect serves the connection, OAuth callback and notification routes.
 	// Nil leaves them out.
 	Collect *collect.Handlers
+	// PublicURL (OHS_PUBLIC_URL) starts the absolute links of FHIR
+	// responses. Empty means the request's own scheme and host.
+	PublicURL string
 }
 
 type server struct {
@@ -71,6 +74,7 @@ func NewRouter(d Deps) http.Handler {
 	s.mountTokens(mux)
 	s.mountDeletion(mux)
 	s.mountReads(mux)
+	s.mountFHIR(mux)
 	s.mountIngest(mux)
 	s.mountCollect(mux)
 	s.mountMCP(mux)

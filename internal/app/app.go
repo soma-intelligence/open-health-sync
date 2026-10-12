@@ -207,6 +207,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			Providers: providers.list,
 			Metrics:   cfg.Metrics,
 			Collect:   collect.NewHandlers(collectDeps),
+			PublicURL: cfg.PublicURL,
 			// Zero (a Config not built by Load) means the api default.
 			IngestLimit: cfg.IngestConcurrency,
 		}

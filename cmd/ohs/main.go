@@ -22,7 +22,7 @@ var (
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return usageErr("usage: ohs <command>, one of up, serve, migrate, doctor, admin, mcp, version: run `ohs help` for details")
+		return usageErr("usage: ohs <command>, one of up, serve, migrate, doctor, admin, mcp, import, version: run `ohs help` for details")
 	}
 	name, rest := args[0], args[1:]
 	switch name {
@@ -55,6 +55,8 @@ func run(args []string, out io.Writer) error {
 		return runUp(rest, out)
 	case "mcp":
 		return runMCP(rest, out)
+	case "import":
+		return runImport(rest, out)
 	default:
 		return usageErr(fmt.Sprintf("unknown command %q: run `ohs help` for the list", name))
 	}
