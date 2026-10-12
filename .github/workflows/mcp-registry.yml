@@ -6,7 +6,7 @@
 # branch or tag.
 #
 # Authentication is GitHub OIDC, so no secret: the registry lets this repository publish
-# names under io.github.soma-intelligence/. The registry pulls the image named in
+# io.github.soma-intelligence/open-health-sync. The registry pulls the image named in
 # server.json and checks its io.modelcontextprotocol.server.name label (deploy/Dockerfile),
 # so the GHCR package has to be public.
 name: mcp-registry
