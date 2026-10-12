@@ -40,15 +40,33 @@ There are two ways data arrives, and a connector can do both.
   <Card title="Polar" href="/docs/connectors/polar">
     Cloud. Exercises, activity, sleep, Nightly Recharge and heart rate, with webhooks.
   </Card>
+  <Card title="Garmin" href="/docs/connectors/garmin">
+    Cloud. Dailies, sleep, activities, body composition, HRV and more, with ping or push
+    notifications. Keys for approved businesses only; Garmin has paused new applications.
+  </Card>
+  <Card title="Fitbit" href="/docs/connectors/fitbit">
+    Cloud, through the Google Health API. Activity, heart rate, HRV, SpO2, sleep, workouts and
+    body, with signed webhooks. Google is not onboarding new projects yet.
+  </Card>
+  <Card title="Suunto" href="/docs/connectors/suunto">
+    Cloud, partner program. Workouts, with signed notifications.
+  </Card>
+  <Card title="Ultrahuman" href="/docs/connectors/ultrahuman">
+    Cloud, Partnership API. Ring sleep, heart rate, HRV, temperature, steps and M1 glucose.
+  </Card>
+  <Card title="intervals.icu" href="/docs/connectors/intervals-icu">
+    Cloud. Activities from Garmin, Wahoo, Zwift, Coros and more, plus daily wellness, with
+    webhooks.
+  </Card>
 </Cards>
 
 <Callout title="Not yet verified with real accounts">
-  Withings, Oura, WHOOP, Strava and Polar pass their tests against recorded responses, but none
-  has been run against a real account yet. Tell us how it goes in an
+  Every cloud connector passes its tests against recorded responses and a fake of the provider,
+  but none has been run against a real account yet. Tell us how it goes in an
   [issue](https://github.com/soma-intelligence/open-health-sync/issues).
 </Callout>
 
-Garmin, Fitbit, Health Connect, Dexcom and more are planned. The
+Health Connect, Dexcom, Coros and more are planned. The
 [sources page](/docs/connectors/sources) has the status, integration path and tracking issue of
 each one.
 

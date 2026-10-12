@@ -9,6 +9,33 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Garmin connector (`garmin`, Garmin Connect Developer Program Health API): OAuth 2.0 with PKCE
+  (the verifier is derived from the OAuth state), pulls in 24 hour upload windows, ping and push
+  notifications with an optional inbound token, and disconnect revokes the registration. Maps
+  dailies, epochs, sleep with phases, activities, body composition, HRV (RMSSD), pulse ox,
+  respiration, VO2 max, blood pressure and skin temperature; stress and Body Battery stay raw.
+  Garmin issues keys to approved businesses only and has paused new applications.
+- Fitbit connector (`fitbit`) on the Google Health API v4, not the legacy Fitbit Web API: Google
+  OAuth with granted-scope handling, paged pulls of 21 data types, webhooks checked with the
+  subscriber secret and Google's ECDSA signature, and revoke on disconnect. Google is not
+  onboarding new projects yet.
+- Suunto connector (`suunto`, Suunto Cloud API, partner program): OAuth 2.0 with the API Zone
+  subscription key, workouts from `/v3/workouts`, HMAC-signed notifications; 24/7 sleep, recovery
+  and daily activity are stored raw only until their schema is confirmed.
+- Ultrahuman connector (`ultrahuman`, Partnership API): OAuth 2.0 and one metrics call per day.
+  Ring heart rate, HRV (RMSSD), skin temperature, steps, resting heart rate, VO2 max, sleep with
+  stages, and M1 CGM glucose (mmol/L converted to mg/dL).
+- intervals.icu connector (`intervals_icu`): OAuth 2.0, scheduled pulls of activities and daily
+  wellness, and webhooks checked with the app's webhook secret. Activities keep their upstream
+  source (Garmin, Wahoo, Zwift, Coros, Suunto, ...).
+- `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE.
+- None of these five connectors has been verified with a real account yet.
+
+### Fixed
+
+- `OHS_<SLUG>_<FIELD>` keys of a provider slug that contains an underscore (`intervals_icu`) are
+  now read under the whole slug.
+
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
   verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
