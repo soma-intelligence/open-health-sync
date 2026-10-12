@@ -1,0 +1,24 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "dailyHeartRateVariability": {
+   "date": {
+    "year": 2026,
+    "month": 3,
+    "day": 9
+   },
+   "averageHeartRateVariabilityMilliseconds": 42.5,
+   "deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds": 48.0,
+   "nonRemHeartRateBeatsPerMinute": "52",
+   "entropy": 2.5
+  }
+ }
+]

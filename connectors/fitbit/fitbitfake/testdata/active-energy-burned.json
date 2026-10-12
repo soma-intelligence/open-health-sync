@@ -1,0 +1,22 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "activeEnergyBurned": {
+   "interval": {
+    "startTime": "2026-03-09T07:00:00Z",
+    "startUtcOffset": "3600s",
+    "endTime": "2026-03-09T07:01:00Z",
+    "endUtcOffset": "3600s"
+   },
+   "kcal": 5.5
+  }
+ }
+]

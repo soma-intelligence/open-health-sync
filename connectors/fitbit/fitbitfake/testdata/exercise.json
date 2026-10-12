@@ -1,0 +1,38 @@
+[
+ {
+  "name": "users/111222333444555666/dataTypes/exercise/dataPoints/7000000001",
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "exercise": {
+   "interval": {
+    "startTime": "2026-03-09T17:00:00Z",
+    "startUtcOffset": "3600s",
+    "endTime": "2026-03-09T17:45:00Z",
+    "endUtcOffset": "3600s"
+   },
+   "exerciseType": "RUNNING",
+   "displayName": "Run",
+   "activeDuration": "2400s",
+   "metricsSummary": {
+    "caloriesKcal": 450.0,
+    "distanceMillimeters": 8000000.0,
+    "steps": "7000",
+    "averageSpeedMillimetersPerSecond": 3333.0,
+    "averageHeartRateBeatsPerMinute": "150",
+    "elevationGainMillimeters": 50000.0,
+    "activeZoneMinutes": "30",
+    "runVo2Max": 46.0
+   },
+   "exerciseMetadata": {
+    "hasGps": true
+   }
+  }
+ }
+]

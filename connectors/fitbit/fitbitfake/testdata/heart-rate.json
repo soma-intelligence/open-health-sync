@@ -1,0 +1,42 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "heartRate": {
+   "sampleTime": {
+    "physicalTime": "2026-03-09T07:00:00Z",
+    "utcOffset": "3600s"
+   },
+   "beatsPerMinute": "62",
+   "metadata": {
+    "motionContext": "SEDENTARY",
+    "sensorLocation": "WRIST"
+   }
+  }
+ },
+ {
+  "dataSource": {
+   "platform": "FITBIT",
+   "recordingMethod": "PASSIVELY_MEASURED",
+   "device": {
+    "formFactor": "FITNESS_BAND",
+    "displayName": "Charge 6",
+    "manufacturer": "Fitbit"
+   }
+  },
+  "heartRate": {
+   "sampleTime": {
+    "physicalTime": "2026-03-09T07:00:05Z",
+    "utcOffset": "3600s"
+   },
+   "beatsPerMinute": "64"
+  }
+ }
+]
