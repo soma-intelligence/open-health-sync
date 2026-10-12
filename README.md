@@ -205,7 +205,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 
 ### Sources and outputs
 
-Ten sources are available. Every other one is planned: on the roadmap, not built yet.
+Apple Health and Withings are in v0.0.2; eight more are on `main` for the next release. Every other one is planned: on the roadmap, not built yet.
 Integration paths, vendor programs and tracking issues for each:
 [docs/connectors](docs/connectors/README.md).
 
@@ -213,15 +213,15 @@ Integration paths, vendor programs and tracking issues for each:
 |---|---|---|
 | Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)); `ohs import apple-health` loads a Health app export |
 | Withings | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
-| Oura | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/oura.md)) |
-| Whoop | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
-| Strava | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
-| Polar | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
+| Oura | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/oura.md)) |
+| Whoop | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
+| Strava | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
+| Polar | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
 | Garmin | 🛠 Planned ([#9](https://github.com/soma-intelligence/open-health-sync/issues/9)) | partner program; Garmin has paused new applications ([research notes](docs/connectors/garmin.md)) |
-| Fitbit | ✅ Available, not yet verified with a real account | Google Health API: OAuth, scheduled pulls, signed webhooks ([guide](docs/connectors/fitbit.md)). Google is not onboarding new projects yet |
-| Suunto | ✅ Available, not yet verified with a real account | partner program: OAuth, scheduled pulls, signed notifications ([guide](docs/connectors/suunto.md)) |
-| Ultrahuman | ✅ Available, not yet verified with a real account | Partnership API: OAuth, daily pulls; ring data and M1 glucose ([guide](docs/connectors/ultrahuman.md)) |
-| intervals.icu | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, webhooks; activities from Garmin, Wahoo, Zwift, Coros and more, plus daily wellness ([guide](docs/connectors/intervals-icu.md)) |
+| Fitbit | 🔜 On `main`, next release; not yet verified with a real account | Google Health API: OAuth, scheduled pulls, signed webhooks ([guide](docs/connectors/fitbit.md)). Google is not onboarding new projects yet |
+| Suunto | 🔜 On `main`, next release; not yet verified with a real account | partner program: OAuth, scheduled pulls, signed notifications ([guide](docs/connectors/suunto.md)) |
+| Ultrahuman | 🔜 On `main`, next release; not yet verified with a real account | Partnership API: OAuth, daily pulls; ring data and M1 glucose ([guide](docs/connectors/ultrahuman.md)) |
+| intervals.icu | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhooks; activities from Garmin, Wahoo, Zwift, Coros and more, plus daily wellness ([guide](docs/connectors/intervals-icu.md)) |
 | Coros, Dexcom | 🛠 Planned | cloud API, OAuth |
 | FreeStyle Libre, Omron | 🛠 Planned | not researched yet |
 | Health Connect | 🛠 Planned | on-device, through the planned Kotlin SDK |
@@ -237,7 +237,7 @@ Want one sooner? Connectors are self-contained: read
 |---|---|
 | REST JSON, described by [api/openapi.yaml](api/openapi.yaml) | ✅ Available |
 | MCP server, read only ([docs/mcp.md](docs/mcp.md)) | ✅ Available |
-| FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | ✅ Available (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
+| FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | 🔜 On `main`, next release (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
 | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
 | Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
