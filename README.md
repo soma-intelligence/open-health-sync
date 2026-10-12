@@ -116,6 +116,7 @@ Provider deletions are honored too.
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
+| 🛠 | Personal mode (`ohs admin personal setup`) and small Python tools to build on your own data | | |
 
 A line moves up only when its pull request is merged, or its release is published. The 0.0.2
 image does not have the 🔜 lines yet. Details per source:
