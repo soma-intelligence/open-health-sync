@@ -14,6 +14,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // Version is reported to clients in the initialize handshake (set by ohs serve).
@@ -25,6 +26,8 @@ type Deps struct {
 	DB read.Querier
 	// Store lists users for list_users.
 	Store *tenant.Store
+	// Webhooks serves list_webhooks; nil leaves the tool out.
+	Webhooks *webhook.Store
 }
 
 // NewHandler returns the Streamable HTTP MCP handler. Mount it behind
