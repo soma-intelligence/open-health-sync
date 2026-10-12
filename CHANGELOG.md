@@ -25,7 +25,17 @@ release may change the API, the configuration or the database schema.
   `99504-3` instead of `2339-0`.
 - FreeStyle Libre research notes: Abbott has no public API; readings arrive through Health
   Connect or Apple Health.
-
+- Open mHealth output: `GET /v1/users/{id}/omh/data-points` serves heart rate, steps, blood
+  pressure pairs, body weight, height, BMI, body fat, body temperature, SpO2, respiratory rate,
+  blood glucose, active energy, sleep sessions (`sleep-episode`) and workouts
+  (`physical-activity`) as Open mHealth data points, in the order and with the cursor of the FHIR
+  search, filtered by `schema`. Every mapping is checked against the official Open mHealth
+  schemas, vendored with their own test data, by the unit tests. See
+  [docs/open-mhealth.md](docs/open-mhealth.md).
+- CSV and Parquet exports: `GET /v1/users/{id}/exports/{dataset}` streams every sample, category
+  sample, sleep session, workout, nutrition log or daily summary of a user in a time window as
+  one CSV or Parquet file, with the columns of the REST records (typed, UTC timestamps, JSON
+  metadata). See [docs/exports.md](docs/exports.md).
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
   verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).

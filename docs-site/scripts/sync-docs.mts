@@ -117,6 +117,20 @@ const sources: Record<string, Target[]> = {
       description: "Read quantity samples as FHIR R4 Observations.",
     },
   ],
+  "docs/open-mhealth.md": [
+    {
+      page: "(guides)/guides/open-mhealth",
+      title: "Open mHealth output",
+      description: "Read records as Open mHealth data points, checked against the official schemas.",
+    },
+  ],
+  "docs/exports.md": [
+    {
+      page: "(guides)/guides/exports",
+      title: "CSV and Parquet exports",
+      description: "Download every record of a list as one CSV or Parquet file.",
+    },
+  ],
 };
 
 // Each provider guide under docs/connectors becomes a page of its own.
@@ -142,6 +156,8 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/rotating-secrets": "RotateCw",
   "(guides)/self-hosting/operating-notes": "NotebookPen",
   "(guides)/guides/fhir": "HeartPulse",
+  "(guides)/guides/open-mhealth": "Activity",
+  "(guides)/guides/exports": "FileDown",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).
