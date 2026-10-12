@@ -53,7 +53,7 @@ export default function HomePage() {
             GitHub
           </a>
         </div>
-        <pre className="mt-10 w-full max-w-xl overflow-x-auto rounded-xl border bg-fd-card px-5 py-4 text-left font-mono text-sm">
+        <pre className="mt-10 w-full max-w-xl whitespace-pre-wrap rounded-xl border bg-fd-card px-5 py-4 text-left font-mono text-sm [overflow-wrap:anywhere]">
           <span className="select-none text-fd-muted-foreground">$ </span>
           docker pull ghcr.io/soma-intelligence/open-health-sync:{latestVersion}
         </pre>
