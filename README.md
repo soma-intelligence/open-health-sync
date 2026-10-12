@@ -25,10 +25,10 @@ Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 <p>
 <a href="docs/connectors/apple-health.md"><img alt="Apple Health: available" src="https://img.shields.io/badge/Apple_Health-available-0e9f8e?style=flat-square"></a>
 <a href="docs/connectors/withings.md"><img alt="Withings: available" src="https://img.shields.io/badge/Withings-available-0e9f8e?style=flat-square"></a>
-<a href="docs/connectors/oura.md"><img alt="Oura: available" src="https://img.shields.io/badge/Oura-available-0e9f8e?style=flat-square"></a>
-<a href="docs/connectors/whoop.md"><img alt="WHOOP: available" src="https://img.shields.io/badge/WHOOP-available-0e9f8e?style=flat-square"></a>
-<a href="docs/connectors/strava.md"><img alt="Strava: available" src="https://img.shields.io/badge/Strava-available-0e9f8e?style=flat-square"></a>
-<a href="docs/connectors/polar.md"><img alt="Polar: available" src="https://img.shields.io/badge/Polar-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/oura.md"><img alt="Oura: next release" src="https://img.shields.io/badge/Oura-next_release-3b82c4?style=flat-square"></a>
+<a href="docs/connectors/whoop.md"><img alt="WHOOP: next release" src="https://img.shields.io/badge/WHOOP-next_release-3b82c4?style=flat-square"></a>
+<a href="docs/connectors/strava.md"><img alt="Strava: next release" src="https://img.shields.io/badge/Strava-next_release-3b82c4?style=flat-square"></a>
+<a href="docs/connectors/polar.md"><img alt="Polar: next release" src="https://img.shields.io/badge/Polar-next_release-3b82c4?style=flat-square"></a>
 <a href="docs/connectors/README.md"><img alt="Garmin: planned" src="https://img.shields.io/badge/Garmin-planned-8a8f98?style=flat-square"></a>
 <a href="docs/connectors/README.md"><img alt="Fitbit: planned" src="https://img.shields.io/badge/Fitbit-planned-8a8f98?style=flat-square"></a>
 <a href="docs/connectors/README.md"><img alt="Health Connect: planned" src="https://img.shields.io/badge/Health_Connect-planned-8a8f98?style=flat-square"></a>
@@ -101,17 +101,20 @@ Provider deletions are honored too.
 
 ## Roadmap at a glance
 
-✅ available on `main` &nbsp;·&nbsp; 🛠 in progress, not shipped yet
+✅ in v0.0.2 &nbsp;·&nbsp; 🔜 on `main`, ships in the next release &nbsp;·&nbsp; 🛠 planned
 
 | | Outputs and integrations | | Sources |
 |:---:|---|:---:|---|
-| ✅ | FHIR R4 (Observations, checked with the HL7 validator) | ✅ | Apple Health, Withings |
-| 🛠 | Open mHealth output | ✅ | Oura, WHOOP, Polar, Strava |
-| 🛠 | Outgoing webhooks | 🛠 | Garmin, Fitbit and more |
-| 🛠 | CSV and Parquet exports | 🛠 | Dexcom, FreeStyle Libre, Omron |
-| 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Health Connect (Android) |
+| ✅ | REST API (OpenAPI 3.1), read-only MCP server | ✅ | Apple Health, Withings |
+| 🔜 | FHIR R4 (Observations, checked with the HL7 validator) | 🔜 | Oura, WHOOP, Polar, Strava |
+| 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
+| 🛠 | Open mHealth output | 🛠 | Garmin, Fitbit and more |
+| 🛠 | Outgoing webhooks | 🛠 | Dexcom, FreeStyle Libre, Omron |
+| 🛠 | CSV and Parquet exports | 🛠 | Health Connect (Android) |
+| 🛠 | Swift, Kotlin, React Native and Flutter SDKs | | |
 
-Each line turns ✅ only when its pull request is merged. Details per source:
+A line moves up only when its pull request is merged, or its release is published. The 0.0.2
+image does not have the 🔜 lines yet. Details per source:
 [docs/connectors](docs/connectors/README.md).
 
 ## What you can build
