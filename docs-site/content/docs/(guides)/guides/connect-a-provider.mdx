@@ -4,8 +4,9 @@ description: From an empty instance to a user's Withings data, with the OAuth fl
 icon: Link
 ---
 
-This walks through Withings, the cloud connector that ships today. Every OAuth connector follows
-the same flow: only the developer portal and the scopes differ.
+This walks through Withings. Oura, WHOOP, Strava and Polar follow the same OAuth flow: only the
+developer portal, the keys and the scopes differ, and each [connector page](/docs/connectors)
+lists them.
 
 <Steps>
 <Step>
@@ -76,8 +77,9 @@ On failure, `status=error`. The consent link is single use and expires after 10 
 
 ### Watch the data land
 
-A new connection is backfilled over the last 30 days, then pulled every 6 hours and on Withings
-notifications.
+A new connection is backfilled over the last 30 days. After that, each Withings notification
+triggers a pull, and a backstop pull runs every 6 hours, or every hour while no notifications
+arrive ([background sync](/docs/concepts/background-sync)).
 
 ```sh
 curl -s "$OHS/v1/users/$USER_ID/connections" -H "Authorization: Bearer $KEY"
@@ -92,8 +94,8 @@ A connection's `status` is `active`, `needs_reauth` (the user must consent again
 
 <Callout title="Notifications need a public URL">
   Withings notifications reach `<OHS_PUBLIC_URL>/inbound/withings`, so the instance must be
-  reachable from the internet for them. Without it nothing breaks: the 6 hour pull still collects
-  everything.
+  reachable from the internet for them. Without it nothing breaks: the hourly backstop pull still
+  collects everything.
 </Callout>
 
 To disconnect, `DELETE /v1/users/{id}/connections/withings` revokes the grant and stops pulling;

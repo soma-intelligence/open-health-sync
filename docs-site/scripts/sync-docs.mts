@@ -2,7 +2,7 @@
 // source for reference pages. Every file this writes ends in .md and is git-ignored; pages
 // written for the site itself end in .mdx. Run by `npm run dev` and `npm run build`.
 
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, relative, resolve } from "node:path";
 import GithubSlugger from "github-slugger";
 
@@ -48,6 +48,13 @@ const sources: Record<string, Target[]> = {
       page: "(guides)/concepts/architecture",
       title: "Architecture",
       description: "Roles, the ingestion pipeline, storage, tenancy and reliability.",
+    },
+  ],
+  "docs/background-sync.md": [
+    {
+      page: "(guides)/concepts/background-sync",
+      title: "Background sync",
+      description: "How each user's data stays current without a sync button, and how fresh it is.",
     },
   ],
   "docs/writing-a-connector.md": [
@@ -103,7 +110,6 @@ const sources: Record<string, Target[]> = {
         "Metrics exposure, crashes, long outages, re-processing a user and other things to know in production.",
     },
   ],
-  // Lands with the FHIR export; until then the site shows content/fallbacks/fhir.md.
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",
@@ -125,6 +131,7 @@ const icons: Record<string, string> = {
   "api-reference/mcp": "Bot",
   "api-reference/data-model": "Shapes",
   "(guides)/concepts/architecture": "Network",
+  "(guides)/concepts/background-sync": "RefreshCw",
   "(guides)/connectors/writing-a-connector": "Code",
   "(guides)/connectors/sources": "List",
   "(guides)/connectors/apple-health": "Smartphone",
@@ -192,7 +199,7 @@ const bodies = new Map<string, { target: Target; body: string }[]>();
 
 for (const [src, targets] of Object.entries(sources)) {
   const abs = join(repo, src);
-  if (!existsSync(abs)) continue;
+  if (!existsSync(abs)) throw new Error(`sync-docs: ${src} is gone; update the sources map`);
   const raw = readFileSync(abs, "utf8");
   const out: { target: Target; body: string }[] = [];
   for (const target of targets) {
@@ -308,19 +315,6 @@ for (const [src, pages] of bodies) {
       .filter((l) => l !== "")
       .join("\n");
     writeFileSync(file, `${front}\n\n${rewriteLinks(body, src).trim()}\n`);
-    written++;
-  }
-}
-
-// A source that has not landed in docs/ yet shows its fallback page, if it has one.
-for (const [src, targets] of Object.entries(sources)) {
-  if (existsSync(join(repo, src))) continue;
-  for (const target of targets) {
-    const fallback = join(site, "content", "fallbacks", `${posix.basename(target.page)}.md`);
-    if (!existsSync(fallback)) continue;
-    const file = join(content, `${target.page}.md`);
-    mkdirSync(dirname(file), { recursive: true });
-    copyFileSync(fallback, file);
     written++;
   }
 }

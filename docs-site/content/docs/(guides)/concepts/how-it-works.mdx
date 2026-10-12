@@ -13,9 +13,9 @@ icon: Workflow
 
 Data arrives two ways. A **device upload**: your iOS app posts HealthKit data to
 `POST /v1/ingest/apple-health` as gzip NDJSON parts, with a user token that has the `upload`
-scope. A **provider pull**: for an OAuth provider such as Withings, the server pulls each active
-connection every 6 hours, and again when the provider sends a notification to
-`/inbound/{provider}`.
+scope. A **provider pull**: for an OAuth provider such as Withings or Oura, the server pulls each active
+connection when the provider sends a notification to `/inbound/{provider}`, and on a backstop
+schedule in case one was lost ([background sync](/docs/concepts/background-sync)).
 
 </Step>
 <Step>

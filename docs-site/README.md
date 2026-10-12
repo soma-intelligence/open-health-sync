@@ -23,7 +23,6 @@ Node 22 or later.
 | `content/docs/**/*.mdx` | written for the site: introduction, quickstart, concepts, install guides, tutorials | here |
 | `content/docs/**/*.md` | copied from `../docs` by `scripts/sync-docs.mts` (connector guides, data model, architecture, API guide, MCP reference, self-hosting sections) | in `../docs`, never here: the copies are git-ignored and rebuilt by `npm run dev` and `npm run build` |
 | `content/docs/api-reference/endpoints/` | generated from `../api/openapi.yaml` by `scripts/generate-api.mts` | in the OpenAPI file |
-| `content/fallbacks/` | shown while a synced source file does not exist yet | here |
 
 So the repository's Markdown under `docs/` stays the single source for reference pages: a new
 file under `docs/connectors/` becomes a page without touching this folder. Relative links
