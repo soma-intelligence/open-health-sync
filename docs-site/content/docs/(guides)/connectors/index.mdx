@@ -22,31 +22,31 @@ There are two ways data arrives, and a connector can do both.
 ## Available today
 
 <Cards>
-  <Card title="Apple Health" href="/docs/connectors/apple-health">
+  <Card title="Apple Health" href="/documentation/connectors/apple-health">
     On-device. Your iOS app uploads gzip NDJSON parts. No keys needed, always enabled.
   </Card>
-  <Card title="Withings" href="/docs/connectors/withings">
+  <Card title="Withings" href="/documentation/connectors/withings">
     Cloud. OAuth, scheduled pulls and push notifications. Bring your own developer app.
   </Card>
-  <Card title="Oura" href="/docs/connectors/oura">
+  <Card title="Oura" href="/documentation/connectors/oura">
     Cloud. Sleep, readiness, activity, heart rate and workouts, with optional webhooks.
   </Card>
-  <Card title="WHOOP" href="/docs/connectors/whoop">
+  <Card title="WHOOP" href="/documentation/connectors/whoop">
     Cloud. Strain, recovery, sleep stages and workouts, with webhooks.
   </Card>
-  <Card title="Strava" href="/docs/connectors/strava">
+  <Card title="Strava" href="/documentation/connectors/strava">
     Cloud. Activities as workouts, with webhook events.
   </Card>
-  <Card title="Polar" href="/docs/connectors/polar">
+  <Card title="Polar" href="/documentation/connectors/polar">
     Cloud. Exercises, activity, sleep, Nightly Recharge and heart rate, with webhooks.
   </Card>
-  <Card title="Health Connect" href="/docs/connectors/health-connect">
+  <Card title="Health Connect" href="/documentation/connectors/health-connect">
     On-device. Your Android app uploads Health Connect records, from any app that writes there.
   </Card>
-  <Card title="Dexcom" href="/docs/connectors/dexcom">
+  <Card title="Dexcom" href="/documentation/connectors/dexcom">
     Cloud. CGM glucose readings, coded as interstitial glucose in FHIR.
   </Card>
-  <Card title="OMRON" href="/docs/connectors/omron">
+  <Card title="OMRON" href="/documentation/connectors/omron">
     Cloud, partner API. Blood pressure, pulse, possible AFib flags, weight and body composition.
   </Card>
 </Cards>
@@ -59,8 +59,8 @@ There are two ways data arrives, and a connector can do both.
 </Callout>
 
 Garmin, Fitbit and more are planned. FreeStyle Libre has no public API; its readings arrive
-through Health Connect or Apple Health ([notes](/docs/connectors/freestyle-libre)). The
-[sources page](/docs/connectors/sources) has the status, integration path and tracking issue of
+through Health Connect or Apple Health ([notes](/documentation/connectors/freestyle-libre)). The
+[sources page](/documentation/connectors/sources) has the status, integration path and tracking issue of
 each one.
 
 ## Turning a connector on
@@ -85,5 +85,5 @@ instance.
 ## Build one
 
 Connectors are self-contained packages under `connectors/`, and need no change to the core.
-Start with [Write a connector](/docs/connectors/writing-a-connector), and pick a
+Start with [Write a connector](/documentation/connectors/writing-a-connector), and pick a
 [good first issue](https://github.com/soma-intelligence/open-health-sync/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22).

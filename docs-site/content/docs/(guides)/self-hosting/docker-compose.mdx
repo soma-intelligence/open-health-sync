@@ -44,7 +44,7 @@ The `ohs` container runs `ohs up`: pending migrations, then the server. Its heal
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
 ```
 
-The key is printed once. Continue with the [quickstart](/docs/quickstart#create-a-user-and-a-token-for-their-app)
+The key is printed once. Continue with the [quickstart](/documentation/quickstart#create-a-user-and-a-token-for-their-app)
 to upload and read data.
 
 </Step>
@@ -99,4 +99,4 @@ another release.
 | `raw` | the raw store: every payload, verbatim |
 
 `docker compose ... down` keeps both. `down -v` deletes them, with everything in them.
-Back them up together with `.env`: see [Backup and restore](/docs/self-hosting/backup).
+Back them up together with `.env`: see [Backup and restore](/documentation/self-hosting/backup).
