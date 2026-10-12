@@ -1,0 +1,32 @@
+---
+title: Raspberry Pi 5
+description: The full stack on a Raspberry Pi 5 with 4 GB, with an overlay tuned for it.
+icon: Cpu
+---
+
+The images are multi-arch and Postgres is pinned by its multi-arch digest, so the same compose
+file runs on a Pi. Add the Pi overlay, which trims memory use:
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.pi.yml up -d --wait
+```
+
+Configure `.env` first, as in [Docker Compose](/docs/self-hosting/docker-compose#configure), and
+keep the same `-f` files on every later command.
+
+## What the overlay changes
+
+| Setting | Value |
+| --- | --- |
+| Postgres `shared_buffers` | `128MB` |
+| Postgres `effective_cache_size` | `512MB` |
+| Postgres `work_mem` | `4MB` |
+| Postgres `max_connections` | `30` |
+| `timescaledb.max_background_workers` | `4` |
+| `ohs` memory limit | 512 MB, with `GOMEMLIMIT=256MiB` |
+| `OHS_INGEST_CONCURRENCY` | `2` uploads at once; more answer 503 with `Retry-After` |
+
+<Callout title="Use an SSD">
+  Postgres writes a lot during a large first upload. A USB 3 SSD or an NVMe HAT lasts much longer
+  than an SD card, and is faster.
+</Callout>

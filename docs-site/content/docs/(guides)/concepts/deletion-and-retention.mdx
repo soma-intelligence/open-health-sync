@@ -1,0 +1,70 @@
+---
+title: Deletion and retention
+description: A hard delete of a user's raw files and rows, and an age limit for everything else.
+icon: Trash
+---
+
+## Deleting a user
+
+`DELETE /v1/users/{id}` is a real erasure, not a soft flag: the user's raw files, every row, then
+the user.
+
+<Steps>
+<Step>
+
+### Ask for the deletion
+
+```sh
+curl -s -X DELETE "$OHS/v1/users/$USER_ID" -H "Authorization: Bearer $KEY"
+# 202 {"job_id": "5f0c2b8e-..."}
+```
+
+The user's status becomes `deleting` at once: reads return 404 and their tokens stop working.
+
+</Step>
+<Step>
+
+### Let the worker run
+
+A background job, in the `etl` role, revokes the user's provider connections (best effort),
+deletes their raw files and every row, then the user. It survives restarts.
+
+</Step>
+<Step>
+
+### Poll until done
+
+```sh
+curl -s "$OHS/v1/deletions/$JOB_ID" -H "Authorization: Bearer $KEY"
+```
+
+`status` is `pending`, `running`, `done` or `failed`; `finished_at` is null until the job ends.
+
+</Step>
+</Steps>
+
+<Callout type="warn" title="Provider grants are revoked on a best effort basis">
+  If a provider is down during the deletion, the user's data is still deleted and the revocation
+  is logged as failed. The grant may then stay valid at the provider until the user removes it
+  there.
+</Callout>
+
+## Disconnecting a provider
+
+`DELETE /v1/users/{id}/connections/{provider}` revokes the grant (best effort) and stops pulling.
+Data already collected is kept. Delete the user to remove it.
+
+## Retention
+
+`OHS_RETENTION_DAYS` deletes raw files and normalized data (samples, sleep, workouts, daily
+summaries) older than that many days. `0`, the default, keeps everything.
+
+```sh title=".env"
+OHS_RETENTION_DAYS=365
+```
+
+## Backups hold deleted data
+
+A deletion removes data from the live instance, not from backups you took before it. Size your
+backup retention to match your own erasure commitments. See
+[Backup and restore](/docs/self-hosting/backup).

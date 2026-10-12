@@ -30,6 +30,7 @@ internal/           the core packages (app, api, auth, tenant, collect, etl, mod
 connectors/         one directory per provider, plus connectors/all that links them
 api/openapi.yaml    the public API, the source of truth
 docs/               user documentation
+docs-site/          the documentation website, built from docs/ and the OpenAPI file
 deploy/             Dockerfile and compose files
 ```
 

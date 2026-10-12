@@ -1,0 +1,63 @@
+---
+title: Tenants, users and tokens
+description: Who holds which secret, what each one can call, and how long it lives.
+icon: KeyRound
+---
+
+import { Server, Smartphone } from 'lucide-react';
+
+An instance serves one or more **tenants**. A tenant is a customer of the instance, usually your
+backend. Each tenant has **end users**, the people whose data it holds. Two kinds of secret go
+with them, both sent as `Authorization: Bearer <secret>`.
+
+<Cards>
+  <Card title="Tenant API key · ohs_sk_" icon={<Server />}>
+    Held by your server. Calls the tenant routes: users, tokens, connections and reads.
+  </Card>
+  <Card title="User token · ohs_ut_" icon={<Smartphone />}>
+    Held by one person's app or agent. Scoped to that user and to `upload`, `connect` or `read`.
+  </Card>
+</Cards>
+
+A tenant key on a user route, or a user token on a tenant route, gets 403. A user, workout or
+sleep session of another tenant reads as 404, never 403, so ids do not leak across tenants.
+
+## Tenant API keys
+
+The first key comes from `ohs admin tenant create --name <name>`, or from `OHS_BOOTSTRAP_TENANT`,
+which creates a tenant at first start and logs its key once. Keys are stored as SHA-256 hashes:
+a lost key cannot be shown again, only replaced.
+
+```sh
+ohs admin tenant create --name acme        # prints the first key once
+ohs admin key create --tenant <tenant id>  # add a key, for rotation
+ohs admin key list --tenant <tenant id>    # prefixes, created and last used
+ohs admin key revoke --tenant <tenant id> --key <prefix>
+```
+
+To rotate a key without downtime, see [Rotating secrets](/docs/self-hosting/rotating-secrets).
+
+## User tokens
+
+Your server mints a user token for one active user, with the scopes it needs:
+
+```sh
+curl -s -X POST $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{"scopes":["upload"],"ttl_seconds":3600}'
+# {"token":"ohs_ut_...","expires_at":"...","scopes":["upload"]}
+```
+
+| Scope | Lets the token | Lifetime |
+| --- | --- | --- |
+| `upload` | send device data for that user (`POST /v1/ingest/...`) | 1 hour by default, at most 24 hours |
+| `read` | read that user's data over MCP | up to 30 days when `read` is its only scope |
+| `connect` | reserved: no route uses it yet | 1 hour by default, at most 24 hours |
+
+The token is shown once (`Cache-Control: no-store`) and stored hashed. It stops working at
+`expires_at`, or as soon as its user is deleted. Revoking the tenant key that minted it does not
+end it; `ohs admin key revoke` with the whole token does.
+
+<Callout title="Keep tenant keys on your server">
+  A tenant key can read every user of the tenant. Never ship it in a mobile app: give the app a
+  user token instead, minted by your backend when the app needs one.
+</Callout>

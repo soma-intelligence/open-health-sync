@@ -1,0 +1,49 @@
+---
+title: Self-hosting
+description: Pick how to run it. Every option is the same binary and the same Postgres.
+icon: Server
+---
+
+import { Cpu, Container, Database, HardDrive, Package, ShieldCheck } from 'lucide-react';
+
+Open Health Sync is one Go binary, `ohs`, plus Postgres with the TimescaleDB extension. Raw
+payloads go to a local folder or an S3 compatible bucket. That is the whole stack.
+
+<Cards>
+  <Card icon={<Container />} title="Docker Compose" href="/docs/self-hosting/docker-compose">
+    The published image and a pinned TimescaleDB. The recommended start.
+  </Card>
+  <Card icon={<Cpu />} title="Raspberry Pi 5" href="/docs/self-hosting/raspberry-pi">
+    The full stack on 4 GB, with an overlay tuned for it.
+  </Card>
+  <Card icon={<HardDrive />} title="S3 raw store" href="/docs/self-hosting/s3">
+    Keep raw payloads in AWS S3 or any compatible bucket.
+  </Card>
+  <Card icon={<Package />} title="Binaries and source" href="/docs/self-hosting/binaries">
+    Linux and macOS binaries, or build it yourself with Go.
+  </Card>
+  <Card icon={<ShieldCheck />} title="Production checklist" href="/docs/self-hosting/production">
+    TLS, the reverse proxy, metrics, backups and the settings that matter.
+  </Card>
+  <Card icon={<Database />} title="Configuration" href="/docs/self-hosting/configuration">
+    Every environment variable and the database pool size.
+  </Card>
+</Cards>
+
+## Requirements
+
+| | Minimum | Notes |
+| --- | --- | --- |
+| CPU | amd64 or arm64 | Images and binaries are published for both. |
+| Memory | 4 GB for the whole stack | A Raspberry Pi 5 with 4 GB runs it with the Pi overlay. |
+| Postgres | 17 with TimescaleDB | Compose pins `timescale/timescaledb:latest-pg17` by digest. Only hypertables are used: no continuous aggregates, no compression policies. |
+| Raw store | a writable folder, or an S3 bucket with `If-None-Match` | Writes are conditional and never overwrite. |
+| Docker Compose | v2.24 or later | Only for the compose setups. |
+
+## Versions
+
+Releases are 0.x: any of them may change the API, the configuration or the schema. Images are
+tagged with the version and with `edge` (the newest final release). There is no `latest` tag
+while the version is 0.x: pin a version, and read the
+[changelog](https://github.com/soma-intelligence/open-health-sync/blob/main/CHANGELOG.md) before
+[upgrading](/docs/self-hosting/upgrading).

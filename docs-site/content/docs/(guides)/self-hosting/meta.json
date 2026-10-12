@@ -1,0 +1,18 @@
+{
+  "title": "Self-hosting",
+  "pages": [
+    "index",
+    "docker-compose",
+    "raspberry-pi",
+    "s3",
+    "binaries",
+    "production",
+    "configuration",
+    "doctor",
+    "cli",
+    "upgrading",
+    "backup",
+    "rotating-secrets",
+    "operating-notes"
+  ]
+}

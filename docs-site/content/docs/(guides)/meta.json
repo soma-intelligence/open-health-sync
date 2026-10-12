@@ -1,0 +1,23 @@
+{
+  "title": "Documentation",
+  "description": "Run it, connect sources, read clean data",
+  "root": true,
+  "icon": "BookOpen",
+  "pages": [
+    "---Get started---",
+    "index",
+    "quickstart",
+    "---Concepts---",
+    "...concepts",
+    "---Self-hosting---",
+    "...self-hosting",
+    "---Connectors---",
+    "...connectors",
+    "---Guides---",
+    "...guides",
+    "---Project---",
+    "[GitPullRequest][Contributing](https://github.com/soma-intelligence/open-health-sync/blob/main/CONTRIBUTING.md)",
+    "[ScrollText][Changelog](https://github.com/soma-intelligence/open-health-sync/blob/main/CHANGELOG.md)",
+    "[ShieldCheck][Security policy](https://github.com/soma-intelligence/open-health-sync/blob/main/SECURITY.md)"
+  ]
+}

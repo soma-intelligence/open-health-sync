@@ -1,0 +1,7 @@
+{
+  "title": "API reference",
+  "description": "Every route, generated from api/openapi.yaml",
+  "root": true,
+  "icon": "Braces",
+  "pages": ["---Introduction---", "index", "---Endpoints---", "...endpoints", "---Reference---", "data-model", "mcp"]
+}
