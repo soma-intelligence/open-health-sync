@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // ConnectionRevoker revokes a user's provider connections (their OAuth grants)
@@ -275,6 +276,16 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM ohs_core.idempotency_keys WHERE tenant_id = $1 AND user_id = $2`, j.tenant, j.user); err != nil {
 		return false, fmt.Errorf("delete idempotency keys: %w", err)
+	}
+	// Webhooks not yet sent about the user go with them; user.deleted is
+	// queued while the user row still gives its external_ref.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM ohs_core.webhook_deliveries WHERE tenant_id = $1 AND user_id = $2`, j.tenant, j.user); err != nil {
+		return false, fmt.Errorf("delete webhook deliveries: %w", err)
+	}
+	user := j.user
+	if _, err := webhook.Enqueue(ctx, tx, webhook.Event{Tenant: j.tenant, User: &user, Type: webhook.UserDeleted}); err != nil {
+		return false, err
 	}
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2`, j.tenant, j.user); err != nil {

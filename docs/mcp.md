@@ -135,6 +135,7 @@ Arguments mirror the REST query parameters. Times take RFC 3339 or `YYYY-MM-DD` 
 | `get_daily` | `user_id`, `start`, `end`, `cursor`, `limit` | daily summaries per local day |
 | `get_coverage` | `user_id`, `provider`, `start`, `end` | records per provider per day, plus `pending_jobs`, `parked_jobs` and `rejected_records` (lines not stored) |
 | `list_connections` | `user_id` | provider connections, status and last sync time |
+| `list_webhooks` | `deliveries` | the tenant's [webhook](webhooks.md) endpoints and their health; with `deliveries`, each one's 10 latest deliveries (tenant key only; endpoints are managed through the REST API) |
 
 Each result is one JSON text content:
 
