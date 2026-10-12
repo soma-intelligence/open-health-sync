@@ -10,6 +10,7 @@ import (
 	_ "github.com/soma-intelligence/open-health-sync/connectors/oura"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/polar"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/strava"
+	_ "github.com/soma-intelligence/open-health-sync/connectors/ultrahuman"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/whoop"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/withings"
 )
