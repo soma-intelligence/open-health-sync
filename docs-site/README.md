@@ -48,7 +48,19 @@ ships and what is planned, and run `npm run lint` before a pull request.
 
 ## Deploying
 
-`npm run build` writes a static site to `out/`. To serve it under a path (a GitHub Pages
-project site, for example), build with `NEXT_PUBLIC_BASE_PATH=/open-health-sync`. Set
-`NEXT_PUBLIC_SITE_URL` to the public address so social previews resolve. The API reference has
-no "try it" console: an instance only answers cross-origin requests for `/openapi.yaml`.
+`npm run build` writes a static site to `out/`. Set `NEXT_PUBLIC_SITE_URL` to the public
+address so canonical links and social previews resolve, and `NEXT_PUBLIC_BASE_PATH` to serve it
+under a path. The API reference has no "try it" console: an instance only answers cross-origin
+requests for `/openapi.yaml`.
+
+The public site is served under `/open-health-sync` by another site that forwards that path to
+a Vercel project built from this directory, so the docs deploy with every change to `main`:
+
+- Vercel project: this repository, Root Directory `docs-site`, framework Next.js, with
+  "Include files outside the root directory" on (the build reads `docs/`, `api/` and `deploy/`).
+- Environment: `NEXT_PUBLIC_BASE_PATH=/open-health-sync`, and `NEXT_PUBLIC_SITE_URL` set to the
+  forwarding site's address.
+
+Every page names its address on the forwarding site as canonical, so search engines index that
+one and not the Vercel address. Pages have no trailing slash, like most sites that forward: with
+one, each side would redirect to the other's form and loop.

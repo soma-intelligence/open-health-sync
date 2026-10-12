@@ -13,6 +13,7 @@ import { notFound } from "next/navigation";
 import type { ComponentProps } from "react";
 import { APIPage } from "@/components/api-page";
 import { getMDXComponents } from "@/components/mdx";
+import { asset } from "@/lib/asset";
 import { openapi } from "@/lib/openapi";
 import { getPageEditUrl, getPageImageUrl, getPageMarkdownUrl } from "@/lib/shared";
 import { source } from "@/lib/source";
@@ -61,8 +62,9 @@ export async function generateMetadata(props: PageProps<"/docs/[[...slug]]">): P
   return {
     title: page.data.title,
     description: page.data.description,
+    alternates: { canonical: asset(page.url) },
     openGraph: {
-      images: getPageImageUrl(page).url,
+      images: asset(getPageImageUrl(page).url),
     },
   };
 }

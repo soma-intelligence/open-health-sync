@@ -1,7 +1,11 @@
 import { ArrowRight, Bot, Braces, Database, FileArchive, Globe, Server } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { asset } from "@/lib/asset";
 import { latestVersion, repoUrl } from "@/lib/shared";
+
+export const metadata: Metadata = { alternates: { canonical: asset("") || "/" } };
 
 function Feature({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
