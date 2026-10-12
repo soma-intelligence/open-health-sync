@@ -60,6 +60,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 | A re-sent upload | stored twice | answered `200` with `"duplicate": true`, records de-duplicated by content hash |
 | Raw payloads | parsed, then thrown away | kept verbatim on disk or S3, so a user can be re-processed after a fix |
 | Is it done? | guess, or check the logs | `GET /coverage`: `pending_jobs`, `parked_jobs`, `rejected_records` |
+| New data arrived | poll on a timer | a signed webhook (`data.written`) names the user, provider and days |
 | A crash mid-run | rerun the script and hope | Postgres queue, retries with backoff, parked after 5 attempts |
 | Provider OAuth tokens | a plain column or a `.env` | sealed with AES-256-GCM under `OHS_ENCRYPTION_KEY` |
 | Delete a user | grep across tables and buckets | `DELETE /v1/users/{id}`, then poll `GET /v1/deletions/{job_id}` |
@@ -88,6 +89,10 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 - **Multi-tenant.** Tenant API keys (`ohs_sk_`) for your server, short-lived scoped user tokens
   (`ohs_ut_`, scopes `upload` and `read`) for one person's app or agent. Keys and tokens are
   stored as SHA-256 hashes.
+- **Outgoing webhooks.** Your server is told when a sync writes or deletes data, a user is
+  erased or a connection needs the user again. Signed per Standard Webhooks, retried for
+  about 28 hours, and thin: no health value ever leaves in a payload
+  ([guide](docs/webhooks.md)).
 - **Read-only MCP for AI agents.** A person can point their own agent at their own data, with a
   token that can only read.
 - **One binary plus Postgres.** The queue lives in Postgres (`FOR UPDATE SKIP LOCKED`). No
@@ -133,7 +138,8 @@ Want one sooner? Connectors are self-contained: read
 | FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | ✅ Available (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
 | Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
-| Outgoing webhooks, Open mHealth, CSV and Parquet exports | 🛠 Planned |
+| Outgoing webhooks, signed per Standard Webhooks ([docs/webhooks.md](docs/webhooks.md)) | ✅ Available (data written or deleted, user erased, connection needs reauthorization) |
+| Open mHealth, CSV and Parquet exports | 🛠 Planned |
 | SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
 
 ## Quickstart
@@ -394,12 +400,12 @@ Known limitations:
   visibility timeout.
 - One database and one raw store per instance; no multi-region replication.
 - FHIR R4 serves Observations only (samples, blood pressure, sleep, workouts, daily summaries); no
-  webhooks or mobile SDKs yet.
+  mobile SDKs yet.
 - The Withings portal steps and the units of physical effort and VO2 max are not verified on
   real devices yet.
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
 
-Next: more connectors, standard outputs (more FHIR R4 resources, Open mHealth, exports, webhooks), then client
+Next: more connectors, standard outputs (more FHIR R4 resources, Open mHealth, exports), then client
 SDKs. Requests are welcome as GitHub issues, including the connector request form.
 
 ## Documentation
@@ -408,6 +414,7 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
 - [API guide](docs/api.md) and the [OpenAPI file](api/openapi.yaml), the source of truth.
 - [MCP server](docs/mcp.md): tools, credentials, desktop and remote agents.
 - [FHIR R4 output](docs/fhir.md): the user's records as Observations, the mapping and its limits.
+- [Outgoing webhooks](docs/webhooks.md): events, signatures, retries and the endpoint routes.
 - [Data model](docs/data-model.md): every canonical type and quantity name, with units.
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
 - Connectors: [supported and planned sources](docs/connectors/README.md),

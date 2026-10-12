@@ -91,6 +91,7 @@ func TestLoadProviderKeys(t *testing.T) {
 	m["OHS_BOOTSTRAP_TENANT"] = "acme"
 	m["OHS_HTTP_PORT"] = "8081" // compose only
 	m["OHS_VERSION"] = "0.0.1"  // compose only
+	m["OHS_WEBHOOK_ALLOW_PRIVATE"] = "true"
 	m["OTHER"] = "z"
 	c, err := load(t, m)
 	if err != nil {
@@ -103,8 +104,20 @@ func TestLoadProviderKeys(t *testing.T) {
 	if len(c.Providers) != 1 {
 		t.Fatalf("reserved names leaked as providers: %v", c.Providers)
 	}
-	if c.Listen != ":9" || c.RetentionDays != 30 || c.Metrics || c.BootstrapTenant != "acme" {
+	if c.Listen != ":9" || c.RetentionDays != 30 || c.Metrics || c.BootstrapTenant != "acme" || !c.WebhookAllowPrivate {
 		t.Fatalf("%+v", c)
+	}
+}
+
+func TestLoadWebhookAllowPrivate(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.WebhookAllowPrivate {
+		t.Fatalf("default: %v %v", c.WebhookAllowPrivate, err)
+	}
+	m := base()
+	m["OHS_WEBHOOK_ALLOW_PRIVATE"] = "maybe"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_WEBHOOK_ALLOW_PRIVATE") {
+		t.Fatalf("bad value: %v", err)
 	}
 }
 

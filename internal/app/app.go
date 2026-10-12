@@ -36,6 +36,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // Process tuning.
@@ -187,6 +188,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		// A deletion cut short by shutdown stays pending for the next start.
 		dw := deletion.NewWorker(pool, raw, collectDeps).WithShutdownGrace(opts.grace)
 		goRole("deletion", func() error { return dw.Run(ctx) })
+		// Outgoing webhooks: deliveries are written with the change they
+		// announce, posted from here.
+		ww := webhook.NewWorker(pool, box, webhook.WorkerConfig{AllowPrivate: cfg.WebhookAllowPrivate})
+		goRole("webhooks", func() error { return ww.Run(ctx) })
 		goRole("automation", func() error {
 			return automation.Start(ctx, automation.Deps{
 				Pool: pool, Store: raw, RetentionDays: cfg.RetentionDays, Metrics: etlMetrics,
@@ -208,6 +213,9 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			Metrics:   cfg.Metrics,
 			Collect:   collect.NewHandlers(collectDeps),
 			PublicURL: cfg.PublicURL,
+			Webhooks:  webhook.NewStore(pool, box),
+			// WebhookAllowPrivate relaxes the endpoint URL checks.
+			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.
 			IngestLimit: cfg.IngestConcurrency,
 		}

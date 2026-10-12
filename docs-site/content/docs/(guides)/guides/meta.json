@@ -1,4 +1,4 @@
 {
   "title": "Guides",
-  "pages": ["connect-a-provider", "ai-agents", "fhir"]
+  "pages": ["connect-a-provider", "ai-agents", "fhir", "webhooks"]
 }

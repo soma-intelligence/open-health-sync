@@ -29,7 +29,10 @@ type Config struct {
 	// IngestConcurrency bounds the device uploads one api process handles at
 	// once (OHS_INGEST_CONCURRENCY, default 8).
 	IngestConcurrency int
-	Providers         map[string]ProviderKeys // key = lower-case slug
+	// WebhookAllowPrivate lets webhook endpoints use plain http and reach
+	// private and loopback addresses (OHS_WEBHOOK_ALLOW_PRIVATE, default false).
+	WebhookAllowPrivate bool
+	Providers           map[string]ProviderKeys // key = lower-case slug
 }
 
 // DefaultIngestConcurrency is OHS_INGEST_CONCURRENCY when unset.
@@ -37,21 +40,22 @@ const DefaultIngestConcurrency = 8
 
 // reserved are the OHS_ variables (without prefix) that are never provider settings.
 var reserved = map[string]bool{
-	"DATABASE_URL":       true,
-	"ENCRYPTION_KEY":     true,
-	"PUBLIC_URL":         true,
-	"RAW_STORE":          true,
-	"ROLES":              true,
-	"BOOTSTRAP_TENANT":   true,
-	"LISTEN":             true,
-	"LOG_LEVEL":          true,
-	"METRICS":            true,
-	"RETENTION_DAYS":     true,
-	"INGEST_CONCURRENCY": true,
-	"MCP_URL":            true, // client side settings of `ohs mcp`
-	"MCP_KEY":            true,
-	"HTTP_PORT":          true, // read by docker compose only (host port)
-	"VERSION":            true, // read by docker compose only (image tag)
+	"DATABASE_URL":          true,
+	"ENCRYPTION_KEY":        true,
+	"PUBLIC_URL":            true,
+	"RAW_STORE":             true,
+	"ROLES":                 true,
+	"BOOTSTRAP_TENANT":      true,
+	"LISTEN":                true,
+	"LOG_LEVEL":             true,
+	"METRICS":               true,
+	"RETENTION_DAYS":        true,
+	"INGEST_CONCURRENCY":    true,
+	"WEBHOOK_ALLOW_PRIVATE": true,
+	"MCP_URL":               true, // client side settings of `ohs mcp`
+	"MCP_KEY":               true,
+	"HTTP_PORT":             true, // read by docker compose only (host port)
+	"VERSION":               true, // read by docker compose only (image tag)
 }
 
 // ErrEncryptionKey is wrapped by every Load error about OHS_ENCRYPTION_KEY
@@ -167,6 +171,14 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_INGEST_CONCURRENCY: %q is not a positive integer", v)
 		}
 		c.IngestConcurrency = n
+	}
+
+	if v := get("OHS_WEBHOOK_ALLOW_PRIVATE", ""); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("OHS_WEBHOOK_ALLOW_PRIVATE: %q is not a boolean", v)
+		}
+		c.WebhookAllowPrivate = b
 	}
 
 	for _, kv := range environ {

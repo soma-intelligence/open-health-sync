@@ -9,6 +9,15 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Outgoing webhooks ([docs/webhooks.md](docs/webhooks.md)): `POST /v1/webhooks` registers an
+  endpoint for `data.written`, `data.deleted`, `user.deleted` and `connection.needs_reauth`
+  events. Requests are signed per Standard Webhooks (HMAC-SHA256, `whsec_` secrets sealed with
+  `OHS_ENCRYPTION_KEY`), written in the transaction of the change they announce, posted by the
+  `etl` role and retried 8 times over about 28 hours; an endpoint failing for 5 days is
+  disabled. Payloads name the user, provider and days, never a health value. Routes to list,
+  change, delete, test, rotate the secret, list deliveries and retry one; MCP tool
+  `list_webhooks`. Endpoint URLs must be https and public unless
+  `OHS_WEBHOOK_ALLOW_PRIVATE=true`. Migration `0018`.
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
   verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
