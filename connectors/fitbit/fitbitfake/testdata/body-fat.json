@@ -1,0 +1,14 @@
+[
+ {
+  "dataSource": {
+   "platform": "FITBIT"
+  },
+  "bodyFat": {
+   "sampleTime": {
+    "physicalTime": "2026-03-09T06:30:00Z",
+    "utcOffset": "3600s"
+   },
+   "percentage": 18.5
+  }
+ }
+]

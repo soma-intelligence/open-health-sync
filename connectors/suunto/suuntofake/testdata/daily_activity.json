@@ -1,0 +1,5 @@
+{
+  "fixture": "invented shape, Suunto does not publish this answer",
+  "StepCount": [{"TimeISO8601": "2026-03-02T00:00:00Z", "Value": 8000}],
+  "EnergyConsumption": [{"TimeISO8601": "2026-03-02T00:00:00Z", "Value": 1000000}]
+}

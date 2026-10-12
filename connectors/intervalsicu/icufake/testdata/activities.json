@@ -1,0 +1,62 @@
+[
+  {
+    "id": "i1001",
+    "start_date_local": "2026-03-01T08:00:00",
+    "start_date": "2026-03-01T07:00:00Z",
+    "timezone": "Europe/Paris",
+    "type": "Ride",
+    "name": "Morning ride",
+    "source": "GARMIN_CONNECT",
+    "device_name": "Test Bike Computer",
+    "external_id": "garmin-500001",
+    "moving_time": 3600,
+    "elapsed_time": 3900,
+    "distance": 30000.0,
+    "calories": 800,
+    "icu_joules": 720000,
+    "total_elevation_gain": 250.0,
+    "average_heartrate": 140,
+    "max_heartrate": 170,
+    "average_speed": 8.33,
+    "max_speed": 15.0,
+    "icu_average_watts": 200,
+    "icu_training_load": 75,
+    "trainer": false
+  },
+  {
+    "id": "i1002",
+    "start_date_local": "2026-03-02T19:30:00",
+    "start_date": "2026-03-02T18:30:00Z",
+    "timezone": "Europe/Paris",
+    "type": "VirtualRide",
+    "source": "ZWIFT",
+    "moving_time": 2700,
+    "elapsed_time": 2700,
+    "distance": 22000.0,
+    "calories": null,
+    "icu_joules": 500000,
+    "average_heartrate": null,
+    "max_heartrate": null,
+    "average_speed": 8.15,
+    "trainer": true
+  },
+  {
+    "id": "i1003",
+    "start_date_local": "2026-03-02T10:00:00",
+    "source": "STRAVA",
+    "_note": "STRAVA activities are not available via the API"
+  },
+  {
+    "id": "i1004",
+    "start_date_local": "2026-02-20T18:00:00",
+    "start_date": "2026-02-20T17:00:00Z",
+    "timezone": "Europe/Paris",
+    "type": "WeightTraining",
+    "source": "UPLOAD",
+    "moving_time": 1800,
+    "elapsed_time": 2400,
+    "distance": 0,
+    "average_speed": 0,
+    "calories": 200
+  }
+]
