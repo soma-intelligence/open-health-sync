@@ -1,0 +1,12 @@
+[
+  {
+    "userId": "a1b2c3d4-0000-4000-8000-000000000001",
+    "summaryId": "x1a2b3c-bp-69a53370",
+    "measurementTimeInSeconds": 1772434800,
+    "measurementTimeOffsetInSeconds": 3600,
+    "systolic": 118,
+    "diastolic": 76,
+    "pulse": 62,
+    "sourceType": "MANUAL"
+  }
+]
