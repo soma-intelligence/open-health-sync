@@ -763,12 +763,35 @@ paths:
   /inbound/{provider}:
     parameters:
       - $ref: "#/components/parameters/Provider"
+    get:
+      tags: [provider-facing]
+      operationId: inboundProbe
+      summary: Notification URL check and subscription challenge
+      security: []
+      description: |
+        Providers check that a notification URL answers before they subscribe it. The answer
+        is 200 with no body, or, for a provider that sends a subscription challenge (Strava's
+        `hub.challenge`, Oura's `challenge`), 200 with the provider's expected echo. A
+        challenge whose verify token does not match is 401. HEAD is answered like GET.
+      responses:
+        "200":
+          description: Reachable; the challenge echo when the provider sent one.
+          content:
+            application/json:
+              schema: { type: object }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [provider-facing]
       operationId: inbound
       summary: Provider notification endpoint
       security: []
-      description: Verified with the provider's own signature scheme. Accepted events queue pulls.
+      description: |
+        Verified with the provider's own signature scheme. An accepted event queues a pull for
+        every active connection of the provider user, or, for a notice a pull cannot fetch back
+        (a deleted record), is stored as a raw object for each of them and queued for the ETL,
+        which removes the record. A notice that cannot be stored is 500, so the provider
+        retries.
       requestBody:
         content:
           application/json:
@@ -780,6 +803,12 @@ paths:
         "204": { description: Accepted. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "500":
+          description: The notification could not be stored; the provider should retry.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /mcp:
     post:

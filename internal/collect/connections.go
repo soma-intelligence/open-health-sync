@@ -91,7 +91,7 @@ func (d Deps) check(what string) {
 type Handlers struct{ d Deps }
 
 // NewHandlers returns the connection handlers. Deps needs Pool, Box and
-// Tenants; Raw is not used by the handlers.
+// Tenants, and Raw for the raw lines of inbound notifications.
 func NewHandlers(d Deps) *Handlers {
 	d.check("NewHandlers")
 	if d.Tenants == nil {

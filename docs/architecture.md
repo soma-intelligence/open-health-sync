@@ -33,8 +33,9 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
 
 ## Pipeline
 
-1. **Capture.** A device upload (`POST /v1/ingest/apple-health`) or a provider pull writes the
-   payload to the raw store, verbatim, as gzip NDJSON, one data type per object. The key is
+1. **Capture.** A device upload (`POST /v1/ingest/apple-health`), a provider pull, or a
+   provider notice a pull cannot fetch back (a deleted record) writes the payload to the raw
+   store, verbatim, as gzip NDJSON, one data type per object. The key is
    `raw/<tenant>/<user>/<provider>/<yyyy-mm-dd>/<batch>_<part>.ndjson.gz`. A raw object is
    never rewritten.
 2. **Queue.** In the same transaction as the `raw_objects` row, an `etl_jobs` row is inserted.
@@ -44,7 +45,13 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
 4. **Process.** Units are converted to the storage unit of each quantity name, values are
    validated against plausible ranges (hard bounds reject a record, soft bounds flag it),
    duplicates are dropped by content hash, and sources are attributed.
-5. **Write.** Records go to the `ohs_data` hypertables. Daily totals for step count, energy,
+5. **Write.** A deletion the provider reported (`MapResult.Deletions`) is applied first: the
+   stored rows of that provider record go (its sleep or workout with their children, and the
+   samples stored under its id or `<id>_<suffix>`, found through an index on provider and
+   external id), the daily summary figures it filled are cleared when the deletion names them,
+   and a tombstone in `ohs_data.deleted_records` keeps any later copy of it from being written.
+   A Replaceable sleep, workout or (opted in with `SupersedeMoved`) quantity sample whose start
+   moved replaces the stored copy of the same provider record instead of adding a second one. Records go to the `ohs_data` hypertables. Daily totals for step count, energy,
    distance and flights are derived per user, provider and local day when the provider sent no
    daily summary of its own. The local day comes from the sample's `timezone` metadata (UTC when
    absent). Where several sources report the same day, the largest per-source sum wins, so a

@@ -1,0 +1,22 @@
+[
+  {
+    "start_time": "2026-03-04T00:00:00",
+    "end_time": "2026-03-04T23:59:59",
+    "active_duration": "PT3H10M",
+    "inactive_duration": "PT10H",
+    "daily_activity": 80,
+    "calories": 2500,
+    "active_calories": 700,
+    "steps": 10000,
+    "inactivity_alert_count": 1,
+    "distance_from_steps": 7500
+  },
+  {
+    "start_time": "2026-03-05T00:00:00",
+    "end_time": "2026-03-05T23:59:59",
+    "calories": 2200,
+    "active_calories": 500,
+    "steps": 8000,
+    "distance_from_steps": 6000
+  }
+]

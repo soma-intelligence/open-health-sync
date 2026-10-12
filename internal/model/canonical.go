@@ -53,6 +53,17 @@ type QuantitySample struct {
 	// on conflict the stored value is replaced by this one instead of this one
 	// being skipped as a duplicate. Everything else stays first-write-wins.
 	Replaceable bool
+
+	// SupersedeMoved is an instruction to the writer, not a column. It says
+	// that ExternalID names this one sample of one provider record (a figure
+	// of a sleep, a workout, a cycle), so a stored sample of the same
+	// provider, ExternalID and QuantityType under another StartDate is an
+	// older copy whose start moved (an edited night, a shifted cycle): the
+	// writer deletes it before writing this one. Requires Replaceable and
+	// ExternalID. Never set it on samples that share an ExternalID across
+	// starts (a day's heart rate series under one id, per-day figures keyed
+	// by a device): the writer would keep only one of them.
+	SupersedeMoved bool
 }
 
 // CategorySample represents a categorical health event.
@@ -91,6 +102,15 @@ type SleepSession struct {
 	SpO2Avg           *float64
 	ContentHash       string
 	Metadata          map[string]any
+
+	// Replaceable: see QuantitySample.Replaceable. For a night the provider
+	// re-scores or the user edits (an Oura, WHOOP or Polar sleep), hashed on its
+	// provider record id (and, for some, its start), never on its figures: the
+	// new copy's figures replace the stored ones, a figure it omits keeps its
+	// stored value, and the phases it carries replace the stored phases. A
+	// stored copy of the same ExternalID under another start (the night moved)
+	// is superseded by this one. Requires ExternalID for that last step.
+	Replaceable bool
 }
 
 // SleepPhase represents a single phase within a sleep session.
@@ -125,6 +145,14 @@ type Workout struct {
 	VO2Max           *float64
 	ContentHash      string
 	Metadata         map[string]any
+
+	// Replaceable: see QuantitySample.Replaceable. For a workout the provider
+	// edits or re-scores after the fact (a Strava activity whose type or
+	// figures change), hashed on its provider id (and, for some, its start):
+	// the new copy's figures replace the stored ones. A figure the re-send
+	// omits keeps its stored value. A stored copy of the same ExternalID under
+	// another start is superseded by this one, its route points moving over.
+	Replaceable bool
 }
 
 // RoutePoint represents a GPS coordinate from a workout route.
@@ -218,6 +246,15 @@ type DailySummary struct {
 	// Replaceable: see QuantitySample.Replaceable. A figure the re-send omits
 	// keeps its stored value rather than being cleared.
 	Replaceable bool
+
+	// RecordID is an instruction to the writer, not a column: the provider
+	// record whose figures this summary carries, when it carries the figures
+	// of one record only (a WHOOP recovery fills the recovery figures of its
+	// day). A summary whose record, or a record it was derived from (an id
+	// prefix before "_", as for samples), is tombstoned is not written, so
+	// reprocessing an old raw object does not bring a deleted record's figures
+	// back. Empty for a summary of the whole day.
+	RecordID string
 }
 
 // HeartbeatSample represents a single beat-to-beat RR interval measurement.
@@ -284,9 +321,44 @@ type MapResult struct {
 	// Empty for callers that do not track an origin object; the writer must then
 	// skip rather than guess a parent.
 	SourceKey string
+
+	// Deletions are provider records the provider removed. The writer deletes
+	// the stored rows of each one and keeps a tombstone, so a record of that
+	// id is never written again (see Deletion).
+	Deletions []Deletion
 }
 
-// IsEmpty returns true if no canonical records were produced.
+// Deletion says that a provider removed one of its records: the sleep,
+// workout or nutrition log stored with ExternalID, and the quantity and
+// category samples of it. Those samples carry the record id as their
+// ExternalID, or "<record id>_<suffix>" when one record gives several (the
+// Oura and WHOOP convention), and are removed whenever they start, whether or
+// not a sleep or workout of that id is stored. A Deletion is applied for the
+// job's tenant and user only, and is final: a later copy of the record (a
+// re-pull, an old raw object processed again) is skipped, whichever arrives
+// first.
+type Deletion struct {
+	// Provider is the integration the record came through. Empty means the
+	// provider of the job.
+	Provider string
+	// ExternalID is the provider's id of the record. Required.
+	ExternalID string
+	// ClearSummaryFields names the provider daily summary figures the record
+	// contributed, as daily_summaries columns ("recovery_score",
+	// "resting_hr"). They are set to NULL in the provider's summaries of the
+	// days named by the MetadataSummaryDate of the quantity samples the
+	// deletion removes; a summary left without any figure is deleted. Names
+	// outside the summary figures are ignored.
+	ClearSummaryFields []string
+}
+
+// MetadataSummaryDate is the metadata key of a quantity sample whose record
+// also filled figures of a provider daily summary: the summary's day,
+// "YYYY-MM-DD". A Deletion of the record clears its ClearSummaryFields on
+// that day.
+const MetadataSummaryDate = "summary_date"
+
+// IsEmpty returns true if no canonical records and no deletions were produced.
 func (r *MapResult) IsEmpty() bool {
 	return len(r.QuantitySamples) == 0 &&
 		len(r.CategorySamples) == 0 &&
@@ -299,10 +371,12 @@ func (r *MapResult) IsEmpty() bool {
 		len(r.ECGSamples) == 0 &&
 		len(r.HeartbeatSamples) == 0 &&
 		len(r.DailySummaries) == 0 &&
-		len(r.Observations) == 0
+		len(r.Observations) == 0 &&
+		len(r.Deletions) == 0
 }
 
-// RecordCount returns the total number of canonical records in the result.
+// RecordCount returns the total number of canonical records and deletions in
+// the result.
 func (r *MapResult) RecordCount() int {
 	return len(r.QuantitySamples) +
 		len(r.CategorySamples) +
@@ -315,5 +389,6 @@ func (r *MapResult) RecordCount() int {
 		len(r.ECGSamples) +
 		len(r.HeartbeatSamples) +
 		len(r.DailySummaries) +
-		len(r.Observations)
+		len(r.Observations) +
+		len(r.Deletions)
 }

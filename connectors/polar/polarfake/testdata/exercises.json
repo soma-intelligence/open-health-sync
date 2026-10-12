@@ -1,0 +1,33 @@
+[
+  {
+    "id": "EXC0001",
+    "upload_time": "2026-03-05T09:00:00.000Z",
+    "polar_user": "https://www.polaraccesslink.com/v3/users/10101010",
+    "device": "Polar Test Watch",
+    "device_id": "DEV00001",
+    "start_time": "2026-03-05T07:30:00",
+    "start_time_utc_offset": 60,
+    "duration": "PT1H0M30S",
+    "calories": 500,
+    "distance": 10000,
+    "heart_rate": {"average": 140, "maximum": 170},
+    "training_load": 100,
+    "sport": "RUNNING",
+    "has_route": true,
+    "detailed_sport_info": "TRAIL_RUNNING",
+    "running-index": 50
+  },
+  {
+    "id": "EXC0002",
+    "upload_time": "2026-02-10T19:00:00.000Z",
+    "polar_user": "https://www.polaraccesslink.com/v3/users/10101010",
+    "device": "Polar Test Watch",
+    "start_time": "2026-02-10T18:00:00",
+    "start_time_utc_offset": 60,
+    "duration": "PT45M",
+    "calories": 300,
+    "heart_rate": {"average": 120, "maximum": 150},
+    "sport": "CYCLING",
+    "detailed_sport_info": "INDOOR_CYCLING"
+  }
+]

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("{\"timestAmp_uniX\":270000000000000,\"Bpm\":1}")

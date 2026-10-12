@@ -1,0 +1,7 @@
+{
+  "data": [
+    {"id": "stress-0001", "day": "2026-03-01", "stress_high": 5400, "recovery_high": 7200, "day_summary": "normal"},
+    {"id": "stress-0002", "day": "2026-03-02", "stress_high": null, "recovery_high": 3600, "day_summary": null}
+  ],
+  "next_token": null
+}
