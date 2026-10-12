@@ -1,0 +1,857 @@
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "link": [
+    {
+      "relation": "self",
+      "url": "http://localhost:8080/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation?limit=5"
+    },
+    {
+      "relation": "next",
+      "url": "http://localhost:8080/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation?limit=5\u0026cursor=abc"
+    }
+  ],
+  "entry": [
+    {
+      "fullUrl": "http://localhost:8080/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation/sleep-7007",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "sleep-7007",
+        "meta": {
+          "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/oura",
+          "tag": [
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+              "code": "oura"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/oura/external-id",
+            "value": "sleep-invented-42"
+          }
+        ],
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "93832-4"
+            },
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type",
+              "code": "sleep_session"
+            }
+          ],
+          "text": "sleep session"
+        },
+        "subject": {
+          "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+        },
+        "effectivePeriod": {
+          "start": "2026-02-28T22:40:00Z",
+          "end": "2026-03-01T06:55:00Z"
+        },
+        "issued": "2026-03-01T09:15:30.25Z",
+        "valueQuantity": {
+          "value": 26400,
+          "unit": "s",
+          "system": "http://unitsofmeasure.org",
+          "code": "s"
+        },
+        "device": {
+          "display": "oura_ring"
+        },
+        "component": [
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "deep_sleep_seconds"
+                }
+              ],
+              "text": "deep sleep duration"
+            },
+            "valueQuantity": {
+              "value": 5400,
+              "unit": "s",
+              "system": "http://unitsofmeasure.org",
+              "code": "s"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "rem_sleep_seconds"
+                }
+              ],
+              "text": "REM sleep duration"
+            },
+            "valueQuantity": {
+              "value": 6300,
+              "unit": "s",
+              "system": "http://unitsofmeasure.org",
+              "code": "s"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "light_sleep_seconds"
+                }
+              ],
+              "text": "light sleep duration"
+            },
+            "valueQuantity": {
+              "value": 14700,
+              "unit": "s",
+              "system": "http://unitsofmeasure.org",
+              "code": "s"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "awake_seconds"
+                }
+              ],
+              "text": "awake duration"
+            },
+            "valueQuantity": {
+              "value": 3300,
+              "unit": "s",
+              "system": "http://unitsofmeasure.org",
+              "code": "s"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "sleep_score"
+                }
+              ],
+              "text": "sleep score"
+            },
+            "valueQuantity": {
+              "value": 81,
+              "unit": "score",
+              "system": "http://unitsofmeasure.org",
+              "code": "{score}"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "80404-7"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "hrv_avg_ms"
+                }
+              ],
+              "text": "average heart rate variability"
+            },
+            "valueQuantity": {
+              "value": 48.5,
+              "unit": "ms",
+              "system": "http://unitsofmeasure.org",
+              "code": "ms"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "40443-4"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "resting_hr"
+                }
+              ],
+              "text": "resting heart rate"
+            },
+            "valueQuantity": {
+              "value": 51,
+              "unit": "bpm",
+              "system": "http://unitsofmeasure.org",
+              "code": "/min"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "9279-1"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "respiratory_rate"
+                }
+              ],
+              "text": "average respiratory rate"
+            },
+            "valueQuantity": {
+              "value": 14.2,
+              "unit": "bpm",
+              "system": "http://unitsofmeasure.org",
+              "code": "/min"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "59408-5"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "spo2_avg"
+                }
+              ],
+              "text": "average oxygen saturation"
+            },
+            "valueQuantity": {
+              "value": 96,
+              "unit": "percent",
+              "system": "http://unitsofmeasure.org",
+              "code": "%"
+            }
+          }
+        ]
+      },
+      "search": {
+        "mode": "match"
+      }
+    },
+    {
+      "fullUrl": "http://localhost:8080/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation/bp-1003",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "bp-1003",
+        "meta": {
+          "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health",
+          "profile": [
+            "http://hl7.org/fhir/StructureDefinition/vitalsigns",
+            "http://hl7.org/fhir/StructureDefinition/bp"
+          ],
+          "tag": [
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+              "code": "apple"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health/external-id",
+            "value": "bp-reading-0001-sys"
+          },
+          {
+            "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health/external-id",
+            "value": "bp-reading-0001-dia"
+          }
+        ],
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "vital-signs",
+                "display": "Vital Signs"
+              }
+            ],
+            "text": "Vital Signs"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "85354-9"
+            },
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type",
+              "code": "blood_pressure"
+            }
+          ],
+          "text": "blood pressure"
+        },
+        "subject": {
+          "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+        },
+        "effectiveDateTime": "2026-03-01T08:00:00Z",
+        "issued": "2026-03-01T09:15:32.25Z",
+        "device": {
+          "display": "apple_watch"
+        },
+        "component": [
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "8480-6"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type",
+                  "code": "blood_pressure_systolic"
+                }
+              ],
+              "text": "systolic blood pressure"
+            },
+            "valueQuantity": {
+              "value": 118,
+              "unit": "mmHg",
+              "system": "http://unitsofmeasure.org",
+              "code": "mm[Hg]"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "8462-4"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type",
+                  "code": "blood_pressure_diastolic"
+                }
+              ],
+              "text": "diastolic blood pressure"
+            },
+            "valueQuantity": {
+              "value": 76,
+              "unit": "mmHg",
+              "system": "http://unitsofmeasure.org",
+              "code": "mm[Hg]"
+            }
+          }
+        ]
+      },
+      "search": {
+        "mode": "match"
+      }
+    },
+    {
+      "fullUrl": "http://localhost:8080/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation/qs-1020",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "qs-1020",
+        "meta": {
+          "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health",
+          "tag": [
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+              "code": "apple"
+            }
+          ]
+        },
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "vital-signs",
+                "display": "Vital Signs"
+              }
+            ],
+            "text": "Vital Signs"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type",
+              "code": "blood_pressure_diastolic"
+            }
+          ],
+          "text": "blood pressure diastolic"
+        },
+        "subject": {
+          "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+        },
+        "effectiveDateTime": "2026-03-01T08:00:00Z",
+        "issued": "2026-03-01T09:15:30.25Z",
+        "valueQuantity": {
+          "value": 79,
+          "unit": "mmHg",
+          "system": "http://unitsofmeasure.org",
+          "code": "mm[Hg]"
+        },
+        "device": {
+          "display": "apple_watch"
+        }
+      },
+      "search": {
+        "mode": "match"
+      }
+    },
+    {
+      "fullUrl": "http://localhost:8080/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation/workout-8008",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "workout-8008",
+        "meta": {
+          "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/strava",
+          "tag": [
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+              "code": "garmin"
+            }
+          ]
+        },
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "activity",
+                "display": "Activity"
+              }
+            ],
+            "text": "Activity"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "55411-3"
+            },
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type",
+              "code": "workout"
+            }
+          ],
+          "text": "trail running workout"
+        },
+        "subject": {
+          "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+        },
+        "effectivePeriod": {
+          "start": "2026-03-01T08:00:00Z",
+          "end": "2026-03-01T08:52:00Z"
+        },
+        "issued": "2026-03-01T09:15:30.25Z",
+        "valueQuantity": {
+          "value": 3120,
+          "unit": "s",
+          "system": "http://unitsofmeasure.org",
+          "code": "s"
+        },
+        "device": {
+          "display": "garmin_watch"
+        },
+        "component": [
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "73985-4"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "activity_type"
+                }
+              ],
+              "text": "activity type"
+            },
+            "valueCodeableConcept": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/workout-activity",
+                  "code": "trail_running"
+                }
+              ],
+              "text": "trail running"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "41981-2"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "active_energy_kcal"
+                }
+              ],
+              "text": "active energy"
+            },
+            "valueQuantity": {
+              "value": 512.5,
+              "unit": "kcal",
+              "system": "http://unitsofmeasure.org",
+              "code": "kcal"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "distance_m"
+                }
+              ],
+              "text": "distance"
+            },
+            "valueQuantity": {
+              "value": 8420,
+              "unit": "m",
+              "system": "http://unitsofmeasure.org",
+              "code": "m"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "avg_heart_rate"
+                }
+              ],
+              "text": "average heart rate"
+            },
+            "valueQuantity": {
+              "value": 148,
+              "unit": "bpm",
+              "system": "http://unitsofmeasure.org",
+              "code": "/min"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "max_heart_rate"
+                }
+              ],
+              "text": "maximum heart rate"
+            },
+            "valueQuantity": {
+              "value": 176,
+              "unit": "bpm",
+              "system": "http://unitsofmeasure.org",
+              "code": "/min"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "avg_speed_mps"
+                }
+              ],
+              "text": "average speed"
+            },
+            "valueQuantity": {
+              "value": 2.7,
+              "unit": "m/s",
+              "system": "http://unitsofmeasure.org",
+              "code": "m/s"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "elevation_gain_m"
+                }
+              ],
+              "text": "elevation gain"
+            },
+            "valueQuantity": {
+              "value": 310,
+              "unit": "m",
+              "system": "http://unitsofmeasure.org",
+              "code": "m"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "vo2_max"
+                }
+              ],
+              "text": "VO2 max"
+            },
+            "valueQuantity": {
+              "value": 47.5,
+              "unit": "mL/kg/min",
+              "system": "http://unitsofmeasure.org",
+              "code": "mL/kg/min"
+            }
+          }
+        ]
+      },
+      "search": {
+        "mode": "match"
+      }
+    },
+    {
+      "fullUrl": "http://localhost:8080/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation/daily-9009",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "daily-9009",
+        "meta": {
+          "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/oura",
+          "tag": [
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+              "code": "oura"
+            }
+          ]
+        },
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "activity",
+                "display": "Activity"
+              }
+            ],
+            "text": "Activity"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type",
+              "code": "daily_summary"
+            }
+          ],
+          "text": "daily summary"
+        },
+        "subject": {
+          "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+        },
+        "effectivePeriod": {
+          "start": "2026-03-28T23:00:00Z",
+          "end": "2026-03-29T22:00:00Z"
+        },
+        "issued": "2026-03-01T09:15:30.25Z",
+        "component": [
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "41950-7"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "step_count"
+                }
+              ],
+              "text": "steps"
+            },
+            "valueQuantity": {
+              "value": 10432,
+              "unit": "steps",
+              "system": "http://unitsofmeasure.org",
+              "code": "{steps}"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "41981-2"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "active_kcal"
+                }
+              ],
+              "text": "active energy"
+            },
+            "valueQuantity": {
+              "value": 431,
+              "unit": "kcal",
+              "system": "http://unitsofmeasure.org",
+              "code": "kcal"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "total_kcal"
+                }
+              ],
+              "text": "total energy"
+            },
+            "valueQuantity": {
+              "value": 2310,
+              "unit": "kcal",
+              "system": "http://unitsofmeasure.org",
+              "code": "kcal"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "distance_m"
+                }
+              ],
+              "text": "distance"
+            },
+            "valueQuantity": {
+              "value": 7650,
+              "unit": "m",
+              "system": "http://unitsofmeasure.org",
+              "code": "m"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "floors_climbed"
+                }
+              ],
+              "text": "floors climbed"
+            },
+            "valueQuantity": {
+              "value": 9,
+              "unit": "floors",
+              "system": "http://unitsofmeasure.org",
+              "code": "{floors}"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "40443-4"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "resting_hr"
+                }
+              ],
+              "text": "resting heart rate"
+            },
+            "valueQuantity": {
+              "value": 52,
+              "unit": "bpm",
+              "system": "http://unitsofmeasure.org",
+              "code": "/min"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "80404-7"
+                },
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "hrv_avg_ms"
+                }
+              ],
+              "text": "average heart rate variability"
+            },
+            "valueQuantity": {
+              "value": 47,
+              "unit": "ms",
+              "system": "http://unitsofmeasure.org",
+              "code": "ms"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "readiness_score"
+                }
+              ],
+              "text": "readiness score"
+            },
+            "valueQuantity": {
+              "value": 77,
+              "unit": "score",
+              "system": "http://unitsofmeasure.org",
+              "code": "{score}"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "activity_score"
+                }
+              ],
+              "text": "activity score"
+            },
+            "valueQuantity": {
+              "value": 64,
+              "unit": "score",
+              "system": "http://unitsofmeasure.org",
+              "code": "{score}"
+            }
+          },
+          {
+            "code": {
+              "coding": [
+                {
+                  "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
+                  "code": "sleep_score"
+                }
+              ],
+              "text": "sleep score"
+            },
+            "valueQuantity": {
+              "value": 81,
+              "unit": "score",
+              "system": "http://unitsofmeasure.org",
+              "code": "{score}"
+            }
+          }
+        ]
+      },
+      "search": {
+        "mode": "match"
+      }
+    }
+  ]
+}
