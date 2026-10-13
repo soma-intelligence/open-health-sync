@@ -251,8 +251,16 @@ func Replay(ctx context.Context, p Provider, c *cassette.Cassette) (Summary, Rep
 		}
 		for _, u := range c.Uploads {
 			var body bytes.Buffer
-			for _, l := range u.Lines {
-				body.Write(l)
+			lines := make([][]byte, len(u.Lines))
+			for i, l := range u.Lines {
+				// A loaded cassette holds indented lines; an upload line is
+				// one line.
+				var c bytes.Buffer
+				if err := json.Compact(&c, l); err != nil {
+					return nil, rep, fmt.Errorf("upload %s %s line %d: %w", u.Type, u.Day, i+1, err)
+				}
+				lines[i] = c.Bytes()
+				body.Write(lines[i])
 				body.WriteByte('\n')
 			}
 			day, err := time.Parse(time.DateOnly, u.Day)
@@ -265,7 +273,7 @@ func Replay(ctx context.Context, p Provider, c *cassette.Cassette) (Summary, Rep
 			}
 			// The core stores an upload's lines under its type; the ETL
 			// maps each one.
-			for _, l := range u.Lines {
+			for _, l := range lines {
 				_ = s.Emit(ctx, u.Type, day, [][]byte{l})
 			}
 		}

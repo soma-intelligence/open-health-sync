@@ -73,9 +73,9 @@ type RawUpload struct {
 //   - Identifiers (id, *_id, uuid, tokens of pagination), names, free text
 //     (any string holding a space), emails, device names and serial numbers
 //     get a stand-in of the same shape: digits stay digits, letters stay
-//     letters, a UUID stays a UUID, an @ becomes _. The same value always
-//     gets the same stand-in, in bodies, URL paths and queries, so
-//     pagination and references still work. Long digit runs, UUIDs and hex
+//     letters, a UUID becomes a numbered UUID, an @ becomes _. The same
+//     value always gets the same stand-in, in bodies, URL paths and
+//     queries, so pagination and references still work. Long digit runs, UUIDs and hex
 //     ids found in URL paths are treated the same way.
 //   - Dates move by the same secret number of weeks, wherever they appear
 //     (ISO dates and date-times inside any string, Unix seconds and
@@ -83,7 +83,8 @@ type RawUpload struct {
 //   - Measured values (numbers other than codes, small integers and times)
 //     are scaled by a factor between 0.95 and 1.05 drawn per value, keeping
 //     their type and decimals.
-//   - Locations (latitude, longitude, polylines, altitude) become 0 or empty;
+//   - Locations (latitude, longitude, polylines, altitude, course) become 0
+//     or empty; time zone names become Etc/UTC;
 //     birth dates become 1980-01-01.
 //   - A body that is not JSON is dropped.
 //
@@ -138,6 +139,8 @@ type anon struct {
 	used      map[string]string // stand-in -> original
 	originals map[string]bool
 	secrets   []string
+	// uuids counts the UUID stand-ins handed out.
+	uuids int
 	// providerUID is the connection's provider user id.
 	providerUID string
 }
@@ -299,6 +302,8 @@ func (a *anon) scalar(key string, v any) any {
 			return "1980-01-01"
 		case identityKey(key):
 			return a.stand(x)
+		case zoneKeys[n] && strings.Contains(x, "/"):
+			return "Etc/UTC"
 		case keepKeys[n]:
 			return x
 		}
@@ -334,6 +339,9 @@ func (a *anon) str(key, s string) string {
 	}
 	if numRE.MatchString(s) {
 		return string(a.number(key, json.Number(s)))
+	}
+	if m := numUnitRE.FindStringSubmatch(s); m != nil { // "21.5 degC", "64 %"
+		return string(a.number(key, json.Number(m[1]))) + " " + m[2]
 	}
 	if emailRE.MatchString(s) || strings.IndexFunc(s, unicode.IsSpace) >= 0 || uuidRE.MatchString(s) || isHexID(s) {
 		return a.stand(s)
@@ -409,6 +417,18 @@ func (a *anon) stand(s string) string {
 	}
 	if s == "" || s == Redacted {
 		return s
+	}
+	if uuidRE.MatchString(s) {
+		// A numbered UUID: unique, and plainly not a secret to a scanner.
+		a.uuids++
+		p := fmt.Sprintf("00000000-0000-4000-8000-%012x", a.uuids)
+		if strings.ToUpper(s) == s {
+			p = strings.ToUpper(p)
+		}
+		a.pseudo[s] = p
+		a.used[p] = s
+		a.originals[s] = true
+		return p
 	}
 	hex := hexRE.MatchString(s)
 	var p string
@@ -628,6 +648,7 @@ const (
 var (
 	dateRE     = regexp.MustCompile(`\b(19|20)\d\d-[01]\d-[0-3]\d`)
 	numRE      = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
+	numUnitRE  = regexp.MustCompile(`^(-?\d+(?:\.\d+)?) ([^\s\d]{1,12})$`)
 	emailRE    = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 	uuidRE     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	hexRE      = regexp.MustCompile(`^[0-9a-fA-F-]+$`)
@@ -719,7 +740,9 @@ var (
 		"sourcename", "source_name", "device_name", "devicename", "device", "hardware_version", "firmware",
 		"software_version", "productid")
 	geoKeys = set("lat", "lng", "lon", "long", "latitude", "longitude", "latlng", "start_latlng", "end_latlng",
-		"polyline", "summary_polyline", "coordinates", "geo", "gps", "elevation", "altitude")
+		"polyline", "summary_polyline", "coordinates", "geo", "gps", "elevation", "altitude", "course", "heading",
+		"bearing")
+	zoneKeys  = set("timezone", "time_zone", "tz", "hktimezone")
 	birthKeys = set("birthday", "birthdate", "birth_date", "date_of_birth", "dob", "birth_year")
 	keepKeys  = set("type", "types", "category", "unit", "units", "stage", "stages", "level", "code", "status",
 		"state", "version", "model", "kind", "source", "sport", "sport_type", "activity_type", "timezone", "tz",
