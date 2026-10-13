@@ -272,10 +272,12 @@ git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-h
 cp .env.example .env
 sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
 docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
+docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
 ```
 
-The last command prints a tenant API key once. Keep it:
+`ohs doctor` prints one `ok` or `fail` line per check (configuration, database, raw store,
+public URL, connectors); run it again whenever you change `.env`. The last command prints a tenant API key once. Keep it:
 
 ```sh
 export OHS=http://localhost:8080
@@ -312,9 +314,23 @@ curl -s "$OHS/v1/users/$USER_ID/coverage" -H "Authorization: Bearer $KEY"
 curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bearer $KEY"
 ```
 
-**Load your existing history.** On the iPhone, Health app, your picture, *Export All Health
-Data* gives `export.zip`. Copy it to any machine with the `ohs` binary and load it with the
-user's token (`--dry-run` first counts what it would send):
+<a id="install-the-ohs-binary"></a>**Install the `ohs` binary on your machine.** The import below and the [MCP setup](#connect-an-ai-agent-mcp)
+run `ohs` outside the container. Take the archive for your system from the
+[releases page](https://github.com/soma-intelligence/open-health-sync/releases)
+(`ohs_<version>_<os>_<arch>.tar.gz`, `os` is `linux` or `darwin`, `arch` is `amd64` or
+`arm64`); it unpacks to a folder of the same name:
+
+```sh
+tar xzf ohs_*_linux_amd64.tar.gz
+sudo install ohs_*_linux_amd64/ohs /usr/local/bin/ohs
+ohs version
+```
+
+On macOS, clear the quarantine flag first: `xattr -d com.apple.quarantine ohs_*_darwin_*/ohs`.
+
+**Load your existing history** (🔜 next release: `ohs import` is on `main`, not in v0.0.2).
+On the iPhone, Health app, your picture, *Export All Health Data* gives `export.zip`. Load it
+with the user's token (`--dry-run` first counts what it would send):
 
 ```sh
 OHS_TOKEN=$TOKEN ohs import apple-health export.zip --url $OHS
@@ -324,8 +340,6 @@ Records, workouts with their routes and ECGs go through the same upload API, in 
 Running it again uploads nothing twice. Details:
 [importing an export](docs/connectors/apple-health.md#importing-a-health-app-export).
 
-`ohs doctor` checks the configuration at any time:
-`docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor`.
 Data lives in the `pgdata` and `raw` volumes; `docker compose ... down` keeps them.
 
 ## How it works
@@ -396,7 +410,8 @@ curl -s -X POST $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' -d '{"scopes":["read"],"ttl_seconds":2592000}'
 ```
 
-Then add `ohs mcp` (stdio) to your desktop agent's `mcpServers`:
+Then add `ohs mcp` (stdio) to your desktop agent's `mcpServers` (the binary from
+[the install step](#install-the-ohs-binary)):
 
 ```json
 {
@@ -449,8 +464,9 @@ and units):
   compatible bucket. See [S3](docs/self-hosting.md#s3-compatible-raw-store).
 - **Release binaries.** Linux and macOS, amd64 and arm64, with `checksums.txt`, on the
   [releases page](https://github.com/soma-intelligence/open-health-sync/releases). Bring your
-  own Postgres with TimescaleDB and run `ohs up` (migrate, then serve). The macOS binaries are
-  not signed yet: clear the quarantine flag with `xattr -d com.apple.quarantine ohs`.
+  own Postgres with TimescaleDB and run `ohs doctor`, then `ohs up` (migrate, then serve). Each
+  archive unpacks to `ohs_<version>_<os>_<arch>/ohs` ([install](#install-the-ohs-binary)). The
+  macOS binaries are not signed yet: clear the quarantine flag with `xattr -d com.apple.quarantine`.
 - **Build from source.** Go 1.26: `make build` gives `bin/ohs`. For compose, add
   `deploy/docker-compose.build.yml`, which needs `docker buildx`; without it, see
   [build from source](docs/self-hosting.md#build-from-source).
