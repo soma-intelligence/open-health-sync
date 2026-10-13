@@ -223,6 +223,27 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		r := c.json("GET", p, key, "")
 		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)
 	}
+	// RR intervals and the HRV derived from them: the fixtures carry no
+	// heartbeat series, so one is written straight to the table.
+	pool, err = db.Open(context.Background(), url)
+	require.NoError(t, err)
+	at := time.Date(2026, 1, 10, 7, 0, 0, 0, time.UTC)
+	for i := range 12 {
+		at = at.Add(800 * time.Millisecond)
+		_, err := pool.Exec(context.Background(), `INSERT INTO ohs_data.heartbeat_samples
+			(tenant_id, user_id, provider, series_id, "timestamp", rr_ms, content_hash)
+			SELECT tenant_id, id, 'apple_health', 'contract-series', $2, 800, $3 FROM ohs_core.end_users WHERE id = $1`,
+			user.ID, at, "contract-hb-"+strconv.Itoa(i))
+		require.NoError(t, err)
+	}
+	pool.Close()
+	for _, p := range []string{u + "/rr-intervals?limit=5", u + "/hrv", u + "/hrv?series_id=contract-series&start=2026-01-10"} {
+		r := c.json("GET", p, key, "")
+		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)
+		assert.Contains(t, string(r.body), "contract-series", p)
+	}
+	assert.Equal(t, 400, c.json("GET", u+"/hrv?cursor=nope", key, "").status)
+
 	// Page through heart rate with a small limit to exercise next_cursor.
 	r = c.json("GET", u+"/samples?type=heart_rate&limit=100", key, "")
 	require.Equal(t, 200, r.status)

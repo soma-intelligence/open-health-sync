@@ -48,7 +48,6 @@ var tables = map[string]string{
 var notServed = map[string]string{
 	"ECGRecording":     "No read route yet (planned): stored, not served by the API or MCP.",
 	"ECGVoltageSample": "No read route yet (planned): stored, not served by the API or MCP.",
-	"HeartbeatSample":  "No read route yet (planned): stored and counted in coverage, not served by the API or MCP.",
 	"Observation":      "No connector writes it yet, and no read route serves it (planned).",
 }
 

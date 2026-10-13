@@ -836,6 +836,70 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/rr-intervals:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: listRRIntervals
+      summary: Beat-to-beat (RR) intervals
+      description: |
+        The stored RR intervals of the user's heartbeat series, one per beat, by beat time (beats
+        that share a time by an internal key the cursor carries). `start` and `end` bound the beat
+        time. See docs/hrv.md.
+      parameters:
+        - name: series_id
+          in: query
+          description: Keep one heartbeat series.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by beat time.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RRIntervalPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/hrv:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: listHRV
+      summary: Heart rate variability derived from the RR intervals
+      description: |
+        One record per heartbeat series: the time domain HRV measures (RMSSD, SDNN, pNN50) and the
+        mean RR interval and heart rate, computed from the stored intervals after implausible and
+        ectopic intervals are set aside. Ordered by the series' first beat, then provider and
+        series id. A series is in `[start, end)` when its first beat is, and is always summarized
+        whole. See docs/hrv.md for the rules.
+      parameters:
+        - name: series_id
+          in: query
+          description: Keep one heartbeat series.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by the series' first beat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HRVSeriesPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/coverage:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1770,6 +1834,34 @@ components:
             external_id: { type: [string, "null"] }
             metadata: { $ref: "#/components/schemas/Metadata" }
 
+    RRInterval:
+      type: object
+      required: [timestamp, rr_ms, series_id, provider, ingested_at]
+      properties:
+        timestamp: { type: string, format: date-time, description: The beat that ends the interval. }
+        rr_ms: { type: number, description: "The interval from the previous beat, in milliseconds." }
+        series_id: { type: string }
+        provider: { type: string }
+        ingested_at: { type: string, format: date-time }
+
+    HRVSeries:
+      type: object
+      required: [series_id, provider, start_date, end_date, intervals, accepted_intervals, successive_pairs,
+        mean_rr_ms, mean_heart_rate_bpm, sdnn_ms, rmssd_ms, pnn50_percent]
+      properties:
+        series_id: { type: string }
+        provider: { type: string }
+        start_date: { type: string, format: date-time, description: The series' first beat. }
+        end_date: { type: string, format: date-time, description: The series' last beat. }
+        intervals: { type: integer, description: Stored intervals of the series. }
+        accepted_intervals: { type: integer, description: Intervals kept after the plausibility and ectopic checks. }
+        successive_pairs: { type: integer, description: Pairs of accepted intervals of consecutive beats. }
+        mean_rr_ms: { type: [number, "null"], description: Null when no interval is accepted. }
+        mean_heart_rate_bpm: { type: [number, "null"] }
+        sdnn_ms: { type: [number, "null"], description: Null below 10 successive pairs. }
+        rmssd_ms: { type: [number, "null"], description: Null below 10 successive pairs. }
+        pnn50_percent: { type: [number, "null"], description: Null below 10 successive pairs. }
+
     SleepSession:
       allOf:
         - $ref: "#/components/schemas/Provenance"
@@ -1930,6 +2022,16 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/CategorySample" } }
+    RRIntervalPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/RRInterval" } }
+    HRVSeriesPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/HRVSeries" } }
     SleepSessionPage:
       allOf:
         - $ref: "#/components/schemas/PageBase"

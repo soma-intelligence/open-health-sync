@@ -70,6 +70,13 @@ type routeArgs struct {
 	pageArgs
 }
 
+type rrArgs struct {
+	userArgs
+	SeriesID string `json:"series_id,omitempty" jsonschema:"keep one heartbeat series (series_id of a previous result)"`
+	windowArgs
+	pageArgs
+}
+
 type coverageArgs struct {
 	userArgs
 	Provider string `json:"provider,omitempty" jsonschema:"filter on one provider, for example apple_health"`
@@ -160,6 +167,17 @@ func addTools(s *sdk.Server, t *tools) {
 	add(s, "get_daily", "Daily summaries (scores, steps, energy, resting heart rate, HRV) per local day, oldest first.",
 		func(ctx context.Context, a listArgs) (any, error) {
 			return listTool(ctx, t, a.userArgs, read.Query{}, a.windowArgs, a.pageArgs, read.Daily)
+		})
+	add(s, "get_rr_intervals", "Beat-to-beat (RR) intervals in milliseconds, by beat time, with the heartbeat series each belongs to. "+
+		"Raw beats: pass a narrow start and end; for HRV use get_hrv instead.",
+		func(ctx context.Context, a rrArgs) (any, error) {
+			return rrTool(ctx, t, a, read.RRIntervals)
+		})
+	add(s, "get_hrv", "Heart rate variability derived from the RR intervals, one record per heartbeat series "+
+		"(RMSSD, SDNN, pNN50, mean RR and heart rate, with the intervals used), by the series' first beat. "+
+		"A series is in the window when its first beat is.",
+		func(ctx context.Context, a rrArgs) (any, error) {
+			return rrTool(ctx, t, a, read.HRV)
 		})
 	add(s, "get_coverage", "What has been synced: records per provider per local day with per metric counts, and the processing jobs still pending.", t.coverage)
 	add(s, "list_connections", "The user's provider connections with their status and last sync time.", t.connections)
@@ -296,6 +314,24 @@ func childTool[T any](ctx context.Context, t *tools, u userArgs, parent int64, w
 		// The read layer answers ErrNotFound for an unknown user and for a
 		// parent that is not the user's alike; both read as the parent here.
 		return nil, readErr(err, notFound)
+	}
+	return newPage(pg.Records, pg.NextCursor), nil
+}
+
+func rrTool[T any](ctx context.Context, t *tools, a rrArgs,
+	fn func(context.Context, read.Querier, uuid.UUID, uuid.UUID, read.RRQuery) (read.Page[T], error)) (any, error) {
+	id, err := t.user(a.userArgs)
+	if err != nil {
+		return nil, err
+	}
+	q, err := query(read.Query{}, a.windowArgs, a.pageArgs)
+	if err != nil {
+		return nil, err
+	}
+	pg, err := fn(ctx, t.d.DB, t.p.TenantID, id, read.RRQuery{SeriesID: a.SeriesID, Start: q.Start, End: q.End,
+		Cursor: q.Cursor, Limit: q.Limit})
+	if err != nil {
+		return nil, readErr(err, errUserNotFound)
 	}
 	return newPage(pg.Records, pg.NextCursor), nil
 }

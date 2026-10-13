@@ -164,5 +164,8 @@ Every connector ships fixture tests: raw lines in, expected canonical records ou
    call a real provider.
 4. Add the unit cases: an unknown type gives an empty result and no error, a malformed line
    gives an error, a missing value is skipped.
+5. Add the connector to the `Providers` list in `test/recorded/recorded.go`. When you have an
+   account, [record it](connectors/recording.md): CI then replays the real answers on every
+   change.
 
 Run `go test ./connectors/<slug>/` and `make guard` before opening a pull request.
