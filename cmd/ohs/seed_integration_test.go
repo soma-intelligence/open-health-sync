@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
@@ -105,7 +107,7 @@ func TestSeedDemo(t *testing.T) {
 	if strings.Contains(buf.String(), "ohs_sk_") || strings.Contains(buf.String(), "user    "+userID) {
 		t.Fatalf("--tenant run:\n%s", buf.String())
 	}
-	if err := run([]string{"seed", "--demo", "--tenant", "00000000-0000-0000-0000-000000000000"}, &buf); err == nil ||
+	if err := run([]string{"seed", "--demo", "--tenant", uuid.NewString()}, &buf); err == nil ||
 		!strings.Contains(err.Error(), "no tenant") {
 		t.Fatalf("unknown tenant: %v", err)
 	}

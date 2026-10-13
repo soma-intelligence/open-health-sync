@@ -61,7 +61,7 @@ func parseSeedArgs(args []string) (seedOptions, error) {
 	}
 	if *tenantFlag != "" {
 		id, err := uuid.Parse(*tenantFlag)
-		if err != nil {
+		if err != nil || id == uuid.Nil {
 			return seedOptions{}, usageErr(fmt.Sprintf("--tenant %q is not a tenant id (ohs admin tenant list shows them)", *tenantFlag))
 		}
 		o.tenant = id

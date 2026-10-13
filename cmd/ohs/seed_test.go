@@ -37,6 +37,7 @@ func TestParseSeedArgsRefuses(t *testing.T) {
 		{"--days", "10"},    // still no --demo
 		{"--demo", "extra"}, // a positional argument
 		{"--demo", "--tenant", "acme"},
+		{"--demo", "--tenant", "00000000-0000-0000-0000-000000000000"},
 		{"--demo", "--days", "0"},
 		{"--demo", "--days", "366"},
 		{"--demo", "--external-ref", " "},
