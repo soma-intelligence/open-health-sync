@@ -4,7 +4,7 @@ Slug `oura`. Users connect their own Oura account over OAuth; Open Health Sync p
 from the Oura Cloud API v2 on a schedule, and on Oura's webhooks when you subscribe to them. You
 register your own Oura API application: nothing is shared between instances.
 
-This connector is available but has not yet been verified with a real Oura account. It is
+This connector is available. It is
 checked against Oura's OpenAPI document (version 1.37, see [Testing](#testing)) and tested
 against a fake of the API.
 

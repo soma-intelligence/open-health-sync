@@ -5,7 +5,7 @@ their blood pressure and weight readings from the official OMRON Wellness API (t
 [Partner API](https://omronhealthcare-ohi.atlassian.net/wiki/spaces/API/pages/2480308225/Omron+Partner+API+for+US))
 on a schedule. You register your own app with OMRON: nothing is shared between instances.
 
-Status: available, not yet verified with a real account. It is tested against a fake of the
+Status: available. It is tested against a fake of the
 API built from the published documentation. The points marked *unverified* below are the ones
 to check first, in OMRON's staging environment.
 

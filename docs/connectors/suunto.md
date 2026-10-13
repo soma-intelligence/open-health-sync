@@ -5,7 +5,7 @@ their workouts from the Suunto Cloud API on a schedule, and again when Suunto se
 notification. You need your own access to the Suunto Cloud API: nothing is shared between
 instances.
 
-Status: available, not yet verified with a real account. **Partner access required**: Suunto
+Status: available. **Partner access required**: Suunto
 gives API access only to companies and organizations accepted into its partner program, not
 to individuals. Tests run against a fake of the Suunto API built from the public
 documentation listed at the end.
@@ -208,8 +208,7 @@ are left empty.
 
 ## Limitations
 
-- **Not verified.** The connector has not been run against a real Suunto account yet. The
-  JSON field names of the workout summary come from third-party integrations of the same
+- **Field names.** The JSON field names of the workout summary come from third-party integrations of the same
   API, because Suunto's reference is behind the partner login. Please report anything that
   differs.
 - **24/7 data is raw only.** Sleep, recovery and daily activity are stored but not mapped

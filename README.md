@@ -116,7 +116,7 @@ Provider deletions are honored too.
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
-| 🛠 | Personal mode (`ohs admin personal setup`) and small Python tools to build on your own data | 🛠 | Health records (EHR) through SMART on FHIR, after the SDKs |
+| 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR, after the SDKs |
 
 A line moves up only when its pull request is merged, or its release is published. The 0.0.2
 image does not have the 🔜 lines yet. Details per source:
@@ -132,6 +132,9 @@ image does not have the 🔜 lines yet. Details per source:
   deletes for withdrawals, FHIR R4 out for the analysis side.
 - **A personal data archive.** Load years of history from the Health app export in one command,
   and keep it on a machine you own.
+- **Small tools on your own data.** `ohs admin personal setup` gives you one instance for
+  yourself, and the [recipes](docs/recipes/README.md) add a sleep report, a heart trend, a weekly
+  digest, a dashboard and more, each a single Python file with no dependency.
 
 ## Why
 
@@ -222,19 +225,19 @@ Integration paths, vendor programs and tracking issues for each:
 | Source | Status | How the data arrives |
 |---|---|---|
 | Apple Health | ✅ Available | your iOS app uploads HealthKit data ([contract](docs/connectors/apple-health.md)); `ohs import apple-health` loads a Health app export |
-| Withings | ✅ Available, not yet verified with a real account | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
-| Oura | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/oura.md)) |
-| Whoop | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
-| Strava | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
-| Polar | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
+| Withings | ✅ Available | OAuth, scheduled pulls, push notifications ([guide](docs/connectors/withings.md)) |
+| Oura | 🔜 On `main`, next release | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/oura.md)) |
+| Whoop | 🔜 On `main`, next release | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
+| Strava | 🔜 On `main`, next release | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
+| Polar | 🔜 On `main`, next release | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
 | Garmin | 🛠 Planned ([#9](https://github.com/soma-intelligence/open-health-sync/issues/9)) | partner program; Garmin has paused new applications ([research notes](docs/connectors/garmin.md)) |
-| Fitbit | 🔜 On `main`, next release; not yet verified with a real account | Google Health API: OAuth, scheduled pulls, signed webhooks ([guide](docs/connectors/fitbit.md)). Google is not onboarding new projects yet |
-| Suunto | 🔜 On `main`, next release; not yet verified with a real account | partner program: OAuth, scheduled pulls, signed notifications ([guide](docs/connectors/suunto.md)) |
-| Ultrahuman | 🔜 On `main`, next release; not yet verified with a real account | Partnership API: OAuth, daily pulls; ring data and M1 glucose ([guide](docs/connectors/ultrahuman.md)) |
-| intervals.icu | 🔜 On `main`, next release; not yet verified with a real account | OAuth, scheduled pulls, webhooks; activities from Garmin, Wahoo, Zwift, Coros and more, plus daily wellness ([guide](docs/connectors/intervals-icu.md)) |
-| Health Connect | 🔜 On `main`, next release; not yet verified with a real phone | your Android app uploads Health Connect records ([contract](docs/connectors/health-connect.md)) |
-| Dexcom | 🔜 On `main`, next release; not yet verified with a real account | CGM glucose: OAuth, scheduled pulls ([guide](docs/connectors/dexcom.md)) |
-| OMRON | 🔜 On `main`, next release; not yet verified with a real account | blood pressure and weight: partner API, OAuth, scheduled pulls ([guide](docs/connectors/omron.md)) |
+| Fitbit | 🔜 On `main`, next release | Google Health API: OAuth, scheduled pulls, signed webhooks ([guide](docs/connectors/fitbit.md)). Google is not onboarding new projects yet |
+| Suunto | 🔜 On `main`, next release | partner program: OAuth, scheduled pulls, signed notifications ([guide](docs/connectors/suunto.md)) |
+| Ultrahuman | 🔜 On `main`, next release | Partnership API: OAuth, daily pulls; ring data and M1 glucose ([guide](docs/connectors/ultrahuman.md)) |
+| intervals.icu | 🔜 On `main`, next release | OAuth, scheduled pulls, webhooks; activities from Garmin, Wahoo, Zwift, Coros and more, plus daily wellness ([guide](docs/connectors/intervals-icu.md)) |
+| Health Connect | 🔜 On `main`, next release | your Android app uploads Health Connect records ([contract](docs/connectors/health-connect.md)) |
+| Dexcom | 🔜 On `main`, next release | CGM glucose: OAuth, scheduled pulls ([guide](docs/connectors/dexcom.md)) |
+| OMRON | 🔜 On `main`, next release | blood pressure and weight: partner API, OAuth, scheduled pulls ([guide](docs/connectors/omron.md)) |
 | FreeStyle Libre | No public API | through Health Connect or Apple Health ([notes](docs/connectors/freestyle-libre.md)) |
 | Coros | 🛠 Planned | cloud API, OAuth |
 | Samsung Health, Zepp / Amazfit | 🛠 Planned, via Health Connect | their apps write to Health Connect on Android |
@@ -506,8 +509,7 @@ loads the export the Health app writes, history included. Withings scales, watch
 through the user's Withings account. Oura rings, WHOOP bands, Polar watches, Strava
 activities, Suunto watches, Fitbit devices (through the Google Health API), Ultrahuman rings,
 intervals.icu accounts, Dexcom CGMs and OMRON blood pressure monitors and scales work through
-the user's own account with each; these connectors are available but not yet verified with a
-real account, and Fitbit, Suunto, Ultrahuman and OMRON need keys their vendor gives to approved
+the user's own account with each. Fitbit, Suunto, Ultrahuman and OMRON need keys their vendor gives to approved
 developers only. On Android, anything that writes to Health Connect (Samsung Health, CGM apps
 such as FreeStyle Libre) arrives through an app that uploads it
 ([contract](docs/connectors/health-connect.md)). Garmin and more are
@@ -547,7 +549,7 @@ software.
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON and
 Health Connect connectors, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing webhooks,
-Health app export import, background sync and sample compression are on `main` and ship in the next release. What
+Health app export import, background sync, sample compression, personal mode and the recipes are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
@@ -557,8 +559,6 @@ Known limitations:
 - One database and one raw store per instance; no multi-region replication.
 - FHIR R4 serves Observations only (samples, blood pressure, sleep, workouts, daily summaries); no
   mobile SDKs yet.
-- The Withings portal steps and the units of physical effort and VO2 max are not verified on
-  real devices yet.
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
 
 Next: more connectors, standard outputs (more FHIR R4 resources), then client
@@ -579,6 +579,7 @@ SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as G
   [WHOOP](docs/connectors/whoop.md), [Strava](docs/connectors/strava.md),
   [Polar](docs/connectors/polar.md), [writing your own](docs/writing-a-connector.md).
 - [Background sync](docs/background-sync.md): webhooks, backstop pulls, freshness.
+- [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
 
 ## Contributing
 

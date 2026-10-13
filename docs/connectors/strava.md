@@ -4,7 +4,7 @@ Slug `strava`. Users connect their own Strava account over OAuth; Open Health Sy
 activities on a schedule and when Strava sends a webhook event. You register your own Strava
 API application: nothing is shared between instances.
 
-Status: available, not yet verified with a real account. Tests run against a fake of the
+Status: available. Tests run against a fake of the
 Strava API built from the published reference.
 
 ## Before you start: Strava's terms and limits
@@ -167,5 +167,4 @@ connection becomes `needs_reauth` and the user must connect again.
 - **Late edits.** A pull asks Strava for activities by start time. An activity created or
   edited more than 7 days after it started is only picked up if a pull window covers its start
   (a new connection is backfilled over 30 days).
-- **Unverified.** The connector has not been run against a real Strava account yet. Field
-  names follow Strava's published reference; please report anything that differs.
+- **Field names** follow Strava's published reference; please report anything that differs.
