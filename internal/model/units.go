@@ -223,6 +223,14 @@ var unitConversions = map[string]conversion{
 	"degf":   {Factor: 5.0 / 9.0, Offset: -32.0 * 5.0 / 9.0, To: "celsius"},
 	"f":      {Factor: 5.0 / 9.0, Offset: -32.0 * 5.0 / 9.0, To: "celsius"},
 	"[degf]": {Factor: 5.0 / 9.0, Offset: -32.0 * 5.0 / 9.0, To: "celsius"},
+	// Speeds. Apple Health spells walking and running speed "km/hr" (HKUnit),
+	// or "mi/hr" on an imperial phone.
+	"km/hr": {Factor: 1.0 / 3.6, To: "m/s"},
+	"km/h":  {Factor: 1.0 / 3.6, To: "m/s"},
+	"kph":   {Factor: 1.0 / 3.6, To: "m/s"},
+	"mi/hr": {Factor: 0.44704, To: "m/s"},
+	"mi/h":  {Factor: 0.44704, To: "m/s"},
+	"mph":   {Factor: 0.44704, To: "m/s"},
 }
 
 // metricUnitConversions are transforms that are only valid for a specific metric,

@@ -36,6 +36,17 @@ func TestToStorageUnit_ScalarConversion(t *testing.T) {
 	assert.Equal(t, "kg", u)
 }
 
+func TestToStorageUnit_Speed(t *testing.T) {
+	// Apple Health spells walking and running speed "km/hr": 3.6 km/hr is 1 m/s.
+	v, u, err := ToStorageUnit("walking_speed", 3.6, "km/hr")
+	require.NoError(t, err)
+	assert.InDelta(t, 1.0, v, 1e-9)
+	assert.Equal(t, "m/s", u)
+	v, _, err = ToStorageUnit("running_speed", 10, "mph")
+	require.NoError(t, err)
+	assert.InDelta(t, 4.4704, v, 1e-9)
+}
+
 func TestToStorageUnit_AffineConversion(t *testing.T) {
 	// Temperature is not a pure scaling: 98.6 F is 37 C.
 	v, u, err := ToStorageUnit(QTBodyTemperature, 98.6, "degF")

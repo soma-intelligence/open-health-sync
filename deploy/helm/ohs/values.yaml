@@ -59,8 +59,8 @@ config:
   retentionDays: 0
   # Device uploads one api process handles at once; more answer 503.
   ingestConcurrency: 8
-  # Let webhook endpoints use plain http and private addresses (releases
-  # after 0.0.2).
+  # Let webhook endpoints use plain http and private addresses (0.1.0 and
+  # later).
   webhookAllowPrivate: false
   # Creates this tenant at first start and logs its API key once.
   bootstrapTenant: ""

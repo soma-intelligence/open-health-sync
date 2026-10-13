@@ -7,6 +7,17 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-13
+
+Eleven new sources, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing
+webhooks, background sync, sample compression, a personal mode with recipes, a read-only admin
+console, a hosted connection page, erasing one provider's data on disconnect, a Helm chart for Kubernetes, an audit log, consent per source and category, a complete
+user archive, and client SDKs
+for Kotlin, Swift, React Native and Flutter. Reads now default to a merged view across
+sources (`view=all` keeps every source's rows). Migrations `0008` to `0034` apply on start.
+`/metrics` is now closed by default: read the
+[release notes](docs/release-notes/v0.1.0.md) before you upgrade.
+
 ### Security
 
 - Consent per user, per source and per data category (activity, location, heart, ECG, blood
@@ -33,12 +44,21 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `ohs seed --demo` fills an instance with 90 days of synthetic data for one invented person
+  seen through six overlapping sources (ring, strap, scale and cuff, band, sports watch, phone),
+  about 35,000 samples written through the normal processing path and marked
+  `{"synthetic": true}`. It creates a `demo` tenant and user and prints an API key and calls to
+  try. See [docs/demo.md](docs/demo.md).
 - Client SDKs 0.1.0 under [sdks/](sdks), AGPL-3.0-only like the server, not on package registries yet:
   Kotlin (Android and JVM), Swift (iOS, macOS, Linux; with a HealthKit sync that uploads what
   changed since the last run), React Native (TypeScript, also Node and browsers) and Flutter
   (Dart). Each covers every API route with typed models, paging, problem errors, an upload
   part builder and retried uploads. CI runs their tests and each quickstart example against a
   live server. Guides: [docs/sdks](docs/sdks/README.md).
+- Admin console (`OHS_CONSOLE=true`, off by default): a read-only page at `/console`, embedded in
+  the binary, that reads the API with a tenant API key and shows health, users, connections,
+  freshness, coverage and webhook deliveries, with stale, failing and `needs_reauth` sources in
+  red. It adds no write route. See [docs/console.md](docs/console.md).
 - RR intervals and HRV: `GET /v1/users/{id}/rr-intervals` serves the stored beat-to-beat
   intervals of heartbeat series, and `GET /v1/users/{id}/hrv` the RMSSD, SDNN, pNN50, mean RR
   and mean heart rate derived from each series, after implausible and ectopic intervals are set
@@ -72,6 +92,10 @@ release may change the API, the configuration or the database schema.
   Job for the migrations, a volume or S3 raw store, a generated encryption key kept across
   upgrades, and optional Ingress, ServiceMonitor, NetworkPolicy, autoscaler and disruption
   budget. CI lints and renders it and installs it on kind. See [docs/helm.md](docs/helm.md).
+- Deploy templates for Render (`render.yaml`, a Blueprint), Railway (`railway.json`) and Fly.io
+  (`deploy/fly/`): the API built from `deploy/Dockerfile` with a TimescaleDB database next to it,
+  health checks on `/readyz` and a volume for the raw store. CI checks the templates against the
+  configuration. See [docs/deploy-platforms.md](docs/deploy-platforms.md).
 - OpenTelemetry tracing, off by default: set `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces
   over OTLP (HTTP/protobuf, or gRPC with `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`). Spans cover API
   requests (named by route pattern, joining an incoming W3C `traceparent`), pull jobs, ETL
@@ -111,8 +135,24 @@ release may change the API, the configuration or the database schema.
   [docs/learn](docs/learn/README.md).
 - Recorded connector contracts: `make record PROVIDER=<slug>` records what a real account's API
   answers (or an Apple Health export), anonymized on the contributor's machine, and CI replays
-  every committed recording through its connector. See
+  every committed recording through its connector. The first one is an anonymized three day
+  Apple Watch export covering 23 data types. See
   [docs/connectors/recording.md](docs/connectors/recording.md).
+- Sync history and connection health: every pull is a sync run with its trigger, window, status,
+  attempts, stored raw objects and provider error (`GET /v1/users/{id}/sync-runs`, kept 30
+  days). `POST /v1/users/{id}/connections/{provider}/sync` queues a priority pull. Connections
+  carry a `health` object (`needs_reauth`, `missing_scope`, `failing`, `rate_limited`, with the
+  action to take), and the `connection.broken` and `connection.restored` webhook events announce
+  each change. Migration `0026`. See [docs/sync-health.md](docs/sync-health.md).
+- Webhook delivery sandbox: each delivery keeps its attempts (status, duration, error, the first
+  1 KiB of the answer). `GET /v1/webhooks/{id}/deliveries/{delivery_id}` shows the exact payload
+  sent and the attempt history, `POST .../replay` sends a finished delivery again with the same
+  event id, and `POST /v1/webhooks/{id}/test` sends a realistic sample of any event type, marked
+  `"test": true`. Migration `0031`. See [docs/webhooks.md](docs/webhooks.md).
+- Hosted connection page: `POST /v1/users/{id}/connect-sessions` returns a short-lived link to
+  a page served by the instance that lists the allowed providers with the user's connection
+  status and starts the provider's consent, so a backend needs no OAuth UI of its own. Tokens
+  are stored hashed. Migration `0021`. See [docs/connect-page.md](docs/connect-page.md).
 - `scripts/backup.sh` and `scripts/restore.sh` for the compose stack: one archive with a
   `pg_dump` of the database (run inside the database container), the raw files and a manifest
   with versions and checksums; restore handles TimescaleDB's pre and post restore steps and
@@ -260,9 +300,26 @@ release may change the API, the configuration or the database schema.
   and state, `ohs_sync_max_lag_seconds` and `ohs_sync_push_silent_connections`.
 - Docs: [background sync](docs/background-sync.md), including what the iOS and Android SDKs
   need to upload in the background.
+- Documentation website (`docs-site/`): the guides and an API reference generated from
+  `api/openapi.yaml`, served under `/documentation`, with a sitemap, schema.org data, an
+  `llms.txt` with full addresses and an alternatives page.
+- README rewritten around a first screen with every source and output, a roadmap at a glance and
+  use cases.
+- `mcp-registry.yml` publishes `server.json` to the official MCP registry with GitHub OIDC, when a
+  release is published or by hand.
+- A fuzz test of the Apple Health upload parser (`FuzzParseUpload`), run for 30 seconds in CI.
+  Besides crashes, it checks that no parse error quotes the upload body and that no mapped sample
+  is NaN or infinite. Thanks to @yashthakur2008, the first outside contributor (#87).
 
 ### Fixed
 
+- The merged view tells apart the apps behind Apple Health for sleep and workouts. A night the
+  watch and the phone (or a sleep app) both recorded was returned twice; the watch's session now
+  covers the others. On a real export of six years, 1,310 of 14,662 sessions were such doubles.
+- Apple Health walking and running speed are stored. HealthKit spells them in `km/hr` (or
+  `mi/hr`), which had no conversion to `m/s`, so every such sample was parked as a unit error. An
+  instance restarted on this version replays the parked records. The recorded-contract replay now
+  applies the same unit conversion as the ETL, so CI catches the next unit with no conversion.
 - `OHS_<SLUG>_<FIELD>` keys of a provider slug that contains an underscore (`intervals_icu`) are
   now read under the whole slug.
 
@@ -272,6 +329,22 @@ release may change the API, the configuration or the database schema.
   default to the merged view (see Added). A client that needs every source's rows passes
   `view=all`; `GET .../daily` returns one summary per day instead of one per provider and day.
   The recipes read with `view=all`, since they pick or compare the apps themselves.
+- Pulls are claimed in order: notifications and manual syncs first, then regular pulls, then
+  backfills. At most `OHS_PULLS_PER_PROVIDER` (default 4) pulls of one provider run at once
+  across every instance, `OHS_BACKFILLS_PER_PROVIDER` (default 2) of them backfills. A rate
+  limit pauses every pull of its provider (Retry-After, at least 30 seconds doubling per limit
+  in a row, at most 15 minutes) until the next success; `/metrics` adds
+  `ohs_sync_provider_paused_seconds`. Migration `0027`. See
+  [docs/background-sync.md](docs/background-sync.md#provider-rate-limits).
+- The release workflow stops at a draft GitHub release with its binaries, checksums and image;
+  a maintainer reads it and publishes it.
+- Docker Compose publishes the API on `127.0.0.1` by default, so plain http is reachable from
+  this machine only. Set `OHS_HTTP_BIND=0.0.0.0` to publish it on every interface, or put a
+  reverse proxy with TLS in front (before: every interface).
+- The forbidden-terms guard names only the file and line of a match in CI logs, never the term.
+- Every GitHub Action in the workflows is pinned to a commit SHA.
+- CI upgrades a v0.0.2 database to the current code and checks that its data is still served
+  (`make upgrade-test`), then migrates it back down and up again.
 - The backstop pull adapts to notifications: every 6 hours while a connection's provider
   notifications arrive, every hour when none came for 24 hours or the provider sends none
   (before: every 6 hours for all).
@@ -285,8 +358,6 @@ release may change the API, the configuration or the database schema.
   `connector.NotifiedFetcher`.
 - Migration 0008 adds freshness columns to `ohs_sync.connections`; migration 0009 adds
   `data_type` and `priority` to `ohs_sync.pull_jobs`.
-
-### Changed
 
 - `quantity_samples` chunks older than 30 days are compressed (TimescaleDB compression,
   segmented by tenant and user): about 7 times less disk in our benchmark of 10.5 million
@@ -418,6 +489,7 @@ First public release, an early preview. See the
   `ghcr.io/soma-intelligence/open-health-sync`, and static binaries for Linux and macOS on
   amd64 and arm64 with SHA-256 checksums.
 
-[Unreleased]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/soma-intelligence/open-health-sync/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/soma-intelligence/open-health-sync/releases/tag/v0.0.1

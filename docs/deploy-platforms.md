@@ -252,6 +252,6 @@ its volume.
 
 Once `ghcr.io/soma-intelligence/open-health-sync` is public, the platforms can pull a pinned
 version instead of building: Render with `runtime: image` and `image.url`, Fly.io with
-`fly deploy --image ghcr.io/soma-intelligence/open-health-sync:0.0.2`, Railway with a Docker
+`fly deploy --image ghcr.io/soma-intelligence/open-health-sync:0.1.0`, Railway with a Docker
 Image service. The published image runs as uid 65532, so on Render and Fly.io pair it with an
 S3 raw store; on Railway, `RAILWAY_RUN_UID=0` still applies.

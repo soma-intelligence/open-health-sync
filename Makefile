@@ -80,7 +80,7 @@ fhir-validate:
 	scripts/fhir-validate.sh
 
 # Checks to run before tagging a release, with the tag to come:
-#   make release-check RELEASE_TAG=v0.0.2
+#   make release-check RELEASE_TAG=v0.1.0
 # The tag's release notes and the compose default version, build, vet, unit
 # tests, the forbidden-terms guard (set OHS_TERMS_FILE or
 # OHS_FORBIDDEN_TERMS), a secret scan when gitleaks is installed, and the

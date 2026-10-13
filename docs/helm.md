@@ -171,7 +171,7 @@ For another S3 compatible service add `endpoint=` and `path_style=true` to the U
 | `config.metrics` | `true` | `OHS_METRICS`: `/metrics` on port 8080 |
 | `config.retentionDays` | `0` | `OHS_RETENTION_DAYS`; 0 keeps everything |
 | `config.ingestConcurrency` | `8` | `OHS_INGEST_CONCURRENCY` |
-| `config.webhookAllowPrivate` | `false` | `OHS_WEBHOOK_ALLOW_PRIVATE` (releases after 0.0.2) |
+| `config.webhookAllowPrivate` | `false` | `OHS_WEBHOOK_ALLOW_PRIVATE` (0.1.0 and later) |
 | `config.bootstrapTenant` | empty | `OHS_BOOTSTRAP_TENANT` |
 | `config.extra` | `{}` | Any other non-secret variable |
 | `rawStore.type` | `file` | `file` (a volume) or `s3` |

@@ -146,18 +146,33 @@ var (
 		table: "ohs_data.sleep_sessions", start: "bedtime_start", end: "bedtime_end",
 		metric: func(string) string { return "'" + fusion.MetricSleep + "'" },
 		same:   func(string, string) string { return "TRUE" },
-		stream: func(x string) string { return "coalesce(" + x + ".device_id, '')" },
-		wear:   func(string) string { return "0" },
+		stream: parentStream,
+		wear:   parentWear,
 	}
 	workoutFamily = family{
 		key:   fusion.MetricWorkouts,
 		table: "ohs_data.workouts", start: "start_date", end: "end_date",
 		metric: func(string) string { return "'" + fusion.MetricWorkouts + "'" },
 		same:   func(string, string) string { return "TRUE" },
-		stream: func(x string) string { return "coalesce(" + x + ".device_id, '')" },
-		wear:   func(string) string { return "0" },
+		stream: parentStream,
+		wear:   parentWear,
 	}
 )
+
+// parentStream is the stream of a sleep session or a workout. These tables
+// have no source column: Apple Health keeps the app that wrote the record
+// (the watch, the phone, a sleep app) in metadata. Without it every Apple
+// Health night was one stream, which never covers itself, so a night that
+// two apps recorded counted twice.
+func parentStream(x string) string {
+	return "coalesce(nullif(" + x + ".device_id, ''), nullif(" + x + ".metadata->>'sourceBundleId', ''), nullif(" +
+		x + ".metadata->>'sourceName', ''), '')"
+}
+
+// parentWear puts a watch's record first among the streams of one source.
+func parentWear(x string) string {
+	return "CASE WHEN " + x + ".metadata->>'sourceName' ILIKE '%watch%' THEN 0 ELSE 1 END"
+}
 
 // rank is the SQL rank of x's source in an order (lower is better); a
 // source missing from it ranks after every listed one.

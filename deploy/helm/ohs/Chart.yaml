@@ -6,7 +6,7 @@ type: application
 # The chart's own version. appVersion is the image tag it runs by default and
 # follows the default OHS_VERSION of deploy/docker-compose.yml.
 version: 0.1.0
-appVersion: "0.0.2"
+appVersion: "0.1.0"
 home: https://github.com/soma-intelligence/open-health-sync
 sources:
   - https://github.com/soma-intelligence/open-health-sync

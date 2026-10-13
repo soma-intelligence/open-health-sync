@@ -2,7 +2,7 @@
 #
 # Run from the repository root after `cp .env.example .env`:
 #   docker compose -f deploy/docker-compose.yml up -d
-# It pulls the published image (OHS_VERSION picks the tag, default 0.0.2). To
+# It pulls the published image (OHS_VERSION picks the tag, default 0.1.0). To
 # build from source instead, add the overlay deploy/docker-compose.build.yml.
 # Needs Docker Compose v2.24 or later (env_file path/required syntax).
 # POSTGRES_PASSWORD is optional (default "ohs"); the database is not published
@@ -35,7 +35,7 @@ services:
       start_period: 10s
 
   ohs:
-    image: ghcr.io/soma-intelligence/open-health-sync:${OHS_VERSION:-0.0.2}
+    image: ghcr.io/soma-intelligence/open-health-sync:${OHS_VERSION:-0.1.0}
     restart: unless-stopped
     depends_on:
       postgres:

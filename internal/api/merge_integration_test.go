@@ -160,6 +160,17 @@ func TestMergedSleepAndWorkouts(t *testing.T) {
 	assert.Equal(t, []int64{ring, nap}, e.ids(base+"/sleep"), "the watch's night is the ring's; its nap stays")
 	assert.Len(t, e.ids(base+"/sleep?view=all"), 3)
 
+	// Two apps behind Apple Health recorded the same night: the watch's
+	// session stays, the phone's is covered. Each app's own nap stays.
+	u2 := e.user(e.tenantA, "m-2b")
+	base2 := "/v1/users/" + u2.String()
+	watch := e.sleepSession(u2, "apple_health", at(-1, 0), at(7, 0))
+	phone := e.sleepSession(u2, "apple_health", at(-1, 15), at(6, 45))
+	e.exec(`UPDATE ohs_data.sleep_sessions SET metadata = '{"sourceName":"My Apple Watch"}' WHERE id = $1`, watch)
+	e.exec(`UPDATE ohs_data.sleep_sessions SET metadata = '{"sourceName":"My iPhone"}' WHERE id = $1`, phone)
+	assert.Equal(t, []int64{watch}, e.ids(base2+"/sleep"), "one night, two apps")
+	assert.Len(t, e.ids(base2+"/sleep?view=all"), 2)
+
 	run := e.workout(u, "polar", at(8, 0), at(9, 0))
 	e.workout(u, "strava", at(8, 1), at(9, 2))
 	walk := e.workout(u, "strava", at(18, 0), at(18, 40))

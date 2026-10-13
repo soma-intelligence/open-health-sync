@@ -296,6 +296,12 @@ func Replay(ctx context.Context, p Provider, c *cassette.Cassette) (Summary, Rep
 				rep.MapErrors = append(rep.MapErrors, fmt.Sprintf("%s line %d: %s", dt, i+1, errKind(err)))
 				continue
 			}
+			// The ETL converts every sample to its storage unit before storing
+			// it, and parks the record when it cannot.
+			if ue := model.CanonicalizeUnits(&res); len(ue) > 0 {
+				rep.MapErrors = append(rep.MapErrors, fmt.Sprintf("%s line %d: no storage unit for %q (%s)", dt, i+1, ue[0].Unit, ue[0].QuantityType))
+				continue
+			}
 			count(ts.Records, res)
 		}
 		sum[dt] = ts

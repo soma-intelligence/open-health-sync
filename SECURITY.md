@@ -26,7 +26,7 @@ instances you run yourself.
 
 | Version | Supported |
 |---|---|
-| 0.0.x (latest release) | yes |
+| 0.1.x (latest release) | yes |
 | `main` | best effort |
 | anything older | no |
 

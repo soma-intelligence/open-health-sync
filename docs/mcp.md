@@ -77,7 +77,7 @@ container `localhost` is the container, so give the instance's real address):
 ```json
 "command": "docker",
 "args": ["run", "--rm", "-i", "-e", "OHS_MCP_URL", "-e", "OHS_MCP_KEY",
-         "ghcr.io/soma-intelligence/open-health-sync:0.0.2", "mcp"]
+         "ghcr.io/soma-intelligence/open-health-sync:0.1.0", "mcp"]
 ```
 
 **Claude Desktop** reads this `mcpServers` block from `claude_desktop_config.json`

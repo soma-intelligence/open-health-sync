@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Publishes server.json to the official MCP registry (registry.modelcontextprotocol.io),
-# which MCP clients and directories read to list servers. Called by the release workflow
-# once a release is public; run it by hand to publish the version server.json names on a
-# branch or tag.
+# which MCP clients and directories read to list servers. Runs when a maintainer publishes
+# the draft release the release workflow prepared; run it by hand to publish the version
+# server.json names on a branch or tag.
 #
 # Authentication is GitHub OIDC, so no secret: the registry lets this repository publish
 # io.github.soma-intelligence/open-health-sync. The registry pulls the image named in
@@ -12,7 +12,8 @@
 name: mcp-registry
 
 on:
-  workflow_call:
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
