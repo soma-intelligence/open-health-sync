@@ -48,6 +48,7 @@ type record struct {
 	SpecimenSource      string   `json:"specimenSource"`
 	MealType            string   `json:"mealType"`
 	RelationToMeal      string   `json:"relationToMeal"`
+	Flow                string   `json:"flow"`
 
 	Samples []struct {
 		Time           string   `json:"time"`
@@ -128,7 +129,8 @@ func mapRecord(fields map[string]any, userID string) (*model.MapResult, error) {
 	_, isInstant := instants[r.RecordType]
 	_, isInterval := intervals[r.RecordType]
 	known := isInstant || isInterval || r.RecordType == "BloodPressure" || r.RecordType == "HeartRate" ||
-		r.RecordType == "SleepSession" || r.RecordType == "ExerciseSession"
+		r.RecordType == "SleepSession" || r.RecordType == "ExerciseSession" ||
+		r.RecordType == "MenstruationFlow" || r.RecordType == "IntermenstrualBleeding"
 	if !known {
 		noteUnknown(r.RecordType)
 		return nil, nil
@@ -150,6 +152,8 @@ func mapRecord(fields map[string]any, userID string) (*model.MapResult, error) {
 		return b.heartRate()
 	case "SleepSession":
 		return b.sleep()
+	case "MenstruationFlow", "IntermenstrualBleeding":
+		return b.menstruation()
 	default:
 		return b.exercise()
 	}
@@ -322,6 +326,53 @@ func (b *builder) heartRate() (*model.MapResult, error) {
 		return nil, nil
 	}
 	return res, nil
+}
+
+// menstrualFlows maps the Health Connect flow (FLOW_ dropped, lowercased) to
+// the canonical menstrual_flow label and value, numbered as Apple Health
+// numbers them. unknown, or no flow, is flow of unknown amount.
+var menstrualFlows = map[string]struct {
+	label string
+	value int
+}{
+	"light":  {"light", 2},
+	"medium": {"medium", 3},
+	"heavy":  {"heavy", 4},
+}
+
+// menstruation gives one menstrual_flow or intermenstrual_bleeding category
+// sample. Category samples are written first-wins, so the sample is hashed
+// on the record id and time: a re-sent record is a no-op, and an edit of the
+// flow keeps the stored value until the record is deleted.
+func (b *builder) menstruation() (*model.MapResult, error) {
+	at, err := parseTime(b.r.Time)
+	if err != nil {
+		return nil, fmt.Errorf("health_connect: %s %s: %w", b.r.RecordType, b.r.Metadata.ID, err)
+	}
+	ct, label, value := "intermenstrual_bleeding", "", 0
+	if b.r.RecordType == "MenstruationFlow" {
+		ct, label, value = "menstrual_flow", "unspecified", 1
+		if f, ok := menstrualFlows[strings.ToLower(strings.TrimSpace(b.r.Flow))]; ok {
+			label, value = f.label, f.value
+		}
+	}
+	s := model.CategorySample{
+		UserID:       b.userID,
+		Provider:     Slug,
+		ExternalID:   b.r.Metadata.ID,
+		CategoryType: ct,
+		ValueInt:     value,
+		ValueLabel:   label,
+		StartDate:    at,
+		EndDate:      at,
+		SourceName:   b.r.Metadata.DataOrigin,
+		Metadata:     maps.Clone(b.md),
+	}
+	s.ContentHash = model.ComputeContentHash(map[string]string{
+		"user_id": b.userID, "provider": Slug, "category_type": ct, "external_id": b.r.Metadata.ID,
+		"start_date": at.UTC().Format(time.RFC3339Nano),
+	})
+	return &model.MapResult{CategorySamples: []model.CategorySample{s}}, nil
 }
 
 // sleepStages maps Health Connect sleep stages to the canonical phases.

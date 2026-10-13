@@ -106,8 +106,8 @@ func TestToolsList(t *testing.T) {
 		}
 		assert.Contains(t, cs.InitializeResult().Instructions, "get_daily")
 		slices.Sort(names)
-		assert.Equal(t, []string{"get_category_samples", "get_coverage", "get_daily", "get_hrv", "get_nutrition",
-			"get_rr_intervals", "get_samples", "get_sleep", "get_workout_route", "get_workouts", "list_connections",
+		assert.Equal(t, []string{"get_category_samples", "get_coverage", "get_daily", "get_hrv", "get_menstrual_cycles",
+			"get_nutrition", "get_rr_intervals", "get_samples", "get_sleep", "get_workout_route", "get_workouts", "list_connections",
 			"list_quantity_types", "list_users"}, names)
 	}
 }
@@ -200,6 +200,8 @@ func TestInputSchemas(t *testing.T) {
 	assert.Empty(t, got["list_quantity_types"].Properties)
 	assert.ElementsMatch(t, []string{"user_id"}, keys(got["list_connections"].Properties))
 	assert.ElementsMatch(t, []string{"user_id", "provider", "start", "end"}, keys(got["get_coverage"].Properties))
+	assert.ElementsMatch(t, []string{"user_id", "start", "end", "cursor", "limit"}, keys(got["get_menstrual_cycles"].Properties))
+	assert.Empty(t, got["get_menstrual_cycles"].Required)
 }
 
 // A browser page on another site cannot drive /mcp with a credential the

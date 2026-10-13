@@ -13,6 +13,14 @@ release may change the API, the configuration or the database schema.
   intervals of heartbeat series, and `GET /v1/users/{id}/hrv` the RMSSD, SDNN, pNN50, mean RR
   and mean heart rate derived from each series, after implausible and ectopic intervals are set
   aside. MCP tools `get_rr_intervals` and `get_hrv`. See [docs/hrv.md](docs/hrv.md).
+- Menstrual cycles: `GET /v1/users/{id}/menstrual-cycles` and the MCP tool
+  `get_menstrual_cycles` derive cycles at read time from the stored `menstrual_flow` samples of
+  every provider, so they follow every new sample and deletion: each cycle's start day, its
+  period's flow days (the heaviest flow of each local day, with the providers that recorded it),
+  and its length once the next period is recorded. A gap of up to 2 days without flow stays in
+  one period; intermenstrual bleeding never starts one. Nothing is predicted. Health Connect
+  `MenstruationFlow` and `IntermenstrualBleeding` records are now stored, in the same category
+  types as Apple Health's. See [docs/menstrual-cycles.md](docs/menstrual-cycles.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and

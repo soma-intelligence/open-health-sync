@@ -836,6 +836,39 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/menstrual-cycles:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: listMenstrualCycles
+      summary: Menstrual cycles derived from the recorded flow
+      description: |
+        Derived at read time from the `menstrual_flow` category samples, so it always agrees with
+        them, deletions included. A flow day is a local calendar day (the sample's `timezone`
+        metadata, else UTC) with a flow sample whose label is not `none`; a period is a run of
+        flow days with gaps of at most 2 days; a cycle runs from a period's first day to the day
+        before the next period's first day, and the latest cycle is open (`end_date` and
+        `cycle_length_days` null). Intermenstrual bleeding never starts a period. Nothing is
+        predicted. `start` and `end` compare as dates and select cycles by `start_date`. A call
+        reads at most 50000 flow samples: a page can then hold fewer than `limit` cycles and
+        still carry a `next_cursor`. See docs/menstrual-cycles.md.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by start_date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MenstrualCyclePage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/coverage:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1281,8 +1314,8 @@ paths:
         tenant key reads every user of the tenant and passes `user_id` to each tool; a user
         token needs the `read` scope and reads only its own user. Tools: `list_users`,
         `list_quantity_types`, `get_samples`, `get_category_samples`, `get_sleep`,
-        `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_coverage`,
-        `list_connections`. Each tool result is JSON text with `records`, `next_cursor` and
+        `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_rr_intervals`,
+        `get_hrv`, `get_menstrual_cycles`, `get_coverage`, `list_connections`. Each tool result is JSON text with `records`, `next_cursor` and
         `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
         is a tool error inside a 200, as MCP prescribes. See docs/mcp.md.
       requestBody:
@@ -1906,6 +1939,47 @@ components:
             hrv_avg_ms: { type: [number, "null"] }
             metadata: { $ref: "#/components/schemas/Metadata" }
 
+    MenstrualFlowDay:
+      type: object
+      required: [date, flow, providers]
+      properties:
+        date: { type: string, format: date, description: The user's local calendar day. }
+        flow:
+          type: string
+          enum: [unspecified, light, medium, heavy]
+          description: The heaviest flow recorded that day.
+        providers:
+          type: array
+          items: { type: string }
+          description: The providers that recorded flow that day, sorted.
+
+    MenstrualCycle:
+      type: object
+      required: [start_date, period_end_date, period_length_days, end_date, cycle_length_days, providers, flow_days]
+      properties:
+        start_date: { type: string, format: date, description: The first day of the period. }
+        period_end_date: { type: string, format: date, description: The period's last flow day. }
+        period_length_days:
+          type: integer
+          minimum: 1
+          description: Days from start_date to period_end_date, both included (gap days count).
+        end_date:
+          type: [string, "null"]
+          format: date
+          description: The day before the next period starts; null while the cycle is open.
+        cycle_length_days:
+          type: [integer, "null"]
+          minimum: 1
+          description: Days from start_date to the next period's first day; null while open.
+        providers:
+          type: array
+          items: { type: string }
+          description: The providers that recorded the period's flow days, sorted.
+        flow_days:
+          type: array
+          items: { $ref: "#/components/schemas/MenstrualFlowDay" }
+          description: The period's flow days in order; a gap day without flow is absent.
+
     Coverage:
       type: object
       required: [pending_jobs, parked_jobs, rejected_records, days, truncated]
@@ -1989,6 +2063,12 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/DailySummary" } }
+
+    MenstrualCyclePage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/MenstrualCycle" } }
 
     FHIRCoding:
       type: object

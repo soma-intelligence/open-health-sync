@@ -61,6 +61,8 @@ One Health Connect record per line, as a JSON object. Field names follow the and
 | `Distance` | `distanceMeters` | `distance_walking_running` |
 | `SleepSession` | `title`, `stages`: `[{startTime, endTime, stage}]` | a sleep session with its phases |
 | `ExerciseSession` | `exerciseType`, `title` | a workout |
+| `MenstruationFlow` | `flow` | a `menstrual_flow` category sample |
+| `IntermenstrualBleeding` | none | an `intermenstrual_bleeding` category sample |
 | `Deletion` | `recordId` | removes the stored records of that id |
 
 Example lines:
@@ -94,6 +96,11 @@ fails at processing.
   them into one panel.
 - **Sleep**: stages `awake` and `awake_in_bed` are awake, `sleeping` counts as light, `light`,
   `deep` and `rem` keep their name; `out_of_bed` and `unknown` give no phase.
+- **Menstruation**: `flow` `light`, `medium` and `heavy` keep their name as the label, with the
+  values Apple Health uses (2, 3, 4); `unknown` or no flow is `unspecified` (1). The samples feed
+  the [menstrual cycles](../menstrual-cycles.md). They are identified by record id and time: a
+  re-sent record is a no-op, and an edited flow keeps the stored value until a `Deletion` of the
+  record. `MenstruationPeriod` (a span with no flow per day) is not stored.
 - **Time zone**: `zoneOffset` (or `startZoneOffset`) gives `metadata.utc_offset_minutes` and,
   for whole hours, `metadata.timezone`, which sets the local day of daily summaries.
 - **Manual entries**: `recordingMethod` `manual` sets `was_user_entered`.
