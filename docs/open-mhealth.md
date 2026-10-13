@@ -29,6 +29,7 @@ record that has no Open mHealth schema is left out of its page, so a page can ho
 | `schema` | only the data points of one schema: bare (`heart-rate`) or with its namespace and, optionally, its version (`omh:heart-rate`, `omh:heart-rate:2.0`). One value; a schema the mapping does not emit is a 400. |
 | `start`, `end` | RFC 3339 or `YYYY-MM-DD`; `start` <= the record's time < `end` |
 | `limit`, `cursor` | page size (default 100, at most 1000) and the `next_cursor` of the previous page |
+| `view` | `merged` (the default) or `all`, as in the [API](api.md#several-sources-of-one-metric-the-merged-view) |
 
 ```sh
 curl -s "$OHS/v1/users/$USER_ID/omh/data-points?schema=omh:heart-rate&start=2026-03-01&limit=1" \

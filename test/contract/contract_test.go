@@ -431,6 +431,7 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?limit=2&cursor="+*omhPage.NextCursor, key, "").status)
 	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?schema=omh:heart-rate&start=2026-01-10&end=2026-01-11", key, "").status)
 	assert.Equal(t, 400, c.json("GET", u+"/omh/data-points?schema=heart_rate", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?view=all&limit=2", key, "").status)
 
 	// Exports: CSV and Parquet files, and the refusals.
 	for _, p := range []string{
@@ -441,6 +442,7 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		u + "/exports/category-samples",
 		u + "/exports/nutrition?format=parquet",
 		u + "/exports/daily",
+		u + "/exports/daily?format=parquet&view=all",
 	} {
 		r := c.json("GET", p, key, "")
 		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)

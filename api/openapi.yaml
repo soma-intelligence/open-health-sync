@@ -1210,6 +1210,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: Coverage report.
@@ -1644,6 +1645,7 @@ paths:
         - $ref: "#/components/parameters/End"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: One page, by time.
@@ -1673,7 +1675,7 @@ paths:
         Every record of one list in `[start, end)`, as one file streamed in a single response
         (`Content-Disposition: attachment`). The columns are the members of the list's JSON
         records, in the same order and with the same names and values: times in UTC, a missing
-        value empty (CSV) or null (Parquet), `metadata` as JSON text. `samples` holds every
+        value empty (CSV) or null (Parquet), `metadata` (and the daily `sources`) as JSON text. `samples` holds every
         quantity type unless `type` names one. The file is not paged: `cursor` and `limit` are
         a 400. A failure once the file has started cuts the connection, so a truncated file
         never looks complete. See docs/exports.md.

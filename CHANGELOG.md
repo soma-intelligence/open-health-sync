@@ -235,9 +235,10 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
-- The sample, category sample, sleep, workout, daily and FHIR reads default to the merged view
-  (see Added). A client that needs every source's rows passes `view=all`; `GET .../daily`
-  returns one summary per day instead of one per provider and day.
+- The sample, category sample, sleep, workout, daily, FHIR, Open mHealth and export reads
+  default to the merged view (see Added). A client that needs every source's rows passes
+  `view=all`; `GET .../daily` returns one summary per day instead of one per provider and day.
+  The recipes read with `view=all`, since they pick or compare the apps themselves.
 - The backstop pull adapts to notifications: every 6 hours while a connection's provider
   notifications arrive, every hour when none came for 24 hours or the provider sends none
   (before: every 6 hours for all).
