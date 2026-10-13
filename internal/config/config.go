@@ -60,6 +60,7 @@ var reserved = map[string]bool{
 	"MCP_URL":               true, // client side settings of `ohs mcp`
 	"MCP_KEY":               true,
 	"HTTP_PORT":             true, // read by docker compose only (host port)
+	"HTTP_BIND":             true, // read by docker compose only (host address)
 	"VERSION":               true, // read by docker compose only (image tag)
 }
 

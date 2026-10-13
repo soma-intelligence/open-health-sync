@@ -9,9 +9,9 @@ intervals.icu is a training-analysis service that many athletes already feed fro
 Connect, Wahoo, Zwift, Coros, Suunto, Polar and file uploads. One connection here reaches the
 data of all of those, and each workout says which upstream it came from.
 
-Status: available. OAuth apps are approved by the
-intervals.icu developer on request. Tests run against a fake of the intervals.icu API built
-from the public documentation and forum guides.
+Status: available. OAuth apps are approved by the intervals.icu developer on request. Tests
+run against a fake of the intervals.icu API built from the public documentation and forum
+guides.
 
 ## Before you start: access and limits
 
@@ -26,7 +26,7 @@ from the public documentation and forum guides.
   other apps: the API lists them as stubs without figures, and no webhook fires for them. Such
   activities are skipped. Activities that reach intervals.icu directly (Garmin, Wahoo, Zwift,
   uploads, and so on) are collected.
-- **Rate limits.** intervals.icu does not publish its API rate limits **(unverified)**. An
+- **Rate limits.** intervals.icu does not publish its API rate limits **(to confirm)**. An
   HTTP 429 defers the connection's job until `Retry-After` (one minute when it is missing).
 
 ## 1. Create the OAuth application
@@ -98,7 +98,7 @@ athlete id `0`, which intervals.icu reads as "the athlete of this token".
 connecting again replaces the previous token. When the API refuses the token (HTTP 401, as
 after the athlete revokes the app) there is nothing to refresh, so the connection becomes
 `needs_reauth` and the user must connect again. An HTTP 403 is reported as an error but does
-not mark the connection: it can also mean a missing scope **(unverified: how intervals.icu
+not mark the connection: it can also mean a missing scope **(to confirm: how intervals.icu
 answers a revoked token)**.
 
 Disconnecting the provider calls `DELETE /api/v1/disconnect-app` with the athlete's token,
@@ -137,7 +137,7 @@ What is documented and what is not: the `secret` plus `events` envelope, `athlet
 `type`, `timestamp`, the `activity` object of activity events, and the event names
 `ACTIVITY_UPLOADED`, `ACTIVITY_ANALYZED`, `CALENDAR_UPDATED` and `SPORT_SETTINGS_UPDATED`
 come from the intervals.icu API cookbook. The wellness event name and its `wellness` object,
-and an activity delete event, are **(unverified)**; any `WELLNESS_*` event triggers a wellness
+and an activity delete event, are **(to confirm)**; any `WELLNESS_*` event triggers a wellness
 pull whatever it carries.
 
 ## Data produced
@@ -155,7 +155,7 @@ Each activity of `GET /api/v1/athlete/0/activities` becomes one workout:
 | `avg_heart_rate`, `max_heart_rate` | `average_heartrate`, `max_heartrate` (bpm), when recorded |
 | `active_energy_kcal` | `calories` (kcal) when given, otherwise `icu_joules` ÷ 1000, the kilojoules of work shown one to one as kilocalories (the usual convention of power-based tools). `metadata.active_energy_source` says which |
 | `metadata.timezone` | `timezone` (an IANA name) |
-| `metadata.source_provider` | the upstream the activity came from: `source` `GARMIN_CONNECT` → `garmin`, `WAHOO` → `wahoo`, `ZWIFT` → `zwift`, `COROS`, `SUUNTO`, `POLAR`; any other source lowercased (`upload`, `manual`, ...). The verbatim value is `metadata.intervals_source` **(the full list of `source` values is unverified)** |
+| `metadata.source_provider` | the upstream the activity came from: `source` `GARMIN_CONNECT` → `garmin`, `WAHOO` → `wahoo`, `ZWIFT` → `zwift`, `COROS`, `SUUNTO`, `POLAR`; any other source lowercased (`upload`, `manual`, ...). The verbatim value is `metadata.intervals_source` **(the full list of `source` values is to confirm)** |
 | `metadata.device_name` | `device_name`, when given |
 | `metadata.indoor` | `trainer`, or a virtual type |
 
@@ -190,14 +190,14 @@ replaces the stored one. Raw only (kept in the raw store and in the samples' met
 canonical name yet): `sleepSecs` (sleep duration), `sleepQuality`, `avgSleepingHR` and
 `kcalConsumed`. Not collected: training load figures (`ctl`, `atl`), mood, soreness, fatigue,
 menstrual phase and other subjective fields. The wellness record names no upstream device,
-so its samples are attributed to `intervals_icu` itself **(unverified: whether the API
+so its samples are attributed to `intervals_icu` itself **(to confirm: whether the API
 exposes a per-field source)**.
 
 ## Limitations
 
-- **Sources.** The OAuth flow, the token answer, scopes, athlete id `0` and the webhook envelope follow the
-  intervals.icu forum guides; the field names follow the published API and third-party
-  clients. Please report anything that differs.
+- **Sources.** The OAuth flow, the token answer, scopes, athlete id `0` and the webhook
+  envelope follow the intervals.icu forum guides; the field names follow the published API and
+  third-party clients. Something differs from what you see with your account? Open an issue.
 - **Deleted activities** are not applied: no documented webhook names a deletion, and a pull
   cannot tell a deleted activity from one outside the window.
 - **Late uploads.** A scheduled pull asks for activities by start date. An activity uploaded

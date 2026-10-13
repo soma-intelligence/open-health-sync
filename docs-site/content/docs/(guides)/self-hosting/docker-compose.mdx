@@ -51,7 +51,7 @@ to upload and read data.
 </Steps>
 
 <Callout title="Keep --env-file .env on every command">
-  Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `POSTGRES_PASSWORD`, `S3_*`)
+  Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `OHS_HTTP_BIND`, `POSTGRES_PASSWORD`, `S3_*`)
   from the shell or `--env-file`, not from the repository root. The containers read `.env`
   themselves either way.
 </Callout>
@@ -66,7 +66,9 @@ to upload and read data.
 
 ## Port and a second install
 
-The API is published on host port 8080. To use another one, set both in `.env`:
+The API is published on host port 8080 of `127.0.0.1`, so only this machine reaches it. Other
+machines go through a reverse proxy with TLS, or set `OHS_HTTP_BIND=0.0.0.0` in `.env` to
+publish plain http on every interface. To use another port, set both in `.env`:
 
 ```sh title=".env"
 OHS_HTTP_PORT=8081
