@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test integration contract e2e reliability upgrade-test guard fhir-validate release-check
+.PHONY: setup build image test test-js integration contract e2e reliability upgrade-test guard fhir-validate release-check
 
 setup:
 	git config core.hooksPath .githooks
@@ -20,6 +20,10 @@ image:
 
 test:
 	go test ./...
+
+# The admin console's pure JavaScript helpers (Node 22+, no npm install).
+test-js:
+	node --test internal/console/app.test.mjs
 
 integration:
 	go test -tags integration ./...

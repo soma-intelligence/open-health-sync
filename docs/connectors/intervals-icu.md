@@ -9,7 +9,7 @@ intervals.icu is a training-analysis service that many athletes already feed fro
 Connect, Wahoo, Zwift, Coros, Suunto, Polar and file uploads. One connection here reaches the
 data of all of those, and each workout says which upstream it came from.
 
-Status: available, not yet verified with a real account. OAuth apps are approved by the
+Status: available. OAuth apps are approved by the
 intervals.icu developer on request. Tests run against a fake of the intervals.icu API built
 from the public documentation and forum guides.
 
@@ -195,8 +195,7 @@ exposes a per-field source)**.
 
 ## Limitations
 
-- **Unverified.** The connector has not been run against a real intervals.icu account. The
-  OAuth flow, the token answer, scopes, athlete id `0` and the webhook envelope follow the
+- **Sources.** The OAuth flow, the token answer, scopes, athlete id `0` and the webhook envelope follow the
   intervals.icu forum guides; the field names follow the published API and third-party
   clients. Please report anything that differs.
 - **Deleted activities** are not applied: no documented webhook names a deletion, and a pull

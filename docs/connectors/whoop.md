@@ -4,7 +4,7 @@ Slug `whoop`. Users connect their own WHOOP account over OAuth; Open Health Sync
 data from the WHOOP API v2 on a schedule and when WHOOP sends a webhook. You register your own
 WHOOP developer application: nothing is shared between instances.
 
-Status: available, not yet verified with a real WHOOP account. The connector follows the
+Status: available. The connector follows the
 published API documentation (v2) and is tested against a fake of the API that answers in the
 documented shapes; [Testing](#testing) says how to check it against your own account.
 

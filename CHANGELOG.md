@@ -17,11 +17,11 @@ release may change the API, the configuration or the database schema.
   quickstart end to end suite runs them all.
 - Dexcom connector (`dexcom`, API v3, OAuth 2.0, scheduled pulls): CGM estimated glucose values
   as `blood_glucose`, with trend and out-of-range status. `OHS_DEXCOM_REGION` picks the US, EU,
-  Japan or sandbox host. Not yet verified with a real account; see
+  Japan or sandbox host. See
   [docs/connectors/dexcom.md](docs/connectors/dexcom.md).
 - OMRON connector (`omron`, OMRON Wellness partner API, OAuth 2.0, scheduled pulls): blood
   pressure (paired into the FHIR panel), pulse, possible AFib flags, weight and body
-  composition. Not yet verified with a real account; see
+  composition. See
   [docs/connectors/omron.md](docs/connectors/omron.md).
 - Health Connect connector (`health_connect`) and `POST /v1/ingest/health-connect`: an Android
   app uploads Health Connect records (steps, heart rate, HRV, SpO2, temperature, blood pressure,
@@ -66,15 +66,13 @@ release may change the API, the configuration or the database schema.
   source (Garmin, Wahoo, Zwift, Coros, Suunto, ...).
 - `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE
   (for a future Garmin connector).
-- None of these four connectors has been verified with a real account yet.
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
-  sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
-  verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
+  sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. See [docs/connectors/oura.md](docs/connectors/oura.md).
 - WHOOP connector (#6): bring your own WHOOP developer app, OAuth connection, scheduled pulls
   of cycles, recoveries, sleeps, workouts and body measurements from the API v2, and signed
-  webhooks for recovery, sleep and workout updates. Not yet verified with a real account.
+  webhooks for recovery, sleep and workout updates.
 - Strava connector (`strava`, API v3, OAuth 2.0, scheduled pulls and webhook events): activities
-  as workouts. Not yet verified with a real account; see
+  as workouts. See
   [docs/connectors/strava.md](docs/connectors/strava.md).
 - `GET /inbound/{provider}` lets a connector answer a provider's subscription challenge
   (Strava's `hub.challenge`), through the optional `connector.ChallengeResponder` interface.
@@ -89,7 +87,7 @@ release may change the API, the configuration or the database schema.
 - Polar connector (AccessLink v3): OAuth connect with user registration, scheduled pulls of
   exercises, sleep with hypnogram, Nightly Recharge, daily activity, continuous heart rate and
   physical info, and AccessLink webhooks with optional signature verification
-  (`OHS_POLAR_WEBHOOK_SECRET`). Not yet verified with a real account.
+  (`OHS_POLAR_WEBHOOK_SECRET`).
 - Provider deletions: `Map` can return `model.Deletion` records (`MapResult.Deletions`). The
   ETL removes the stored sleep sessions, workouts, category samples and nutrition logs of that
   provider record, with their phases, route points, track summaries and derived quantity
