@@ -69,6 +69,24 @@ Data entered this way comes from the source `Health`.
 To run on a device, set your team under *Signing & Capabilities* (the project leaves
 `DEVELOPMENT_TEAM` empty); the HealthKit entitlements are already in `Support/OHSExample.entitlements`.
 
+## End-to-end test
+
+`OHSExampleUITests` goes through the app as a user would: Settings, the Health access sheet, a
+first sync and a second one that must find nothing new. The simulator's Health store starts
+empty, so in debug builds the app writes the heart rates the test passes in
+`OHS_UI_TEST_SEED_BPM` when you allow access ([`UITestSeed.swift`](OHSExample/UITestSeed.swift));
+release builds never write to Health. [`test/e2e/apps.sh ios`](../../test/e2e/apps.sh) runs it on
+the first available iPhone simulator and reads the samples back with the tenant key:
+
+```sh
+test/e2e/apps.sh ios    # from the repository root
+```
+
+Without `OHS_URL` and `OHS_KEY` it builds and starts the server with Docker; with them it uses
+your running server (for example `OHS_URL=http://127.0.0.1:8080`). Pick another simulator with
+`OHS_IOS_DESTINATION` (an `xcodebuild -destination` value). In Xcode, the test is skipped unless
+the scheme's test action sets `OHS_URL`, `OHS_TOKEN` and `OHS_BPM`.
+
 ## Check that the data landed
 
 Wait until `pending_jobs` is 0, then read the data back with the tenant key:

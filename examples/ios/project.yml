@@ -40,5 +40,25 @@ targets:
         product: OpenHealthSync
       - package: OpenHealthSync
         product: OpenHealthSyncHealthKit
-    # Shared scheme, so `xcodebuild -scheme OHSExampleApp` finds it.
-    scheme: {}
+    # Shared scheme, so `xcodebuild -scheme OHSExampleApp` finds it; `xcodebuild test` runs the UI test.
+    scheme:
+      testTargets:
+        - OHSExampleUITests
+
+  # Drives the app against a live server; test/e2e/apps.sh ios runs it.
+  OHSExampleUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: OHSExampleUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.openhealthsync.example.uitests
+        GENERATE_INFOPLIST_FILE: "YES"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - target: OHSExampleApp

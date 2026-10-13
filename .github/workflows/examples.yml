@@ -6,11 +6,15 @@ on:
     paths:
       - "examples/**"
       - "sdks/**"
+      - "test/e2e/apps.sh"
+      - "test/e2e/lib.sh"
       - ".github/workflows/examples.yml"
   pull_request:
     paths:
       - "examples/**"
       - "sdks/**"
+      - "test/e2e/apps.sh"
+      - "test/e2e/lib.sh"
       - ".github/workflows/examples.yml"
 
 permissions:
@@ -81,3 +85,146 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+
+  # The apps themselves, end to end: each one runs on an emulator or simulator against a server
+  # built from this checkout, uploads through its own screens with an upload-scope user token,
+  # and test/e2e/apps.sh reads the samples back with the tenant key.
+  android-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Instrumented test on an emulator, against a live server
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: test/e2e/apps.sh android
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-e2e
+          path: |
+            examples/android/app/build/reports/androidTests
+            examples/android/app/build/outputs/androidTest-results
+          if-no-files-found: ignore
+
+  react-native-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MAESTRO_VERSION: "2.11.0"
+      MAESTRO_SHA256: 5384593cb4e7a106489e75a821d157dd43f4e438df6bc308b72e82c685e1283a
+      OHS_E2E_ARTIFACTS: ${{ github.workspace }}/e2e-artifacts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Maestro (pinned, checksum verified)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/maestro/releases/download/cli-$MAESTRO_VERSION/maestro.zip"
+          echo "$MAESTRO_SHA256  $RUNNER_TEMP/maestro.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/maestro/bin" >>"$GITHUB_PATH"
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Maestro flow on an emulator, against a live server
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: test/e2e/apps.sh react-native
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: react-native-e2e
+          path: e2e-artifacts
+          if-no-files-found: ignore
+
+  ios-e2e:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      OHS_E2E_ARTIFACTS: ${{ github.workspace }}/e2e-artifacts
+      PGDATA: ${{ runner.temp }}/pgdata
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      # No Docker on macOS runners: the server runs natively, on PostgreSQL with TimescaleDB.
+      - name: PostgreSQL 17 with TimescaleDB
+        run: |
+          brew install postgresql@17 timescale/tap/timescaledb xcodegen
+          pg="$(brew --prefix postgresql@17)/bin"
+          echo "$pg" >>"$GITHUB_PATH"
+          "$(brew --prefix timescaledb)/bin/timescaledb_move.sh"
+          "$pg/initdb" -U ohs --auth=trust
+          echo "shared_preload_libraries = 'timescaledb'" >>"$PGDATA/postgresql.conf"
+          "$pg/pg_ctl" -l "$RUNNER_TEMP/postgres.log" -o "-p 5433 -k $RUNNER_TEMP" -w start
+          "$pg/createdb" -h 127.0.0.1 -p 5433 -U ohs ohs
+      - name: Server from this checkout
+        run: |
+          go build -o "$RUNNER_TEMP/ohs" ./cmd/ohs
+          mkdir -p "$RUNNER_TEMP/raw" "$OHS_E2E_ARTIFACTS"
+          {
+            echo "OHS_DATABASE_URL=postgres://ohs@127.0.0.1:5433/ohs?sslmode=disable"
+            echo "OHS_ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)"
+            echo "OHS_PUBLIC_URL=http://localhost:8080"
+            echo "OHS_RAW_STORE=file://$RUNNER_TEMP/raw"
+            echo "OHS_LISTEN=127.0.0.1:8080"
+            echo "OHS_ROLES=api,collect,etl"
+          } >"$RUNNER_TEMP/ohs.env"
+          set -a; . "$RUNNER_TEMP/ohs.env"; set +a
+          nohup "$RUNNER_TEMP/ohs" up >"$OHS_E2E_ARTIFACTS/server.log" 2>&1 &
+          for _ in $(seq 60); do curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/healthz
+          key=$("$RUNNER_TEMP/ohs" admin tenant create --name ios-e2e | grep -o 'ohs_sk_[A-Za-z0-9]*' | head -n 1)
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "OHS_KEY=$key" >>"$GITHUB_ENV"
+          echo "OHS_URL=http://127.0.0.1:8080" >>"$GITHUB_ENV"
+      - name: UI test on a simulator, against the server
+        run: test/e2e/apps.sh ios
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-e2e
+          path: |
+            e2e-artifacts
+            ${{ runner.temp }}/postgres.log
+          if-no-files-found: ignore

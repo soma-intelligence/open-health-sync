@@ -105,7 +105,13 @@ final class AppModel: ObservableObject {
         isBusy = true
         defer { isBusy = false }
         do {
-            try await healthSync.requestAuthorization(for: Set(HealthDataType.all.map { $0.sampleType }))
+            let types = Set(HealthDataType.all.map { $0.sampleType })
+            #if DEBUG
+            if let heartRates = UITestSeed.heartRates {
+                try await UITestSeed.authorizeAndWrite(heartRates, store: healthStore, read: types)
+            }
+            #endif
+            try await healthSync.requestAuthorization(for: types)
             notice = "Health access requested. iOS never tells an app which types you allowed: a declined type just syncs nothing."
         } catch {
             notice = ErrorText.lines(for: error).joined(separator: "\n")
