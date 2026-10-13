@@ -17,6 +17,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
 // Freshness states of a source.
@@ -289,6 +290,9 @@ type ProviderSync struct {
 	// PushSilent counts connections of a notifying provider whose
 	// notifications did not arrive within PushSilence.
 	PushSilent int64
+	// PausedSeconds is how long pulls of the provider stay paused after a
+	// rate limit (0 when they run).
+	PausedSeconds int64
 }
 
 // SyncMetrics aggregates the freshness of every active connection per
@@ -331,6 +335,18 @@ func (h *Handlers) SyncMetrics(ctx context.Context) ([]ProviderSync, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sync metrics: %w", err)
 	}
+	paused, err := queue.NewPull(d.Pool).PausedProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sync metrics: %w", err)
+	}
+	for provider, until := range paused {
+		p, ok := by[provider]
+		if !ok {
+			p = &ProviderSync{Provider: provider, States: map[string]int64{}}
+			by[provider] = p
+		}
+		p.PausedSeconds = max(int64(until.Sub(now)/time.Second), 1)
+	}
 	out := make([]ProviderSync, 0, len(by))
 	for _, p := range by {
 		out = append(out, *p)
@@ -354,6 +370,11 @@ func WriteSyncMetrics(w io.Writer, ps []ProviderSync) {
 	fmt.Fprint(w, "# TYPE ohs_sync_max_lag_seconds gauge\n")
 	for _, p := range ps {
 		fmt.Fprintf(w, "ohs_sync_max_lag_seconds{provider=%q} %d\n", p.Provider, p.MaxLagSeconds)
+	}
+	fmt.Fprint(w, "# HELP ohs_sync_provider_paused_seconds Seconds until pulls of a provider resume after a rate limit (0: running).\n")
+	fmt.Fprint(w, "# TYPE ohs_sync_provider_paused_seconds gauge\n")
+	for _, p := range ps {
+		fmt.Fprintf(w, "ohs_sync_provider_paused_seconds{provider=%q} %d\n", p.Provider, p.PausedSeconds)
 	}
 	fmt.Fprint(w, "# HELP ohs_sync_push_silent_connections Connections whose provider notifications stopped arriving.\n")
 	fmt.Fprint(w, "# TYPE ohs_sync_push_silent_connections gauge\n")

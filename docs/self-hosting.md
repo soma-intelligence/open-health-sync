@@ -150,6 +150,8 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
 | `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
 | `OHS_RETENTION_DAYS` | `0` | Delete raw files and normalized data older than this many days; 0 keeps everything |
+| `OHS_PULLS_PER_PROVIDER` | `4` | Pulls of one provider running at once, across every `collect` instance. See [provider rate limits](background-sync.md#provider-rate-limits) |
+| `OHS_BACKFILLS_PER_PROVIDER` | `2` | Of those, backfills of new connections |
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
 | `OHS_<PROVIDER>_CLIENT_ID`, `_CLIENT_SECRET` | none | Keys of a provider; its connector is on when they are set. Every process that runs `collect` or `etl` needs them (see below) |

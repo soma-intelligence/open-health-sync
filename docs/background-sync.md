@@ -36,6 +36,26 @@ Failures back off (30 s, doubling, 5 attempts per window). A provider rate limit
 defers the pull until its `Retry-After` without counting a failure. The next slot catches up
 whatever a failed window missed.
 
+## Provider rate limits
+
+Most providers limit an application as a whole, so one install that pulls too fast can get its
+app blocked for every user. Three rules keep pulls inside each provider's budget:
+
+- **Order.** Pulls a provider notification or a manual sync asked for go first, then the regular
+  pulls, then backfills. A hundred new users backfilling 30 days each never hold back the
+  regular pulls of everyone else.
+- **Caps.** At most `OHS_PULLS_PER_PROVIDER` pulls of one provider run at once (default 4), of
+  which at most `OHS_BACKFILLS_PER_PROVIDER` are backfills (default 2). The caps hold across every
+  instance running the `collect` role: claims take turns on a database lock.
+- **Shared backoff.** When a pull meets a rate limit, every pull of that provider pauses, not only
+  that user's: for the provider's `Retry-After`, at least 30 s doubled for each limit met in a
+  row, at most 15 minutes. The user's own pull waits its full `Retry-After`. The first successful
+  pull resets the doubling.
+
+`ohs_sync_provider_paused_seconds{provider}` on `/metrics` says how long a provider stays
+paused. A connection whose provider asks to wait an hour or more is reported `rate_limited` in its
+health (see [sync history and connection health](sync-health.md)).
+
 ## Freshness
 
 `GET /v1/users/{id}/freshness` (tenant key) returns one entry per source:
