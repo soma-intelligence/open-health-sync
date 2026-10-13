@@ -85,6 +85,14 @@ release may change the API, the configuration or the database schema.
   `collection` Bundle, the Open mHealth data points and every raw payload byte for byte. It
   takes a tenant key, or a user token with scope `read` for its own user. See
   [docs/exports.md](docs/exports.md#complete-user-archive-data-portability).
+- Rate limits on the provider-facing routes (`POST` and `GET /inbound/{provider}`,
+  `GET /oauth/{provider}/callback`): an in-memory token bucket per client address, plus one per
+  provider for notifications, answers 429 with `Retry-After` before any work. Defaults 30/s
+  (bursts of 120) per address and 300/s per provider for notifications, 2/s (bursts of 20) per
+  address for callbacks; `OHS_RATE_LIMIT_INBOUND`, `OHS_RATE_LIMIT_INBOUND_PROVIDER` and
+  `OHS_RATE_LIMIT_OAUTH` change them (`0` disables). `OHS_TRUSTED_PROXIES` lists the reverse
+  proxies whose `X-Forwarded-For` is read. Refusals are counted in `ohs_rate_limited_total`.
+  See [docs/self-hosting.md](docs/self-hosting.md#rate-limits).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and

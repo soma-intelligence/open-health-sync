@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -57,7 +59,16 @@ type Config struct {
 	// consent for (OHS_CONSENT_REQUIRED, default false: such a source
 	// stores everything).
 	ConsentRequired bool
-	Providers       map[string]ProviderKeys // key = lower-case slug
+	// RateLimitInbound bounds the notification routes per client address,
+	// RateLimitInboundProvider per provider whatever the address, and
+	// RateLimitOAuth the OAuth callback per client address
+	// (OHS_RATE_LIMIT_INBOUND, OHS_RATE_LIMIT_INBOUND_PROVIDER,
+	// OHS_RATE_LIMIT_OAUTH). The zero value disables a limit.
+	RateLimitInbound, RateLimitInboundProvider, RateLimitOAuth RateLimit
+	// TrustedProxies are the reverse proxies whose X-Forwarded-For names the
+	// client address (OHS_TRUSTED_PROXIES, default none).
+	TrustedProxies []netip.Prefix
+	Providers      map[string]ProviderKeys // key = lower-case slug
 }
 
 // OTLP protocols, as OTEL_EXPORTER_OTLP_PROTOCOL names them.
@@ -98,6 +109,13 @@ func TracingFromEnv(env func(string) (string, bool)) (enabled bool, protocol str
 	return false, "", fmt.Errorf("%w: %s=%q is not supported: use http/protobuf (port 4318) or grpc (port 4317)", ErrTracing, name, proto)
 }
 
+// RateLimit is a token bucket: Rate requests per second sustained, Burst at
+// once.
+type RateLimit struct {
+	Rate  float64
+	Burst int
+}
+
 // MinMetricsToken is the shortest OHS_METRICS_TOKEN accepted.
 const MinMetricsToken = 16
 
@@ -108,32 +126,45 @@ const DefaultAuditRetentionDays = 365
 // DefaultIngestConcurrency is OHS_INGEST_CONCURRENCY when unset.
 const DefaultIngestConcurrency = 8
 
+// The rate limits when unset. Providers batch notifications and a user's
+// backfill comes in bursts, so the inbound limits stay well above what one
+// provider sends; a person completes an OAuth flow a few times at most.
+var (
+	DefaultRateLimitInbound         = RateLimit{Rate: 30, Burst: 120}
+	DefaultRateLimitInboundProvider = RateLimit{Rate: 300, Burst: 600}
+	DefaultRateLimitOAuth           = RateLimit{Rate: 2, Burst: 20}
+)
+
 // reserved are the OHS_ variables (without prefix) that are never provider settings.
 var reserved = map[string]bool{
-	"DATABASE_URL":           true,
-	"ENCRYPTION_KEY":         true,
-	"PUBLIC_URL":             true,
-	"RAW_STORE":              true,
-	"ROLES":                  true,
-	"BOOTSTRAP_TENANT":       true,
-	"LISTEN":                 true,
-	"LOG_LEVEL":              true,
-	"METRICS":                true,
-	"CONSOLE":                true,
-	"METRICS_TOKEN":          true,
-	"METRICS_LISTEN":         true,
-	"RETENTION_DAYS":         true,
-	"AUDIT_RETENTION_DAYS":   true,
-	"INGEST_CONCURRENCY":     true,
-	"PULLS_PER_PROVIDER":     true,
-	"BACKFILLS_PER_PROVIDER": true,
-	"WEBHOOK_ALLOW_PRIVATE":  true,
-	"CONSENT_REQUIRED":       true,
-	"MCP_URL":                true, // client side settings of `ohs mcp`
-	"MCP_KEY":                true,
-	"HTTP_PORT":              true, // read by docker compose only (host port)
-	"HTTP_BIND":              true, // read by docker compose only (host address)
-	"VERSION":                true, // read by docker compose only (image tag)
+	"DATABASE_URL":                true,
+	"ENCRYPTION_KEY":              true,
+	"PUBLIC_URL":                  true,
+	"RAW_STORE":                   true,
+	"ROLES":                       true,
+	"BOOTSTRAP_TENANT":            true,
+	"LISTEN":                      true,
+	"LOG_LEVEL":                   true,
+	"METRICS":                     true,
+	"CONSOLE":                     true,
+	"METRICS_TOKEN":               true,
+	"METRICS_LISTEN":              true,
+	"RETENTION_DAYS":              true,
+	"AUDIT_RETENTION_DAYS":        true,
+	"INGEST_CONCURRENCY":          true,
+	"PULLS_PER_PROVIDER":          true,
+	"BACKFILLS_PER_PROVIDER":      true,
+	"WEBHOOK_ALLOW_PRIVATE":       true,
+	"RATE_LIMIT_INBOUND":          true,
+	"RATE_LIMIT_INBOUND_PROVIDER": true,
+	"RATE_LIMIT_OAUTH":            true,
+	"TRUSTED_PROXIES":             true,
+	"CONSENT_REQUIRED":            true,
+	"MCP_URL":                     true, // client side settings of `ohs mcp`
+	"MCP_KEY":                     true,
+	"HTTP_PORT":                   true, // read by docker compose only (host port)
+	"HTTP_BIND":                   true, // read by docker compose only (host address)
+	"VERSION":                     true, // read by docker compose only (image tag)
 }
 
 // ErrEncryptionKey is wrapped by every Load error about OHS_ENCRYPTION_KEY
@@ -309,6 +340,37 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		c.ConsentRequired = b
 	}
 
+	for _, l := range []struct {
+		name string
+		dst  *RateLimit
+		def  RateLimit
+	}{
+		{"OHS_RATE_LIMIT_INBOUND", &c.RateLimitInbound, DefaultRateLimitInbound},
+		{"OHS_RATE_LIMIT_INBOUND_PROVIDER", &c.RateLimitInboundProvider, DefaultRateLimitInboundProvider},
+		{"OHS_RATE_LIMIT_OAUTH", &c.RateLimitOAuth, DefaultRateLimitOAuth},
+	} {
+		*l.dst = l.def
+		if v := get(l.name, ""); v != "" {
+			rl, err := parseRateLimit(v)
+			if err != nil {
+				return Config{}, fmt.Errorf("%s: %w", l.name, err)
+			}
+			*l.dst = rl
+		}
+	}
+
+	for _, s := range strings.Split(get("OHS_TRUSTED_PROXIES", ""), ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		p, err := parseProxy(s)
+		if err != nil {
+			return Config{}, fmt.Errorf("OHS_TRUSTED_PROXIES: %q is not an IP address or CIDR (for example 10.0.0.0/8)", s)
+		}
+		c.TrustedProxies = append(c.TrustedProxies, p)
+	}
+
 	for _, kv := range environ {
 		k, v, ok := strings.Cut(kv, "=")
 		if !ok || !strings.HasPrefix(k, "OHS_") {
@@ -328,6 +390,44 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		c.Providers[slug][field] = v
 	}
 	return c, nil
+}
+
+// parseRateLimit reads "rate/burst" (requests per second, a positive
+// number, and requests at once, a positive integer), or "0" for no limit.
+func parseRateLimit(v string) (RateLimit, error) {
+	if v == "0" {
+		return RateLimit{}, nil
+	}
+	bad := fmt.Errorf("%q is not rate/burst (for example 30/120) or 0 to disable", v)
+	rs, bs, ok := strings.Cut(v, "/")
+	if !ok {
+		return RateLimit{}, bad
+	}
+	rate, err := strconv.ParseFloat(strings.TrimSpace(rs), 64)
+	if err != nil || math.IsNaN(rate) || math.IsInf(rate, 0) || rate <= 0 {
+		return RateLimit{}, bad
+	}
+	burst, err := strconv.Atoi(strings.TrimSpace(bs))
+	if err != nil || burst < 1 {
+		return RateLimit{}, bad
+	}
+	return RateLimit{Rate: rate, Burst: burst}, nil
+}
+
+// parseProxy reads a CIDR, or one address as a single-address prefix.
+func parseProxy(s string) (netip.Prefix, error) {
+	if a, err := netip.ParseAddr(s); err == nil {
+		a = a.Unmap()
+		return netip.PrefixFrom(a, a.BitLen()), nil
+	}
+	p, err := netip.ParsePrefix(s)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	if p.Addr().Is4In6() && p.Bits() >= 96 {
+		p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+	}
+	return p.Masked(), nil
 }
 
 // multiWordSlugs are the provider slugs that hold an underscore

@@ -11,7 +11,8 @@ import (
 // mountCollect mounts the provider connection routes, the hosted connection
 // page, the OAuth callback and the provider notification routes. The callback and the notification routes
 // face the providers and carry no bearer: the state (callback) or the
-// connector's own verification (notifications) authenticates them. Their
+// connector's own verification (notifications) authenticates them, and a
+// rate limiter bounds the work anyone can cause through them. Their
 // query strings hold codes, states and signatures; instrument logs only the
 // route pattern, never the URL.
 func (s *server) mountCollect(mux *http.ServeMux) {
@@ -33,8 +34,23 @@ func (s *server) mountCollect(mux *http.ServeMux) {
 	mux.Handle("GET /connect", h.ConnectPage())
 	mux.Handle("GET /connect/{provider}", h.ConnectPage())
 	mux.Handle("POST /connect/{provider}", h.ConnectStart())
-	mux.Handle("GET /oauth/{provider}/callback", h.OAuthCallback())
-	mux.Handle("POST /inbound/{provider}", h.Inbound())
+	// The provider-facing routes are rate limited, the notification routes
+	// (both methods share the buckets) also per provider.
+	callback := newRateLimiter(s.d.RateLimitOAuth, RateLimit{})
+	inbound := newRateLimiter(s.d.RateLimitInbound, s.d.RateLimitInboundProvider)
+	known := map[string]bool{}
+	for _, c := range s.d.Providers {
+		known[c.Slug()] = true
+	}
+	provider := func(r *http.Request) string {
+		// Unknown slugs share one bucket, so the set of buckets is bounded.
+		if p := r.PathValue("provider"); known[p] {
+			return p
+		}
+		return ""
+	}
+	mux.Handle("GET /oauth/{provider}/callback", s.rateLimit(groupOAuthCallback, callback, nil, h.OAuthCallback()))
+	mux.Handle("POST /inbound/{provider}", s.rateLimit(groupInbound, inbound, provider, h.Inbound()))
 	// GET also answers HEAD (ServeMux).
-	mux.Handle("GET /inbound/{provider}", h.InboundProbe())
+	mux.Handle("GET /inbound/{provider}", s.rateLimit(groupInbound, inbound, provider, h.InboundProbe()))
 }

@@ -8,6 +8,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -80,6 +81,13 @@ type Deps struct {
 	// Version is the instance version the user archive's manifest states.
 	// Empty leaves it out.
 	Version string
+	// RateLimitInbound bounds POST and GET /inbound/{provider} per client
+	// address and RateLimitInboundProvider per provider, RateLimitOAuth the
+	// OAuth callback per client address. The zero value is no limit.
+	RateLimitInbound, RateLimitInboundProvider, RateLimitOAuth RateLimit
+	// TrustedProxies (OHS_TRUSTED_PROXIES) are the reverse proxies whose
+	// X-Forwarded-For names the client address of a rate limited request.
+	TrustedProxies []netip.Prefix
 }
 
 type server struct {

@@ -171,6 +171,10 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Turns on OpenTelemetry traces, sent over OTLP to this address. The other standard `OTEL_` variables apply; see [observability](observability.md) |
+| `OHS_RATE_LIMIT_INBOUND` | `30/120` | Notification requests (`/inbound/{provider}`) per client address: `rate/burst` in requests per second, `0` disables. See [rate limits](#rate-limits) |
+| `OHS_RATE_LIMIT_INBOUND_PROVIDER` | `300/600` | Notification requests per provider, whatever the address; `0` disables |
+| `OHS_RATE_LIMIT_OAUTH` | `2/20` | OAuth callback requests per client address; `0` disables |
+| `OHS_TRUSTED_PROXIES` | none | Comma-separated CIDRs (or addresses) of your reverse proxies. Only a request from one of them has its client address read from `X-Forwarded-For` |
 | `OHS_<PROVIDER>_CLIENT_ID`, `_CLIENT_SECRET` | none | Keys of a provider; its connector is on when they are set. Every process that runs `collect` or `etl` needs them (see below) |
 
 ### Database pool size
@@ -205,6 +209,46 @@ that runs either role. A process without them cannot call that provider: it logs
 a deletion it carries out still deletes the data but leaves the grant valid at the provider.
 
 Put a reverse proxy with TLS in front of port 8080; the bearer secrets travel in headers.
+
+### Rate limits
+
+The provider-facing routes take no credential: `POST` and `GET /inbound/{provider}`
+(notifications and the URL check) and `GET /oauth/{provider}/callback`. Each notification may
+verify a signature, write rows and queue pulls, and each callback reads the database, so an
+in-memory token bucket bounds them, per `api` process. A request over a limit is answered 429
+with `Retry-After` (seconds) before any work, and counted in `/metrics` as
+`ohs_rate_limited_total{route_group="inbound"}` or `{route_group="oauth_callback"}`. The
+authenticated API is not limited.
+
+| Bucket | Default | Variable |
+|---|---|---|
+| Notifications, per client address | 30 requests/s, bursts of 120 | `OHS_RATE_LIMIT_INBOUND` |
+| Notifications, per provider (all addresses) | 300 requests/s, bursts of 600 | `OHS_RATE_LIMIT_INBOUND_PROVIDER` |
+| OAuth callbacks, per client address | 2 requests/s, bursts of 20 | `OHS_RATE_LIMIT_OAUTH` |
+
+The values are `rate/burst` (`30/120`; the rate may be a decimal, `0.5/10`), and `0` turns a
+bucket off. The defaults sit well above what a provider sends, batched notifications and a
+large backfill included; providers retry a 429. The per provider bucket keeps a flood from
+many spoofed addresses from queueing unlimited work. An IPv6 client is counted by its /64.
+Buckets idle for 10 minutes are dropped, and at most 100,000 addresses are tracked per route
+group: beyond that, new addresses share one bucket until idle ones are dropped.
+
+The client address is the TCP peer. Behind a reverse proxy every request comes from the proxy,
+so list the proxy in `OHS_TRUSTED_PROXIES`: for a request from one of those addresses, the
+client is the rightmost `X-Forwarded-For` entry that is not itself a trusted proxy. The header
+is ignored from any other peer, so a client cannot pick its own address. With the bundled
+compose file and a proxy on the host in front of the published port 8080, requests reach the
+container from the Docker bridge gateway. Make sure the proxy appends the address it received
+the request from to `X-Forwarded-For` (most do by default), then trust the bridge networks:
+
+```
+# .env
+OHS_TRUSTED_PROXIES=172.16.0.0/12
+```
+
+Name only addresses your proxies use: a trusted range that also holds clients lets them forge
+the header. Several `api` processes each keep their own buckets, so the limits add up across
+them.
 
 ## Upgrading
 
@@ -379,6 +423,9 @@ traces.
 - **Large uploads.** An instance processes a bounded number of uploads at once
   (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi) and answers 503 with `Retry-After` above it;
   clients retry.
+- **Rate limits on the provider-facing routes.** Notifications and OAuth callbacks over the
+  limits answer 429 with `Retry-After`; see [rate limits](self-hosting.md#rate-limits). Behind a
+  reverse proxy, set `OHS_TRUSTED_PROXIES`, or every request counts against the proxy's address.
 
 ### Metrics
 

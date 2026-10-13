@@ -2107,6 +2107,7 @@ paths:
               schema: { type: string }
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /inbound/{provider}:
     parameters:
@@ -2129,6 +2130,7 @@ paths:
               schema: { type: object }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [provider-facing]
       operationId: inbound
@@ -2152,6 +2154,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "500":
           description: The notification could not be stored; the provider should retry.
           content:
@@ -2468,6 +2471,18 @@ components:
       content:
         text/html:
           schema: { type: string }
+    RateLimited:
+      description: |
+        Over the rate limit of this provider-facing route (per client address, and per provider
+        for notifications); nothing was done. Limits are set per instance, see the
+        self-hosting guide.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+          description: Seconds to wait before retrying.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
 
   schemas:
     Problem:

@@ -427,10 +427,16 @@ grant are not stored, and a revoked category's stored records are deleted. Detai
 | `GET /connect`, `GET /connect/{provider}`, `POST /connect/{provider}` | The [hosted connection page](connect-page.md), for the user's browser |
 | `GET /oauth/{provider}/callback` | OAuth redirect target you register with the provider |
 | `POST /inbound/{provider}` | Provider push notifications, verified with the provider's own scheme |
+| `GET /inbound/{provider}` | Notification URL check and subscription challenge |
 | `GET /healthz` | Liveness |
 | `GET /readyz` | Readiness: database ping and raw store check, 503 when either fails |
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
 | `GET /console` | Read-only admin console (HTML), only when `OHS_CONSOLE=true`; see [console.md](console.md) |
+
+The OAuth callback and the notification routes take no credential and are rate limited per
+client address (and the notification routes per provider): over a limit they answer 429 with a
+problem body and `Retry-After` in seconds, before any work. Limits and the reverse proxy
+setting are in [self-hosting.md](self-hosting.md#rate-limits).
 
 `/metrics` is global to the instance (not per tenant). It asks for the `OHS_METRICS_TOKEN` bearer
 token, refuses every scrape when no token is set, and can move to a private address with

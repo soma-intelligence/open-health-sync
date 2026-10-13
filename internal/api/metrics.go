@@ -13,8 +13,8 @@ import (
 )
 
 // httpMetrics counts requests by matched route pattern and status code, and
-// tracks the ingest limiter. Route patterns are a fixed set, so the label
-// cardinality is bounded.
+// tracks the ingest limiter and the rate limiter. Route patterns and route
+// groups are fixed sets, so the label cardinality is bounded.
 type httpMetrics struct {
 	mu       sync.Mutex
 	requests map[routeCode]int64
@@ -22,6 +22,9 @@ type httpMetrics struct {
 	ingestInFlight atomic.Int64
 	ingestRejected atomic.Int64
 	auditFailures  atomic.Int64
+
+	// rateLimited counts the requests refused with 429, by route group.
+	rateLimited map[string]*atomic.Int64
 }
 
 type routeCode struct {
@@ -29,7 +32,15 @@ type routeCode struct {
 	code  int
 }
 
-func newHTTPMetrics() *httpMetrics { return &httpMetrics{requests: map[routeCode]int64{}} }
+func newHTTPMetrics() *httpMetrics {
+	return &httpMetrics{
+		requests: map[routeCode]int64{},
+		rateLimited: map[string]*atomic.Int64{
+			groupInbound:       new(atomic.Int64),
+			groupOAuthCallback: new(atomic.Int64),
+		},
+	}
+}
 
 func (m *httpMetrics) count(route string, code int) {
 	if route == "" {
@@ -98,6 +109,11 @@ func renderMetrics(w io.Writer, m *httpMetrics, etl map[string]int64) {
 	fmt.Fprint(w, "# HELP ohs_audit_write_failures_total Audit events that could not be written.\n")
 	fmt.Fprint(w, "# TYPE ohs_audit_write_failures_total counter\n")
 	fmt.Fprintf(w, "ohs_audit_write_failures_total %d\n", m.auditFailures.Load())
+	fmt.Fprint(w, "# HELP ohs_rate_limited_total Provider-facing requests refused with 429 by the rate limiter.\n")
+	fmt.Fprint(w, "# TYPE ohs_rate_limited_total counter\n")
+	for _, g := range []string{groupInbound, groupOAuthCallback} {
+		fmt.Fprintf(w, "ohs_rate_limited_total{route_group=\"%s\"} %d\n", g, m.rateLimited[g].Load())
+	}
 
 	names := make([]string, 0, len(etl))
 	for n := range etl {

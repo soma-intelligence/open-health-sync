@@ -106,6 +106,8 @@ func startServer(t *testing.T) (string, string) {
 		Metrics:       true,
 		MetricsToken:  contractMetricsToken,
 		EncryptionKey: make([]byte, 32),
+		// One OAuth callback per address, so the run sees a 429.
+		RateLimitOAuth: config.RateLimit{Rate: 0.001, Burst: 1},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -516,6 +518,12 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		"Content-Type": "application/gzip", "X-OHS-Type": "HKQuantityTypeIdentifierHeartRate",
 		"X-OHS-Day": "2026-01-10", "X-OHS-Batch": "contract", "X-OHS-Part": "99",
 	}).status, "not gzip")
+	// The callback's own pages are HTML, which the recorder does not decode:
+	// the call spending the address's one token goes around it.
+	plain := &client{t: t, base: base, http: &http.Client{Timeout: 30 * time.Second}}
+	assert.Equal(t, 400, plain.json("GET", "/oauth/withings/callback?state=unknown", "", "").status, "unknown state")
+	r = c.json("GET", "/oauth/withings/callback?state=unknown", "", "")
+	assert.Equal(t, 429, r.status, "over the callback rate limit: %s", r.body)
 
 	// Erasing the user's data from one provider (a device provider, no
 	// connection), and its job read back until done.
