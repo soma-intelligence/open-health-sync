@@ -11,8 +11,8 @@
 
 ### One open API for wearable and health data. On your own server.
 
-Apple Health, Health Connect, Oura, WHOOP, Fitbit, Withings, Dexcom, OMRON and five more in.<br>
-One clean model out, over REST, a read-only MCP server for AI agents, and FHIR R4.<br>
+Apple Health and Withings in today; Oura, WHOOP, Fitbit, Health Connect, Dexcom, OMRON and five more in the next release.<br>
+One clean model out, over REST and a read-only MCP server for AI agents, with FHIR R4 in the next release.<br>
 Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 
 [![CI](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml)
@@ -61,7 +61,8 @@ clinical software.
 
 **🔌 Thirteen sources, one model**<br>
 Every provider maps into the same records, with one unit per quantity (UCUM, LOINC). Heart rate
-is `bpm`, whatever the source called it.
+is `bpm`, whatever the source called it. Two sources are in v0.0.2, eleven more on `main` for the
+next release.
 
 </td>
 <td width="33%" valign="top">
@@ -90,7 +91,8 @@ can only read.
 <td valign="top">
 
 **🏥 Standards out**<br>
-FHIR R4 Observations checked against the official HL7 validator, plus an OpenAPI 3.1 REST API.
+An OpenAPI 3.1 REST API, plus FHIR R4 Observations checked against the official HL7 validator
+(on `main`, next release).
 
 </td>
 <td valign="top">
@@ -126,11 +128,12 @@ image does not have the 🔜 lines yet. Details per source:
 ## What you can build
 
 - **A health app backend.** Your iOS app uploads HealthKit data, your users connect their
-  Oura, WHOOP or Withings accounts, and your app reads one API instead of thirteen.
+  Oura, WHOOP or Withings accounts, and your app reads one API instead of thirteen (most of
+  them arrive in the next release).
 - **An AI agent over your own data.** Run it at home, connect your devices, and give your desktop
   agent a read-only view of your sleep, workouts and heart rate through MCP.
 - **A study that collects from participants' wearables.** Raw payloads kept for audit, hard
-  deletes for withdrawals, FHIR R4 out for the analysis side.
+  deletes for withdrawals, FHIR R4 out for the analysis side (next release).
 - **A personal data archive.** Load years of history from the Health app export in one command,
   and keep it on a machine you own.
 - **Small tools on your own data.** `ohs admin personal setup` gives you one instance for
