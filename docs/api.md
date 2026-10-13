@@ -182,6 +182,7 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 | `daily` | `start`, `end` (compared as dates) | `date` |
 | `rr-intervals` | `series_id`, `start`, `end` | `timestamp` (the beat) |
 | `hrv` | `series_id`, `start`, `end` (the series' first beat) | the series' first beat |
+| `menstrual-cycles` | `start`, `end` (compared as dates, on the cycle's start) | `start_date` |
 | `coverage` | `provider`, `start`, `end` | not paged |
 
 `samples` answers 400 when `type` is not a quantity type of the catalog (a typo such as
@@ -239,6 +240,13 @@ units are listed in [data-model.md](data-model.md). `daily` holds one row per pr
 calendar day; the ETL derives step, energy and distance totals from samples when a provider sends
 no daily summary of its own. `rr-intervals` serves the beat-to-beat intervals of heartbeat series
 and `hrv` the HRV derived from each series; the rules are in [hrv.md](hrv.md).
+
+`menstrual-cycles` is derived at read time from the `menstrual_flow` category samples of every
+provider: each cycle's start day, its period's flow days (the heaviest flow of each local day,
+with the providers that recorded it) and, once the next period is recorded, its length. The
+latest cycle is open, with `end_date` and `cycle_length_days` null. Nothing is predicted. The
+rules (local days, gaps inside a period, the read limit) are in
+[menstrual-cycles.md](menstrual-cycles.md).
 
 ### Knowing when an upload is processed
 
