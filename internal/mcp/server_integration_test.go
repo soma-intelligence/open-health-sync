@@ -164,7 +164,7 @@ func TestTenantIsolation(t *testing.T) {
 	e := newEnv(t)
 	csB := Connect(t, e.srv.URL+"/mcp", e.keyB)
 	for _, tool := range []string{"get_samples", "get_category_samples", "get_sleep", "get_workouts",
-		"get_nutrition", "get_daily", "get_coverage", "list_connections"} {
+		"get_nutrition", "get_daily", "get_rr_intervals", "get_hrv", "get_coverage", "list_connections"} {
 		args := map[string]any{"user_id": e.userA.String()}
 		if tool == "get_samples" {
 			args["type"] = "heart_rate"

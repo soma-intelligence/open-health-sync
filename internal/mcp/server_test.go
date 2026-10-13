@@ -106,8 +106,8 @@ func TestToolsList(t *testing.T) {
 		}
 		assert.Contains(t, cs.InitializeResult().Instructions, "get_daily")
 		slices.Sort(names)
-		assert.Equal(t, []string{"get_category_samples", "get_coverage", "get_daily", "get_nutrition",
-			"get_samples", "get_sleep", "get_workout_route", "get_workouts", "list_connections",
+		assert.Equal(t, []string{"get_category_samples", "get_coverage", "get_daily", "get_hrv", "get_nutrition",
+			"get_rr_intervals", "get_samples", "get_sleep", "get_workout_route", "get_workouts", "list_connections",
 			"list_quantity_types", "list_users"}, names)
 	}
 }

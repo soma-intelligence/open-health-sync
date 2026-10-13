@@ -9,6 +9,10 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- RR intervals and HRV: `GET /v1/users/{id}/rr-intervals` serves the stored beat-to-beat
+  intervals of heartbeat series, and `GET /v1/users/{id}/hrv` the RMSSD, SDNN, pNN50, mean RR
+  and mean heart rate derived from each series, after implausible and ectopic intervals are set
+  aside. MCP tools `get_rr_intervals` and `get_hrv`. See [docs/hrv.md](docs/hrv.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and
