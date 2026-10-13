@@ -27,6 +27,10 @@ type Config struct {
 	// Console serves the read-only admin console at /console (OHS_CONSOLE,
 	// default false).
 	Console bool
+	// MetricsToken (OHS_METRICS_TOKEN) is the bearer secret a scrape of
+	// /metrics presents. MetricsListen (OHS_METRICS_LISTEN) serves /metrics
+	// on an address of its own instead of the API listener.
+	MetricsToken, MetricsListen string
 	// RetentionDays prunes raw files and normalized data older than this
 	// many days; 0 keeps everything.
 	RetentionDays int
@@ -38,6 +42,9 @@ type Config struct {
 	WebhookAllowPrivate bool
 	Providers           map[string]ProviderKeys // key = lower-case slug
 }
+
+// MinMetricsToken is the shortest OHS_METRICS_TOKEN accepted.
+const MinMetricsToken = 16
 
 // DefaultIngestConcurrency is OHS_INGEST_CONCURRENCY when unset.
 const DefaultIngestConcurrency = 8
@@ -54,6 +61,8 @@ var reserved = map[string]bool{
 	"LOG_LEVEL":             true,
 	"METRICS":               true,
 	"CONSOLE":               true,
+	"METRICS_TOKEN":         true,
+	"METRICS_LISTEN":        true,
 	"RETENTION_DAYS":        true,
 	"INGEST_CONCURRENCY":    true,
 	"WEBHOOK_ALLOW_PRIVATE": true,
@@ -160,6 +169,14 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_METRICS: %q is not a boolean", v)
 		}
 		c.Metrics = b
+	}
+	c.MetricsToken = get("OHS_METRICS_TOKEN", "")
+	if c.MetricsToken != "" && len(c.MetricsToken) < MinMetricsToken {
+		return Config{}, fmt.Errorf("OHS_METRICS_TOKEN must be at least %d characters (generate one with `openssl rand -hex 32`)", MinMetricsToken)
+	}
+	c.MetricsListen = get("OHS_METRICS_LISTEN", "")
+	if c.MetricsListen != "" && c.MetricsListen == c.Listen {
+		return Config{}, fmt.Errorf("OHS_METRICS_LISTEN %q must differ from OHS_LISTEN", c.MetricsListen)
 	}
 
 	if v := get("OHS_CONSOLE", ""); v != "" {
