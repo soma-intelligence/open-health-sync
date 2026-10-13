@@ -39,8 +39,9 @@ type Options struct {
 // returns the per-table counts. Records that fail to parse, map, convert or
 // validate are kept in ohs_data.failed_records and do not fail the job; an
 // error means the job should be retried (raw store, database, unknown
-// provider). A user who is not active (deleting or gone) gets nothing written
-// and no error, so the job completes.
+// provider). A user who is not active (deleting or gone), and a raw object
+// erased while it was being read, get nothing written and no error, so the
+// job completes.
 func Process(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job queue.ETLJob) (Counts, error) {
 	return ProcessWith(ctx, pool, rs, job, Options{})
 }
@@ -209,6 +210,14 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		} else if !active {
 			return Counts{}, "", true, nil
 		}
+		// The erasure of the user's data from this provider deletes the raw
+		// object's row under the user row lock: an object erased while it was
+		// read writes nothing, so the erased data cannot come back.
+		if registered, err := rawRegistered(ctx, tx, sc, job.Key); err != nil {
+			return nil, "", false, err
+		} else if !registered {
+			return Counts{}, "", true, nil
+		}
 
 		counts := Counts{}
 		if !acc.IsEmpty() {
@@ -291,7 +300,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		return nil, err
 	}
 	if userSkipped {
-		log.InfoContext(ctx, "etl job skipped, user not active")
+		log.InfoContext(ctx, "etl job skipped, user not active or raw object erased")
 		return Counts{}, nil
 	}
 	written := counts.TotalWritten()
@@ -354,6 +363,17 @@ func rawDataType(ctx context.Context, db queryRower, sc scope, key string) (stri
 		return "", fmt.Errorf("look up raw object: %w", err)
 	}
 	return dt, nil
+}
+
+// rawRegistered reports whether the raw object is still registered.
+func rawRegistered(ctx context.Context, db queryRower, sc scope, key string) (bool, error) {
+	var ok bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ohs_sync.raw_objects
+		WHERE tenant_id = $1 AND user_id = $2 AND key = $3)`, sc.tenant, sc.user, key).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("look up raw object: %w", err)
+	}
+	return ok, nil
 }
 
 // stampOwner sets the job's tenant and user on every record, whatever the

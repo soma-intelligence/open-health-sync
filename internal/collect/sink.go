@@ -113,10 +113,11 @@ func storeRaw(ctx context.Context, d Deps, t rawTarget, lines [][]byte) (bool, e
 		tenant: t.tenant, user: t.user, provider: t.provider, key: key, hash: hash, size: len(body),
 		batch: t.batch, part: t.part, dataType: t.dataType, tier: queue.TierStandard,
 	})
-	if errors.Is(err, errInactive) {
-		// The user started being deleted between the check and the
-		// registration: the file just written is removed again, or it
-		// could outlive the deletion's own raw sweep.
+	if errors.Is(err, errInactive) || errors.Is(err, errErasing) {
+		// The user, or their data from this provider, started being deleted
+		// between the check and the registration: the file just written is
+		// removed again, or it could outlive the deletion's own raw sweep.
+		// Either way nothing more is pulled.
 		if derr := d.Raw.DeletePrefix(context.WithoutCancel(ctx), key); derr != nil {
 			slog.WarnContext(ctx, "collect: could not remove the file of a refused write",
 				"tenant_id", t.tenant, "user_id", t.user, "provider", t.provider, "error", derr)

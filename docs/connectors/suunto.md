@@ -114,7 +114,9 @@ How the OAuth calls work:
   header.
 - **Disconnect.** Disconnecting calls
   `GET https://cloudapi-oauth.suunto.com/oauth/deauthorize?client_id=...` with the user's token,
-  best effort.
+  best effort. The data already collected is kept, unless the disconnect is
+  `DELETE /v1/users/{id}/connections/suunto?delete_data=true`, which erases everything held from
+  Suunto for that user (see [erasing one provider's data](../api.md#erasing-one-providers-data)).
 
 ## 4. What is pulled
 

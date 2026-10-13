@@ -19,8 +19,10 @@ make test         # unit tests, no Docker
 make integration  # tests tagged integration, need Docker (testcontainers)
 ```
 
-Other targets: `make e2e` (the quickstart against a real stack) and `make reliability` (crash
-recovery). `make guard` runs the repository checks described below.
+Other targets: `make e2e` (the quickstart against a real stack), `make reliability` (crash
+recovery) and `make upgrade-test` (the last release, with data in it, migrated to your checkout;
+a change to `internal/db/migrations` should pass it). `make guard` runs the repository checks
+described below.
 
 ## Layout
 
