@@ -13,9 +13,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
+	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
 
 // Pull windows.
@@ -539,14 +543,30 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 
 // handle runs one pull job and settles it. A lost claim (ErrNotRunning)
 // means another worker owns the job: the result is dropped (R11).
+// With tracing on, the job is a span carrying the ids and counters its log
+// lines carry, and its outcome.
 func (s *Scheduler) handle(ctx context.Context, job queue.PullJob) {
 	log := slog.With("job_id", job.ID, "tenant_id", job.TenantID, "user_id", job.UserID,
 		"provider", job.Provider, "attempts", job.Attempts)
+	kind := "scheduled"
+	if job.Inbound {
+		kind = "notification"
+	}
+	ctx, span := tracing.Tracer().Start(ctx, "pull job", trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.Int64(tracing.AttrJobID, job.ID),
+			attribute.String(tracing.AttrJobKind, kind),
+			attribute.String(tracing.AttrProvider, job.Provider),
+			attribute.String(tracing.AttrTenantID, job.TenantID.String()),
+			attribute.String(tracing.AttrUserID, job.UserID.String()),
+			attribute.Int(tracing.AttrAttempts, job.Attempts)))
+	outcome := ""
 	defer func() {
 		if r := recover(); r != nil {
 			log.ErrorContext(ctx, "collect: pull job panicked", "panic", r)
-			s.settle(ctx, log, job, errors.New("pull job panicked"))
+			outcome = s.settle(ctx, log, job, errors.New("pull job panicked"))
 		}
+		endJobSpan(span, outcome)
 	}()
 	jobCtx, cancel := context.WithTimeout(ctx, s.cfg.JobTimeout)
 	defer cancel()
@@ -554,8 +574,29 @@ func (s *Scheduler) handle(ctx context.Context, job queue.PullJob) {
 	stored, err := s.pull(jobCtx, job)
 	job.Stored = stored
 	s.logSync(ctx, log, job, stored, time.Since(start), err)
-	s.settle(ctx, log, job, err)
+	outcome = s.settle(ctx, log, job, err)
 }
+
+// endJobSpan records a pull job's outcome and ends its span. A failed pull
+// is an error span; the error text stays in the logs and the sync log.
+func endJobSpan(span trace.Span, outcome string) {
+	span.SetAttributes(attribute.String(tracing.AttrOutcome, outcome))
+	if outcome == outcomeFailed || outcome == outcomeSettleError {
+		span.SetStatus(codes.Error, "")
+	}
+	span.End()
+}
+
+// Pull job outcomes, as the ohs.job.outcome span attribute records them.
+const (
+	outcomeCompleted   = "completed"
+	outcomeDeferred    = "deferred"
+	outcomeNeedsReauth = "needs_reauth"
+	outcomeInactive    = "inactive"
+	outcomeFailed      = "failed"
+	outcomeClaimLost   = "claim_lost"
+	outcomeSettleError = "settle_error"
+)
 
 // pull fetches the job's window. It returns the number of raw objects stored.
 func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
@@ -639,11 +680,13 @@ func (d Deps) markNeedsReauthIf(ctx context.Context, tenantID, userID uuid.UUID,
 }
 
 // settle records the outcome on the job, and on the connection's freshness
-// and health.
-func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.PullJob, cause error) {
+// and health, and returns it (an outcome* value).
+func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.PullJob, cause error) string {
 	var err error
+	var outcome string
 	switch rl, limited := connector.AsRateLimit(cause); {
 	case cause == nil:
+		outcome = outcomeCompleted
 		err = s.q.Complete(ctx, job)
 		if err == nil {
 			if uerr := s.recordSuccess(ctx, job); uerr != nil {
@@ -654,6 +697,7 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 			}
 		}
 	case limited:
+		outcome = outcomeDeferred
 		until := s.d.now().Add(rl.RetryAfter)
 		log.InfoContext(ctx, "collect: provider rate limit, pull deferred", "retry_after", rl.RetryAfter)
 		err = s.q.Defer(ctx, job, until)
@@ -670,15 +714,18 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 			}
 		}
 	case errors.Is(cause, connector.ErrNeedsReauth):
+		outcome = outcomeNeedsReauth
 		log.WarnContext(ctx, "collect: provider rejected the grant, connection needs reauthorization")
-		outcome := queue.OutcomeNeedsReauth
+		parked := queue.OutcomeNeedsReauth
 		if errors.Is(cause, connector.ErrMissingScope) {
-			outcome = queue.OutcomeMissingScope
+			parked = queue.OutcomeMissingScope
 		}
-		err = parkJob(ctx, s.d.Pool, job, reasonNeedsReauth, outcome)
+		err = parkJob(ctx, s.d.Pool, job, reasonNeedsReauth, parked)
 	case errors.Is(cause, errInactive):
+		outcome = outcomeInactive
 		err = parkJob(ctx, s.d.Pool, job, reasonInactive, queue.OutcomeInactive)
 	default:
+		outcome = outcomeFailed
 		msg := safeErr(cause)
 		log.WarnContext(ctx, "collect: pull failed", "error", msg)
 		err = s.q.Fail(ctx, job, errors.New(msg))
@@ -691,9 +738,12 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 	switch {
 	case errors.Is(err, queue.ErrNotRunning):
 		log.InfoContext(ctx, "collect: pull job claim lost, result dropped")
+		return outcomeClaimLost
 	case err != nil:
 		log.ErrorContext(ctx, "collect: settle pull job", "error", err)
+		return outcomeSettleError
 	}
+	return outcome
 }
 
 // recordSuccess moves the connection's freshness forward and restores it if

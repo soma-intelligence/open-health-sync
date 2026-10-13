@@ -122,6 +122,44 @@ func TestLoadWebhookAllowPrivate(t *testing.T) {
 	}
 }
 
+func TestLoadTracing(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.Tracing || c.TracingProtocol != "" {
+		t.Fatalf("off by default: %v %q %v", c.Tracing, c.TracingProtocol, err)
+	}
+	for _, tc := range []struct {
+		env      map[string]string
+		on       bool
+		protocol string
+	}{
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318"}, true, TracingHTTP},
+		{map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces"}, true, TracingHTTP},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"}, true, TracingHTTP},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc"}, true, TracingGRPC},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+			"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc"}, true, TracingGRPC},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_SDK_DISABLED": "TRUE"}, false, ""},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_SDK_DISABLED": "false"}, true, TracingHTTP},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": ""}, false, ""},
+		{map[string]string{"OTEL_SERVICE_NAME": "ohs-eu", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc"}, false, ""},
+	} {
+		m := base()
+		for k, v := range tc.env {
+			m[k] = v
+		}
+		c, err := load(t, m)
+		if err != nil || c.Tracing != tc.on || c.TracingProtocol != tc.protocol {
+			t.Fatalf("%v: got %v %q %v", tc.env, c.Tracing, c.TracingProtocol, err)
+		}
+	}
+	m := base()
+	m["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://c:4318"
+	m["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/json"
+	if _, err := load(t, m); !errors.Is(err, ErrTracing) || !strings.Contains(err.Error(), "OTEL_EXPORTER_OTLP_PROTOCOL") {
+		t.Fatalf("http/json: %v", err)
+	}
+}
+
 func TestLoadRetentionDays(t *testing.T) {
 	for _, v := range []string{"-1", "abc", "1.5"} {
 		m := base()

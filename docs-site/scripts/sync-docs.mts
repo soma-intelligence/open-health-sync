@@ -132,6 +132,13 @@ const sources: Record<string, Target[]> = {
       description: "The Helm chart: an external Postgres, the migration Job, the raw store, values, upgrades.",
     },
   ],
+  "docs/observability.md": [
+    {
+      page: "(guides)/self-hosting/observability",
+      title: "Observability",
+      description: "Logs, Prometheus metrics and OpenTelemetry traces: what each carries and how to turn traces on.",
+    },
+  ],
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",
@@ -268,6 +275,7 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/rotating-secrets": "RotateCw",
   "(guides)/self-hosting/operating-notes": "NotebookPen",
   "(guides)/self-hosting/console": "LayoutDashboard",
+  "(guides)/self-hosting/observability": "Telescope",
   "(guides)/guides/fhir": "HeartPulse",
   "(guides)/sdks/index": "Package",
   "(guides)/sdks/kotlin": "Smartphone",

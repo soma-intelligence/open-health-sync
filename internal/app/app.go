@@ -37,6 +37,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -51,7 +52,9 @@ const (
 	ShutdownGrace = 25 * time.Second
 	// shutdownMargin is how much longer Run waits for the roles after
 	// ShutdownGrace before it gives up on them (a call ignoring its context).
-	shutdownMargin    = 3 * time.Second
+	shutdownMargin = 3 * time.Second
+	// tracingFlush bounds the export of the last spans at exit.
+	tracingFlush      = 5 * time.Second
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 2 * time.Minute
 )
@@ -71,9 +74,10 @@ func Run(ctx context.Context, cfg config.Config) error {
 var Version = "dev"
 
 // newLogger is the process logger: JSON lines, durations as text ("10m0s")
-// rather than nanoseconds, and the request id of the context on each line.
+// rather than nanoseconds, and the request id and trace id of the context on
+// each line.
 func newLogger(w io.Writer, level slog.Level) *slog.Logger {
-	return slog.New(reqid.Handler(slog.NewJSONHandler(w, &slog.HandlerOptions{
+	return slog.New(tracing.LogHandler(reqid.Handler(slog.NewJSONHandler(w, &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 			if a.Value.Kind() == slog.KindDuration {
@@ -81,7 +85,7 @@ func newLogger(w io.Writer, level slog.Level) *slog.Logger {
 			}
 			return a
 		},
-	})))
+	}))))
 }
 
 // options are the knobs tests turn.
@@ -129,7 +133,27 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		raw = opts.wrapRaw(raw)
 	}
 
-	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	// Tracing before the pool, so its queries are traced from the start.
+	shutdownTracing, err := tracing.Setup(ctx, tracing.Options{Enabled: cfg.Tracing, Protocol: cfg.TracingProtocol, Version: Version})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Flush the spans still buffered; a collector that is down must not
+		// hold the exit up for long.
+		sctx, scancel := context.WithTimeout(context.WithoutCancel(ctx), tracingFlush)
+		defer scancel()
+		if err := shutdownTracing(sctx); err != nil {
+			slog.Warn("tracing: flush at shutdown", "error", err)
+		}
+	}()
+	var dbOpts []db.Option
+	if cfg.Tracing {
+		dbOpts = append(dbOpts, db.WithTracer(tracing.PGX{}))
+		slog.Info("tracing on: exporting OpenTelemetry traces over OTLP")
+	}
+
+	pool, err := db.Open(ctx, cfg.DatabaseURL, dbOpts...)
 	if err != nil {
 		return fmt.Errorf("cannot reach the database of OHS_DATABASE_URL (is Postgres up, are host, port and password right?): %w", err)
 	}

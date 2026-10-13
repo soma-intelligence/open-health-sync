@@ -9,12 +9,28 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Option configures the pool Open creates.
+type Option func(*pgxpool.Config)
+
+// WithTracer traces the queries of every connection of the pool with t.
+func WithTracer(t pgx.QueryTracer) Option {
+	return func(c *pgxpool.Config) { c.ConnConfig.Tracer = t }
+}
+
 // Open connects to url and checks the connection with a ping.
-func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+func Open(ctx context.Context, url string, opts ...Option) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("db: open: %w", err)
+	}
+	for _, o := range opts {
+		o(cfg)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}

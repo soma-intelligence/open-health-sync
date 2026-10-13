@@ -15,6 +15,7 @@
     "upgrading",
     "backup",
     "rotating-secrets",
+    "observability",
     "operating-notes"
   ]
 }

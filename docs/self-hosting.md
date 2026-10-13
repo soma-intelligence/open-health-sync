@@ -159,6 +159,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_BACKFILLS_PER_PROVIDER` | `2` | Of those, backfills of new connections |
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Turns on OpenTelemetry traces, sent over OTLP to this address. The other standard `OTEL_` variables apply; see [observability](observability.md) |
 | `OHS_<PROVIDER>_CLIENT_ID`, `_CLIENT_SECRET` | none | Keys of a provider; its connector is on when they are set. Every process that runs `collect` or `etl` needs them (see below) |
 
 ### Database pool size
@@ -297,6 +298,8 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
 
 With neither, `/metrics` answers 403 and names the two settings. `OHS_METRICS=false` removes the
 route altogether.
+[observability.md](observability.md) lists the metrics, and how to turn on OpenTelemetry
+traces.
 
 - **Run `etl` somewhere.** User deletion is carried out by a worker that runs with the `etl`
   role. An `api` only deployment accepts `DELETE /v1/users/{id}` but never finishes it, and
