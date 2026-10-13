@@ -31,7 +31,7 @@ Usage: ohs <command> [flags]
 Commands:
   up        apply database migrations, then serve (the container entrypoint)
   serve     run the roles listed in OHS_ROLES (api, collect, etl)
-  migrate   apply or inspect the database schema: up, version, down --all
+  migrate   apply or inspect the database schema: up, version, latest, down --all
   doctor    check the configuration, database, raw store and connectors
   admin     create tenants, create, list and revoke their API keys, personal setup
   mcp       serve MCP on stdin and stdout for a local agent (Claude Desktop, Claude Code)
@@ -61,13 +61,14 @@ SIGTERM. Needs OHS_DATABASE_URL and OHS_ENCRYPTION_KEY, and a database already
 migrated (ohs migrate up, or use ohs up). Logs are JSON on stderr at
 OHS_LOG_LEVEL (default info).
 `,
-	"migrate": `usage: ohs migrate <up|version|down --all>
+	"migrate": `usage: ohs migrate <up|version|latest|down --all>
 
   up          apply every pending migration (safe to run on each start)
-  version     print the schema version
+  version     print the schema version of the database
+  latest      print the schema version this binary migrates to (no database)
   down --all  revert every migration: drops all Open Health Sync data
 
-Needs OHS_DATABASE_URL only.
+Needs OHS_DATABASE_URL only (latest needs nothing).
 `,
 	"doctor": `usage: ohs doctor [--quick]
 
