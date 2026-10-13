@@ -160,6 +160,8 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 401, c.json("GET", "/metrics", "", "").status)
 	assert.Equal(t, 200, c.json("GET", "/metrics", contractMetricsToken, "").status)
 	assert.Equal(t, 200, c.json("GET", "/v1/providers", key, "").status)
+	assert.Equal(t, 200, c.json("GET", "/v1/audit?limit=5", key, "").status)
+	assert.Equal(t, 400, c.json("GET", "/v1/audit?cursor=abc", key, "").status)
 
 	// User and token.
 	r := c.json("POST", "/v1/users", key, `{"external_ref":"contract-user"}`)

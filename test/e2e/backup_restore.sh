@@ -166,8 +166,9 @@ if grep -qF -e "$ENC_KEY" -e "$KEY" "$E2E_WORK/restore.log"; then fail "a secret
 api GET /readyz none || true
 [ "$API_CODE" = "200" ] && ok "/readyz 200" || fail "/readyz -> $API_CODE $API_BODY"
 check "schema version" "$(psql_q 'SELECT version FROM schema_migrations')" "$SCHEMA_BEFORE"
-same "API reads with the old tenant key" "$(api_reads "$KEY" "$USER_ID")" "$READS_BEFORE"
+# Counted before the reads below: every authenticated read adds an audit event.
 same "row count of every table" "$(table_counts)" "$COUNTS_BEFORE"
+same "API reads with the old tenant key" "$(api_reads "$KEY" "$USER_ID")" "$READS_BEFORE"
 same "raw files (owner, SHA-256, path)" "$(raw_files)" "$RAW_BEFORE"
 parts=("$FIXTURE"/*.ndjson)
 e2e_upload_part "$TOKEN" "${parts[0]}" "$DAY" backup || true

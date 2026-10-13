@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 )
 
@@ -381,14 +382,15 @@ func normalizeScopes(in []string) ([]string, error) {
 func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, error) {
 	var (
 		tenantID uuid.UUID
+		keyID    uuid.UUID
 		stale    bool
 	)
 	err := s.pool.QueryRow(ctx,
-		`SELECT tenant_id,
+		`SELECT tenant_id, id,
 		        last_used_at IS NULL OR last_used_at < now() - $2::interval
 		 FROM ohs_core.api_keys WHERE key_hash = $1 AND revoked_at IS NULL`,
 		hash, fmt.Sprintf("%d microseconds", touchEvery.Microseconds()),
-	).Scan(&tenantID, &stale)
+	).Scan(&tenantID, &keyID, &stale)
 	if err == nil {
 		if stale {
 			// Best effort, and at most once a minute per key.
@@ -396,7 +398,7 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 				slog.DebugContext(ctx, "tenant: touch api key", "error", terr)
 			}
 		}
-		return auth.Principal{TenantID: tenantID}, nil
+		return auth.Principal{TenantID: tenantID, KeyID: keyID.String()}, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return auth.Principal{}, fmt.Errorf("tenant: lookup key: %w", err)
@@ -419,7 +421,7 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 	if err != nil {
 		return auth.Principal{}, fmt.Errorf("tenant: lookup token: %w", err)
 	}
-	return auth.Principal{TenantID: tenantID, UserID: &userID, Scopes: scopes}, nil
+	return auth.Principal{TenantID: tenantID, UserID: &userID, Scopes: scopes, KeyID: audit.TokenID(hash)}, nil
 }
 
 // RevokeKey revokes an API key or user token of the tenant by hash. Revoking an

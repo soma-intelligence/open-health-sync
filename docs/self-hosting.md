@@ -149,6 +149,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](self-hosting.md#metrics)) |
 | `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
 | `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
+| `OHS_AUDIT_RETENTION_DAYS` | `365` | Delete [audit events](audit-log.md) older than this many days, once a day; 0 keeps every event |
 | `OHS_RETENTION_DAYS` | `0` | Delete raw files and normalized data older than this many days; 0 keeps everything |
 | `OHS_PULLS_PER_PROVIDER` | `4` | Pulls of one provider running at once, across every `collect` instance. See [provider rate limits](background-sync.md#provider-rate-limits) |
 | `OHS_BACKFILLS_PER_PROVIDER` | `2` | Of those, backfills of new connections |

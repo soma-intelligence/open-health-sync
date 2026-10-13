@@ -3,8 +3,9 @@
 // Package automation runs the ETL's background upkeep: the reconciler that
 // reports what the pipeline lost or stalled on, the orphan scanner that queues
 // raw objects nobody queued, the drainer that replays raw objects whose records
-// failed, and the retention job that prunes old data when the operator sets
-// OHS_RETENTION_DAYS.
+// failed, the retention job that prunes old data when the operator sets
+// OHS_RETENTION_DAYS, and the audit job that prunes audit events older than
+// OHS_AUDIT_RETENTION_DAYS.
 //
 // Sleep phase canonicalisation is not ported. In the source it was a one-off
 // boot-time rewrite of rows written before the mappers normalised labels. Here
@@ -20,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
@@ -32,6 +34,7 @@ const (
 	DefaultFilesEvery       = 24 * time.Hour
 	DefaultRetentionEvery   = 24 * time.Hour
 	DefaultIdempotencyEvery = time.Hour
+	DefaultAuditPruneEvery  = 24 * time.Hour
 
 	defaultRunTimeout  = 5 * time.Minute
 	defaultLongTimeout = time.Hour
@@ -40,7 +43,7 @@ const (
 
 // Intervals sets how often each job runs. A zero value means the default.
 type Intervals struct {
-	Reconcile, Orphans, Drain, Files, Retention, Idempotency time.Duration
+	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune time.Duration
 }
 
 // Deps is everything Start needs.
@@ -50,7 +53,10 @@ type Deps struct {
 	// RetentionDays is OHS_RETENTION_DAYS. Zero or less keeps everything and
 	// the retention job is not scheduled at all.
 	RetentionDays int
-	Intervals     Intervals
+	// AuditRetentionDays is OHS_AUDIT_RETENTION_DAYS. Zero or less keeps
+	// every audit event and the audit job is not scheduled.
+	AuditRetentionDays int
+	Intervals          Intervals
 	// RunTimeout bounds one run of any job except files and retention (default 5 minutes;
 	// retention gets an hour unless this is set).
 	RunTimeout time.Duration
@@ -145,6 +151,15 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 		_, err := files.Run(ctx)
 		return err
 	}))
+	if days := deps.AuditRetentionDays; days > 0 {
+		s.Add("audit", or(deps.Intervals.AuditPrune, DefaultAuditPruneEvery), longTimeout, counted(func(ctx context.Context) error {
+			n, err := audit.Prune(ctx, deps.Pool, deps.now().AddDate(0, 0, -days))
+			if n > 0 {
+				slog.InfoContext(ctx, "audit events pruned", "rows", n, "retention_days", days)
+			}
+			return err
+		}))
+	}
 	if deps.RetentionDays > 0 {
 		ret := &Retention{Pool: deps.Pool, Store: deps.Store, Days: deps.RetentionDays, Metrics: m, Now: deps.now}
 		s.Add("retention", or(deps.Intervals.Retention, DefaultRetentionEvery), longTimeout, counted(func(ctx context.Context) error {

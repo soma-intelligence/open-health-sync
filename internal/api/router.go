@@ -104,6 +104,7 @@ func NewRouter(d Deps) http.Handler {
 	if d.Console {
 		console.Mount(mux)
 	}
+	s.mountAudit(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// The catch-all matches every method, so the mux never answers 405
 		// itself: a known path called with the wrong method lands here.
@@ -149,14 +150,15 @@ func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerF
 
 // instrument gives every request an id (X-Request-Id, kept from the caller
 // when well formed), counts it by its matched pattern, logs it at debug level
-// (route pattern, never the query string or a header) and turns a panic into
-// a 500.
+// (route pattern, never the query string or a header), records an
+// authenticated one in the audit log and turns a panic into a 500.
 func (s *server) instrument(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		id := reqid.Sanitize(r.Header.Get(reqid.Header))
 		w.Header().Set(reqid.Header, id)
-		r = r.WithContext(reqid.With(r.Context(), id))
+		ctx, slot := auth.WithSlot(reqid.With(r.Context(), id))
+		r = r.WithContext(ctx)
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
 			if v := recover(); v != nil {
@@ -173,6 +175,9 @@ func (s *server) instrument(next http.Handler) http.Handler {
 				code = http.StatusOK
 			}
 			s.metrics.count(r.Pattern, code)
+			if p, ok := slot.Principal(); ok {
+				s.audit(r, p, code)
+			}
 			slog.DebugContext(r.Context(), "http request", "route", r.Pattern, "status", code,
 				"duration_ms", time.Since(start).Milliseconds())
 		}()

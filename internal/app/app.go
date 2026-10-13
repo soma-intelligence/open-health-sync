@@ -196,6 +196,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		goRole("automation", func() error {
 			return automation.Start(ctx, automation.Deps{
 				Pool: pool, Store: raw, RetentionDays: cfg.RetentionDays, Metrics: etlMetrics,
+				AuditRetentionDays: cfg.AuditRetentionDays,
 			})
 		})
 	}

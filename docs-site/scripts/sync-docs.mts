@@ -188,6 +188,13 @@ const sources: Record<string, Target[]> = {
       description: "Mark the periods that give context to the data: illness, travel, jet lag and more.",
     },
   ],
+  "docs/audit-log.md": [
+    {
+      page: "(guides)/guides/audit-log",
+      title: "Audit log",
+      description: "Who read, exported or deleted which user's data, when and with which key.",
+    },
+  ],
 };
 
 // The SDK overview, then one page per SDK guide under docs/sdks.
