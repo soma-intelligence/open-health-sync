@@ -120,6 +120,7 @@ Provider deletions are honored too.
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
 | 🔜 | Read-only admin console at `/console` ([docs](docs/console.md)) | | |
+| 🔜 | Backup and restore scripts, tested in CI ([docs](docs/backup-and-restore.md)) | | |
 | 🔜 | Erase one source's data for a user on disconnect, or for Apple Health and Health Connect | | |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
 | 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR, after the SDKs |
@@ -476,6 +477,9 @@ and units):
   memory limits). See [Raspberry Pi 5](docs/self-hosting.md#raspberry-pi-5-4-gb).
 - **S3 raw store.** Add `deploy/docker-compose.s3.yml`, or point `OHS_RAW_STORE` at any S3
   compatible bucket. See [S3](docs/self-hosting.md#s3-compatible-raw-store).
+- **Backup and restore** (🔜 next release). `scripts/backup.sh` writes one archive with the
+  database, the raw store and the schema version; `scripts/restore.sh` puts it back. CI destroys
+  and restores a stack on every pull request. See [backup and restore](docs/backup-and-restore.md).
 - **Release binaries.** Linux and macOS, amd64 and arm64, with `checksums.txt`, on the
   [releases page](https://github.com/soma-intelligence/open-health-sync/releases). Bring your
   own Postgres with TimescaleDB and run `ohs doctor`, then `ohs up` (migrate, then serve). Each
@@ -581,7 +585,7 @@ software.
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON and
 Health Connect connectors, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing webhooks,
-Health app export import, background sync, sample compression, RR intervals and HRV, per-source erasure, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
+Health app export import, background sync, sample compression, RR intervals and HRV, per-source erasure, backup and restore, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
@@ -611,6 +615,7 @@ SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as G
   [WHOOP](docs/connectors/whoop.md), [Strava](docs/connectors/strava.md),
   [Polar](docs/connectors/polar.md), [writing your own](docs/writing-a-connector.md).
 - [Background sync](docs/background-sync.md): webhooks, backstop pulls, freshness.
+- [Backup and restore](docs/backup-and-restore.md): one archive with the database and raw store, and how to put it back.
 - [Admin console](docs/console.md): a read-only page for users, connections, freshness and webhook deliveries.
 - [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
 - [RR intervals and HRV](docs/hrv.md): beat-to-beat intervals and the HRV derived from them.
