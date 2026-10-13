@@ -427,8 +427,13 @@ func TestPacing_SharedAcrossConcurrentPulls(t *testing.T) {
 	}
 	sort.Slice(at, func(i, j int) bool { return at[i].Before(at[j]) })
 	require.Len(t, at, 12)
+	// Slots are delay apart, but a request reaches the fake some scheduling
+	// noise after its slot, so one gap can be a little short: check each gap
+	// loosely (unpaced pulls would send at once) and the schedule from the
+	// first request tightly.
 	for i := 1; i < len(at); i++ {
-		assert.GreaterOrEqual(t, at[i].Sub(at[i-1]), delay-5*time.Millisecond, "request %d", i)
+		assert.GreaterOrEqual(t, at[i].Sub(at[i-1]), delay/2, "request %d", i)
+		assert.GreaterOrEqual(t, at[i].Sub(at[0]), time.Duration(i)*delay-10*time.Millisecond, "request %d", i)
 	}
 	assert.Equal(t, 600*time.Millisecond, New(Options{}).pageDelay, "100 requests a minute")
 }
