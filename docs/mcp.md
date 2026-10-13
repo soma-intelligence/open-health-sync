@@ -126,13 +126,13 @@ Arguments mirror the REST query parameters. Times take RFC 3339 or `YYYY-MM-DD` 
 |---|---|---|
 | `list_users` | `cursor`, `limit` | the tenant's users (tenant key only) |
 | `list_quantity_types` | none | the quantity type catalog: `type`, storage `unit`, `ucum_unit`, `loinc_code` |
-| `get_samples` | `user_id`, `type` (required), `start`, `end`, `cursor`, `limit` | quantity samples, as `GET /v1/users/{id}/samples` |
-| `get_category_samples` | `user_id`, `type`, `start`, `end`, `cursor`, `limit` | category samples |
-| `get_sleep` | `user_id`, `session_id`, `start`, `end`, `cursor`, `limit` | sleep sessions; with `session_id`, that session's phases |
-| `get_workouts` | `user_id`, `type` (activity), `start`, `end`, `cursor`, `limit` | workouts |
+| `get_samples` | `user_id`, `type` (required), `start`, `end`, `view`, `cursor`, `limit` | quantity samples, as `GET /v1/users/{id}/samples` |
+| `get_category_samples` | `user_id`, `type`, `start`, `end`, `view`, `cursor`, `limit` | category samples |
+| `get_sleep` | `user_id`, `session_id`, `start`, `end`, `view`, `cursor`, `limit` | sleep sessions; with `session_id`, that session's phases |
+| `get_workouts` | `user_id`, `type` (activity), `start`, `end`, `view`, `cursor`, `limit` | workouts |
 | `get_workout_route` | `user_id`, `workout_id` (required), `start`, `end`, `cursor`, `limit` | the workout's GPS points |
 | `get_nutrition` | `user_id`, `start`, `end`, `cursor`, `limit` | nutrition logs |
-| `get_daily` | `user_id`, `start`, `end`, `cursor`, `limit` | daily summaries per local day |
+| `get_daily` | `user_id`, `start`, `end`, `view`, `cursor`, `limit` | daily summaries per local day |
 | `get_rr_intervals` | `user_id`, `series_id`, `start`, `end`, `cursor`, `limit` | beat-to-beat (RR) intervals, as `GET /v1/users/{id}/rr-intervals` |
 | `get_hrv` | `user_id`, `series_id`, `start`, `end`, `cursor`, `limit` | the HRV derived from each heartbeat series, as `GET /v1/users/{id}/hrv` (see [hrv.md](hrv.md)) |
 | `get_menstrual_cycles` | `user_id`, `start`, `end`, `cursor`, `limit` | menstrual cycles derived from the recorded flow, as `GET /v1/users/{id}/menstrual-cycles`; `start` and `end` select cycles by their start day (see [menstrual-cycles.md](menstrual-cycles.md)) |
@@ -146,6 +146,10 @@ Each result is one JSON text content:
 ```json
 {"records": [...], "next_cursor": "MjAyNi0w...", "truncated": true}
 ```
+
+`view` is `merged` (the default: when several sources recorded the same thing, only the best
+ranked one, so nothing counts twice) or `all` (every source); see
+[api.md](api.md#several-sources-of-one-metric-the-merged-view).
 
 `limit` defaults to 100 and stops at 1000 (a larger value is a tool error). A sample is
 half a kilobyte of JSON or more, so a full page of 1000 is 500 KB or more of agent context: the

@@ -61,7 +61,15 @@ func TestCSV(t *testing.T) {
 func TestCSVEmpty(t *testing.T) {
 	got := string(write[read.DailySummary](t, CSV))
 	assert.Equal(t, "id,date,readiness_score,activity_score,sleep_score,recovery_score,strain_score,step_count,"+
-		"active_kcal,total_kcal,distance_m,floors_climbed,resting_hr,hrv_avg_ms,metadata,provider,source,device,ingested_at\n", got)
+		"active_kcal,total_kcal,distance_m,floors_climbed,resting_hr,hrv_avg_ms,metadata,sources,provider,source,device,ingested_at\n", got)
+}
+
+func TestCSVSourcesMap(t *testing.T) {
+	d := read.DailySummary{ID: 1, Date: "2026-03-01", StepCount: ptr(9000),
+		Sources:    map[string]string{"step_count": "apple_health"},
+		Provenance: read.Provenance{Provider: "apple_health", IngestedAt: ingested}}
+	got := string(write(t, CSV, []read.DailySummary{d}))
+	assert.Contains(t, got, `,"{""step_count"":""apple_health""}",apple_health,`)
 }
 
 func TestParquet(t *testing.T) {
@@ -116,8 +124,9 @@ func TestParquetRowGroups(t *testing.T) {
 	assert.Len(t, f.RowGroups(), 2)
 }
 
-// listColumns checks that T has a column for each of its JSON members and
-// that a Parquet schema can be made of it.
+// listColumns checks that T has a column for each of its JSON members (an
+// omitempty member, absent from the zero value, included) and that a Parquet
+// schema can be made of it.
 func listColumns[T any](t *testing.T) {
 	t.Helper()
 	cols, err := columns(reflect.TypeFor[T](), nil)
@@ -129,9 +138,16 @@ func listColumns[T any](t *testing.T) {
 	require.NoError(t, err)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(b, &m))
-	assert.Len(t, cols, len(m))
+	names := map[string]bool{}
 	for _, c := range cols {
-		assert.Contains(t, m, c.name)
+		names[c.name] = true
+		if _, ok := m[c.name]; !ok {
+			tag := reflect.TypeFor[T]().FieldByIndex(c.index).Tag.Get("json")
+			assert.Contains(t, tag, ",omitempty", c.name)
+		}
+	}
+	for k := range m {
+		assert.True(t, names[k], k)
 	}
 }
 

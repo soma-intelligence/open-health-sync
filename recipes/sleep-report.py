@@ -65,6 +65,8 @@ def call(method, path, body=None, raw=False, **params):
 
 def records(resource, **params):
     """Every record of one of the user's lists, page after page."""
+    # Every source's rows: the recipe picks or compares the apps itself.
+    params.setdefault("view", "all")
     cursor = None
     while True:
         page = call("GET", f"/v1/users/{USER}/{resource}", limit=1000, cursor=cursor, **params)

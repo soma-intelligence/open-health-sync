@@ -252,10 +252,18 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		u + "/category-samples",
 		u + "/nutrition",
 		u + "/daily",
+		u + "/daily?view=all",
+		u + "/samples?type=step_count&view=all",
+		u + "/sleep?view=merged",
+		u + "/source-priorities",
 	} {
 		r := c.json("GET", p, key, "")
 		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)
 	}
+	r = c.json("PUT", u+"/source-priorities", key, `{"priorities":{"sleep":["oura","apple_health"],"*":["apple_health"]}}`)
+	assert.Equal(t, 200, r.status, "%s", r.body)
+	assert.Equal(t, 400, c.json("PUT", u+"/source-priorities", key, `{"priorities":{"sleep":[]}}`).status)
+	assert.Equal(t, 400, c.json("GET", u+"/daily?view=raw", key, "").status)
 	// RR intervals and the HRV derived from them: the fixtures carry no
 	// heartbeat series, so one is written straight to the table.
 	pool, err = db.Open(context.Background(), url)
@@ -423,6 +431,7 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?limit=2&cursor="+*omhPage.NextCursor, key, "").status)
 	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?schema=omh:heart-rate&start=2026-01-10&end=2026-01-11", key, "").status)
 	assert.Equal(t, 400, c.json("GET", u+"/omh/data-points?schema=heart_rate", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/omh/data-points?view=all&limit=2", key, "").status)
 
 	// Exports: CSV and Parquet files, and the refusals.
 	for _, p := range []string{
@@ -433,6 +442,7 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		u + "/exports/category-samples",
 		u + "/exports/nutrition?format=parquet",
 		u + "/exports/daily",
+		u + "/exports/daily?format=parquet&view=all",
 	} {
 		r := c.json("GET", p, key, "")
 		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)

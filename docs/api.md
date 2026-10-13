@@ -114,8 +114,8 @@ sessions and phases, workouts with their routes and track summaries, nutrition, 
 and voltages, heartbeat series, daily summaries, observations), the provider's tombstones, the
 raw files and their rows, failed records, ETL and pull jobs, pull coverage, the sync log, push
 subscriptions, unused consent states and the disconnected connection itself. Daily summaries are
-kept per provider, so the other providers' summaries need no recompute. The user and their other
-providers stay. Asking again while the job runs returns the same job.
+kept per provider, so the other providers' summaries need no recompute. The user, their other
+providers and their [order of sources](#several-sources-of-one-metric-the-merged-view) stay. Asking again while the job runs returns the same job.
 
 Until the job is done the provider cannot be connected again (409) and its uploads for the user
 are refused (409, nothing kept); afterwards new data is accepted as usual. Re-processing old raw
@@ -176,18 +176,21 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 
 | Resource | Filters | Ordered by |
 |---|---|---|
-| `samples` | `type` (required), `start`, `end` | `start_date` |
-| `category-samples` | `type` (optional), `start`, `end` | `start_date` |
-| `sleep` | `start`, `end` | `bedtime_start` |
+| `samples` | `type` (required), `start`, `end`, `view` | `start_date` |
+| `category-samples` | `type` (optional), `start`, `end`, `view` | `start_date` |
+| `sleep` | `start`, `end`, `view` | `bedtime_start` |
 | `sleep/{session_id}/phases` | `start`, `end` | `start_date` |
-| `workouts` | `type` (activity, optional), `start`, `end` | `start_date` |
+| `workouts` | `type` (activity, optional), `start`, `end`, `view` | `start_date` |
 | `workouts/{workout_id}/route` | `start`, `end` | `timestamp` |
 | `nutrition` | `start`, `end` | `start_date` |
-| `daily` | `start`, `end` (compared as dates) | `date` |
+| `daily` | `start`, `end` (compared as dates), `view` | `date` |
 | `rr-intervals` | `series_id`, `start`, `end` | `timestamp` (the beat) |
 | `hrv` | `series_id`, `start`, `end` (the series' first beat) | the series' first beat |
 | `menstrual-cycles` | `start`, `end` (compared as dates, on the cycle's start) | `start_date` |
 | `coverage` | `provider`, `start`, `end` | not paged |
+
+`view` is `merged` (the default) or `all`; see
+[the merged view](#several-sources-of-one-metric-the-merged-view).
 
 `samples` answers 400 when `type` is not a quantity type of the catalog (a typo such as
 `heartrate`), so a wrong name is not mistaken for missing data. The names are listed in
@@ -240,10 +243,57 @@ before conversion.
 
 Every record carries its provenance: `provider` (the integration it came through), `source` (the
 vendor that produced it, when known), `device` and `ingested_at`. The quantity names and their
-units are listed in [data-model.md](data-model.md). `daily` holds one row per provider and local
-calendar day; the ETL derives step, energy and distance totals from samples when a provider sends
-no daily summary of its own. `rr-intervals` serves the beat-to-beat intervals of heartbeat series
-and `hrv` the HRV derived from each series; the rules are in [hrv.md](hrv.md).
+units are listed in [data-model.md](data-model.md). The ETL derives step, energy and distance
+totals per provider and local day from samples when a provider sends no daily summary of its
+own. `rr-intervals` serves the beat-to-beat intervals of heartbeat series and `hrv` the HRV
+derived from each series; the rules are in [hrv.md](hrv.md).
+
+### Several sources of one metric: the merged view
+
+A user often has several sources for one metric: a ring and a watch both record the night, a
+phone and a watch both count steps, a sample arrives directly and again through an aggregator.
+Every source's records are stored as received. The reads (`samples`, `category-samples`,
+`sleep`, `workouts`, `daily` and the FHIR search) default to `view=merged`, which lists a record
+only when no better ranked source has a matching record, so a sum or an average counts nothing
+twice. `view=all` lists every stored record.
+
+Two records of one metric match when they are close in time, judged per kind of metric:
+
+| Kind | Example metrics | Match when |
+|---|---|---|
+| counts | `step_count`, `active_energy_burned`, distances | the intervals overlap (a day total overlaps the whole day) |
+| readings | `heart_rate`, `oxygen_saturation`, `respiratory_rate`, blood pressure | within 5 minutes |
+| nightly or daily figures | `resting_heart_rate`, `hrv_rmssd`, `hrv_sdnn`, scores | within 12 hours |
+| body measurements | `body_mass`, `body_fat_percentage`, `body_temperature` | within an hour |
+| sessions | sleep sessions, workouts | they share at least half of the shorter one (a nap beside the night stays) |
+| anything else | | the intervals overlap |
+
+Sources are ranked by their `source` (the vendor; the provider when unknown). Inside one source,
+a stream worn on the body (a watch) ranks before the others (a phone); a remaining tie goes to
+the provider name, so a sample seen twice is listed once. The order of sources is resolved per
+metric, most specific first: the user's order for the metric, for its group (`activity`,
+`heart`, `recovery`, `body`, `sleep`, `workouts`), for every metric (`*`), then the built-in
+order of the group. A source missing from an order ranks after every listed one.
+
+```bash
+curl -s -X PUT "$OHS/v1/users/$USER_ID/source-priorities" -H "Authorization: Bearer $OHS_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"priorities": {"sleep": ["oura", "whoop"], "step_count": ["apple_health"]}}'
+```
+
+The answer, like `GET .../source-priorities`, holds the user's `priorities` and the built-in
+`defaults`. `{"priorities": {}}` goes back to the defaults.
+
+In the merged view `daily` holds one summary per local day. Each figure comes from the best
+ranked source that has it, and `sources` names that source per figure:
+
+```json
+{"date": "2026-03-02", "step_count": 10000, "readiness_score": 80, "resting_hr": 50,
+ "sources": {"step_count": "apple_health", "readiness_score": "oura", "resting_hr": "whoop"}, ...}
+```
+
+`id`, the provenance and `metadata` are those of the day's best ranked row. With `view=all`,
+`daily` holds one row per provider and day.
 
 `menstrual-cycles` is derived at read time from the `menstrual_flow` category samples of every
 provider: each cycle's start day, its period's flow days (the heaviest flow of each local day,

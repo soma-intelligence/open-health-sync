@@ -27,9 +27,13 @@ Category samples, nutrition, sleep phases, routes and the other resources are
 | `GET /v1/users/{id}/fhir/metadata` | the [CapabilityStatement](#capabilitystatement) |
 
 Every route takes a tenant key, like every read, and answers `Content-Type:
-application/fhir+json`. A user of another tenant, a Patient id other than the user's, or a
-resource that is not the user's, is a 404. Errors are `application/problem+json` like the rest
-of the API (not an OperationOutcome).
+application/fhir+json`. The Observation reads read the merged view by default (`view=merged`, see
+[api.md](api.md#several-sources-of-one-metric-the-merged-view)): a record that a better ranked
+source covers is left out, and a daily summary carries only the figures no better ranked source
+of that day holds (a summary left with none is left out). `view=all` serves every stored record
+as is. A user of another tenant, a Patient id other than the user's, or a resource that is not
+the user's, is a 404. Errors are `application/problem+json` like the rest of the API (not an
+OperationOutcome).
 
 ### One list for every kind of record
 
@@ -411,7 +415,7 @@ all their resources, paged like the Observation search: follow `next` until ther
 | Entry | `search.mode` | On which page |
 |---|---|---|
 | the Patient | `match` | the first (no `cursor`) |
-| the Observations | `match` | the page of the [Observation search](#one-list-for-every-kind-of-record) with the same `start`, `end`, `limit` and `cursor` |
+| the Observations | `match` | the page of the [Observation search](#one-list-for-every-kind-of-record) with the same `start`, `end`, `limit`, `cursor` and `view` (merged by default) |
 | the Devices those Observations reference | `include` | each page that references it, once per page |
 | the Provenance of each Observation | `include` | the Observation's page |
 

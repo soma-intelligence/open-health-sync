@@ -788,8 +788,10 @@ func TestCursorTies(t *testing.T) {
 			VALUES ($1, $2, $3, '2026-03-01', 100, $3) RETURNING id`, e.tenantA, u, p).Scan(&id))
 		want = append(want, id)
 	}
-	got = e.collectIDs("/v1/users/" + u.String() + "/daily?")
+	got = e.collectIDs("/v1/users/" + u.String() + "/daily?view=all&")
 	assert.Equal(t, want, got, "every provider's row of one date once, in id order")
+	got = e.collectIDs("/v1/users/" + u.String() + "/daily?")
+	assert.Equal(t, want[:1], got, "the merged view has one summary per date, led by the best ranked source")
 }
 
 func TestCoverageTruncated(t *testing.T) {
