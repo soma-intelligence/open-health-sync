@@ -12,6 +12,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
@@ -23,6 +27,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -156,20 +161,31 @@ func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerF
 // instrument gives every request an id (X-Request-Id, kept from the caller
 // when well formed), counts it by its matched pattern, logs it at debug level
 // (route pattern, never the query string or a header), records an
-// authenticated one in the audit log and turns a panic into a 500.
+// authenticated one in the audit log and turns a panic into a 500. With
+// tracing on, the request is a server span named by its method and route
+// pattern, child of the caller's W3C traceparent when one came.
 func (s *server) instrument(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		id := reqid.Sanitize(r.Header.Get(reqid.Header))
 		w.Header().Set(reqid.Header, id)
-		ctx, slot := auth.WithSlot(reqid.With(r.Context(), id))
+		method := tracing.Method(r.Method)
+		// The route is only known once the mux has matched: the span is
+		// renamed when the request ends.
+		ctx, span := tracing.Tracer().Start(tracing.Extract(r.Context(), r.Header), tracing.SpanName(method, ""),
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(semconv.HTTPRequestMethodKey.String(method), attribute.String(tracing.AttrRequestID, id)))
+		ctx, slot := auth.WithSlot(reqid.With(ctx, id))
 		r = r.WithContext(ctx)
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
-			if v := recover(); v != nil {
-				if v == http.ErrAbortHandler {
-					panic(v)
-				}
+			v := recover()
+			if v == http.ErrAbortHandler {
+				span.SetStatus(codes.Error, "")
+				span.End()
+				panic(v)
+			}
+			if v != nil {
 				slog.ErrorContext(r.Context(), "api: panic", "panic", v, "route", r.Pattern)
 				if sw.code == 0 {
 					problem(sw, http.StatusInternalServerError, "an internal error occurred")
@@ -185,6 +201,18 @@ func (s *server) instrument(next http.Handler) http.Handler {
 			}
 			slog.DebugContext(r.Context(), "http request", "route", r.Pattern, "status", code,
 				"duration_ms", time.Since(start).Milliseconds())
+			if span.IsRecording() {
+				route := tracing.Route(r.Pattern)
+				span.SetName(tracing.SpanName(method, route))
+				span.SetAttributes(semconv.HTTPResponseStatusCode(code))
+				if route != "" {
+					span.SetAttributes(semconv.HTTPRoute(route))
+				}
+				if code >= 500 {
+					span.SetStatus(codes.Error, "")
+				}
+			}
+			span.End()
 		}()
 		next.ServeHTTP(sw, r)
 	})

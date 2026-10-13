@@ -11,9 +11,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
 
 // Worker claims ETL jobs of one tier and processes them with bounded
@@ -173,34 +177,54 @@ func (w *Worker) idle(ctx context.Context) bool {
 }
 
 // handle processes one job and settles it. A lost claim (ErrNotRunning) means
-// another worker owns the job now: the result is dropped.
+// another worker owns the job now: the result is dropped. With tracing on,
+// the job is a span carrying what its log lines carry, and its outcome.
 func (w *Worker) handle(ctx context.Context, job queue.ETLJob) {
 	log := slog.With("job_id", job.ID, "tier", job.Tier, "provider", job.Provider, "attempts", job.Attempts)
+	ctx, span := tracing.Tracer().Start(ctx, "etl job", trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.Int64(tracing.AttrJobID, job.ID),
+			attribute.String(tracing.AttrTier, job.Tier),
+			attribute.String(tracing.AttrProvider, job.Provider),
+			attribute.Int(tracing.AttrAttempts, job.Attempts)))
+	outcome := ""
 	defer func() {
 		if r := recover(); r != nil {
 			log.ErrorContext(ctx, "etl job panicked", "panic", r)
-			w.settle(ctx, log, job, errors.New("etl job panicked"))
+			outcome = w.settle(ctx, log, job, errors.New("etl job panicked"))
 		}
+		span.SetAttributes(attribute.String(tracing.AttrOutcome, outcome))
+		if outcome != "completed" && outcome != "claim_lost" {
+			span.SetStatus(codes.Error, "")
+		}
+		span.End()
 	}()
 	jobCtx, cancel := context.WithTimeout(ctx, w.jobTimeout)
 	defer cancel()
 	_, err := ProcessWith(jobCtx, w.pool, w.rs, job, w.opts)
 	// Settle on the base context: the job's own may have expired.
-	w.settle(ctx, log, job, err)
+	outcome = w.settle(ctx, log, job, err)
 }
 
-func (w *Worker) settle(ctx context.Context, log *slog.Logger, job queue.ETLJob, cause error) {
+// settle records the outcome on the job and returns it: completed, failed,
+// claim_lost or settle_error.
+func (w *Worker) settle(ctx context.Context, log *slog.Logger, job queue.ETLJob, cause error) string {
 	var err error
+	outcome := "completed"
 	if cause == nil {
 		err = w.q.Complete(ctx, job)
 	} else {
+		outcome = "failed"
 		log.WarnContext(ctx, "etl job failed", "err", cause)
 		err = w.q.Fail(ctx, job, cause)
 	}
 	switch {
 	case errors.Is(err, queue.ErrNotRunning):
 		log.InfoContext(ctx, "etl job claim lost, result dropped")
+		return "claim_lost"
 	case err != nil:
 		log.ErrorContext(ctx, "settle etl job", "err", err)
+		return "settle_error"
 	}
+	return outcome
 }

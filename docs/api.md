@@ -54,6 +54,9 @@ configuration. The response is `Cache-Control: no-store`; the token is shown onc
   `request_id`. Send your own `X-Request-Id` (1 to 128 letters, digits, `-`, `_`, `.`) to have
   it kept, for example your proxy's. Every log line about the call carries it as `request_id`,
   so quote it when you ask the operator about a failed call.
+- **Trace context.** When the operator has turned tracing on, a W3C `traceparent` header is
+  honoured: the instance's span for the call joins your trace. Without tracing it is ignored,
+  and nothing is added to the response either way. See [observability.md](observability.md).
 - **Idempotency.** Send `Idempotency-Key` (1 to 255 characters) on `POST /v1/users` or
   `POST /v1/users/{id}/tags`. A retry with the same key and request within
   24 hours gets the first response back with `Idempotent-Replayed: true`. The same key with a

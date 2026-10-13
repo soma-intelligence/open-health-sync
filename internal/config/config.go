@@ -47,7 +47,51 @@ type Config struct {
 	// WebhookAllowPrivate lets webhook endpoints use plain http and reach
 	// private and loopback addresses (OHS_WEBHOOK_ALLOW_PRIVATE, default false).
 	WebhookAllowPrivate bool
-	Providers           map[string]ProviderKeys // key = lower-case slug
+	// Tracing exports OpenTelemetry traces over OTLP: on when
+	// OTEL_EXPORTER_OTLP_ENDPOINT or OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is
+	// set and OTEL_SDK_DISABLED is not true (see TracingFromEnv).
+	Tracing bool
+	// TracingProtocol is the OTLP protocol, TracingHTTP or TracingGRPC.
+	TracingProtocol string
+	Providers       map[string]ProviderKeys // key = lower-case slug
+}
+
+// OTLP protocols, as OTEL_EXPORTER_OTLP_PROTOCOL names them.
+const (
+	TracingHTTP = "http/protobuf"
+	TracingGRPC = "grpc"
+)
+
+// ErrTracing is wrapped by the Load errors about the OTEL_ variables.
+var ErrTracing = errors.New("OpenTelemetry tracing")
+
+// TracingFromEnv reports whether the standard OpenTelemetry variables ask
+// for traces (an OTLP endpoint is set and the SDK is not disabled) and over
+// which protocol: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL, else
+// OTEL_EXPORTER_OTLP_PROTOCOL, else http/protobuf. http/json is not
+// supported: asking for it is an error rather than spans silently lost.
+func TracingFromEnv(env func(string) (string, bool)) (enabled bool, protocol string, err error) {
+	get := func(name string) string {
+		v, _ := env(name)
+		return strings.TrimSpace(v)
+	}
+	if strings.EqualFold(get("OTEL_SDK_DISABLED"), "true") {
+		return false, "", nil
+	}
+	if get("OTEL_EXPORTER_OTLP_ENDPOINT") == "" && get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
+		return false, "", nil
+	}
+	name, proto := "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", get("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")
+	if proto == "" {
+		name, proto = "OTEL_EXPORTER_OTLP_PROTOCOL", get("OTEL_EXPORTER_OTLP_PROTOCOL")
+	}
+	switch proto {
+	case "", TracingHTTP:
+		return true, TracingHTTP, nil
+	case TracingGRPC:
+		return true, TracingGRPC, nil
+	}
+	return false, "", fmt.Errorf("%w: %s=%q is not supported: use http/protobuf (port 4318) or grpc (port 4317)", ErrTracing, name, proto)
 }
 
 // MinMetricsToken is the shortest OHS_METRICS_TOKEN accepted.
@@ -247,6 +291,10 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_WEBHOOK_ALLOW_PRIVATE: %q is not a boolean", v)
 		}
 		c.WebhookAllowPrivate = b
+	}
+
+	if c.Tracing, c.TracingProtocol, err = TracingFromEnv(env); err != nil {
+		return Config{}, err
 	}
 
 	for _, kv := range environ {

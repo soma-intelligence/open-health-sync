@@ -19,8 +19,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
+	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
 
 // Delivery tuning.
@@ -154,6 +159,7 @@ type job struct {
 	tenant    uuid.UUID
 	endpoint  uuid.UUID
 	eventID   uuid.UUID
+	eventType string
 	attempts  int
 	claimedAt time.Time
 	payload   []byte
@@ -177,7 +183,7 @@ const claimSQL = `
 	UPDATE ohs_core.webhook_deliveries t SET status = 'running', claimed_at = now()
 	FROM picked p, ohs_core.webhook_endpoints e
 	WHERE t.id = p.id AND e.id = t.endpoint_id
-	RETURNING t.id, t.tenant_id, t.endpoint_id, t.event_id, t.attempts, t.claimed_at, t.payload::text, e.url, e.secret_sealed`
+	RETURNING t.id, t.tenant_id, t.endpoint_id, t.event_id, t.event_type, t.attempts, t.claimed_at, t.payload::text, e.url, e.secret_sealed`
 
 // Pass claims up to Concurrency due deliveries, posts them concurrently and
 // settles each. It returns how many it claimed.
@@ -190,7 +196,7 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 	for rows.Next() {
 		var j job
 		var payload string
-		if err := rows.Scan(&j.id, &j.tenant, &j.endpoint, &j.eventID, &j.attempts, &j.claimedAt, &payload, &j.url, &j.sealed); err != nil {
+		if err := rows.Scan(&j.id, &j.tenant, &j.endpoint, &j.eventID, &j.eventType, &j.attempts, &j.claimedAt, &payload, &j.url, &j.sealed); err != nil {
 			rows.Close()
 			return 0, fmt.Errorf("scan delivery: %w", err)
 		}
@@ -228,10 +234,29 @@ type outcome struct {
 	excerpt  string // the start of the response body, sanitized
 }
 
-// deliver makes one attempt and records its outcome.
-func (w *Worker) deliver(ctx context.Context, j job) error {
+// deliver makes one attempt and records its outcome. With tracing on, the
+// attempt is a client span carrying the ids its log line carries, the event
+// type and the receiver's status code: never the endpoint URL, a header or
+// the payload. No trace context is sent to the receiver.
+func (w *Worker) deliver(ctx context.Context, j job) (err error) {
+	ctx, span := tracing.Tracer().Start(ctx, "webhook delivery", trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.Int64(tracing.AttrDeliveryID, j.id),
+			attribute.String(tracing.AttrEndpointID, j.endpoint.String()),
+			attribute.String(tracing.AttrEventType, j.eventType),
+			attribute.Int(tracing.AttrAttempt, j.attempts+1)))
 	o := outcome{started: time.Now()}
-	sendErr := w.send(ctx, j, &o)
+	var sendErr error
+	defer func() {
+		if o.code != 0 {
+			span.SetAttributes(semconv.HTTPResponseStatusCode(o.code))
+		}
+		if sendErr != nil || err != nil {
+			span.SetStatus(codes.Error, "")
+		}
+		span.End()
+	}()
+	sendErr = w.send(ctx, j, &o)
 	o.duration = time.Since(o.started)
 	if sendErr == nil {
 		return w.succeed(ctx, j, o)

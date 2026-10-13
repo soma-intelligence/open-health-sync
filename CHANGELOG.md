@@ -64,6 +64,13 @@ release may change the API, the configuration or the database schema.
   Job for the migrations, a volume or S3 raw store, a generated encryption key kept across
   upgrades, and optional Ingress, ServiceMonitor, NetworkPolicy, autoscaler and disruption
   budget. CI lints and renders it and installs it on kind. See [docs/helm.md](docs/helm.md).
+- OpenTelemetry tracing, off by default: set `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces
+  over OTLP (HTTP/protobuf, or gRPC with `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`). Spans cover API
+  requests (named by route pattern, joining an incoming W3C `traceparent`), pull jobs, ETL
+  jobs, webhook delivery attempts and the database queries made within them; log lines inside a
+  span carry `trace_id` and `span_id`. Spans never record a raw path, a query string, a
+  header, an SQL argument, a secret or a health value. See
+  [docs/observability.md](docs/observability.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and
