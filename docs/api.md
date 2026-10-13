@@ -16,7 +16,7 @@ Every call carries `Authorization: Bearer <secret>`.
 
 | Secret | Looks like | Used by | Calls |
 |---|---|---|---|
-| Tenant API key | `ohs_sk_` + 43 characters | your server | tenant routes: users, tokens, connections, reads |
+| Tenant API key | `ohs_sk_` + 43 characters | your server | tenant routes: users, tokens, connections, reads, time tags |
 | User token | `ohs_ut_` + 43 characters | one end user's app | user routes: uploads (`upload`), reads over MCP (`read`) |
 
 The first key comes from `ohs admin tenant create --name <name>` (or `OHS_BOOTSTRAP_TENANT`,
@@ -54,7 +54,8 @@ configuration. The response is `Cache-Control: no-store`; the token is shown onc
   `request_id`. Send your own `X-Request-Id` (1 to 128 letters, digits, `-`, `_`, `.`) to have
   it kept, for example your proxy's. Every log line about the call carries it as `request_id`,
   so quote it when you ask the operator about a failed call.
-- **Idempotency.** Send `Idempotency-Key` (1 to 255 characters) on `POST /v1/users`. A retry with the same key and request within
+- **Idempotency.** Send `Idempotency-Key` (1 to 255 characters) on `POST /v1/users` or
+  `POST /v1/users/{id}/tags`. A retry with the same key and request within
   24 hours gets the first response back with `Idempotent-Replayed: true`. The same key with a
   different request is a 422; a retry while the first call still runs is a 409. Other routes
   ignore the header (token minting would have to store the token, and each connect call mints a
@@ -263,6 +264,23 @@ processed again; an object that failed as a whole, with no line singled out, cou
 line the server later recovers, after a fix, stops counting. A non-zero value after `pending_jobs` reaches 0 means some uploaded lines were
 not stored; an operator finds each line and its reason in `ohs_data.failed_records`.
 
+## Time tags
+
+A time tag gives context to a user's data: an interval with a `kind` from a fixed vocabulary
+(`illness`, `injury`, `travel`, `jet_lag`, `vaccination`, `medication`, `alcohol`, `other`), an
+optional `label`, `note` and IANA `timezone`, and an `end_at` that stays null while the tag is
+ongoing. `POST /v1/users/{id}/tags` records one, `PATCH` changes it (for example
+`{"end_at":"2026-03-05"}` to close it), `DELETE` removes it. `GET /v1/users/{id}/tags` lists them
+by `start_at`; `start` and `end` keep the tags that overlap the window, ongoing tags included, and
+`kind` keeps one kind. The server computes nothing from them. Vocabulary, overlap rules and
+examples: [time-tags.md](time-tags.md).
+
+```sh
+curl -s -X POST $OHS/v1/users/$USER_ID/tags -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{"kind":"illness","label":"Flu","start_at":"2026-03-02"}'
+curl -s "$OHS/v1/users/$USER_ID/tags?start=2026-03-01&end=2026-04-01" -H "Authorization: Bearer $KEY"
+```
+
 ## FHIR R4
 
 `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood pressure readings
@@ -307,8 +325,8 @@ curl -sOJ "$OHS/v1/users/$USER_ID/exports/samples?format=parquet&start=2026-01-0
 ## Webhooks
 
 Rather than polling coverage, register an endpoint with `POST /v1/webhooks` and be told when a
-sync writes or deletes records, a user is erased or a connection needs the user to sign in
-again. Requests are signed per Standard Webhooks and retried for about 28 hours. Events,
+sync writes or deletes records, a user is erased, a connection needs the user to sign in
+again or a time tag changes. Requests are signed per Standard Webhooks and retried for about 28 hours. Events,
 signature verification and the routes: [webhooks.md](webhooks.md).
 
 ## MCP

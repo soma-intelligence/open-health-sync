@@ -70,8 +70,8 @@ func migratedColumns(t *testing.T) map[string]map[string]bool {
 }
 
 // Every table that holds user rows is erased by a provider deletion: either
-// it has a provider column, or it is a child table whose parent has one. A
-// new table that is neither fails here (and the worker refuses to run).
+// it has a provider column, or it is a child table whose parent has one, or
+// it is a kept table no provider writes. A new table that is none fails here (and the worker refuses to run).
 func TestEveryUserTableIsCoveredByProviderErasure(t *testing.T) {
 	tables := migratedColumns(t)
 	for _, want := range []string{"ohs_data.quantity_samples", "ohs_data.sleep_phases", "ohs_sync.raw_objects", "ohs_sync.connections"} {
@@ -84,6 +84,12 @@ func TestEveryUserTableIsCoveredByProviderErasure(t *testing.T) {
 		if (schema != "ohs_sync" && schema != "ohs_data") || !cols["user_id"] {
 			continue
 		}
+		if keptTables[name] {
+			if cols["provider"] {
+				t.Errorf("%s has a provider column and is also listed in keptTables", name)
+			}
+			continue
+		}
 		if cols["provider"] {
 			if _, child := childTables[name]; child {
 				t.Errorf("%s has a provider column and is also listed in childTables", name)
@@ -91,7 +97,7 @@ func TestEveryUserTableIsCoveredByProviderErasure(t *testing.T) {
 			continue
 		}
 		if _, child := childTables[name]; !child {
-			t.Errorf("%s holds user rows but has no provider column: add it to childTables (internal/deletion/provider_worker.go) with its parent", name)
+			t.Errorf("%s holds user rows but has no provider column: add it to childTables (internal/deletion/provider_worker.go) with its parent, or to keptTables if no provider wrote its rows", name)
 		}
 	}
 	for name, c := range childTables {
