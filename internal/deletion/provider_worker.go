@@ -28,6 +28,8 @@ import (
 //   - a child table, listed in childTables: its rows hang off a parent row of
 //     a provider table (sleep phases, route points, track summaries, ECG
 //     voltages) and are deleted with the parent's rows;
+//   - a kept table, listed in keptTables: its rows are the user's own, not
+//     any provider's (time tags), and stay;
 //   - anything else is an error, so a new table cannot be left out silently.
 //
 // Daily summaries are per provider: a derived row sums one provider's own
@@ -43,6 +45,12 @@ var childTables = map[string]childOf{
 	"ohs_data.route_points":   {fk: "workout_id", parent: "ohs_data.workouts"},
 	"ohs_data.sleep_phases":   {fk: "session_id", parent: "ohs_data.sleep_sessions"},
 	"ohs_data.workout_tracks": {fk: "workout_id", parent: "ohs_data.workouts"},
+}
+
+// keptTables are the user-scoped tables whose rows no provider wrote. A
+// provider erasure leaves them; a user deletion still erases them.
+var keptTables = map[string]bool{
+	"ohs_data.time_tags": true,
 }
 
 // providerFilter narrows the delete of some provider tables. A connection is
@@ -98,6 +106,7 @@ func planProvider(ctx context.Context, tx pgx.Tx) (providerPlan, error) {
 	var unclassified []string
 	for _, t := range tables {
 		switch c, child := childTables[t.name]; {
+		case keptTables[t.name] && !t.hasProvider:
 		case t.hasProvider:
 			p.tables = append(p.tables, t.name)
 			withProvider[t.name] = true
@@ -108,7 +117,7 @@ func planProvider(ctx context.Context, tx pgx.Tx) (providerPlan, error) {
 		}
 	}
 	if len(unclassified) > 0 {
-		return providerPlan{}, fmt.Errorf("tables %s hold user rows without a provider column and are not in deletion.childTables",
+		return providerPlan{}, fmt.Errorf("tables %s hold user rows without a provider column and are not in deletion.childTables or deletion.keptTables",
 			strings.Join(unclassified, ", "))
 	}
 	for _, c := range p.children {

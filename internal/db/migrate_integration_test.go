@@ -20,7 +20,7 @@ var wantTables = map[string][]string{
 	"ohs_data": {"quantity_samples", "category_samples", "sleep_sessions", "workouts", "route_points",
 		"nutrition_logs", "ecg_recordings", "ecg_samples", "heartbeat_samples", "daily_summaries",
 		"observations", "sleep_phases", "workout_tracks", "quantity_codes", "device_aliases", "failed_records",
-		"deleted_records"},
+		"deleted_records", "time_tags"},
 }
 
 var wantHypertables = []string{

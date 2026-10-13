@@ -28,13 +28,18 @@ const (
 	// ConnectionNeedsReauth: a provider refused the user's grant; nothing
 	// syncs until the user connects again.
 	ConnectionNeedsReauth = "connection.needs_reauth"
+	// TagCreated, TagUpdated and TagDeleted: a time tag of a user was
+	// created, changed or deleted through the API.
+	TagCreated = "tag.created"
+	TagUpdated = "tag.updated"
+	TagDeleted = "tag.deleted"
 	// Test is sent by POST /v1/webhooks/{id}/test only.
 	Test = "webhook.test"
 )
 
 // Types are the event types an endpoint can subscribe to, in documentation
 // order. Test is not one: it goes to the endpoint it is asked for.
-var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth}
+var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth, TagCreated, TagUpdated, TagDeleted}
 
 // KnownType reports whether t can be subscribed to.
 func KnownType(t string) bool { return slices.Contains(Types, t) }

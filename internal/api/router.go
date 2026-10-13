@@ -88,6 +88,7 @@ func NewRouter(d Deps) http.Handler {
 	s.mountWebhooks(mux)
 	s.mountDeletion(mux)
 	s.mountReads(mux)
+	s.mountTags(mux)
 	s.mountFHIR(mux)
 	s.mountOMH(mux)
 	s.mountExports(mux)

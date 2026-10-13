@@ -396,6 +396,29 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 200, r.status, "%s", r.body)
 	assert.JSONEq(t, `{"data":[]}`, string(r.body))
 
+	// Time tags: create (with a replay), list with a window, read, close, delete.
+	r = c.do("POST", u+"/tags", key, strings.NewReader(`{"kind":"travel","label":"Trip","start_at":"2026-01-08",
+		"timezone":"Asia/Tokyo","source":"contract"}`), map[string]string{"Content-Type": "application/json", "Idempotency-Key": "tag-1"})
+	require.Equal(t, 201, r.status, "%s", r.body)
+	var tag struct{ ID string }
+	r.json(t, &tag)
+	assert.Equal(t, 201, c.do("POST", u+"/tags", key, strings.NewReader(`{"kind":"travel","label":"Trip","start_at":"2026-01-08",
+		"timezone":"Asia/Tokyo","source":"contract"}`), map[string]string{"Content-Type": "application/json", "Idempotency-Key": "tag-1"}).status)
+	r = c.json("POST", u+"/tags", key, `{"kind":"illness","start_at":"2026-01-09T08:00:00Z","end_at":"2026-01-12T00:00:00Z","note":"invented"}`)
+	require.Equal(t, 201, r.status, "%s", r.body)
+	assert.Equal(t, 200, c.json("GET", u+"/tags?start=2026-01-10&end=2026-01-11&kind=travel&limit=1", key, "").status)
+	r = c.json("GET", u+"/tags?limit=1", key, "")
+	require.Equal(t, 200, r.status)
+	r.json(t, &page)
+	require.NotNil(t, page.NextCursor)
+	assert.Equal(t, 200, c.json("GET", u+"/tags?limit=1&cursor="+*page.NextCursor, key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/tags/"+tag.ID, key, "").status)
+	assert.Equal(t, 200, c.json("PATCH", u+"/tags/"+tag.ID, key, `{"end_at":"2026-01-15","label":null}`).status)
+	assert.Equal(t, 400, c.json("PATCH", u+"/tags/"+tag.ID, key, `{"end_at":"2026-01-01"}`).status)
+	assert.Equal(t, 400, c.json("POST", u+"/tags", key, `{"kind":"travel","start_at":"2026-01-08","timezone":"Mars/Base"}`).status)
+	assert.Equal(t, 204, c.json("DELETE", u+"/tags/"+tag.ID, key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/tags/"+tag.ID, key, "").status)
+
 	// Refusals are documented problems too.
 	assert.Equal(t, 401, c.json("GET", "/v1/users", "", "").status)
 	assert.Equal(t, 401, c.json("GET", "/v1/users", "ohs_sk_unknown", "").status)
