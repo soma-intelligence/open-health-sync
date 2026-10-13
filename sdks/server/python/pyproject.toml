@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Not published to PyPI: install it from this directory (see README.md).
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-health-sync"
+version = "1.0.0"
+description = "Server-side Python client of the Open Health Sync API, generated from api/openapi.yaml."
+readme = "README.md"
+license = { text = "AGPL-3.0-only" }
+requires-python = ">=3.9"
+dependencies = []
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Private :: Do Not Upload",
+]
+
+[tool.setuptools]
+packages = ["open_health_sync"]
+
+[tool.setuptools.package-data]
+open_health_sync = ["py.typed"]

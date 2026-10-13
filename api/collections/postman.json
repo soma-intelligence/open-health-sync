@@ -1,0 +1,2910 @@
+{
+  "info": {
+    "name": "Open Health Sync API",
+    "description": "Generated from api/openapi.yaml (version 1.0.0) by internal/sdkgen. Set baseUrl and apiKey (a tenant API key, ohs_sk_...) on the collection; userToken (ohs_ut_...) is used by the upload requests. See docs/api-collections.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{apiKey}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "description": "The instance, without a trailing slash."
+    },
+    {
+      "key": "apiKey",
+      "value": "",
+      "description": "Tenant API key, ohs_sk_..."
+    },
+    {
+      "key": "userToken",
+      "value": "",
+      "description": "User token with the upload scope, ohs_ut_..., for the ingest requests."
+    },
+    {
+      "key": "dataset",
+      "value": "samples",
+      "description": "The list to export. Another name is a 404."
+    },
+    {
+      "key": "deliveryId",
+      "value": "1",
+      "description": "The delivery id."
+    },
+    {
+      "key": "deviceId",
+      "value": "dev-4cd59d3e7b09cd28",
+      "description": "The Device id, as an Observation's `device.reference` gives it."
+    },
+    {
+      "key": "jobId",
+      "value": "",
+      "description": "The `job_id` returned by `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`\nor `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`."
+    },
+    {
+      "key": "observationId",
+      "value": "qs-1234",
+      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-` or `daily-`, then the stored row id."
+    },
+    {
+      "key": "patientId",
+      "value": "",
+      "description": "The Patient id, which is the user id; any other value is a 404."
+    },
+    {
+      "key": "provenanceId",
+      "value": "prov-qs-1234",
+      "description": "`prov-` and the id of the Observation it is about."
+    },
+    {
+      "key": "provider",
+      "value": "withings",
+      "description": "Connector slug, see GET /v1/providers."
+    },
+    {
+      "key": "runId",
+      "value": "1",
+      "description": "The run id."
+    },
+    {
+      "key": "sessionId",
+      "value": "1",
+      "description": "The session id."
+    },
+    {
+      "key": "tagId",
+      "value": "",
+      "description": "The `id` of a time tag of this user."
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "description": "The user id."
+    },
+    {
+      "key": "webhookId",
+      "value": "",
+      "description": "The webhook id."
+    },
+    {
+      "key": "workoutId",
+      "value": "1",
+      "description": "The workout id."
+    }
+  ],
+  "item": [
+    {
+      "name": "providers",
+      "item": [
+        {
+          "name": "Connectors enabled on this instance",
+          "request": {
+            "method": "GET",
+            "description": "Connectors enabled on this instance.\n\n`GET /v1/providers`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/providers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "providers"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "users",
+      "item": [
+        {
+          "name": "Create an end user",
+          "request": {
+            "method": "POST",
+            "description": "Create an end user.\n\n`POST /v1/users`",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "createUser-0001",
+                "description": "Optional. A retry with the same key and the same request gets the first response back.",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"external_ref\": \"example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List the tenant's end users, oldest first",
+          "request": {
+            "method": "GET",
+            "description": "List the tenant's end users, oldest first.\n\n`GET /v1/users`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get one end user",
+          "request": {
+            "method": "GET",
+            "description": "Get one end user.\n\n`GET /v1/users/{id}`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Hard-delete an end user",
+          "request": {
+            "method": "DELETE",
+            "description": "Hard-delete an end user.\n\n`DELETE /v1/users/{id}`\n\nThe user's status becomes `deleting` at once: reads of their data return 404 and\nthe user's tokens stop working, so uploads get 401 (410 only for an upload whose\ntoken was accepted just before). A background job then revokes provider connections (best effort),\ndeletes the user's raw files and every row of the user, then the user.\n`GET /v1/deletions/{job_id}` tells when it is done.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Status of a deletion",
+          "request": {
+            "method": "GET",
+            "description": "Status of a deletion.\n\n`GET /v1/deletions/{job_id}`\n\nPoll until `status` is `done`: the user's raw files and rows are gone (with `provider`\nset, only those of that provider). The job is kept after the user is deleted. Another\ntenant's job is a 404.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/deletions/:job_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "deletions",
+                ":job_id"
+              ],
+              "variable": [
+                {
+                  "key": "job_id",
+                  "value": "{{jobId}}",
+                  "description": "The `job_id` returned by `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`\nor `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Erase a user's data from one provider",
+          "request": {
+            "method": "DELETE",
+            "description": "Erase a user's data from one provider.\n\n`DELETE /v1/users/{id}/data/{provider}`\n\nErases everything the user holds from one provider without touching any connection:\nthe route for device providers (`apple_health`, `health_connect`), which have no\nconnection, and for a provider already disconnected. A background job deletes every\nrecord, raw file and sync record of this user and provider; the user and their other\nproviders stay. The answer is 202 with the `job_id` to poll at\n`GET /v1/deletions/{job_id}`; asking again while it runs returns the same job. Until\nit is done, uploads of that provider for the user are refused (409). A provider the\nuser is still connected to is a 409: use\n`DELETE /v1/users/{id}/connections/{provider}?delete_data=true`. A provider unknown to\nthis build is a 404.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/data/:provider",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "data",
+                ":provider"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}",
+                  "description": "Connector slug, see GET /v1/providers."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tokens",
+      "item": [
+        {
+          "name": "Mint a user token",
+          "request": {
+            "method": "POST",
+            "description": "Mint a user token.\n\n`POST /v1/users/{id}/tokens`\n\nReturns an opaque `ohs_ut_` token for one active user, shown only in this response\n(`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token\nwhose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI\nagent configuration (MCP). `Idempotency-Key` is ignored here.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/tokens",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "tokens"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopes\": [\n    \"upload\"\n  ],\n  \"ttl_seconds\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "webhooks",
+      "item": [
+        {
+          "name": "Register a webhook endpoint",
+          "request": {
+            "method": "POST",
+            "description": "Register a webhook endpoint.\n\n`POST /v1/webhooks`\n\nThe endpoint receives a signed POST for each event of `event_types` (empty or absent:\nevery type). The response carries the signing `secret` (`whsec_...`), shown only here\n(`Cache-Control: no-store`). The URL must be https and must not point at a private,\nloopback or link-local address, unless the instance sets `OHS_WEBHOOK_ALLOW_PRIVATE=true`.\nAt most 20 endpoints per tenant. `Idempotency-Key` is ignored here. See docs/webhooks.md.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"example\",\n  \"event_types\": [\n    \"data.written\"\n  ],\n  \"url\": \"https://app.example.com/hooks/health\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "The tenant's webhook endpoints",
+          "request": {
+            "method": "GET",
+            "description": "The tenant's webhook endpoints.\n\n`GET /v1/webhooks`\n\nOldest first, on one page (`next_cursor` is always null).",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks"
+              ]
+            }
+          }
+        },
+        {
+          "name": "One webhook endpoint",
+          "request": {
+            "method": "GET",
+            "description": "One webhook endpoint.\n\n`GET /v1/webhooks/{webhook_id}`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id"
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Change a webhook endpoint",
+          "request": {
+            "method": "PATCH",
+            "description": "Change a webhook endpoint.\n\n`PATCH /v1/webhooks/{webhook_id}`\n\nAbsent fields stay as they are. `enabled: false` disables the endpoint and parks its\npending deliveries; `enabled: true` re-activates it (also after an automatic disable)\nand clears its failure state.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id"
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"example\",\n  \"enabled\": true,\n  \"event_types\": [\n    \"data.written\"\n  ],\n  \"url\": \"https://app.example.com/health/connected\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete a webhook endpoint",
+          "request": {
+            "method": "DELETE",
+            "description": "Delete a webhook endpoint.\n\n`DELETE /v1/webhooks/{webhook_id}`\n\nThe endpoint and its deliveries are deleted; nothing more is sent to it.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id"
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace the signing secret",
+          "request": {
+            "method": "POST",
+            "description": "Replace the signing secret.\n\n`POST /v1/webhooks/{webhook_id}/rotate-secret`\n\nThe new secret signs every request from now on, retries of earlier events included.\nShown only in this response.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id/rotate-secret",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id",
+                "rotate-secret"
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Send a test event",
+          "request": {
+            "method": "POST",
+            "description": "Send a test event.\n\n`POST /v1/webhooks/{webhook_id}/test`\n\nQueues a test event for this endpoint alone, whatever its event types. Without a body (or\nwith `event_type` `webhook.test`) it is the generic `webhook.test` event. With another\n`event_type` it is a realistic sample of that event, about no real user (`user_id` is the\nnil UUID, `external_ref` is `sample-user`). Either payload carries `\"test\": true`.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id",
+                "test"
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"data.written\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "The endpoint's deliveries",
+          "request": {
+            "method": "GET",
+            "description": "The endpoint's deliveries.\n\n`GET /v1/webhooks/{webhook_id}/deliveries`\n\nNewest first (unlike the data lists). Finished deliveries are kept 30 days.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id/deliveries",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id",
+                "deliveries"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One delivery with its payload and attempts",
+          "request": {
+            "method": "GET",
+            "description": "One delivery with its payload and attempts.\n\n`GET /v1/webhooks/{webhook_id}/deliveries/{delivery_id}`\n\nThe delivery, the exact JSON body it sends (`payload`) and its attempts, oldest first: status\ncode, error, timing and the first 1 KiB of the receiver's answer. The last 20 attempts\nare kept.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id/deliveries/:delivery_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id",
+                "deliveries",
+                ":delivery_id"
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                },
+                {
+                  "key": "delivery_id",
+                  "value": "{{deliveryId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Send a finished delivery's event again, as a new delivery",
+          "request": {
+            "method": "POST",
+            "description": "Send a finished delivery's event again, as a new delivery.\n\n`POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/replay`\n\nQueues a new delivery of a `done` or `parked` delivery's event: same `event_id` (so the same\n`webhook-id` header, which receivers deduplicate on) and same payload. The new delivery\nhas `replay_of` set and its own attempts; the original keeps its history. One still pending\nor running is a 409. At most 10 replays of an endpoint wait at once; more is a 429.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id/deliveries/:delivery_id/replay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id",
+                "deliveries",
+                ":delivery_id",
+                "replay"
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                },
+                {
+                  "key": "delivery_id",
+                  "value": "{{deliveryId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Send a finished delivery again",
+          "request": {
+            "method": "POST",
+            "description": "Send a finished delivery again.\n\n`POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/retry`\n\nA `done` or `parked` delivery is sent again from its first attempt, with its original\n`webhook-id` and payload. One still pending or running is a 409.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:webhook_id/deliveries/:delivery_id/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":webhook_id",
+                "deliveries",
+                ":delivery_id",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "webhook_id",
+                  "value": "{{webhookId}}"
+                },
+                {
+                  "key": "delivery_id",
+                  "value": "{{deliveryId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "connections",
+      "item": [
+        {
+          "name": "The user's provider connections",
+          "request": {
+            "method": "GET",
+            "description": "The user's provider connections.\n\n`GET /v1/users/{id}/connections`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "connections"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "How up to date each of the user's sources is",
+          "request": {
+            "method": "GET",
+            "description": "How up to date each of the user's sources is.\n\n`GET /v1/users/{id}/freshness`\n\nOne entry per provider connection, then one per device source (Apple Health) that uploaded,\nordered by provider. `synced_through` is the end of the most recent window pulled (the time of\nthe last upload for a device source) and `lag_seconds` is how far behind now it is. Providers\nthat send notifications are pulled within seconds of a change; the regular pull is a backstop,\nevery 6 hours while notifications arrive (`push_healthy`) and every hour otherwise.\n`state` is `fresh`, `stale` (behind by more than two pull intervals, or no upload for 26 hours),\n`failing` (the last 3 pulls failed, see `last_error`), `syncing` (first pull not done),\n`needs_reauth` or `disconnected`.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/freshness",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "freshness"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Start connecting a provider",
+          "request": {
+            "method": "POST",
+            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/connections/:provider",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "connections",
+                ":provider"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}",
+                  "description": "Connector slug, see GET /v1/providers."
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"redirect_uri\": \"https://app.example.com/health/connected\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Disconnect a provider",
+          "request": {
+            "method": "DELETE",
+            "description": "Disconnect a provider.\n\n`DELETE /v1/users/{id}/connections/{provider}`\n\nRevokes the provider grant (best effort) and stops pulling. By default the data\nalready collected is kept (204).\n\nWith `delete_data=true` the user's data from this provider is erased too: the\ndisconnect happens at once, then a background job deletes every record, raw file and\nsync record of this user and provider (the user and their other providers stay). The\nanswer is 202 with the `job_id` to poll at `GET /v1/deletions/{job_id}`; asking again\nwhile it runs returns the same job. Until it is done the provider cannot be connected\nagain and its uploads are refused. The `data.erased` webhook announces the end.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/connections/:provider",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "connections",
+                ":provider"
+              ],
+              "query": [
+                {
+                  "key": "delete_data",
+                  "value": "false",
+                  "description": "true also erases the data the user holds from this provider.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}",
+                  "description": "Connector slug, see GET /v1/providers."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create a link to the hosted connection page",
+          "request": {
+            "method": "POST",
+            "description": "Create a link to the hosted connection page.\n\n`POST /v1/users/{id}/connect-sessions`\n\nReturns a link to a page served by Open Health Sync where the user picks a provider and goes\nthrough its consent, so your app needs no connection UI of its own. The token in the link is\nthe page's only credential: send the link to this user only. It serves several providers\nuntil `expires_at`. After each consent the user lands on\n`redirect_uri?status=connected|error&provider=<slug>`, or, without `redirect_uri`, on the\nbuilt-in result page, which links back to the connection page. See docs/connect-page.md.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/connect-sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "connect-sessions"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_name\": \"example\",\n  \"logo_url\": \"https://app.example.com/health/connected\",\n  \"providers\": [\n    \"example\"\n  ],\n  \"redirect_uri\": \"https://app.example.com/health/connected\",\n  \"ttl_seconds\": 1800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Sync a connection now",
+          "request": {
+            "method": "POST",
+            "description": "Sync a connection now.\n\n`POST /v1/users/{id}/connections/{provider}/sync`\n\nQueues a pull of the connection ahead of routine work and answers with the sync run; follow it\nat the `Location` header. The window ends now and starts where the connection's data ends\n(minus an hour of overlap), a day back for a connection that never synced, or at `from`\n(at most 30 days back). While a manual run of the connection is still queued or running, the\nanswer is 200 with that run and nothing new is queued. 409 when the connection does not sync\n(`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/connections/:provider/sync",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "connections",
+                ":provider",
+                "sync"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}",
+                  "description": "Connector slug, see GET /v1/providers."
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from\": \"2026-01-01T00:00:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "The user's sync history",
+          "request": {
+            "method": "GET",
+            "description": "The user's sync history.\n\n`GET /v1/users/{id}/sync-runs`\n\nEvery pull of the user's connections, newest first: what started it, its window, its status,\nthe raw payloads it stored and the provider's error when it failed. Finished runs are kept\n30 days.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/sync-runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "sync-runs"
+              ],
+              "query": [
+                {
+                  "key": "provider",
+                  "value": "",
+                  "description": "Only this provider's runs.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One sync run",
+          "request": {
+            "method": "GET",
+            "description": "One sync run.\n\n`GET /v1/users/{id}/sync-runs/{run_id}`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/sync-runs/:run_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "sync-runs",
+                ":run_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "run_id",
+                  "value": "{{runId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "consent",
+      "item": [
+        {
+          "name": "The user's consent per source and data category",
+          "request": {
+            "method": "GET",
+            "description": "The user's consent per source and data category.\n\n`GET /v1/users/{id}/consents`\n\nEvery source the user has recorded consent for, with the state of each data\ncategory, and the list of categories. A source with no consent recorded stores\neverything, unless the instance sets `OHS_CONSENT_REQUIRED=true`, where it stores\nnothing.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/consents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "consents"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Every consent change of the user, newest first",
+          "request": {
+            "method": "GET",
+            "description": "Every consent change of the user, newest first.\n\n`GET /v1/users/{id}/consents/history`\n\nOne event per category granted or revoked, with the credential that made the change\nand the evidence it gave. Kept while the user exists; erased with the user.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/consents/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "consents",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Set the categories the user allows from a source",
+          "request": {
+            "method": "PUT",
+            "description": "Set the categories the user allows from a source.\n\n`PUT /v1/users/{id}/consents/{provider}`\n\n`granted` becomes the whole list: every category left out is revoked. From then on\nthe source's records outside `granted` are dropped before they are stored, and the\nrecords already stored in a revoked category are deleted in the background. Each\nchange is kept in the history and announced by the `consent.granted` and\n`consent.revoked` webhooks. Raw payloads are not split by category: they follow\n`OHS_RETENTION_DAYS` and the user's erasure.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/consents/:provider",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "consents",
+                ":provider"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}",
+                  "description": "Connector slug, see GET /v1/providers."
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"evidence\": \"example\",\n  \"granted\": [\n    \"activity\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Revoke every category of a source",
+          "request": {
+            "method": "DELETE",
+            "description": "Revoke every category of a source.\n\n`DELETE /v1/users/{id}/consents/{provider}`\n\nThe same as a PUT with `granted` empty.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/consents/:provider",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "consents",
+                ":provider"
+              ],
+              "query": [
+                {
+                  "key": "evidence",
+                  "value": "",
+                  "description": "What backs the revocation, at most 500 characters.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}",
+                  "description": "Connector slug, see GET /v1/providers."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "read",
+      "item": [
+        {
+          "name": "Quantity samples of one type",
+          "request": {
+            "method": "GET",
+            "description": "Quantity samples of one type.\n\n`GET /v1/users/{id}/samples`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/samples?type=heart_rate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "samples"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "heart_rate",
+                  "description": "Canonical quantity type, for example heart_rate or step_count. A name outside the quantity type catalog is a 400 (unless this user has samples of it)."
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Category samples (events)",
+          "request": {
+            "method": "GET",
+            "description": "Category samples (events).\n\n`GET /v1/users/{id}/category-samples`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/category-samples",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "category-samples"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": "Canonical category type; all types when absent.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Sleep sessions",
+          "request": {
+            "method": "GET",
+            "description": "Sleep sessions.\n\n`GET /v1/users/{id}/sleep`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/sleep",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "sleep"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Phases of one sleep session",
+          "request": {
+            "method": "GET",
+            "description": "Phases of one sleep session.\n\n`GET /v1/users/{id}/sleep/{session_id}/phases`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/sleep/:session_id/phases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "sleep",
+                ":session_id",
+                "phases"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "session_id",
+                  "value": "{{sessionId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Workouts",
+          "request": {
+            "method": "GET",
+            "description": "Workouts.\n\n`GET /v1/users/{id}/workouts`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/workouts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "workouts"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "running",
+                  "description": "Canonical activity type (running, cycling...); all when absent.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GPS route of one workout",
+          "request": {
+            "method": "GET",
+            "description": "GPS route of one workout.\n\n`GET /v1/users/{id}/workouts/{workout_id}/route`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/workouts/:workout_id/route",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "workouts",
+                ":workout_id",
+                "route"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "workout_id",
+                  "value": "{{workoutId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Nutrition logs",
+          "request": {
+            "method": "GET",
+            "description": "Nutrition logs.\n\n`GET /v1/users/{id}/nutrition`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/nutrition",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "nutrition"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Daily summaries",
+          "request": {
+            "method": "GET",
+            "description": "Daily summaries.\n\n`GET /v1/users/{id}/daily`\n\nIn the merged view (the default), one summary per local calendar day: each figure\ncomes from the best ranked source that has it, and `sources` names that source per\nfigure; `id`, the provenance and `metadata` are those of the day's best ranked row.\nWith `view=all`, one row per provider and day. `start` and `end` compare as dates.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/daily",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "daily"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Beat-to-beat (RR) intervals",
+          "request": {
+            "method": "GET",
+            "description": "Beat-to-beat (RR) intervals.\n\n`GET /v1/users/{id}/rr-intervals`\n\nThe stored RR intervals of the user's heartbeat series, one per beat, by beat time (beats\nthat share a time by an internal key the cursor carries). `start` and `end` bound the beat\ntime. See docs/hrv.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/rr-intervals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "rr-intervals"
+              ],
+              "query": [
+                {
+                  "key": "series_id",
+                  "value": "",
+                  "description": "Keep one heartbeat series.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Heart rate variability derived from the RR intervals",
+          "request": {
+            "method": "GET",
+            "description": "Heart rate variability derived from the RR intervals.\n\n`GET /v1/users/{id}/hrv`\n\nOne record per heartbeat series: the time domain HRV measures (RMSSD, SDNN, pNN50) and the\nmean RR interval and heart rate, computed from the stored intervals after implausible and\nectopic intervals are set aside. Ordered by the series' first beat, then provider and\nseries id. A series is in `[start, end)` when its first beat is, and is always summarized\nwhole. See docs/hrv.md for the rules.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/hrv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "hrv"
+              ],
+              "query": [
+                {
+                  "key": "series_id",
+                  "value": "",
+                  "description": "Keep one heartbeat series.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Menstrual cycles derived from the recorded flow",
+          "request": {
+            "method": "GET",
+            "description": "Menstrual cycles derived from the recorded flow.\n\n`GET /v1/users/{id}/menstrual-cycles`\n\nDerived at read time from the `menstrual_flow` category samples, so it always agrees with\nthem, deletions included. A flow day is a local calendar day (the sample's `timezone`\nmetadata, else UTC) with a flow sample whose label is not `none`; a period is a run of\nflow days with gaps of at most 2 days; a cycle runs from a period's first day to the day\nbefore the next period's first day, and the latest cycle is open (`end_date` and\n`cycle_length_days` null). Intermenstrual bleeding never starts a period. Nothing is\npredicted. `start` and `end` compare as dates and select cycles by `start_date`. A call\nreads at most 50000 flow samples: a page can then hold fewer than `limit` cycles and\nstill carry a `next_cursor`. See docs/menstrual-cycles.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/menstrual-cycles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "menstrual-cycles"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The order of sources the merged view ranks by",
+          "request": {
+            "method": "GET",
+            "description": "The order of sources the merged view ranks by.\n\n`GET /v1/users/{id}/source-priorities`\n\nThe user's own orders, keyed by metric (a quantity type, `sleep` or `workouts`), by\ngroup (`activity`, `heart`, `recovery`, `body`, `sleep`, `workouts`) or `*` for every\nmetric, and the built-in orders that apply where the user set none. The most specific\norder wins: metric, then group, then the user's `*`, then the built-in group order. A\nsource missing from an order ranks after every listed one. See docs/data-model.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/source-priorities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "source-priorities"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace the user's orders of sources",
+          "request": {
+            "method": "PUT",
+            "description": "Replace the user's orders of sources.\n\n`PUT /v1/users/{id}/source-priorities`\n\nReplaces every order of the user; `{\"priorities\": {}}` goes back to the built-in\norders. Source names are lowercased. Stored records are never changed: the orders\nonly decide what the merged view shows.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/source-priorities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "source-priorities"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"priorities\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "What has landed, per provider and day, and what is still processing",
+          "request": {
+            "method": "GET",
+            "description": "What has landed, per provider and day, and what is still processing.\n\n`GET /v1/users/{id}/coverage`\n\nRecord counts per provider per local day, and `pending_jobs`, the user's ETL jobs not\nfinished yet. After an upload, poll until `pending_jobs` is 0 to know every part has\nbeen processed; then `rejected_records` above 0 means some lines were not stored.\nNot paged: at most 10000 days are returned, the earliest, and\n`truncated` is true when more matched (narrow `start` and `end`). `start` and `end`\ncompare as dates.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/coverage",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "coverage"
+              ],
+              "query": [
+                {
+                  "key": "provider",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tags",
+      "item": [
+        {
+          "name": "Record a time tag",
+          "request": {
+            "method": "POST",
+            "description": "Record a time tag.\n\n`POST /v1/users/{id}/tags`\n\nA time tag is an interval that gives context to the user's data: an illness, a trip,\njet lag, a vaccination. It is context only: nothing is computed from it. `end_at`\nabsent or null is a tag still ongoing; close it later with PATCH. `start_at` and\n`end_at` take an RFC 3339 time or a `YYYY-MM-DD` date (midnight UTC). `label` and\n`note` are free text and are treated as health data: never logged. See\ndocs/time-tags.md.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "createTimeTag-0001",
+                "description": "Optional. A retry with the same key and the same request gets the first response back.",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/tags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "tags"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"end_at\": \"2026-01-01T00:00:00Z\",\n  \"kind\": \"illness\",\n  \"label\": \"example\",\n  \"note\": \"example\",\n  \"source\": \"example\",\n  \"start_at\": \"2026-01-01T00:00:00Z\",\n  \"timezone\": \"example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "The user's time tags",
+          "request": {
+            "method": "GET",
+            "description": "The user's time tags.\n\n`GET /v1/users/{id}/tags`\n\nBy `start_at`, then id. With `start` and `end`, the tags that overlap the window\n`[start, end)`: a tag `[start_at, end_at)` is listed when `start_at < end` and\n`end_at > start`, and an ongoing tag (`end_at` null) when `start_at < end`. A tag that\nends exactly at `start`, or starts exactly at `end`, does not overlap. `start` equal to\n`end` is an empty window.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/tags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "tags"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "",
+                  "description": "Only the tags of this kind. Another value is a 400.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One time tag",
+          "request": {
+            "method": "GET",
+            "description": "One time tag.\n\n`GET /v1/users/{id}/tags/{tag_id}`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/tags/:tag_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "tags",
+                ":tag_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "tag_id",
+                  "value": "{{tagId}}",
+                  "description": "The `id` of a time tag of this user."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Change a time tag",
+          "request": {
+            "method": "PATCH",
+            "description": "Change a time tag.\n\n`PATCH /v1/users/{id}/tags/{tag_id}`\n\nAbsent members stay as they are; null clears `label`, `timezone`, `note` or `end_at`\n(null `end_at` reopens the tag). `kind` and `start_at` cannot be null, and `source`\ncannot change. The tag after the change is checked as a whole: `end_at` must stay after\n`start_at`. A body that changes nothing returns the tag as it is.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/tags/:tag_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "tags",
+                ":tag_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "tag_id",
+                  "value": "{{tagId}}",
+                  "description": "The `id` of a time tag of this user."
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"end_at\": \"2026-01-01T00:00:00Z\",\n  \"kind\": \"illness\",\n  \"label\": \"example\",\n  \"note\": \"example\",\n  \"start_at\": \"2026-01-01T00:00:00Z\",\n  \"timezone\": \"example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete a time tag",
+          "request": {
+            "method": "DELETE",
+            "description": "Delete a time tag.\n\n`DELETE /v1/users/{id}/tags/{tag_id}`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/tags/:tag_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "tags",
+                ":tag_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "tag_id",
+                  "value": "{{tagId}}",
+                  "description": "The `id` of a time tag of this user."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "fhir",
+      "item": [
+        {
+          "name": "The user's records as FHIR R4 Observations",
+          "request": {
+            "method": "GET",
+            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`) and daily summaries (`daily-`), merged in time order (a\nsample's start, a bedtime, a workout's start, a day at midnight UTC), then by kind\nand id. Paged like every list: the Bundle's `next` link carries the cursor, and\nthere is no `next` link on the last page; `total` is left out. A blood pressure pair\nis never split across pages, and its two samples are not listed on their own.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/Observation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "Observation"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": "Canonical quantity type, for example heart_rate: only quantity samples of that\ntype, and the blood pressure panels holding a sample of it. Optional; a name\noutside the quantity type catalog is a 400 (unless this user has samples of it).",
+                  "disabled": true
+                },
+                {
+                  "key": "code",
+                  "value": "http://loinc.org|8867-4",
+                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout` or `daily_summary`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "vital-signs",
+                  "description": "An HL7 observation category code, bare or as\n`http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,\n`laboratory` or `activity` (activity samples, workouts and daily summaries). One\nvalue. Another code of that system is an empty Bundle; anything else is a 400.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One FHIR R4 Observation",
+          "request": {
+            "method": "GET",
+            "description": "One FHIR R4 Observation.\n\n`GET /v1/users/{id}/fhir/Observation/{observation_id}`\n\nThe Observation an entry's `fullUrl` points to. Not the user's, not an id of these\nforms, or not of that shape (`qs-` of a sample that is half of a blood pressure\npanel, `bp-` of a sample that is not) is a 404. In the merged view (the default) a\ndaily summary carries only the figures no better ranked source of the day holds.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/Observation/:observation_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "Observation",
+                ":observation_id"
+              ],
+              "query": [
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "observation_id",
+                  "value": "{{observationId}}",
+                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-` or `daily-`, then the stored row id."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The user as a FHIR R4 Patient",
+          "request": {
+            "method": "GET",
+            "description": "The user as a FHIR R4 Patient.\n\n`GET /v1/users/{id}/fhir/Patient/{patient_id}`\n\nThe user as a Patient: `id` is the user id, `active` is true, and `identifier` is the\ntenant's `external_ref` when it set one. No name or birth date (not stored). A\n`patient_id` other than the user's id, or a user of another tenant, is a 404.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/Patient/:patient_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "Patient",
+                ":patient_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "patient_id",
+                  "value": "{{patientId}}",
+                  "description": "The Patient id, which is the user id; any other value is a 404."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The Patient and all their records, as FHIR R4 resources",
+          "request": {
+            "method": "GET",
+            "description": "The Patient and all their records, as FHIR R4 resources.\n\n`GET /v1/users/{id}/fhir/Patient/{patient_id}/$everything`\n\nOne page of a `searchset` Bundle: on the first page the Patient, then the page's\nObservations (`search.mode` `match`, the list and the cursor of the Observation\nsearch), then the Devices they reference (each once per page) and the Provenance of\neach Observation (`include`). Follow the `next` link until there is none: no\nObservation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/Patient/:patient_id/$everything",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "Patient",
+                ":patient_id",
+                "$everything"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "patient_id",
+                  "value": "{{patientId}}",
+                  "description": "The Patient id, which is the user id; any other value is a 404."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The devices the user's records came from, as FHIR R4 Devices",
+          "request": {
+            "method": "GET",
+            "description": "The devices the user's records came from, as FHIR R4 Devices.\n\n`GET /v1/users/{id}/fhir/Device`\n\nA `searchset` Bundle of the devices named by the provenance of the user's quantity\nsamples, sleep sessions and workouts whose time is in the window, each once, in one\npage (no `next` link). Unbounded, it reads the provenance of every record of the user:\npass `start` and `end` on a large history. `cursor` and `limit` are a 400.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/Device",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "Device"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One FHIR R4 Device",
+          "request": {
+            "method": "GET",
+            "description": "One FHIR R4 Device.\n\n`GET /v1/users/{id}/fhir/Device/{device_id}`\n\nThe Device an Observation references. A device none of the user's records names is a\n404.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/Device/:device_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "Device",
+                ":device_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "device_id",
+                  "value": "{{deviceId}}",
+                  "description": "The Device id, as an Observation's `device.reference` gives it."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The Provenance of one Observation",
+          "request": {
+            "method": "GET",
+            "description": "The Provenance of one Observation.\n\n`GET /v1/users/{id}/fhir/Provenance`\n\nA `searchset` Bundle holding the Provenance of the Observation `target` names, or no\nentry when the user has no such Observation.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/Provenance?target=Observation/qs-1234",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "Provenance"
+              ],
+              "query": [
+                {
+                  "key": "target",
+                  "value": "Observation/qs-1234",
+                  "description": "`Observation/` and an Observation id. One value."
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One FHIR R4 Provenance",
+          "request": {
+            "method": "GET",
+            "description": "One FHIR R4 Provenance.\n\n`GET /v1/users/{id}/fhir/Provenance/{provenance_id}`\n\nThe Provenance of one Observation; an Observation that does not exist is a 404.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/Provenance/:provenance_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "Provenance",
+                ":provenance_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provenance_id",
+                  "value": "{{provenanceId}}",
+                  "description": "`prov-` and the id of the Observation it is about."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The FHIR R4 CapabilityStatement of the user's FHIR base",
+          "request": {
+            "method": "GET",
+            "description": "The FHIR R4 CapabilityStatement of the user's FHIR base.\n\n`GET /v1/users/{id}/fhir/metadata`\n\nWhat the FHIR routes serve (read only), as a CapabilityStatement.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/metadata",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "metadata"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "omh",
+      "item": [
+        {
+          "name": "The user's records as Open mHealth data points",
+          "request": {
+            "method": "GET",
+            "description": "The user's records as Open mHealth data points.\n\n`GET /v1/users/{id}/omh/data-points`\n\nThe user's records as Open mHealth data points (a `header` and a `body` that follows one\nschema of the Open mHealth catalog, checked against the official schemas): heart rate,\nsteps, blood pressure, body weight, height, BMI, body fat, body temperature, oxygen\nsaturation, respiratory rate, blood glucose and active energy samples, sleep sessions\n(`sleep-episode`) and workouts (`physical-activity`). In the order and with the cursor of\nthe FHIR search; a record without an Open mHealth schema (another quantity type, a\ndaily summary, a value in another unit) is left out, so a page can hold fewer than\n`limit` data points and still have a `next_cursor`. The mapping is in\ndocs/open-mhealth.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/omh/data-points",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "omh",
+                "data-points"
+              ],
+              "query": [
+                {
+                  "key": "schema",
+                  "value": "omh:heart-rate",
+                  "description": "Only the data points of one schema, bare (`heart-rate`) or with its namespace and,\noptionally, its version (`omh:heart-rate`, `omh:heart-rate:2.0`). One value; a\nschema the mapping does not emit is a 400.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                },
+                {
+                  "key": "view",
+                  "value": "merged",
+                  "description": "`merged` (the default): when several sources recorded the same thing (a ring and a\nwatch the same night, a phone and a watch the same steps, one sample directly and\nthrough an aggregator), only the best ranked source's record is listed, so nothing\ncounts twice. The order of sources is the user's (see source-priorities). `all`:\nevery stored record of every source.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "exports",
+      "item": [
+        {
+          "name": "One list of the user as a CSV or Parquet file",
+          "request": {
+            "method": "GET",
+            "description": "One list of the user as a CSV or Parquet file.\n\n`GET /v1/users/{id}/exports/{dataset}`\n\nEvery record of one list in `[start, end)`, as one file streamed in a single response\n(`Content-Disposition: attachment`). The columns are the members of the list's JSON\nrecords, in the same order and with the same names and values: times in UTC, a missing\nvalue empty (CSV) or null (Parquet), `metadata` (and the daily `sources`) as JSON text. `samples` holds every\nquantity type unless `type` names one. The file is not paged: `cursor` and `limit` are\na 400. A failure once the file has started cuts the connection, so a truncated file\nnever looks complete. See docs/exports.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/exports/:dataset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "exports",
+                ":dataset"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "csv",
+                  "description": "`csv` (the default) or `parquet`.",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": "The canonical type to keep, for the lists that have one (samples, category-samples, workouts).",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "dataset",
+                  "value": "{{dataset}}",
+                  "description": "The list to export. Another name is a 404."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Everything held about one user, as one zip file",
+          "request": {
+            "method": "GET",
+            "description": "Everything held about one user, as one zip file.\n\n`GET /v1/users/{id}/archive`\n\nThe answer to a data portability request: one zip file streamed in a single response\n(`Content-Disposition: attachment`) holding `manifest.json` (user, generation time,\ninstance version, record count of each file, a description of each folder),\n`user.json` (the user and its provider connections, never a token),\n`canonical/<list>.ndjson` (every record of samples, category-samples, sleep,\nsleep-phases, workouts, workout-routes, nutrition and daily, the same JSON as the list\nitems, one per line), `fhir/bundle.json` (a FHIR R4 `collection` Bundle of every\nObservation), `omh/data-points.ndjson` (the Open mHealth data points) and `raw/...`\n(every raw payload of the user, byte for byte, under its path below the user). A\ntenant key reads any user of the tenant; a user token with scope `read` reads only its\nown user, and another user is a 404. A failure once the file has started cuts the\nconnection, so a truncated archive never looks complete. See docs/exports.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "archive"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ingest",
+      "item": [
+        {
+          "name": "Upload one part of an Apple Health export",
+          "request": {
+            "method": "POST",
+            "description": "Upload one part of an Apple Health export.\n\n`POST /v1/ingest/apple-health`\n\nOne gzip NDJSON part (at most 64 MiB, never truncated), one data type per part.\nRe-sending the same part is safe: the answer is 200 with `duplicate: true`. Other\nbytes under a (day, batch, part) already stored are a 409, and so is a part sent while\nthis provider's data is being deleted for the user (nothing is kept; send it again\nonce the deletion job is done). Each instance processes a\nbounded number of uploads at once; above it the answer is 503 with `Retry-After`.\n\nNeeds a user token (ohs_ut_) as the client's apiKey.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "X-OHS-Type",
+                "value": "HKQuantityTypeIdentifierHeartRate",
+                "description": "HealthKit type identifier of every line of the part."
+              },
+              {
+                "key": "X-OHS-Day",
+                "value": "2026-01-01"
+              },
+              {
+                "key": "X-OHS-Batch",
+                "value": ""
+              },
+              {
+                "key": "X-OHS-Part",
+                "value": "0"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/gzip"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/ingest/apple-health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "ingest",
+                "apple-health"
+              ]
+            },
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": ""
+              }
+            }
+          }
+        },
+        {
+          "name": "Upload one part of Android Health Connect records",
+          "request": {
+            "method": "POST",
+            "description": "Upload one part of Android Health Connect records.\n\n`POST /v1/ingest/health-connect`\n\nOne gzip NDJSON part (at most 64 MiB, never truncated), one Health Connect record per\nline, each a JSON object with a `recordType` (the line format is in\ndocs/connectors/health-connect.md). Same headers, limits and answers as the Apple Health\nupload.\nRe-sending the same part is safe: the answer is 200 with `duplicate: true`. Other\nbytes under a (day, batch, part) already stored are a 409, and so is a part sent while\nthis provider's data is being deleted for the user (nothing is kept; send it again\nonce the deletion job is done). Each instance processes a\nbounded number of uploads at once; above it the answer is 503 with `Retry-After`.\n\nNeeds a user token (ohs_ut_) as the client's apiKey.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "X-OHS-Type",
+                "value": "BloodGlucose",
+                "description": "Health Connect record type of the lines of the part (for example BloodGlucose)."
+              },
+              {
+                "key": "X-OHS-Day",
+                "value": "2026-01-01"
+              },
+              {
+                "key": "X-OHS-Batch",
+                "value": ""
+              },
+              {
+                "key": "X-OHS-Part",
+                "value": "0"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/gzip"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/ingest/health-connect",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "ingest",
+                "health-connect"
+              ]
+            },
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": ""
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "audit",
+      "item": [
+        {
+          "name": "The tenant's audit log, newest first",
+          "request": {
+            "method": "GET",
+            "description": "The tenant's audit log, newest first.\n\n`GET /v1/audit`\n\nOne event per authenticated request (tenant key or user token) and per\nadministrative or system action: who (the credential), what (the action\nand route), about which user, when, and the status. Never a health value,\na secret or a query string. Append only; events older than\n`OHS_AUDIT_RETENTION_DAYS` (default 365) are pruned.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/audit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "00000000-0000-0000-0000-000000000000",
+                  "description": "Only events about this end user.",
+                  "disabled": true
+                },
+                {
+                  "key": "action",
+                  "value": "",
+                  "description": "An exact action (`data.export`), or a prefix ending in a dot (`data.`).",
+                  "disabled": true
+                },
+                {
+                  "key": "since",
+                  "value": "",
+                  "description": "Events at or after this time (RFC 3339 or YYYY-MM-DD).",
+                  "disabled": true
+                },
+                {
+                  "key": "until",
+                  "value": "",
+                  "description": "Events before this time (RFC 3339 or YYYY-MM-DD).",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ops",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "description": "Liveness.\n\n`GET /healthz`",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Readiness (database ping and raw store check)",
+          "request": {
+            "method": "GET",
+            "description": "Readiness (database ping and raw store check).\n\n`GET /readyz`",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/readyz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "readyz"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

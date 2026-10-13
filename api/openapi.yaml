@@ -965,7 +965,7 @@ paths:
           in: query
           required: true
           description: Canonical quantity type, for example heart_rate or step_count. A name outside the quantity type catalog is a 400 (unless this user has samples of it).
-          schema: { type: string }
+          schema: { type: string, examples: [heart_rate] }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
         - $ref: "#/components/parameters/View"
@@ -1072,7 +1072,7 @@ paths:
         - name: type
           in: query
           description: Canonical activity type (running, cycling...); all when absent.
-          schema: { type: string }
+          schema: { type: string, examples: [running] }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
         - $ref: "#/components/parameters/View"
@@ -1892,7 +1892,7 @@ paths:
           in: header
           required: true
           description: HealthKit type identifier of every line of the part.
-          schema: { type: string }
+          schema: { type: string, examples: [HKQuantityTypeIdentifierHeartRate] }
         - name: X-OHS-Day
           in: header
           required: true
@@ -1965,7 +1965,7 @@ paths:
           in: header
           required: true
           description: Health Connect record type of the lines of the part (for example BloodGlucose).
-          schema: { type: string }
+          schema: { type: string, examples: [BloodGlucose] }
         - name: X-OHS-Day
           in: header
           required: true
@@ -2369,7 +2369,7 @@ components:
       in: path
       required: true
       description: Connector slug, see GET /v1/providers.
-      schema: { type: string }
+      schema: { type: string, examples: [withings] }
     ConnectSessionToken:
       name: session
       in: query

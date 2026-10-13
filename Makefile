@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test test-js integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record
+.PHONY: setup build image test test-js integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test
 
 setup:
 	git config core.hooksPath .githooks
@@ -68,6 +68,17 @@ upgrade-test:
 #   make record PROVIDER=withings
 record:
 	OHS_RECORD_PROVIDER=$(PROVIDER) go test -tags record -run TestRecord -count=1 -v -timeout 30m ./test/recorded/
+
+# The server-side SDKs (sdks/server), the Postman collection (api/collections)
+# and the webhook test vectors, generated from api/openapi.yaml. A unit test
+# fails when the committed files are not what this writes.
+sdk:
+	go run ./internal/sdkgen/cmd/sdkgen
+
+# The SDKs' own tests, as CI runs them. Needs Node.js 22 and Python 3.9+.
+sdk-test:
+	cd sdks/server/typescript && npm ci && npm run check && npm test
+	cd sdks/server/python && python3 -m unittest discover -s tests
 
 guard:
 	scripts/guard_test.sh
