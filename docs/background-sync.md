@@ -68,6 +68,10 @@ whatever a failed window missed.
   no upload for 26 hours for a device source); `failing` after 3 failed pulls in a row (see
   `last_error`); `syncing` until the first pull finishes; `needs_reauth`; `disconnected`.
 
+Each connection also has a `health` object that says whether it syncs and what fixes it, the
+history of its pulls is at `GET /v1/users/{id}/sync-runs`, and a pull can be started on demand: see
+[sync history and connection health](sync-health.md).
+
 `/metrics` carries the same picture per provider: `ohs_sync_connections{provider,state}`,
 `ohs_sync_max_lag_seconds{provider}` and `ohs_sync_push_silent_connections{provider}`. Alert on
 `failing` and on silent connections of a provider that should be notifying.

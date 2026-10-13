@@ -1,0 +1,29 @@
+{
+  "resourceType": "Device",
+  "id": "dev-9665c29522802fab",
+  "meta": {
+    "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health",
+    "tag": [
+      {
+        "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/source",
+        "code": "apple"
+      }
+    ]
+  },
+  "identifier": [
+    {
+      "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health/device-id",
+      "value": "apple_watch"
+    }
+  ],
+  "deviceName": [
+    {
+      "name": "Watch",
+      "type": "model-name"
+    }
+  ],
+  "modelNumber": "Watch7,2",
+  "patient": {
+    "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+  }
+}

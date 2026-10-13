@@ -366,6 +366,50 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 400, c.json("GET", u+"/fhir/Observation?category=vitals", key, "").status)
 	assert.Equal(t, 404, c.json("GET", u+"/fhir/Observation/bp-999999999", key, "").status)
 
+	// FHIR: the Patient, its devices, the Provenance of an Observation, $everything.
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Patient/"+user.ID, key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/fhir/Patient/00000000-0000-4000-8000-000000000000", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/metadata", key, "").status)
+	r = c.json("GET", u+"/fhir/Device", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	var devices struct {
+		Entry []struct {
+			FullURL string `json:"fullUrl"`
+		} `json:"entry"`
+	}
+	r.json(t, &devices)
+	require.NotEmpty(t, devices.Entry, "the fixture names its devices")
+	assert.Equal(t, 200, c.json("GET", strings.TrimPrefix(devices.Entry[0].FullURL, base), key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Device?start=2026-01-10&end=2026-01-11", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/fhir/Device?limit=2", key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/fhir/Device/dev-0000000000000000", key, "").status)
+	obsID := strings.TrimPrefix(bundle.Entry[0].FullURL, base+u+"/fhir/Observation/")
+	r = c.json("GET", u+"/fhir/Provenance?target=Observation/"+obsID, key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	assert.Contains(t, string(r.body), `"prov-`+obsID+`"`)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/Provenance/prov-"+obsID, key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/fhir/Provenance", key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/fhir/Provenance/prov-qs-999999999", key, "").status)
+	everything := u + "/fhir/Patient/" + user.ID + "/$everything"
+	r = c.json("GET", everything+"?limit=3", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	var page1 struct {
+		Link []struct {
+			Relation string `json:"relation"`
+			URL      string `json:"url"`
+		} `json:"link"`
+	}
+	r.json(t, &page1)
+	next = ""
+	for _, l := range page1.Link {
+		if l.Relation == "next" {
+			next = l.URL
+		}
+	}
+	require.NotEmpty(t, next)
+	assert.Equal(t, 200, c.json("GET", strings.TrimPrefix(next, base), key, "").status)
+	assert.Equal(t, 400, c.json("GET", everything+"?cursor=bm9wZQ", key, "").status)
+
 	// Open mHealth: a page of data points, its next cursor, one schema, a refusal.
 	r = c.json("GET", u+"/omh/data-points?limit=2", key, "")
 	require.Equal(t, 200, r.status, "%s", r.body)

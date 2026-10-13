@@ -42,6 +42,7 @@
     "code": "mg/dL"
   },
   "device": {
+    "reference": "Device/dev-4cf3bbab090b56cf",
     "display": "Invented Meter 1"
   }
 }

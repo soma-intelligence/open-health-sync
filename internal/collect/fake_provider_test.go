@@ -41,7 +41,7 @@ type fakeProvider struct {
 	refreshMode atomic.Value // "ok" | "revoked" | "keep" (no new refresh token issued)
 	// lastRefresh is the refresh token of the last refresh request.
 	lastRefresh atomic.Value
-	fetchMode   atomic.Value // "ok" | "429" | "revoked" | "500" | "hang"
+	fetchMode   atomic.Value // "ok" | "429" | "429long" | "revoked" | "noscope" | "500" | "hang"
 
 	// onRefusal, when set, runs on every 401 of the data endpoint with the
 	// refusal count, before the answer is sent.
@@ -154,6 +154,13 @@ func (f *fakeProvider) data(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "120")
 		http.Error(w, "slow down", http.StatusTooManyRequests)
 		return
+	case "429long":
+		w.Header().Set("Retry-After", "7200")
+		http.Error(w, "daily quota spent", http.StatusTooManyRequests)
+		return
+	case "noscope":
+		http.Error(w, "scope not granted", http.StatusForbidden)
+		return
 	case "revoked":
 		n := f.refusalN.Add(1)
 		if hook := f.onRefusal.Load(); hook != nil {
@@ -249,6 +256,8 @@ func (c fakeConnector) Fetch(ctx context.Context, conn connector.Connection, fro
 		return connector.RateLimited(resp.Header, time.Now())
 	case http.StatusUnauthorized:
 		return connector.ErrNeedsReauth
+	case http.StatusForbidden:
+		return fmt.Errorf("data endpoint: 403: %w", connector.ErrMissingScope)
 	default:
 		return fmt.Errorf("data endpoint: %d", resp.StatusCode)
 	}

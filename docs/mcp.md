@@ -138,7 +138,7 @@ Arguments mirror the REST query parameters. Times take RFC 3339 or `YYYY-MM-DD` 
 | `get_menstrual_cycles` | `user_id`, `start`, `end`, `cursor`, `limit` | menstrual cycles derived from the recorded flow, as `GET /v1/users/{id}/menstrual-cycles`; `start` and `end` select cycles by their start day (see [menstrual-cycles.md](menstrual-cycles.md)) |
 | `get_coverage` | `user_id`, `provider`, `start`, `end` | records per provider per day, plus `pending_jobs`, `parked_jobs` and `rejected_records` (lines not stored) |
 | `get_tags` | `user_id`, `kind`, `start`, `end`, `cursor`, `limit` | the user's [time tags](time-tags.md) that overlap the window, ongoing ones included, as `GET /v1/users/{id}/tags` |
-| `list_connections` | `user_id` | provider connections, status and last sync time |
+| `list_connections` | `user_id` | provider connections, status, last sync time and health |
 | `list_webhooks` | `deliveries` | the tenant's [webhook](webhooks.md) endpoints and their health; with `deliveries`, each one's 10 latest deliveries (tenant key only; endpoints are managed through the REST API) |
 
 Each result is one JSON text content:

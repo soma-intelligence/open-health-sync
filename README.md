@@ -120,6 +120,8 @@ Provider deletions are honored too.
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
 | 🔜 | Read-only admin console at `/console` ([docs](docs/console.md)) | | |
+| 🔜 | Backup and restore scripts, tested in CI ([docs](docs/backup-and-restore.md)) | | |
+| 🔜 | Hosted connect page: your app name and logo, one button per source ([docs](docs/connect-page.md)) | | |
 | 🔜 | Erase one source's data for a user on disconnect, or for Apple Health and Health Connect | | |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
 | 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR, after the SDKs |
@@ -131,7 +133,7 @@ image does not have the 🔜 lines yet. Details per source:
 ## What you can build
 
 - **A health app backend.** Your iOS app uploads HealthKit data, your users connect their
-  Oura, WHOOP or Withings accounts, and your app reads one API instead of thirteen (most of
+  Oura, WHOOP or Withings accounts (through a hosted connect page with your logo, next release), and your app reads one API instead of thirteen (most of
   them arrive in the next release).
 - **An AI agent over your own data.** Run it at home, connect your devices, and give your desktop
   agent a read-only view of your sleep, workouts and heart rate through MCP.
@@ -264,6 +266,8 @@ Want one sooner? Connectors are self-contained: read
 | MCP server, read only ([docs/mcp.md](docs/mcp.md)) | ✅ Available |
 | FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | 🔜 On `main`, next release (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
 | RR intervals and HRV (RMSSD, SDNN, pNN50, mean RR and heart rate) per heartbeat series, over REST and MCP ([docs/hrv.md](docs/hrv.md)) | 🔜 On `main`, next release |
+| Menstrual cycles derived from recorded flow, over REST and MCP; no predictions ([docs/menstrual-cycles.md](docs/menstrual-cycles.md)) | 🔜 On `main`, next release |
+| Time tags (illness, injury, travel, jet lag, vaccination, medication, alcohol) that give context to the data, over REST, webhooks and MCP ([docs/time-tags.md](docs/time-tags.md)) | 🔜 On `main`, next release |
 | Read routes for ECG recordings, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
 | Open mHealth ([docs/open-mhealth.md](docs/open-mhealth.md)) | 🔜 On `main`, next release |
@@ -457,6 +461,8 @@ and units):
 
 - **QuantitySample**: one scalar measurement, such as heart rate, steps or SpO2.
 - **CategorySample**: a categorical event, such as a stand hour or a menstrual flow entry.
+  Menstrual cycles are derived from the flow entries at read time by `/menstrual-cycles` on
+  `main`, next release ([docs/menstrual-cycles.md](docs/menstrual-cycles.md)).
 - **SleepSession** and **SleepPhase**: a night with its duration breakdown, then each stage.
 - **Workout** and **RoutePoint**: a session with its metrics, then its GPS track.
 - **NutritionLog**: a food or drink entry with its nutrients.
@@ -476,6 +482,9 @@ and units):
   memory limits). See [Raspberry Pi 5](docs/self-hosting.md#raspberry-pi-5-4-gb).
 - **S3 raw store.** Add `deploy/docker-compose.s3.yml`, or point `OHS_RAW_STORE` at any S3
   compatible bucket. See [S3](docs/self-hosting.md#s3-compatible-raw-store).
+- **Backup and restore** (🔜 next release). `scripts/backup.sh` writes one archive with the
+  database, the raw store and the schema version; `scripts/restore.sh` puts it back. CI destroys
+  and restores a stack on every pull request. See [backup and restore](docs/backup-and-restore.md).
 - **Release binaries.** Linux and macOS, amd64 and arm64, with `checksums.txt`, on the
   [releases page](https://github.com/soma-intelligence/open-health-sync/releases). Bring your
   own Postgres with TimescaleDB and run `ohs doctor`, then `ohs up` (migrate, then serve). Each
@@ -581,7 +590,7 @@ software.
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON and
 Health Connect connectors, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing webhooks,
-Health app export import, background sync, sample compression, RR intervals and HRV, per-source erasure, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
+Health app export import, background sync, sample compression, RR intervals and HRV, menstrual cycles, time tags, per-source erasure, backup and restore, the hosted connect page, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
@@ -591,7 +600,9 @@ Known limitations:
 - One database and one raw store per instance; no multi-region replication.
 - FHIR R4 serves Observations only (samples, blood pressure, sleep, workouts, daily summaries); no
   mobile SDKs yet.
-- `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
+- In v0.0.2, `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
+  On `main` (next release) it is closed by default and opens with a token or a private listener
+  ([metrics](docs/self-hosting.md#metrics)).
 
 Next: more connectors, standard outputs (more FHIR R4 resources), then client
 SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as GitHub issues, including the connector request form.
@@ -611,9 +622,13 @@ SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as G
   [WHOOP](docs/connectors/whoop.md), [Strava](docs/connectors/strava.md),
   [Polar](docs/connectors/polar.md), [writing your own](docs/writing-a-connector.md).
 - [Background sync](docs/background-sync.md): webhooks, backstop pulls, freshness.
+- [Backup and restore](docs/backup-and-restore.md): one archive with the database and raw store, and how to put it back.
+- [Connect page](docs/connect-page.md): a hosted page where your users connect their sources, then return to your app.
 - [Admin console](docs/console.md): a read-only page for users, connections, freshness and webhook deliveries.
 - [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
 - [RR intervals and HRV](docs/hrv.md): beat-to-beat intervals and the HRV derived from them.
+- [Menstrual cycles](docs/menstrual-cycles.md): cycles derived from recorded flow, without predictions.
+- [Time tags](docs/time-tags.md): intervals such as an illness or a trip that give context to the data.
 
 ## Contributing
 

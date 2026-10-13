@@ -5,6 +5,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,12 @@ type Config = config.ProviderKeys
 // ErrNeedsReauth is returned by Refresh and Fetch when the provider rejects
 // the grant and the user has to connect again.
 var ErrNeedsReauth = errors.New("connector: provider rejected the grant, reauthorization needed")
+
+// ErrMissingScope is returned by Fetch when the provider refuses the data
+// because the grant lacks a permission it needs: the user unticked it at
+// consent or withdrew it later. It wraps ErrNeedsReauth (the user has to
+// connect again and grant it); the connection's health then says why.
+var ErrMissingScope = fmt.Errorf("connector: the grant lacks a permission the data needs: %w", ErrNeedsReauth)
 
 // RawRecord is one raw payload handed to Connector.Map.
 type RawRecord struct {

@@ -3,8 +3,11 @@
 Open Health Sync serves a user's records as [FHIR R4](https://hl7.org/fhir/R4/) (4.0.1)
 Observations, so a FHIR client, an EHR integration or a research pipeline can read them without
 learning the REST JSON shapes: quantity samples (heart rate, steps, weight, SpO2...), blood
-pressure readings, sleep sessions, workouts and daily summaries. The output is checked against
-the specification with the official HL7 validator (see [Validation](#validation)).
+pressure readings, sleep sessions, workouts and daily summaries. The user is served as a
+[Patient](#patient), the devices the records came from as [Devices](#devices), and who produced
+each Observation as its [Provenance](#provenance); [`$everything`](#everything) pages through all
+of them in one Bundle. The output is checked against the specification with the official HL7
+validator, in CI (see [Validation](#validation)).
 
 Category samples, nutrition, sleep phases, routes and the other resources are
 [not in this version](#not-in-this-version).
@@ -15,10 +18,18 @@ Category samples, nutrition, sleep phases, routes and the other resources are
 |---|---|
 | `GET /v1/users/{id}/fhir/Observation` | a `searchset` Bundle of Observations, one page |
 | `GET /v1/users/{id}/fhir/Observation/{observation_id}` | one Observation, the one an entry's `fullUrl` points to |
+| `GET /v1/users/{id}/fhir/Patient/{id}` | the user as a [Patient](#patient) |
+| `GET /v1/users/{id}/fhir/Patient/{id}/$everything` | a `searchset` Bundle of the Patient, the Observations, their Devices and Provenance, one page ([`$everything`](#everything)) |
+| `GET /v1/users/{id}/fhir/Device` | a `searchset` Bundle of the [Devices](#devices) of the user's records, in one page |
+| `GET /v1/users/{id}/fhir/Device/{device_id}` | one Device, the one an Observation's `device` points to |
+| `GET /v1/users/{id}/fhir/Provenance?target=Observation/{observation_id}` | a `searchset` Bundle of the [Provenance](#provenance) of one Observation |
+| `GET /v1/users/{id}/fhir/Provenance/{provenance_id}` | one Provenance |
+| `GET /v1/users/{id}/fhir/metadata` | the [CapabilityStatement](#capabilitystatement) |
 
-Both take a tenant key, like every read, and answer `Content-Type: application/fhir+json`. A
-user of another tenant, or an Observation that is not the user's, is a 404. Errors are
-`application/problem+json` like the rest of the API (not an OperationOutcome).
+Every route takes a tenant key, like every read, and answers `Content-Type:
+application/fhir+json`. A user of another tenant, a Patient id other than the user's, or a
+resource that is not the user's, is a 404. Errors are `application/problem+json` like the rest
+of the API (not an OperationOutcome).
 
 ### One list for every kind of record
 
@@ -112,7 +123,7 @@ curl -s "$OHS/v1/users/$USER_ID/fhir/Observation?code=http://loinc.org%7C8867-4&
         "effectiveDateTime": "2026-03-01T08:00:00Z",
         "issued": "2026-03-01T09:15:30.25Z",
         "valueQuantity": { "value": 61, "unit": "bpm", "system": "http://unitsofmeasure.org", "code": "/min" },
-        "device": { "display": "apple_watch" }
+        "device": { "reference": "Device/dev-4cd59d3e7b09cd28", "display": "apple_watch" }
       },
       "search": { "mode": "match" }
     }
@@ -131,12 +142,12 @@ Every Observation shares these elements; the sections below give what each kind 
 |---|---|
 | `id` | a prefix and the stored row id: `qs-`, `bp-` (the systolic sample's id), `sleep-`, `workout-`, `daily-`. Stable: a re-read gives the same id |
 | `status` | always `final` |
-| `subject` | `Patient/{user id}` (no Patient resource is served yet) |
+| `subject` | `Patient/{user id}`, the [Patient](#patient) |
 | `issued` | `ingested_at` |
 | `meta.source` | the provider the record came through: `.../fhir/provider/{provider}` |
 | `meta.tag` | the vendor that produced the record (provenance `source`), in the source code system |
 | `identifier` | the provider's own id of the record (`external_id`), when it has one, with system `.../fhir/provider/{provider}/external-id` |
-| `device.display` | the provenance `device` (for a sample, else `device_model`); left out when neither is known |
+| `device` | `reference` is `Device/` and the id of the record's [Device](#devices); `display` is the provenance `device`, else (for a sample) `device_model`, else `product_type`. Left out when none is known, which is always the case for a daily summary |
 
 `metadata` and the other provider fields of the REST records are not mapped.
 
@@ -327,7 +338,99 @@ A count, index or score is dimensionless: its UCUM code is an annotation, which 
 `unit` repeats the annotation's word (`{steps}` reads `steps`). Values are the stored ones, in
 the storage unit: nothing is converted on the way out (durations stay in seconds).
 
-### Identifiers Open Health Sync defines
+## Patient
+
+`GET /v1/users/{id}/fhir/Patient/{id}` serves the user, and the `subject` of every Observation
+points to it. Open Health Sync stores no name, birth date or other demographics, so the Patient
+holds only what it does store:
+
+| Patient | From the user |
+|---|---|
+| `id` | the user id; the path's two ids must be the same, another is a 404 |
+| `identifier` | the tenant's `external_ref`, when it set one, with system `.../fhir/tenant/{tenant id}/external-ref` (an `external_ref` is unique within one tenant only) |
+| `active` | always `true`: a user being deleted is a 404 |
+
+## Devices
+
+A Device is one device the user's records came from, as their provenance names it. Its
+identity is five stored fields: the provider, the source (`source_slug`), and the device fields
+of the record: `device_id`, and for a quantity sample `device_model` and `product_type` (sleep
+sessions and workouts keep `device_id` only; daily summaries keep none). A record with no
+device id, model or product type names no Device. Two records with the same five fields name
+the same Device, whatever their kind.
+
+| Device | From the device fields |
+|---|---|
+| `id` | `dev-` and the first 16 hex digits of the SHA-256 of the user id and the five fields. Stable: a re-read gives the same id, and another user's device of the same fields has another id |
+| `meta.source` | the provider, as on the Observations: `.../fhir/provider/{provider}` |
+| `meta.tag` | the source, in the source code system, when known |
+| `identifier` | `device_id`, the provider's own device name or id, with system `.../fhir/provider/{provider}/device-id`, when known |
+| `deviceName` | `device_model`, with type `model-name`, when known |
+| `modelNumber` | `product_type`, when known. For Apple Health it is the hardware that ran the app that wrote the sample (`Watch7,2`), most often the device itself |
+| `patient` | `Patient/{user id}` |
+
+The id is computed from the record's own fields, so an Observation references its Device with
+no extra query. `GET /fhir/Device` reads the five fields of the user's quantity samples, sleep
+sessions and workouts whose time is in `[start, end)` (both optional, as for Observations), each
+device once, in one page with no `next` link: a user has a handful of devices. It reads the
+`(tenant_id, user_id, time)` index of each table, so a window reads only the chunks it covers;
+with no window it reads the device fields of every record of the user once, which on years of
+minute-level samples takes seconds. Pass `start` and `end` on a large history, or use
+[`$everything`](#everything), which gives the Devices of each page from the rows it already
+reads. `cursor` and `limit` are a 400. `GET /fhir/Device/{device_id}` makes the same read with
+no window, then answers the Device of that id (404 when none of the user's records names it).
+
+## Provenance
+
+Each Observation has one Provenance: who and what produced it.
+
+| Provenance | From the record |
+|---|---|
+| `id` | `prov-` and the Observation id (`prov-qs-1001`). Stable |
+| `target` | `Observation/{observation id}` |
+| `recorded` | `ingested_at`, the Observation's `issued` (the later of a panel's two samples) |
+| `agent` | the record's [Device](#devices), when it names one, with type `author`; then the provider integration the record came through, with type `assembler`, as a logical reference: `identifier` with system `.../fhir/provider` and the provider (`apple_health`) |
+| `entity` | the provider's own record, when it has an id: role `derivation`, `what` a logical reference to the Observation's `identifier` (both samples' of a panel) |
+
+The agent types are codes of the HL7
+[provenance participant type](https://terminology.hl7.org/CodeSystem-provenance-participant-type.html)
+system. The vendor that produced the record is not an agent of its own: it is the `meta.tag` of
+the Observation and of the Device. The raw upload or provider response a record was read from is
+not linked: the stored records do not keep its key.
+
+`GET /fhir/Provenance` takes one `target`, `Observation/` and an Observation id, and answers a
+Bundle with its Provenance, or no entry when the user has no such Observation. Without `target`,
+or with another resource type, it is a 400. `GET /fhir/Provenance/{provenance_id}` reads one;
+the Provenance of an Observation that does not exist is a 404.
+
+## $everything
+
+`GET /v1/users/{id}/fhir/Patient/{id}/$everything` is a `searchset` Bundle of the Patient and
+all their resources, paged like the Observation search: follow `next` until there is none.
+
+| Entry | `search.mode` | On which page |
+|---|---|---|
+| the Patient | `match` | the first (no `cursor`) |
+| the Observations | `match` | the page of the [Observation search](#one-list-for-every-kind-of-record) with the same `start`, `end`, `limit` and `cursor` |
+| the Devices those Observations reference | `include` | each page that references it, once per page |
+| the Provenance of each Observation | `include` | the Observation's page |
+
+The entries come in that order. `limit` counts the Observations, and the cursor in the `next`
+link is the Observation search's, so no Observation is skipped or repeated and every reference
+of a page resolves to an entry of the same page, except `Patient/{user id}` on the later
+pages, which the first page holds. `start` and `end` bound the Observations only. The Devices and the Provenance are made
+from the rows of the page: `$everything` costs the Observation search's two queries and a read
+of the user. `type`, `code` and `category` are not taken (`type` is a 400); the FHIR `_since`,
+`_type` and `_count` parameters are not supported.
+
+## CapabilityStatement
+
+`GET /v1/users/{id}/fhir/metadata` describes these routes as a `CapabilityStatement` of kind
+`instance`, for the user's FHIR base (`implementation.url`): `read` and `search-type` on
+Observation, Device and Provenance with their parameters, `read` and the `everything` operation
+on Patient. It needs a tenant key like every route.
+
+## Identifiers Open Health Sync defines
 
 Every URI below starts with `https://github.com/soma-intelligence/open-health-sync/fhir`. They
 are identifiers, documented here; nothing is served at them.
@@ -341,6 +444,9 @@ are identifiers, documented here; nothing is served at them.
 | `.../CodeSystem/source` | `meta.tag`: the vendor that produced the record |
 | `.../provider/{provider}` | `meta.source`: the provider the record came through |
 | `.../provider/{provider}/external-id` | `identifier.system`: the provider's own record ids |
+| `.../provider/{provider}/device-id` | `Device.identifier.system`: the provider's own device names or ids |
+| `.../provider` | `Provenance.agent.who.identifier.system`: the provider integrations (`apple_health`, `withings`...) |
+| `.../tenant/{tenant id}/external-ref` | `Patient.identifier.system`: the tenant's own references to its users |
 
 No custom extension is used, so a validator needs nothing beyond the R4 specification.
 
@@ -350,16 +456,23 @@ Each mapping case has a golden file in [internal/fhir/testdata](../internal/fhir
 profiled vital sign of each kind, resting heart rate, an unpaired systolic sample, a blood
 pressure panel, an interval, a laboratory value, a type without LOINC code, a type and unit
 outside the catalog, a NaN value, a sleep session, a workout, a daily summary on a daylight
-saving day, and searchset Bundles (vital signs, every kind of record, empty). `go test
+saving day, searchset Bundles (vital signs, every kind of record, empty), a Patient with and
+without identifier, a Device with every field and one with a model only, the Provenance of a
+sample, of a blood pressure panel and of a daily summary (no device), the Device and Provenance
+searchsets, a first and a last `$everything` page, and the CapabilityStatement. `go test
 ./internal/fhir` compares the mapping with them (`-update` rewrites them), and checks they hold
 no empty array, object or string, which FHIR JSON forbids. The contract tests check the same
-files against `api/openapi.yaml`.
+files against `api/openapi.yaml`, each against the route that answers it.
 
 `make fhir-validate` (`scripts/fhir-validate.sh`) runs the official HL7 validator on the golden
-files with `-version 4.0.1`. It needs Java 17 or later and the network, and is not part of CI.
-Every file passes with 0 errors. The warnings left are expected:
+files with `-version 4.0.1`. It needs Java 17 or later and the network. CI runs it
+(`.github/workflows/fhir-validate.yml`, Java 21) on every pull request and push to `main` that
+changes `internal/fhir`, the script or the workflow, and fails on any error. The warnings left
+are expected:
 
 - no narrative (`dom-6`) and no `performer`: both best practice, neither required;
+- a reference to a resource the file does not hold (the `Device/` of a single Observation, the
+  `Patient/` of a Bundle page that is not the first) cannot be resolved;
 - the Open Health Sync code systems are not published, so their codes cannot be checked;
 - a UCUM annotation such as `{steps}` is flagged as best practice to review.
 
@@ -370,9 +483,12 @@ codes; with the default terminology server it checks them.
 
 Planned, in no fixed order:
 
-- Category samples, nutrition, sleep phases and workout routes as FHIR resources.
-- `Patient` and `Device` resources (today `subject` points to `Patient/{user id}` and `device`
-  is a display name only).
-- Bulk export (`$export`), a `CapabilityStatement`, OperationOutcome errors, the FHIR `date`,
-  `component-code` and `_count` parameters, and access with a user token.
+- Category samples, nutrition, sleep phases and workout routes as FHIR resources, and the
+  devices of those records.
+- Patient demographics (none are stored), a Patient search, and an `Organization` for each
+  provider (the Provenance names it by identifier only).
+- A Provenance entity for the raw upload or provider response a record was read from.
+- Bulk export (`$export`), OperationOutcome errors, the FHIR `date`, `component-code`,
+  `_count`, `_since`, `_type`, `_include` and `_revinclude` parameters, and access with a user
+  token.
 - Open mHealth schemas.

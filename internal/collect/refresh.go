@@ -117,7 +117,7 @@ func (d Deps) renewLocked(ctx, pctx context.Context, tx pgx.Tx, oc connector.OAu
 
 	fresh, err := oc.Refresh(pctx, conn.Tokens)
 	if errors.Is(err, connector.ErrNeedsReauth) {
-		if merr := markNeedsReauth(ctx, tx, tenantID, userID, provider); merr != nil {
+		if merr := markNeedsReauth(ctx, tx, tenantID, userID, provider, reauthReason(err), d.now()); merr != nil {
 			return connector.Connection{}, merr
 		}
 		return connector.Connection{}, connector.ErrNeedsReauth

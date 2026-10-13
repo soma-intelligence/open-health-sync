@@ -21,7 +21,10 @@ info:
 
     **FHIR.** `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood
     pressure readings, sleep sessions, workouts and daily summaries as FHIR R4 Observations
-    (`application/fhir+json`); see docs/fhir.md. `GET /v1/users/{id}/omh/data-points` serves
+    (`application/fhir+json`), the user as a Patient, the devices the records came from as
+    Devices, who produced each Observation as its Provenance, and all of them in one paged
+    Bundle with `GET /v1/users/{id}/fhir/Patient/{id}/$everything`; see docs/fhir.md.
+    `GET /v1/users/{id}/omh/data-points` serves
     them as Open mHealth data points; see docs/open-mhealth.md.
 
     **Exports.** `GET /v1/users/{id}/exports/{dataset}` streams every record of one list in a
@@ -717,6 +720,110 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/connections/{provider}/sync:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    post:
+      tags: [connections]
+      operationId: syncConnection
+      summary: Sync a connection now
+      description: |
+        Queues a pull of the connection ahead of routine work and answers with the sync run; follow it
+        at the `Location` header. The window ends now and starts where the connection's data ends
+        (minus an hour of overlap), a day back for a connection that never synced, or at `from`
+        (at most 30 days back). While a manual run of the connection is still queued or running, the
+        answer is 200 with that run and nothing new is queued. 409 when the connection does not sync
+        (`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                from: { type: string, format: date-time }
+      responses:
+        "200":
+          description: A manual run of this connection is already queued or running.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "202":
+          description: Queued.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/users/{id}/sync-runs:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [connections]
+      operationId: listSyncRuns
+      summary: The user's sync history
+      description: |
+        Every pull of the user's connections, newest first: what started it, its window, its status,
+        the raw payloads it stored and the provider's error when it failed. Finished runs are kept
+        30 days.
+      parameters:
+        - name: provider
+          in: query
+          description: Only this provider's runs.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of runs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/SyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/sync-runs/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    get:
+      tags: [connections]
+      operationId: getSyncRun
+      summary: One sync run
+      responses:
+        "200":
+          description: The run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/samples:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1267,6 +1374,177 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/fhir/Patient/{patient_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/FHIRPatientID"
+    get:
+      tags: [fhir]
+      operationId: readFHIRPatient
+      summary: The user as a FHIR R4 Patient
+      description: |
+        The user as a Patient: `id` is the user id, `active` is true, and `identifier` is the
+        tenant's `external_ref` when it set one. No name or birth date (not stored). A
+        `patient_id` other than the user's id, or a user of another tenant, is a 404.
+      responses:
+        "200":
+          description: The Patient.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRPatient" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Patient/{patient_id}/$everything:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/FHIRPatientID"
+    get:
+      tags: [fhir]
+      operationId: everythingFHIRPatient
+      summary: The Patient and all their records, as FHIR R4 resources
+      description: |
+        One page of a `searchset` Bundle: on the first page the Patient, then the page's
+        Observations (`search.mode` `match`, the list and the cursor of the Observation
+        search), then the Devices they reference (each once per page) and the Provenance of
+        each Observation (`include`). Follow the `next` link until there is none: no
+        Observation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIREverythingBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Device:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: searchFHIRDevices
+      summary: The devices the user's records came from, as FHIR R4 Devices
+      description: |
+        A `searchset` Bundle of the devices named by the provenance of the user's quantity
+        samples, sleep sessions and workouts whose time is in the window, each once, in one
+        page (no `next` link). Unbounded, it reads the provenance of every record of the user:
+        pass `start` and `end` on a large history. `cursor` and `limit` are a 400.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+      responses:
+        "200":
+          description: Every device of the window.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRDeviceBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Device/{device_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: device_id
+        in: path
+        required: true
+        description: The Device id, as an Observation's `device.reference` gives it.
+        schema: { type: string, examples: [dev-4cd59d3e7b09cd28] }
+    get:
+      tags: [fhir]
+      operationId: readFHIRDevice
+      summary: One FHIR R4 Device
+      description: |
+        The Device an Observation references. A device none of the user's records names is a
+        404.
+      responses:
+        "200":
+          description: The Device.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRDevice" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Provenance:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: searchFHIRProvenance
+      summary: The Provenance of one Observation
+      description: |
+        A `searchset` Bundle holding the Provenance of the Observation `target` names, or no
+        entry when the user has no such Observation.
+      parameters:
+        - name: target
+          in: query
+          required: true
+          description: "`Observation/` and an Observation id. One value."
+          schema: { type: string, examples: [Observation/qs-1234] }
+      responses:
+        "200":
+          description: The Provenance, or an empty Bundle.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRProvenanceBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Provenance/{provenance_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: provenance_id
+        in: path
+        required: true
+        description: "`prov-` and the id of the Observation it is about."
+        schema: { type: string, examples: [prov-qs-1234] }
+    get:
+      tags: [fhir]
+      operationId: readFHIRProvenance
+      summary: One FHIR R4 Provenance
+      description: The Provenance of one Observation; an Observation that does not exist is a 404.
+      responses:
+        "200":
+          description: The Provenance.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRProvenance" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/metadata:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: readFHIRCapabilityStatement
+      summary: The FHIR R4 CapabilityStatement of the user's FHIR base
+      description: What the FHIR routes serve (read only), as a CapabilityStatement.
+      responses:
+        "200":
+          description: The CapabilityStatement.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRCapabilityStatement" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/omh/data-points:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1779,6 +2057,12 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    FHIRPatientID:
+      name: patient_id
+      in: path
+      required: true
+      description: The Patient id, which is the user id; any other value is a 404.
+      schema: { type: string }
     WebhookID:
       name: webhook_id
       in: path
@@ -1985,12 +2269,15 @@ components:
 
     WebhookEventType:
       type: string
-      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth, tag.created, tag.updated, tag.deleted]
+      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth, connection.broken, connection.restored, tag.created, tag.updated, tag.deleted]
       description: |
         `data.written`: a sync wrote new or changed records. `data.deleted`: records the
         provider deleted were removed. `data.erased`: everything a user held from one provider
         was erased on your request. `user.deleted`: a user and all their data were erased.
         `connection.needs_reauth`: a provider refused the user's grant; the user must connect again.
+        `connection.broken`: a connection stopped syncing; `reason` says why and `action` what fixes
+        it (`reconnect`: send the user through the connect flow; `wait`: it resumes by itself).
+        `connection.restored`: a broken connection synced again.
         `tag.created`, `tag.updated`, `tag.deleted`: a time tag of the user was created, changed
         or deleted through the API.
 
@@ -2155,6 +2442,17 @@ components:
             records_deleted: { type: integer, description: data.deleted. }
             job_id: { type: string, format: uuid, description: "data.erased. The deletion job that finished." }
             tag_id: { type: string, format: uuid, description: "tag.created, tag.updated and tag.deleted." }
+            reason:
+              type: string
+              enum: [needs_reauth, missing_scope, failing, rate_limited]
+              description: connection.broken.
+            action: { type: string, enum: [reconnect, wait], description: connection.broken. }
+            retry_at: { type: string, format: date-time, description: "connection.broken, rate_limited. When pulls resume." }
+            last_error: { type: string, description: "connection.broken, failing. The provider error, made safe to show." }
+            consecutive_failures: { type: integer, description: "connection.broken, failing." }
+            previous_reason: { type: string, description: connection.restored. }
+            broken_since: { type: string, format: date-time, description: connection.restored. }
+            broken_seconds: { type: integer, description: connection.restored. }
             endpoint_id: { type: string, format: uuid, description: webhook.test. }
 
     Connection:
@@ -2170,6 +2468,49 @@ components:
         initial_backfill_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        health: { $ref: "#/components/schemas/ConnectionHealth" }
+
+    ConnectionHealth:
+      type: object
+      description: |
+        Whether the connection syncs, and if not why and what fixes it. `reason` is `needs_reauth`
+        (the provider refused the grant: token expired or revoked), `missing_scope` (the grant lacks a
+        permission the data needs), `failing` (the last 3 pulls failed) or `rate_limited` (the provider
+        asked to wait an hour or more, until `retry_at`). `action` is `reconnect` (send the user
+        through the connect flow again) or `wait` (it resumes by itself).
+      required: [healthy, reason, action, since, retry_at]
+      properties:
+        healthy: { type: boolean }
+        reason: { type: [string, "null"], enum: [needs_reauth, missing_scope, failing, rate_limited, null] }
+        action: { type: [string, "null"], enum: [reconnect, wait, null] }
+        since: { type: [string, "null"], format: date-time }
+        retry_at: { type: [string, "null"], format: date-time }
+
+    SyncRun:
+      type: object
+      description: |
+        One pull of one connection. `status` is `queued`, `running`, `retrying` (the last attempt
+        failed, see `error`; the next is at `next_attempt_at`), `rate_limited` (the provider asked to
+        wait until `next_attempt_at`), `succeeded`, `failed` (attempts spent, or the grant was refused)
+        or `cancelled` (the connection was disconnected). `objects_stored` counts the raw provider
+        payloads stored; the records written from them are announced by `data.written` webhooks.
+      required: [id, provider, trigger, status, data_type, window_start, window_end, attempts, objects_stored,
+        error, created_at, started_at, finished_at, next_attempt_at]
+      properties:
+        id: { type: integer, format: int64 }
+        provider: { type: string }
+        trigger: { type: string, enum: [backfill, scheduled, notification, manual] }
+        status: { type: string, enum: [queued, running, retrying, rate_limited, succeeded, failed, cancelled] }
+        data_type: { type: [string, "null"], description: Set when a notification named the one data type to pull. }
+        window_start: { type: string, format: date-time }
+        window_end: { type: string, format: date-time }
+        attempts: { type: integer, description: Failed attempts so far. }
+        objects_stored: { type: [integer, "null"] }
+        error: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        next_attempt_at: { type: [string, "null"], format: date-time }
 
     ConnectSessionRequest:
       type: object
@@ -2214,6 +2555,7 @@ components:
         last_attempt_at: { type: [string, "null"], format: date-time }
         last_error: { type: [string, "null"] }
         consecutive_failures: { type: integer }
+        health: { $ref: "#/components/schemas/ConnectionHealth" }
 
     Provenance:
       type: object
@@ -2646,7 +2988,223 @@ components:
       type: object
       properties:
         reference: { type: string, examples: ["Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"] }
+        identifier: { $ref: "#/components/schemas/FHIRIdentifier" }
         display: { type: string }
+    FHIRIdentifier:
+      type: object
+      properties:
+        system: { type: string, format: uri }
+        value: { type: string }
+    FHIRMeta:
+      type: object
+      properties:
+        source:
+          type: string
+          format: uri
+          description: The provider the record came through.
+        profile:
+          type: array
+          items: { type: string, format: uri }
+        tag:
+          type: array
+          description: The vendor that produced the record, when known.
+          items: { $ref: "#/components/schemas/FHIRCoding" }
+    FHIRPatient:
+      type: object
+      description: The user as a FHIR R4 Patient (docs/fhir.md).
+      required: [resourceType, id, active]
+      properties:
+        resourceType: { type: string, const: Patient }
+        id: { type: string, format: uuid }
+        identifier:
+          type: array
+          description: The tenant's external_ref, when it set one.
+          items: { $ref: "#/components/schemas/FHIRIdentifier" }
+        active: { type: boolean, const: true }
+    FHIRDevice:
+      type: object
+      description: A device the user's records came from, as a FHIR R4 Device (docs/fhir.md).
+      required: [resourceType, id]
+      properties:
+        resourceType: { type: string, const: Device }
+        id: { type: string, pattern: "^dev-[0-9a-f]{16}$", examples: [dev-4cd59d3e7b09cd28] }
+        meta: { $ref: "#/components/schemas/FHIRMeta" }
+        identifier:
+          type: array
+          description: The provider's device id (provenance `device`), when known.
+          items: { $ref: "#/components/schemas/FHIRIdentifier" }
+        deviceName:
+          type: array
+          description: The device model (`device_model`), when known.
+          items:
+            type: object
+            required: [name, type]
+            properties:
+              name: { type: string }
+              type: { type: string, const: model-name }
+        modelNumber: { type: string, description: "The product type (`product_type`), when known." }
+        patient: { $ref: "#/components/schemas/FHIRReference" }
+    FHIRProvenance:
+      type: object
+      description: Who and what produced one Observation, as a FHIR R4 Provenance (docs/fhir.md).
+      required: [resourceType, id, target, recorded, agent]
+      properties:
+        resourceType: { type: string, const: Provenance }
+        id: { type: string, pattern: "^prov-[A-Za-z0-9\\-\\.]{1,59}$", examples: [prov-qs-1234] }
+        target:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/FHIRReference" }
+        recorded: { type: string, format: date-time, description: When the record was ingested. }
+        agent:
+          type: array
+          minItems: 1
+          description: The Device (`author`) when the record names one, then the provider (`assembler`).
+          items:
+            type: object
+            required: [who]
+            properties:
+              type: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+              who: { $ref: "#/components/schemas/FHIRReference" }
+        entity:
+          type: array
+          description: The provider's own record (each external id), when it has one.
+          items:
+            type: object
+            required: [role, what]
+            properties:
+              role: { type: string, const: derivation }
+              what: { $ref: "#/components/schemas/FHIRReference" }
+    FHIRCapabilityStatement:
+      type: object
+      description: What the FHIR routes serve, as a FHIR R4 CapabilityStatement.
+      required: [resourceType, status, date, kind, fhirVersion, format, rest]
+      properties:
+        resourceType: { type: string, const: CapabilityStatement }
+        status: { type: string, const: active }
+        date: { type: string }
+        kind: { type: string, const: instance }
+        implementation:
+          type: object
+          properties:
+            description: { type: string }
+            url: { type: string, format: uri }
+        fhirVersion: { type: string, const: 4.0.1 }
+        format: { type: array, items: { type: string } }
+        rest:
+          type: array
+          items:
+            type: object
+            properties:
+              mode: { type: string, const: server }
+              security:
+                type: object
+                properties:
+                  description: { type: string }
+              resource:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type: { type: string }
+                    interaction:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          code: { type: string }
+                    searchParam:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name: { type: string }
+                          definition: { type: string, format: uri }
+                          type: { type: string }
+                          documentation: { type: string }
+                    operation:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name: { type: string }
+                          definition: { type: string, format: uri }
+    FHIRBundleLink:
+      type: object
+      required: [relation, url]
+      properties:
+        relation: { type: string, enum: [self, next] }
+        url: { type: string, format: uri }
+    FHIRDeviceBundle:
+      type: object
+      description: A FHIR R4 searchset Bundle of Devices, one page.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link: { type: array, items: { $ref: "#/components/schemas/FHIRBundleLink" } }
+        entry:
+          type: array
+          description: Absent when there is none.
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource: { $ref: "#/components/schemas/FHIRDevice" }
+              search:
+                type: object
+                properties:
+                  mode: { type: string, const: match }
+    FHIRProvenanceBundle:
+      type: object
+      description: A FHIR R4 searchset Bundle of Provenance.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link: { type: array, items: { $ref: "#/components/schemas/FHIRBundleLink" } }
+        entry:
+          type: array
+          description: Absent when there is none.
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource: { $ref: "#/components/schemas/FHIRProvenance" }
+              search:
+                type: object
+                properties:
+                  mode: { type: string, const: match }
+    FHIREverythingBundle:
+      type: object
+      description: |
+        One page of a Patient's $everything: a FHIR R4 searchset Bundle of the Patient (first
+        page), Observations, Devices and Provenance.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link: { type: array, items: { $ref: "#/components/schemas/FHIRBundleLink" } }
+        entry:
+          type: array
+          description: Absent on an empty page after the first.
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource:
+                oneOf:
+                  - $ref: "#/components/schemas/FHIRPatient"
+                  - $ref: "#/components/schemas/FHIRObservation"
+                  - $ref: "#/components/schemas/FHIRDevice"
+                  - $ref: "#/components/schemas/FHIRProvenance"
+              search:
+                type: object
+                properties:
+                  mode: { type: string, enum: [match, include] }
     OMHDataPoint:
       type: object
       description: |

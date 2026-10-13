@@ -148,8 +148,11 @@ with the user's status and starts the same consent flow. See
 [hosted connection page](connect-page.md).
 
 `GET /v1/users/{id}/connections` shows each connection's `status` (`active`, `needs_reauth`,
-`disconnected`), `last_sync_at` and `initial_backfill_at`. A connection in `needs_reauth` needs
-the user to go through consent again. `DELETE /v1/users/{id}/connections/{provider}` revokes the
+`disconnected`), `last_sync_at`, `initial_backfill_at` and `health` (whether it syncs, why not,
+and whether the user must `reconnect` or you only `wait`). A connection in `needs_reauth` needs
+the user to go through consent again. `GET /v1/users/{id}/sync-runs` is the history of its pulls,
+with the provider's error when one failed, and `POST /v1/users/{id}/connections/{provider}/sync`
+pulls it now. See [sync history and connection health](sync-health.md). `DELETE /v1/users/{id}/connections/{provider}` revokes the
 grant (best effort) and stops pulling; data already collected is kept, unless you add
 `?delete_data=true`, which also erases it (see [erasing one provider's data](#erasing-one-providers-data)).
 
@@ -288,8 +291,11 @@ curl -s "$OHS/v1/users/$USER_ID/tags?start=2026-03-01&end=2026-04-01" -H "Author
 summaries as FHIR R4 Observations, in one `searchset` Bundle (`application/fhir+json`) in time
 order, paged by its `next` link, and `GET /v1/users/{id}/fhir/Observation/{observation_id}` reads
 one back. Filters: `type`, `code` (`http://loinc.org|8867-4`), `category` (`vital-signs`,
-`laboratory`, `activity`), `start`, `end`. The mapping, the profiles met and the limits are in
-[fhir.md](fhir.md).
+`laboratory`, `activity`), `start`, `end`. The user is `GET /v1/users/{id}/fhir/Patient/{id}`,
+the devices the records came from `/fhir/Device`, who produced an Observation
+`/fhir/Provenance?target=Observation/{observation_id}`, and
+`/fhir/Patient/{id}/$everything` pages through all of them in one Bundle. The mapping, the
+profiles met and the limits are in [fhir.md](fhir.md).
 
 ```sh
 curl -s "$OHS/v1/users/$USER_ID/fhir/Observation?type=heart_rate&start=2026-03-01&limit=50" \

@@ -362,6 +362,10 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 		tenantID, userID, provider, s.providerUserID, s.access, s.refresh, s.expiresAt, s.scopes, backfillAt); err != nil {
 		return fmt.Errorf("store connection: %w", err)
 	}
+	// Connecting again is what fixes a broken grant.
+	if err := markRestored(ctx, tx, tenantID, userID, provider, now); err != nil {
+		return err
+	}
 	if !backfilled {
 		if err := enqueueBackfill(ctx, tx, tenantID, userID, provider, now); err != nil {
 			return err

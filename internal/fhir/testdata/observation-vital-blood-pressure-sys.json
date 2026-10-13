@@ -44,6 +44,7 @@
     "code": "mm[Hg]"
   },
   "device": {
+    "reference": "Device/dev-4cd59d3e7b09cd28",
     "display": "apple_watch"
   }
 }

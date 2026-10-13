@@ -68,6 +68,7 @@
           "code": "/min"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -131,6 +132,7 @@
           "code": "/min"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -198,6 +200,7 @@
           "code": "%"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -261,6 +264,7 @@
           "code": "Cel"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -324,6 +328,7 @@
           "code": "kg"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -387,6 +392,7 @@
           "code": "cm"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -450,6 +456,7 @@
           "code": "kg/m2"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -505,6 +512,7 @@
           "code": "mm[Hg]"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -560,6 +568,7 @@
           "code": "mm[Hg]"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },

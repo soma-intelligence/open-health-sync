@@ -129,7 +129,7 @@ const sources: Record<string, Target[]> = {
     {
       page: "(guides)/guides/fhir",
       title: "FHIR R4 export",
-      description: "Read quantity samples as FHIR R4 Observations.",
+      description: "Read records as FHIR R4 Observations, with the Patient, its Devices and Provenance.",
     },
   ],
   "docs/open-mhealth.md": [
@@ -151,6 +151,13 @@ const sources: Record<string, Target[]> = {
       page: "(guides)/guides/connect-page",
       title: "Hosted connection page",
       description: "Send users to a page served by Open Health Sync to connect their sources, no OAuth UI to build.",
+    },
+  ],
+  "docs/sync-health.md": [
+    {
+      page: "(guides)/guides/sync-health",
+      title: "Sync history and connection health",
+      description: "Why a user's data is not arriving: connection health, the last pulls, and sync now.",
     },
   ],
   "docs/webhooks.md": [
@@ -202,6 +209,19 @@ for (const file of readdirSync(join(repo, "docs", "recipes")).sort()) {
   sources[`docs/recipes/${file}`] = [{ page: `(guides)/recipes/${file.replace(/\.md$/, "")}` }];
 }
 
+// Learn by building: the index page, then one page per project.
+sources["docs/learn/README.md"] = [
+  {
+    page: "(guides)/learn/index",
+    title: "Learn by building",
+    description: "Seven short projects on your own health data, from a first sync to a webhook, plus a prompt library.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "learn")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md") continue;
+  sources[`docs/learn/${file}`] = [{ page: `(guides)/learn/${file.replace(/\.md$/, "")}` }];
+}
+
 // Sidebar icons (lucide names) of the synced pages, by page path.
 const icons: Record<string, string> = {
   "api-reference/index": "BookOpen",
@@ -236,7 +256,17 @@ const icons: Record<string, string> = {
   "(guides)/recipes/ai-agent": "Bot",
   "(guides)/recipes/connect": "Link",
   "(guides)/guides/hrv": "Waves",
+  "(guides)/learn/index": "GraduationCap",
+  "(guides)/learn/first-sync": "Plug",
+  "(guides)/learn/read-your-sleep": "Moon",
+  "(guides)/learn/hrv-trend": "HeartPulse",
+  "(guides)/learn/ask-an-ai": "Bot",
+  "(guides)/learn/training-vs-sleep": "Dumbbell",
+  "(guides)/learn/your-dashboard": "ChartLine",
+  "(guides)/learn/sleep-alert": "BellRing",
+  "(guides)/learn/prompts": "MessageSquareText",
   "(guides)/guides/connect-page": "MousePointerClick",
+  "(guides)/guides/sync-health": "HeartHandshake",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

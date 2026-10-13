@@ -28,6 +28,12 @@ const (
 	// ConnectionNeedsReauth: a provider refused the user's grant; nothing
 	// syncs until the user connects again.
 	ConnectionNeedsReauth = "connection.needs_reauth"
+	// ConnectionBroken: a connection stopped syncing and says why (grant
+	// refused, a permission missing, pulls failing, provider quota spent)
+	// and what the user can do.
+	ConnectionBroken = "connection.broken"
+	// ConnectionRestored: a broken connection synced again.
+	ConnectionRestored = "connection.restored"
 	// TagCreated, TagUpdated and TagDeleted: a time tag of a user was
 	// created, changed or deleted through the API.
 	TagCreated = "tag.created"
@@ -39,7 +45,7 @@ const (
 
 // Types are the event types an endpoint can subscribe to, in documentation
 // order. Test is not one: it goes to the endpoint it is asked for.
-var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth, TagCreated, TagUpdated, TagDeleted}
+var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth, ConnectionBroken, ConnectionRestored, TagCreated, TagUpdated, TagDeleted}
 
 // KnownType reports whether t can be subscribed to.
 func KnownType(t string) bool { return slices.Contains(Types, t) }

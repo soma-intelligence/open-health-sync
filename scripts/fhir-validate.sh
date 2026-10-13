@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Validates the FHIR golden files (internal/fhir/testdata) with the official
-# HL7 FHIR validator against FHIR R4 (4.0.1). Not part of the required CI: it
+# HL7 FHIR validator against FHIR R4 (4.0.1). CI runs it on the changes that
+# touch internal/fhir (.github/workflows/fhir-validate.yml). It
 # needs Java 17 or later and the network (the validator jar from its GitHub
 # release, the FHIR packages from packages.fhir.org, and by default the
 # terminology server tx.fhir.org, which also checks the LOINC and UCUM codes).

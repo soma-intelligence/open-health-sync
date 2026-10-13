@@ -36,6 +36,16 @@ release may change the API, the configuration or the database schema.
   `/v1/users/{id}/tags`; the list keeps the tags that overlap a window. `tag.created`,
   `tag.updated` and `tag.deleted` webhook events, and the read-only MCP tool `get_tags`. Tags are
   deleted with their user. See [docs/time-tags.md](docs/time-tags.md).
+- FHIR beyond Observations: `GET /v1/users/{id}/fhir/Patient/{id}` serves the user as a
+  Patient (the tenant's `external_ref` as its identifier), `/fhir/Device` and
+  `/fhir/Device/{id}` the devices the records came from, with stable ids derived from their
+  provenance, and `/fhir/Provenance?target=Observation/{id}` and `/fhir/Provenance/{id}` who
+  produced each Observation (its device as author, the provider as assembler, the provider's
+  record as entity). `/fhir/Patient/{id}/$everything` pages through the Patient, the
+  Observations, their Devices and Provenance in one searchset Bundle, with the Observation
+  search's cursor, and `/fhir/metadata` serves a CapabilityStatement. `Observation.device` is
+  now a reference to the Device, and keeps its `display`. The HL7 validator runs in CI on every
+  change to the mapping (`.github/workflows/fhir-validate.yml`). See [docs/fhir.md](docs/fhir.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and
@@ -56,7 +66,10 @@ release may change the API, the configuration or the database schema.
   writes nothing. `GET /v1/deletions/{job_id}` gains `provider` (null for a user deletion), and
   the new `data.erased` webhook announces the end. Without `delete_data` a disconnect keeps the
   data, as before. Migration `0020`.
-
+- Learn by building: seven short beginner projects on your own data (first sync, sleep report,
+  HRV trend, an AI assistant over MCP, training against sleep, a dashboard, a webhook that writes
+  a morning line) and a prompt library for people who train. See
+  [docs/learn](docs/learn/README.md).
 - Recorded connector contracts: `make record PROVIDER=<slug>` records what a real account's API
   answers (or an Apple Health export), anonymized on the contributor's machine, and CI replays
   every committed recording through its connector. See
