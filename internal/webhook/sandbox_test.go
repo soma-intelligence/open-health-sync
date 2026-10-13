@@ -77,6 +77,12 @@ func TestSampleData(t *testing.T) {
 	assert.Equal(t, 3, SampleData(DataDeleted, now)["records_deleted"])
 	assert.Equal(t, "oura", SampleData(ConnectionNeedsReauth, now)["provider"])
 	assert.NotContains(t, SampleData(UserDeleted, now), "provider")
+	b := SampleData(ConnectionBroken, now)
+	assert.Equal(t, "needs_reauth", b["reason"])
+	assert.Equal(t, "reconnect", b["action"])
+	assert.Equal(t, "needs_reauth", SampleData(ConnectionRestored, now)["previous_reason"])
+	assert.Equal(t, uuid.Nil.String(), SampleData(TagCreated, now)["tag_id"])
+	assert.Equal(t, "oura", SampleData(DataErased, now)["provider"])
 }
 
 func TestPayloadTestFlag(t *testing.T) {

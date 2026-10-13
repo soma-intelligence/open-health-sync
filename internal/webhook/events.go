@@ -146,8 +146,23 @@ func SampleData(typ string, now time.Time) map[string]any {
 	case DataDeleted:
 		data["provider"] = "oura"
 		data["records_deleted"] = 3
+	case DataErased:
+		data["provider"] = "oura"
+		data["job_id"] = uuid.Nil.String()
 	case ConnectionNeedsReauth:
 		data["provider"] = "oura"
+	case ConnectionBroken:
+		data["provider"] = "oura"
+		data["reason"] = "needs_reauth"
+		data["action"] = "reconnect"
+	case ConnectionRestored:
+		since := now.UTC().Add(-2 * time.Hour).Truncate(time.Second)
+		data["provider"] = "oura"
+		data["previous_reason"] = "needs_reauth"
+		data["broken_since"] = since
+		data["broken_seconds"] = int64(2 * time.Hour / time.Second)
+	case TagCreated, TagUpdated, TagDeleted:
+		data["tag_id"] = uuid.Nil.String()
 	}
 	return data
 }
