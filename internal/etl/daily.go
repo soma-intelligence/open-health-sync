@@ -205,12 +205,14 @@ func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[day
 // over samples whose start falls in [lo, hi): the per-source sum, then the
 // largest of those. Sources inside one provider overlap (a phone and a watch
 // both count the same steps), so adding them would double count.
+// The sum is ordered so the scan order cannot change the last bits of a float
+// total: a recompute over the same samples then matches the stored row.
 func sumAdditive(ctx context.Context, tx TxLike, sc scope, provider string, lo, hi time.Time) (map[string]float64, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT quantity_type, max(total) FROM (
 			SELECT quantity_type,
 			       COALESCE(NULLIF(source_bundle_id, ''), NULLIF(source_name, ''), NULLIF(device_id, ''), '') AS source,
-			       sum(value) AS total
+			       sum(value ORDER BY value) AS total
 			FROM ohs_data.quantity_samples
 			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND quantity_type = ANY($4)
 			  AND start_date >= $5 AND start_date < $6
