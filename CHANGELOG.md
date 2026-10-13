@@ -18,6 +18,12 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Client SDKs 0.1.0 under [sdks/](sdks), AGPL-3.0-only like the server, not on package registries yet:
+  Kotlin (Android and JVM), Swift (iOS, macOS, Linux; with a HealthKit sync that uploads what
+  changed since the last run), React Native (TypeScript, also Node and browsers) and Flutter
+  (Dart). Each covers every API route with typed models, paging, problem errors, an upload
+  part builder and retried uploads. CI runs their tests and each quickstart example against a
+  live server. Guides: [docs/sdks](docs/sdks/README.md).
 - RR intervals and HRV: `GET /v1/users/{id}/rr-intervals` serves the stored beat-to-beat
   intervals of heartbeat series, and `GET /v1/users/{id}/hrv` the RMSSD, SDNN, pNN50, mean RR
   and mean heart rate derived from each series, after implausible and ectopic intervals are set
