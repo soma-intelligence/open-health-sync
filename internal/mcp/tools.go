@@ -179,6 +179,13 @@ func addTools(s *sdk.Server, t *tools) {
 		func(ctx context.Context, a rrArgs) (any, error) {
 			return rrTool(ctx, t, a, read.HRV)
 		})
+	add(s, "get_menstrual_cycles", "Menstrual cycles derived from the recorded menstrual flow, oldest first: each cycle's "+
+		"start day, its period's flow days (heaviest flow per local day, with the providers), and its length once the "+
+		"next period is recorded (the latest cycle is open). Derived from the data only: nothing is predicted. "+
+		"start and end select cycles by their start day.",
+		func(ctx context.Context, a listArgs) (any, error) {
+			return listTool(ctx, t, a.userArgs, read.Query{}, a.windowArgs, a.pageArgs, read.MenstrualCycles)
+		})
 	add(s, "get_coverage", "What has been synced: records per provider per local day with per metric counts, and the processing jobs still pending.", t.coverage)
 	add(s, "list_connections", "The user's provider connections with their status and last sync time.", t.connections)
 	if t.d.Webhooks != nil {

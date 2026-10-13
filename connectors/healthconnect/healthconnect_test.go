@@ -186,12 +186,56 @@ func TestMapExercise(t *testing.T) {
 	require.Equal(t, "yoga", mapOne(t, yoga).Workouts[0].ActivityType)
 }
 
+// Menstrual flow and intermenstrual bleeding land in the canonical category
+// types Apple Health uses, with the same labels and value numbers.
+func TestMapMenstruation(t *testing.T) {
+	res := mapOne(t, lines(t)["mf-1"])
+	require.Len(t, res.CategorySamples, 1)
+	require.Empty(t, res.QuantitySamples)
+	s := res.CategorySamples[0]
+	require.Equal(t, "menstrual_flow", s.CategoryType)
+	require.Equal(t, "light", s.ValueLabel)
+	require.Equal(t, 2, s.ValueInt)
+	require.Equal(t, Slug, s.Provider)
+	require.Equal(t, "mf-1", s.ExternalID)
+	require.Equal(t, "com.example.cycles", s.SourceName)
+	require.Equal(t, time.Date(2026, 3, 1, 23, 30, 0, 0, time.UTC), s.StartDate)
+	require.Equal(t, s.StartDate, s.EndDate)
+	require.Equal(t, "Etc/GMT-1", s.Metadata["timezone"], "the local day is 2 March")
+	require.Equal(t, "manual", s.Metadata["recording_method"])
+
+	edited := lines(t)["mf-1"]
+	edited["flow"] = "heavy"
+	require.Equal(t, s.ContentHash, mapOne(t, edited).CategorySamples[0].ContentHash, "hashed on the record id and time")
+
+	u := mapOne(t, lines(t)["mf-2"]).CategorySamples[0]
+	require.Equal(t, "unspecified", u.ValueLabel, "flow of unknown amount")
+	require.Equal(t, 1, u.ValueInt)
+	require.NotContains(t, u.Metadata, "timezone")
+	for flow, want := range map[string]string{"": "unspecified", "medium": "medium", "heavy": "heavy", "odd": "unspecified"} {
+		l := lines(t)["mf-2"]
+		l["flow"] = flow
+		require.Equal(t, want, mapOne(t, l).CategorySamples[0].ValueLabel, flow)
+	}
+
+	b := mapOne(t, lines(t)["ib-1"]).CategorySamples
+	require.Len(t, b, 1)
+	require.Equal(t, "intermenstrual_bleeding", b[0].CategoryType)
+	require.Empty(t, b[0].ValueLabel)
+	require.NotEqual(t, s.ContentHash, b[0].ContentHash)
+
+	bad := lines(t)["mf-1"]
+	bad["time"] = "soon"
+	_, err := New().Map(connector.RawRecord{UserID: testUser, Fields: bad})
+	require.Error(t, err)
+}
+
 func TestMapDeletionAndUnknown(t *testing.T) {
 	res := mapOne(t, lines(t)["st-0"])
 	require.Equal(t, []model.Deletion{{ExternalID: "st-0"}}, res.Deletions)
 
-	res = mapOne(t, lines(t)["mf-1"])
-	require.Empty(t, res.QuantitySamples)
+	res = mapOne(t, lines(t)["hy-1"])
+	require.Equal(t, model.MapResult{}, res)
 
 	_, err := New().Map(connector.RawRecord{Fields: map[string]any{"recordType": "Deletion"}})
 	require.Error(t, err)

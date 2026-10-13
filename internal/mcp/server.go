@@ -69,7 +69,7 @@ func NewHandler(d Deps) http.Handler {
 
 const instructions = `Open Health Sync: read-only access to health data (quantity samples, ` +
 	`category samples, sleep, workouts, nutrition, daily summaries, RR intervals and the HRV ` +
-	`derived from them, sync coverage). ` +
+	`derived from them, menstrual cycles, sync coverage). ` +
 	`With a tenant API key, call list_users first and pass user_id to every other tool; ` +
 	`with a personal user token, omit user_id. Times are RFC 3339 UTC or YYYY-MM-DD; ` +
 	`start is inclusive, end exclusive. Lists return at most limit records (default 100, ` +

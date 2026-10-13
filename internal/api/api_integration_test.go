@@ -287,6 +287,7 @@ func TestCrossTenantRead(t *testing.T) {
 		fmt.Sprintf("%s/workouts/%d/route", base, workoutID),
 		base + "/nutrition",
 		base + "/daily",
+		base + "/menstrual-cycles",
 		base + "/coverage",
 	}
 	for _, p := range paths {
@@ -694,7 +695,7 @@ func TestDeletingUserReadsAsAbsent(t *testing.T) {
 	_, workoutID := e.seed(e.tenantA, u)
 	e.exec(`UPDATE ohs_core.end_users SET status = 'deleting' WHERE id = $1`, u)
 	base := "/v1/users/" + u.String()
-	for _, p := range []string{base + "/samples?type=heart_rate", base + "/sleep", base + "/coverage",
+	for _, p := range []string{base + "/samples?type=heart_rate", base + "/sleep", base + "/coverage", base + "/menstrual-cycles",
 		fmt.Sprintf("%s/workouts/%d/route", base, workoutID)} {
 		r := e.do("GET", p, e.keyA, nil)
 		assert.Equal(t, http.StatusNotFound, r.code, p)
