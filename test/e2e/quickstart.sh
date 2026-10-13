@@ -87,11 +87,13 @@ days=$(jq -r '[.days[] | select(.provider == "apple_health")] | length' <<<"$COV
 [ "${days:-0}" -gt 0 ] && ok "coverage lists $days apple_health days" || fail "coverage lists no apple_health day: $COVERAGE"
 
 step "8. read back and compare with expect.go"
-check "heart rate samples" "$(e2e_count "$KEY" "$USER_ID" '/samples?type=heart_rate')" "$HR_COUNT"
-check "step count samples" "$(e2e_count "$KEY" "$USER_ID" '/samples?type=step_count')" "$STEP_COUNT"
-check "step sum" "$(e2e_sum "$KEY" "$USER_ID" '/samples?type=step_count')" "$STEP_SUM"
-check "SpO2 samples" "$(e2e_count "$KEY" "$USER_ID" '/samples?type=oxygen_saturation')" "$SPO2_COUNT"
-check "sleep sessions" "$(e2e_count "$KEY" "$USER_ID" /sleep)" "$SLEEP_SESSIONS"
+# view=all: every stored record, which is what the fixture counts (the default
+# merged view leaves out a source another one covers).
+check "heart rate samples" "$(e2e_count "$KEY" "$USER_ID" '/samples?type=heart_rate&view=all')" "$HR_COUNT"
+check "step count samples" "$(e2e_count "$KEY" "$USER_ID" '/samples?type=step_count&view=all')" "$STEP_COUNT"
+check "step sum" "$(e2e_sum "$KEY" "$USER_ID" '/samples?type=step_count&view=all')" "$STEP_SUM"
+check "SpO2 samples" "$(e2e_count "$KEY" "$USER_ID" '/samples?type=oxygen_saturation&view=all')" "$SPO2_COUNT"
+check "sleep sessions" "$(e2e_count "$KEY" "$USER_ID" '/sleep?view=all')" "$SLEEP_SESSIONS"
 check "workouts" "$(e2e_count "$KEY" "$USER_ID" /workouts)" "$WORKOUTS"
 
 step "9. personal setup and the recipes"

@@ -65,6 +65,8 @@ def call(method, path, body=None, raw=False, **params):
 
 def records(resource, **params):
     """Every record of one of the user's lists, page after page."""
+    # Every source's rows: the recipe picks or compares the apps itself.
+    params.setdefault("view", "all")
     cursor = None
     while True:
         page = call("GET", f"/v1/users/{USER}/{resource}", limit=1000, cursor=cursor, **params)
@@ -86,7 +88,7 @@ def main():
     os.makedirs(a.dir, exist_ok=True)
     for ds in DATASETS:
         path = os.path.join(a.dir, f"{ds}.{a.format}")
-        with call("GET", f"/v1/users/{USER}/exports/{ds}", raw=True, format=a.format, start=a.since) as r, \
+        with call("GET", f"/v1/users/{USER}/exports/{ds}", raw=True, format=a.format, start=a.since, view="all") as r, \
                 open(path, "wb") as f:
             shutil.copyfileobj(r, f)
         print(f"{path:<48}{os.path.getsize(path):>12,} bytes")

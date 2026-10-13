@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Values of the CI install on kind: the image built from the checkout and
+# loaded into the cluster, and the Postgres of deploy/helm/ci/postgres.yaml.
+image:
+  repository: ohs
+  tag: ci
+  pullPolicy: Never
+database:
+  url: postgres://ohs:ohs@postgres:5432/ohs?sslmode=disable&pool_max_conns=20
+rawStore:
+  persistence:
+    size: 1Gi
+    keep: false
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi

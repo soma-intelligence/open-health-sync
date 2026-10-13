@@ -28,6 +28,7 @@ below, is a 404; errors are `application/problem+json` like the rest of the API.
 | `format` | `csv` (the default) or `parquet` |
 | `type` | the canonical type to keep, for `samples`, `category-samples` and `workouts`; a quantity type outside the catalog is a 400 |
 | `start`, `end` | RFC 3339 or `YYYY-MM-DD`; `start` <= the record's time < `end`. Both optional: without them the file holds everything. |
+| `view` | `merged` (the default) or `all`, as in the [API](api.md#several-sources-of-one-metric-the-merged-view); a full backup passes `all`. Nutrition logs have no merge. |
 
 An export is not paged: `cursor` and `limit` are a 400.
 
@@ -55,7 +56,7 @@ provider, source, device, ingested_at`. The fields of each list are in the
 | text | as is; see below for formulas | `BYTE_ARRAY` (`STRING`) |
 | true / false | `true`, `false` | `BOOLEAN` |
 | time | RFC 3339 in UTC | `INT64` `TIMESTAMP(MICROS, UTC)` |
-| JSON (`metadata`, `nutrients`) | its compact JSON text | `BYTE_ARRAY` (`JSON`) |
+| JSON (`metadata`, `nutrients`, the daily `sources`) | its compact JSON text | `BYTE_ARRAY` (`JSON`) |
 | no value (or JSON `null`) | empty field | null (the column is optional) |
 
 CSV follows RFC 4180, UTF-8, with a header line; an empty export is the header line alone. A

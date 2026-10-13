@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
@@ -299,6 +300,11 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2`, j.tenant, j.user); err != nil {
 		return false, fmt.Errorf("delete user: %w", err)
+	}
+	// The audit log keeps the erasure, naming the user by id only.
+	if err := audit.Record(ctx, tx, audit.Event{Tenant: j.tenant, User: &user, ActorType: audit.System,
+		ActorID: "deletion worker", Action: audit.UserErased, Detail: map[string]any{"job_id": j.id.String()}}); err != nil {
+		return false, err
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE ohs_core.deletion_jobs SET status = 'done', finished_at = now() WHERE id = $1`, j.id); err != nil {

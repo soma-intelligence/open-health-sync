@@ -53,11 +53,14 @@ func parseTime(v string) (time.Time, error) {
 	return time.Time{}, errors.New("not an RFC 3339 time or a YYYY-MM-DD date")
 }
 
-// parseReadQuery reads type, start, end, cursor and limit.
+// parseReadQuery reads type, start, end, cursor, limit and view.
 func parseReadQuery(r *http.Request) (read.Query, error) {
 	qs := r.URL.Query()
 	q := read.Query{Type: qs.Get("type"), Cursor: qs.Get("cursor")}
 	var err error
+	if q.View, err = read.ParseView(qs.Get("view")); err != nil {
+		return q, err
+	}
 	if q.Limit, err = parseLimit(r); err != nil {
 		return q, err
 	}

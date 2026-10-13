@@ -62,6 +62,7 @@ tags:
   - name: ingest
   - name: provider-facing
   - name: mcp
+  - name: audit
   - name: ops
 security:
   - tenantKey: []
@@ -839,6 +840,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -866,6 +868,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -889,6 +892,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -943,6 +947,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -1013,10 +1018,15 @@ paths:
       tags: [read]
       operationId: listDaily
       summary: Daily summaries
-      description: One row per provider and local calendar day. `start` and `end` compare as dates.
+      description: |
+        In the merged view (the default), one summary per local calendar day: each figure
+        comes from the best ranked source that has it, and `sources` names that source per
+        figure; `id`, the provenance and `metadata` are those of the day's best ranked row.
+        With `view=all`, one row per provider and day. `start` and `end` compare as dates.
       parameters:
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -1127,6 +1137,60 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/source-priorities:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: getSourcePriorities
+      summary: The order of sources the merged view ranks by
+      description: |
+        The user's own orders, keyed by metric (a quantity type, `sleep` or `workouts`), by
+        group (`activity`, `heart`, `recovery`, `body`, `sleep`, `workouts`) or `*` for every
+        metric, and the built-in orders that apply where the user set none. The most specific
+        order wins: metric, then group, then the user's `*`, then the built-in group order. A
+        source missing from an order ranks after every listed one. See docs/data-model.md.
+      responses:
+        "200":
+          description: The orders.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcePriorities" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [read]
+      operationId: putSourcePriorities
+      summary: Replace the user's orders of sources
+      description: |
+        Replaces every order of the user; `{"priorities": {}}` goes back to the built-in
+        orders. Source names are lowercased. Stored records are never changed: the orders
+        only decide what the merged view shows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priorities]
+              additionalProperties: false
+              properties:
+                priorities: { $ref: "#/components/schemas/SourceOrders" }
+            examples:
+              ring-for-sleep:
+                value: { priorities: { sleep: [oura, whoop], step_count: [apple_health] } }
+      responses:
+        "200":
+          description: The orders now in force.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcePriorities" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/coverage:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1147,6 +1211,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: Coverage report.
@@ -1300,7 +1365,9 @@ paths:
         there is no `next` link on the last page; `total` is left out. A blood pressure pair
         is never split across pages, and its two samples are not listed on their own.
         Vital signs meet the R4 vital signs profiles they claim in `meta.profile`. The
-        mapping (codes, units, categories, provenance and limits) is in docs/fhir.md. The
+        mapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the
+        merged view (the default) a record another source covers better is left out, and a
+        daily summary keeps only the figures it owns (see `view`). The
         filters below combine: a record is listed when it matches all of them. Errors are
         `application/problem+json` like the rest of the API.
       parameters:
@@ -1333,6 +1400,7 @@ paths:
           schema: { type: string, examples: [vital-signs] }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -1363,7 +1431,10 @@ paths:
       description: |
         The Observation an entry's `fullUrl` points to. Not the user's, not an id of these
         forms, or not of that shape (`qs-` of a sample that is half of a blood pressure
-        panel, `bp-` of a sample that is not) is a 404.
+        panel, `bp-` of a sample that is not) is a 404. In the merged view (the default) a
+        daily summary carries only the figures no better ranked source of the day holds.
+      parameters:
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: The Observation.
@@ -1415,6 +1486,7 @@ paths:
         - $ref: "#/components/parameters/End"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: One page.
@@ -1574,6 +1646,7 @@ paths:
         - $ref: "#/components/parameters/End"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: One page, by time.
@@ -1603,7 +1676,7 @@ paths:
         Every record of one list in `[start, end)`, as one file streamed in a single response
         (`Content-Disposition: attachment`). The columns are the members of the list's JSON
         records, in the same order and with the same names and values: times in UTC, a missing
-        value empty (CSV) or null (Parquet), `metadata` as JSON text. `samples` holds every
+        value empty (CSV) or null (Parquet), `metadata` (and the daily `sources`) as JSON text. `samples` holds every
         quantity type unless `type` names one. The file is not paged: `cursor` and `limit` are
         a 400. A failure once the file has started cuts the connection, so a truncated file
         never looks complete. See docs/exports.md.
@@ -1951,6 +2024,53 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /v1/audit:
+    get:
+      tags: [audit]
+      operationId: listAuditEvents
+      summary: The tenant's audit log, newest first
+      description: |
+        One event per authenticated request (tenant key or user token) and per
+        administrative or system action: who (the credential), what (the action
+        and route), about which user, when, and the status. Never a health value,
+        a secret or a query string. Append only; events older than
+        `OHS_AUDIT_RETENTION_DAYS` (default 365) are pruned.
+      parameters:
+        - name: user_id
+          in: query
+          description: Only events about this end user.
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          description: An exact action (`data.export`), or a prefix ending in a dot (`data.`).
+          schema: { type: string }
+        - name: since
+          in: query
+          description: Events at or after this time (RFC 3339 or YYYY-MM-DD).
+          schema: { type: string }
+        - name: until
+          in: query
+          description: Events before this time (RFC 3339 or YYYY-MM-DD).
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/AuditEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /healthz:
     get:
       tags: [ops]
@@ -2100,6 +2220,16 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+    View:
+      name: view
+      in: query
+      description: |
+        `merged` (the default): when several sources recorded the same thing (a ring and a
+        watch the same night, a phone and a watch the same steps, one sample directly and
+        through an aggregator), only the best ranked source's record is listed, so nothing
+        counts twice. The order of sources is the user's (see source-priorities). `all`:
+        every stored record of every source.
+      schema: { type: string, enum: [merged, all], default: merged }
     Start:
       name: start
       in: query
@@ -2196,6 +2326,38 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Null on the last page.
+
+    AuditEvent:
+      type: object
+      required: [id, at, actor, action, user_id, status, detail]
+      properties:
+        id: { type: integer, description: "Increasing; the cursor of the next page." }
+        at: { type: string, format: date-time }
+        actor:
+          type: object
+          required: [type, id]
+          properties:
+            type:
+              type: string
+              enum: [api_key, user_token, admin, system]
+            id:
+              type: string
+              description: |
+                The API key's id, the first 16 hex characters of a user token's SHA-256
+                hash, or the command or worker for admin and system events.
+        action:
+          type: string
+          description: |
+            data.read, data.export, data.write, user.create, user.read, user.delete,
+            user.erased, token.create, connection.read, connection.create,
+            connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
+            config.write, tenant.create, key.create, key.revoke (more may be added).
+        user_id: { type: [string, "null"], format: uuid, description: "The end user the action concerns." }
+        method: { type: string, description: "The HTTP method, absent outside a request." }
+        route: { type: string, description: "The route pattern, absent outside a request." }
+        status: { type: [integer, "null"], description: "The HTTP status, null outside a request." }
+        request_id: { type: string, description: "The X-Request-Id of the request." }
+        detail: { type: object, description: "Identifiers only, such as a job id or a key prefix." }
 
     Provider:
       type: object
@@ -2756,6 +2918,28 @@ components:
             resting_hr: { type: [number, "null"] }
             hrv_avg_ms: { type: [number, "null"] }
             metadata: { $ref: "#/components/schemas/Metadata" }
+            sources:
+              type: object
+              additionalProperties: { type: string }
+              description: |
+                Merged view only: the source of each figure, keyed by the figure's name
+                (for example `{"step_count": "apple_health", "readiness_score": "oura"}`).
+
+    SourceOrders:
+      type: object
+      description: Orders of source slugs, best first, keyed by metric, group or `*`.
+      additionalProperties:
+        type: array
+        minItems: 1
+        maxItems: 50
+        items: { type: string }
+
+    SourcePriorities:
+      type: object
+      required: [priorities, defaults]
+      properties:
+        priorities: { $ref: "#/components/schemas/SourceOrders" }
+        defaults: { $ref: "#/components/schemas/SourceOrders" }
 
     MenstrualFlowDay:
       type: object

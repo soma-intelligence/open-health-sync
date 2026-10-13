@@ -9,6 +9,13 @@ release may change the API, the configuration or the database schema.
 
 ### Security
 
+- Audit log: every request authenticated with a tenant key or a user token, every
+  `ohs admin` key command and every completed erasure is recorded in
+  `ohs_core.audit_events` (credential, action, user, route pattern, status, request id; never a
+  value, a query string or a secret). Append only, enforced by a database trigger; kept after a
+  user's erasure; pruned after `OHS_AUDIT_RETENTION_DAYS` (default 365). Read it with
+  `GET /v1/audit`. Failed writes count in `ohs_audit_write_failures_total`. See
+  [docs/audit-log.md](docs/audit-log.md).
 - `/metrics` is protected by default. On the API listener a scrape now presents the
   `OHS_METRICS_TOKEN` bearer token; with no token set, every scrape is refused (403).
   `OHS_METRICS_LISTEN` (for example `127.0.0.1:9464`) serves it on an address of its own
@@ -52,6 +59,11 @@ release may change the API, the configuration or the database schema.
   search's cursor, and `/fhir/metadata` serves a CapabilityStatement. `Observation.device` is
   now a reference to the Device, and keeps its `display`. The HL7 validator runs in CI on every
   change to the mapping (`.github/workflows/fhir-validate.yml`). See [docs/fhir.md](docs/fhir.md).
+- Helm chart in `deploy/helm/ohs` for Kubernetes, against a Postgres with TimescaleDB that you
+  provide: one Deployment running every role (or one per role), a `pre-install`/`pre-upgrade`
+  Job for the migrations, a volume or S3 raw store, a generated encryption key kept across
+  upgrades, and optional Ingress, ServiceMonitor, NetworkPolicy, autoscaler and disruption
+  budget. CI lints and renders it and installs it on kind. See [docs/helm.md](docs/helm.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and
@@ -137,6 +149,21 @@ release may change the API, the configuration or the database schema.
   source (Garmin, Wahoo, Zwift, Coros, Suunto, ...).
 - `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE
   (for a future Garmin connector).
+- Source priorities and a merged view. When several sources recorded the same thing (a ring
+  and a watch the same night, a phone and a watch the same steps, one sample directly and
+  through an aggregator), the reads now list only the best ranked source's record by default,
+  so totals and summaries count nothing twice. Every raw record stays stored, and `view=all`
+  returns all of them as before. The order of sources is resolved per metric (metric, then
+  group, then `*`, then built-in defaults) and set per user with
+  `GET`/`PUT /v1/users/{id}/source-priorities`, stored in `ohs_sync.source_priorities`
+  (migration `0032`). Overlap is judged per kind of metric: any shared time for counts such as
+  steps, 5 minutes for readings such as heart rate, 12 hours for nightly figures, an hour for
+  body measurements, half the shorter session for sleep and workouts. `GET .../daily` merges
+  one summary per day with each figure from its best ranked source and `sources` naming it;
+  the FHIR search leaves out covered records and shows a daily summary's own figures only. The
+  MCP read tools take the same `view`. An optional `fusion.Scorer` (`api.Deps.Scorer`) can rank
+  the sources of metrics a user has not ordered, from a quality measure.
+
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
   sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. See [docs/connectors/oura.md](docs/connectors/oura.md).
 - WHOOP connector (#6): bring your own WHOOP developer app, OAuth connection, scheduled pulls
@@ -220,6 +247,10 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- The sample, category sample, sleep, workout, daily, FHIR, Open mHealth and export reads
+  default to the merged view (see Added). A client that needs every source's rows passes
+  `view=all`; `GET .../daily` returns one summary per day instead of one per provider and day.
+  The recipes read with `view=all`, since they pick or compare the apps themselves.
 - The backstop pull adapts to notifications: every 6 hours while a connection's provider
   notifications arrive, every hour when none came for 24 hours or the provider sends none
   (before: every 6 hours for all).

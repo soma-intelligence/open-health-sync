@@ -1,0 +1,15 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ohs.httpDeployment" . }}
+  labels:
+    {{- include "ohs.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "ohs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: {{ include "ohs.httpComponent" . }}
+{{- end }}
