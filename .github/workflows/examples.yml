@@ -224,6 +224,9 @@ jobs:
           echo "OHS_URL=http://127.0.0.1:8080" >>"$GITHUB_ENV"
       - name: UI test on a simulator, against the server
         run: test/e2e/apps.sh ios
+      - name: Server log
+        if: failure()
+        run: grep -v '"level":"DEBUG"' "$OHS_E2E_ARTIFACTS/server.log" | tail -n 40 || true
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

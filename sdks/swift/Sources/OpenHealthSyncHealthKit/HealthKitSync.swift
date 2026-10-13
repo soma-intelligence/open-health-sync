@@ -140,10 +140,16 @@ public final class HealthKitSync: @unchecked Sendable {
                 }
             }
             store.execute(query)
-            lock.lock()
-            observers.append(query)
-            lock.unlock()
+            addObserver(query)
         }
+    }
+
+    /// NSLock may not be taken directly in an async function (an error in Swift 6), so the
+    /// append goes through this synchronous helper.
+    private func addObserver(_ query: HKObserverQuery) {
+        lock.lock()
+        defer { lock.unlock() }
+        observers.append(query)
     }
 
     /// Stops the observer queries started by `enableBackgroundDelivery`.

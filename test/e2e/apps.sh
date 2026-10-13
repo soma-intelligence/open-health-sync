@@ -144,7 +144,11 @@ run_ios() {
   (cd examples/ios && xcodegen generate --quiet &&
     TEST_RUNNER_OHS_URL="http://localhost:$port" TEST_RUNNER_OHS_TOKEN="$TOKEN" TEST_RUNNER_OHS_BPM="63,64,65" \
       xcodebuild test -project OHSExample.xcodeproj -scheme OHSExampleApp -destination "$destination" \
-      -resultBundlePath "$ARTIFACTS/ios.xcresult" -quiet) || die "UI test"
+      -resultBundlePath "$ARTIFACTS/ios.xcresult" -quiet) || {
+    # -quiet hides the assertion messages; read them from the result bundle.
+    xcrun xcresulttool get test-results summary --path "$ARTIFACTS/ios.xcresult" 2>/dev/null |
+      jq -r '.testFailures[]? | "\(.testName): \(.failureText)"' | head -c 6000
+    die "UI test"; }
   ok "settings, Health access and two syncs through the app"
   step "read back with the tenant key"
   verify_heart_rate "63 64 65" source_bundle_id "org.openhealthsync.example"
