@@ -612,6 +612,12 @@ developers find it. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
 [code of conduct](CODE_OF_CONDUCT.md). To add a provider, start with
 [writing a connector](docs/writing-a-connector.md).
 
+**Have an account with one of the sources?** Record it. `make record PROVIDER=<slug>` captures what
+the provider's API answers for your account, or reads a Health app `export.zip`, and anonymizes it
+on your machine; nothing personal leaves it. Open a pull request with the recording and CI replays
+it on every change, so the connector keeps working with real answers, not only test fixtures.
+About five minutes per source: [recording a connector](docs/connectors/recording.md).
+
 ```sh
 make setup        # git hooks
 make build        # bin/ohs
