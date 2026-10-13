@@ -120,6 +120,7 @@ Provider deletions are honored too.
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
 | 🔜 | Read-only admin console at `/console` ([docs](docs/console.md)) | | |
+| 🔜 | Erase one source's data for a user on disconnect, or for Apple Health and Health Connect | | |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
 | 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR, after the SDKs |
 
@@ -174,7 +175,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 | A crash mid-run | rerun the script and hope | Postgres queue, retries with backoff, parked after 5 attempts |
 | Provider OAuth tokens | a plain column or a `.env` | sealed with AES-256-GCM under `OHS_ENCRYPTION_KEY` |
 | Delete a user | grep across tables and buckets | `DELETE /v1/users/{id}`, then poll `GET /v1/deletions/{job_id}` |
-| Erase one provider's data | the same grep, filtered by hand | `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`, or `DELETE /v1/users/{id}/data/{provider}` for a device |
+| Erase one provider's data | the same grep, filtered by hand | `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`, or `DELETE /v1/users/{id}/data/{provider}` for a device (on `main`, next release) |
 | Let an AI agent read it | build an integration | read-only MCP server, `ohs mcp` for desktop agents |
 
 ## Features
@@ -201,8 +202,10 @@ Open Health Sync is that layer, written once, with the boring parts done properl
   plus jobs still pending, jobs parked after their retries, and lines that were not stored.
 - **Real erasure.** `DELETE /v1/users/{id}` removes the user's raw files and every row, then the
   user. Not a soft flag. When a provider reports that a record was deleted (Oura, WHOOP,
-  Strava), it is deleted here too. `OHS_RETENTION_DAYS` drops raw files and normalized data past
-  an age.
+  Strava), it is deleted here too. On `main` for the next release, disconnecting a source with
+  `?delete_data=true` erases everything that source sent for the user (records, raw files, sync
+  history), and `DELETE /v1/users/{id}/data/{provider}` does the same for Apple Health or Health
+  Connect. `OHS_RETENTION_DAYS` drops raw files and normalized data past an age.
 - **Multi-tenant.** Tenant API keys (`ohs_sk_`) for your server, short-lived scoped user tokens
   (`ohs_ut_`, scopes `upload` and `read`) for one person's app or agent. Keys and tokens are
   stored as SHA-256 hashes.
@@ -510,6 +513,7 @@ bucket. With compose, those are the `pgdata` and `raw` volumes. Back them up tog
 No software is compliant on its own, and Open Health Sync is not certified, audited or covered
 by a business associate agreement. What it gives you: data stays on infrastructure you choose,
 `DELETE /v1/users/{id}` is a hard delete of raw files and rows (useful for erasure requests),
+erasing one source's data for a user is a single call (next release),
 `OHS_RETENTION_DAYS` enforces a retention period, every query is scoped to a tenant and a user,
 keys and tokens are stored hashed, and provider OAuth tokens are encrypted with AES-256-GCM.
 Health records themselves are not encrypted by `ohs`: use disk or database encryption, TLS in
@@ -577,7 +581,7 @@ software.
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON and
 Health Connect connectors, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing webhooks,
-Health app export import, background sync, sample compression, RR intervals and HRV, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
+Health app export import, background sync, sample compression, RR intervals and HRV, per-source erasure, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
