@@ -54,3 +54,32 @@ configuration, or an instance running without the settings in
 
 Known limits that operators should plan around are listed in
 [docs/self-hosting.md](docs/self-hosting.md#operating-notes).
+
+The threat model, with the mitigations in place and the residual risks, is in
+[docs/security-model.md](docs/security-model.md). The checklist for running an instance in
+production is [docs/hardening.md](docs/hardening.md).
+
+## Verifying releases
+
+Releases after 0.0.2 are signed keylessly with [Sigstore](https://www.sigstore.dev) cosign by
+the release workflow, using its GitHub OIDC identity; no long-lived signing key exists. The
+container image is signed by digest. Find the digest of a tag, then verify it:
+
+```sh
+docker buildx imagetools inspect ghcr.io/soma-intelligence/open-health-sync:<version> | awk '/^Digest:/ {print $2}'
+cosign verify ghcr.io/soma-intelligence/open-health-sync@<digest> \
+  --certificate-identity-regexp '^https://github.com/soma-intelligence/open-health-sync/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The binaries' `checksums.txt` comes with a Sigstore bundle, `checksums.txt.sigstore.json`, on
+the same GitHub release:
+
+```sh
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/soma-intelligence/open-health-sync/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --check --ignore-missing checksums.txt
+```
+
+Each image also carries an SBOM and build provenance attestations.

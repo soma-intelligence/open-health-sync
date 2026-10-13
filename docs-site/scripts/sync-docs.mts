@@ -146,6 +146,20 @@ const sources: Record<string, Target[]> = {
       description: "Deploy without a server of your own: templates with TimescaleDB and a persistent raw store.",
     },
   ],
+  "docs/security-model.md": [
+    {
+      page: "(guides)/concepts/security-model",
+      title: "Security model",
+      description: "What is protected, the trust boundaries, the mitigations in place and the residual risks.",
+    },
+  ],
+  "docs/hardening.md": [
+    {
+      page: "(guides)/self-hosting/hardening",
+      title: "Hardening checklist",
+      description: "TLS, secrets, storage encryption, backups, container settings and image signatures.",
+    },
+  ],
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",
@@ -284,6 +298,7 @@ const icons: Record<string, string> = {
   "api-reference/data-model": "Shapes",
   "(guides)/concepts/architecture": "Network",
   "(guides)/concepts/background-sync": "RefreshCw",
+  "(guides)/concepts/security-model": "Shield",
   "(guides)/connectors/writing-a-connector": "Code",
   "(guides)/connectors/sources": "List",
   "(guides)/connectors/recording": "Disc",
@@ -298,6 +313,7 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/operating-notes": "NotebookPen",
   "(guides)/self-hosting/console": "LayoutDashboard",
   "(guides)/self-hosting/observability": "Telescope",
+  "(guides)/self-hosting/hardening": "Lock",
   "(guides)/guides/fhir": "HeartPulse",
   "(guides)/sdks/index": "Package",
   "(guides)/sdks/kotlin": "Smartphone",

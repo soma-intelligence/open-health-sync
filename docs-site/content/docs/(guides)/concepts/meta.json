@@ -1,4 +1,4 @@
 {
   "title": "Concepts",
-  "pages": ["how-it-works", "tenants-and-tokens", "data-model", "processing", "background-sync", "deletion-and-retention", "architecture"]
+  "pages": ["how-it-works", "tenants-and-tokens", "data-model", "processing", "background-sync", "deletion-and-retention", "architecture", "security-model"]
 }

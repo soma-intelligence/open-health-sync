@@ -9,6 +9,7 @@
     "platforms",
     "binaries",
     "production",
+    "hardening",
     "configuration",
     "doctor",
     "console",

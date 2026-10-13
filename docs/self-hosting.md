@@ -89,6 +89,8 @@ There is no `latest` tag while the version is 0.x: pin a version. The compose fi
 uses `${OHS_VERSION:-0.0.2}`; set `OHS_VERSION` to move to another release.
 Release binaries for Linux and macOS (amd64, arm64) and their `checksums.txt` are
 attached to each [GitHub release](https://github.com/soma-intelligence/open-health-sync/releases).
+Releases after 0.0.2 sign the image digest and `checksums.txt` with Sigstore cosign (keyless);
+[hardening.md](hardening.md#updates-and-image-signatures) has the verification commands.
 
 The image is distroless (static, nonroot). Go cross-compiles, so no emulation is
 involved: `make image` runs `docker buildx build --platform linux/amd64,linux/arm64`.
@@ -205,6 +207,8 @@ that runs either role. A process without them cannot call that provider: it logs
 a deletion it carries out still deletes the data but leaves the grant valid at the provider.
 
 Put a reverse proxy with TLS in front of port 8080; the bearer secrets travel in headers.
+[hardening.md](hardening.md) is the full production checklist, and
+[security-model.md](security-model.md) the threat model behind it.
 
 ## Upgrading
 

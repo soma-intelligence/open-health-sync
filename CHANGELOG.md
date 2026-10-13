@@ -85,6 +85,12 @@ release may change the API, the configuration or the database schema.
   `collection` Bundle, the Open mHealth data points and every raw payload byte for byte. It
   takes a tenant key, or a user token with scope `read` for its own user. See
   [docs/exports.md](docs/exports.md#complete-user-archive-data-portability).
+- Signed releases: the release workflow signs the image by digest and the binaries'
+  `checksums.txt` (bundle `checksums.txt.sigstore.json` on the release) with Sigstore cosign,
+  keyless, using the workflow's GitHub OIDC identity. Verification commands are in
+  [SECURITY.md](SECURITY.md#verifying-releases).
+- Docs: [security model](docs/security-model.md) (assets, trust boundaries, mitigations with
+  their code, residual risks) and a [hardening checklist](docs/hardening.md) for production.
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and
