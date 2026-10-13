@@ -180,7 +180,6 @@ jobs:
     timeout-minutes: 60
     env:
       OHS_E2E_ARTIFACTS: ${{ github.workspace }}/e2e-artifacts
-      PGDATA: ${{ runner.temp }}/pgdata
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -190,6 +189,7 @@ jobs:
       - name: PostgreSQL 17 with TimescaleDB
         run: |
           brew install postgresql@17 timescale/tap/timescaledb xcodegen
+          export PGDATA="$RUNNER_TEMP/pgdata"
           pg="$(brew --prefix postgresql@17)/bin"
           echo "$pg" >>"$GITHUB_PATH"
           "$(brew --prefix timescaledb)/bin/timescaledb_move.sh"
