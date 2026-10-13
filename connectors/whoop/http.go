@@ -168,6 +168,9 @@ func (c *Connector) pace(ctx context.Context) error {
 		slot = now
 	}
 	c.nextSlot = slot.Add(c.pageDelay)
+	if c.onSlot != nil {
+		c.onSlot(slot)
+	}
 	c.paceMu.Unlock()
 	return pause(ctx, slot.Sub(now))
 }

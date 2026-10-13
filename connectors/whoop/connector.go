@@ -85,6 +85,8 @@ type Connector struct {
 	// process may be sent (see pace).
 	paceMu   sync.Mutex
 	nextSlot time.Time
+	// onSlot, when set (tests), is told each slot pace hands out.
+	onSlot func(time.Time)
 
 	mapper *mapper
 }
