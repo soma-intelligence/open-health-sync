@@ -6,8 +6,9 @@
 #
 # No half release: the GitHub release is created as a draft first, the image
 # is pushed once the binaries are built, the assets are uploaded to the draft,
-# and the last job publishes it. A failure anywhere leaves only a draft (and
-# possibly an image tag), never a public release without its assets.
+# and the publish job makes it public. A failure anywhere leaves only a draft (and
+# possibly an image tag), never a public release without its assets. Once public,
+# server.json goes to the MCP registry (mcp-registry.yml).
 #
 # Image tags: <version>, plus edge for a version without a hyphen (not for
 # v0.1.0-rc.1). No `latest` while the version is 0.x.
@@ -173,3 +174,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "$GITHUB_REF_NAME" --draft=false
+
+  mcp-registry:
+    needs: publish
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/mcp-registry.yml

@@ -125,7 +125,10 @@ pull, the last error, and a `state` (`fresh`, `stale`, `failing`, `syncing`, `ne
 
 `POST /v1/ingest/apple-health` takes one gzip NDJSON part with a user token that has the `upload`
 scope. The contract (headers, size, idempotency) is in
-[connectors/apple-health.md](connectors/apple-health.md).
+[connectors/apple-health.md](connectors/apple-health.md). `POST /v1/ingest/health-connect` takes
+Android Health Connect records the same way; its line format is in
+[connectors/health-connect.md](connectors/health-connect.md). Both routes share the limit of
+uploads in flight.
 
 ## Reading data
 
@@ -202,7 +205,8 @@ no daily summary of its own.
 
 Processing is asynchronous. `GET /v1/users/{id}/coverage` returns record counts per provider and
 local day, `pending_jobs` (work not finished yet) and `parked_jobs` (work that exhausted its
-retries and needs an operator). After an upload, poll until `pending_jobs` is 0. Coverage is not
+retries and needs an operator). After an upload, poll until `pending_jobs` is 0. A server that
+would rather not poll can subscribe to the `data.written` [webhook](webhooks.md). Coverage is not
 paged: at most 10000 days, the earliest, with `truncated: true` when more matched.
 
 A finished job can still have dropped some lines: a value out of range, a missing `startDate`,
@@ -252,6 +256,13 @@ JSON records. Not paged. See [exports.md](exports.md).
 curl -sOJ "$OHS/v1/users/$USER_ID/exports/samples?format=parquet&start=2026-01-01" \
   -H "Authorization: Bearer $KEY"
 ```
+
+## Webhooks
+
+Rather than polling coverage, register an endpoint with `POST /v1/webhooks` and be told when a
+sync writes or deletes records, a user is erased or a connection needs the user to sign in
+again. Requests are signed per Standard Webhooks and retried for about 28 hours. Events,
+signature verification and the routes: [webhooks.md](webhooks.md).
 
 ## MCP
 
