@@ -13,7 +13,7 @@ docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
 ```
 
-Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `POSTGRES_PASSWORD`, `S3_*`)
+Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `OHS_HTTP_BIND`, `POSTGRES_PASSWORD`, `S3_*`)
 from the shell or `--env-file`, so keep `--env-file .env` on every `docker compose` command.
 The containers read `.env` themselves either way.
 
@@ -29,7 +29,9 @@ healthcheck is `ohs doctor --quick` (database and raw store).
 
 ### Port, and a second install
 
-The API is published on host port 8080. Set `OHS_HTTP_PORT` in `.env` to use another one, and
+The API is published on host port 8080 of `127.0.0.1`, so only this machine reaches it: other
+machines go through a reverse proxy with TLS (see below), or set `OHS_HTTP_BIND=0.0.0.0` in
+`.env` to publish plain http on every interface. Set `OHS_HTTP_PORT` in `.env` to use another port, and
 set `OHS_PUBLIC_URL` to match: `ohs doctor` cannot tell when they disagree, and OAuth callbacks
 use `OHS_PUBLIC_URL`.
 
@@ -143,8 +145,10 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_BOOTSTRAP_TENANT` | none | Creates this tenant at first start and logs its API key once |
 | `OHS_LISTEN` | `:8080` | Listen address |
 | `OHS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON on stderr |
-| `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` |
 | `OHS_CONSOLE` | `false` | `true` serves the read-only [admin console](console.md) on `/console`. It asks for a tenant API key and reads the API with it; off, the route is not mounted (404) |
+| `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](self-hosting.md#metrics)) |
+| `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
+| `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
 | `OHS_RETENTION_DAYS` | `0` | Delete raw files and normalized data older than this many days; 0 keeps everything |
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
@@ -186,7 +190,8 @@ Put a reverse proxy with TLS in front of port 8080; the bearer secrets travel in
 ## Upgrading
 
 Releases are 0.x: any of them may change the API, the configuration or the schema, so read the
-[changelog](../CHANGELOG.md) and the release notes first, and take a backup (below). Then pin
+[changelog](../CHANGELOG.md) and the release notes first, and take a backup
+([`scripts/backup.sh`](backup-and-restore.md)). Then pin
 the new version in `.env` and recreate the container:
 
 ```sh
@@ -200,47 +205,50 @@ The container runs `ohs up`, so pending migrations apply on start; `ohs migrate 
 the schema version. There is no step-by-step downgrade (`ohs migrate down --all` drops
 everything): to go back, run the old version on a restored backup.
 
+Without compose, the order is the same: back up, stop `ohs`, replace the binary, then start it
+with `ohs up` (or run `ohs migrate up` before `ohs serve`). Several processes on one database
+(split roles) must all run the same version: stop them all, migrate once, then start the new
+version everywhere. If a migration fails, `ohs migrate version` shows `(dirty)` and `ohs up`
+refuses to serve: restore the backup and report the error rather than editing the schema by
+hand.
+
+### What the upgrade test checks
+
+Every change to `main` runs [`test/upgrade/upgrade.sh`](../test/upgrade/upgrade.sh)
+(`make upgrade-test`). It builds the last release from its tag, installs it on Postgres with
+TimescaleDB, creates a tenant, a user and an upload token, and uploads the Apple Health test
+export. Then it migrates that database to the new code and checks that:
+
+- every migration applies on top of that data, and no table loses or gains rows (code catalogs
+  may gain new codes);
+- the server starts with `ohs up` and `/readyz` answers 200;
+- the API key and the upload token issued by the old release still work;
+- samples, sleep, workouts, daily summaries, coverage and the user record read back exactly as
+  before (new fields may be added, none change);
+- endpoints added since that release (freshness, webhooks, FHIR, Open mHealth, exports) answer
+  for the old user, and a new upload is processed;
+- the down migrations bring the schema back to the old release's version, the old release serves
+  the same data again, and the new code migrates up once more.
+
+It covers one data source (Apple Health uploads) and the bundled database, not your provider
+connections or a database tuned differently, so the backup above is still the safety net.
+`OHS_UPGRADE_FROM=v0.0.1 make upgrade-test` tests from an older release.
+
 ## Backup and restore
 
-A backup is three things taken together: the database, the raw store, and `.env` (it holds
-`OHS_ENCRYPTION_KEY`; without the key, stored OAuth tokens cannot be read and users must
-connect again). Raw files can rebuild normalized data, not users, keys or connections, so the
-database matters most. With the bundled compose stack (project `ohs`, so the volume is
-`ohs_raw`; replace `ohs` with your project name):
-
-```sh
-DC="docker compose --env-file .env -f deploy/docker-compose.yml"
-$DC exec -T postgres pg_dump -U ohs -Fc ohs > ohs-$(date +%F).dump
-docker run --rm -v ohs_raw:/raw alpine tar czf - -C /raw . > raw-$(date +%F).tgz
-cp .env env-$(date +%F).backup
-```
-
-With the S3 raw store, back the bucket up with your provider's tools instead. Restore into the
-same version that took the backup, with `ohs` stopped (TimescaleDB needs the pre and post
-restore calls):
-
-```sh
-$DC stop ohs
-$DC exec -T postgres psql -v ON_ERROR_STOP=1 -U ohs -d postgres \
-  -c 'DROP DATABASE ohs' -c 'CREATE DATABASE ohs'
-$DC exec -T postgres psql -v ON_ERROR_STOP=1 -U ohs -d ohs \
-  -c 'CREATE EXTENSION IF NOT EXISTS timescaledb' -c 'SELECT timescaledb_pre_restore()'
-$DC exec -T postgres pg_restore -U ohs -d ohs --no-owner < ohs-2026-10-11.dump
-$DC exec -T postgres psql -U ohs -d ohs -c 'SELECT timescaledb_post_restore()'
-# empty the raw volume first, so files written after the backup do not linger
-docker run --rm -v ohs_raw:/raw alpine find /raw -mindepth 1 -delete
-docker run --rm -i -v ohs_raw:/raw alpine tar xzf - -C /raw < raw-2026-10-11.tgz
-$DC start ohs
-```
-
-`pg_dump` warns about circular foreign keys in TimescaleDB's own catalog; the full dump above
-restores despite it. Restore the `.env` of the same date, so the key matches.
+`scripts/backup.sh` writes one archive with the database (`pg_dump`, run inside the database
+container) and the raw files; `scripts/restore.sh` puts it back into a fresh or existing stack
+and refuses an archive newer than the running release. Keep `.env` (it holds
+`OHS_ENCRYPTION_KEY`) separately: without the key the stored OAuth tokens cannot be read. CI
+tests the full cycle. See [Backup and restore](backup-and-restore.md) for what is in an
+archive, a cron example, the S3 raw store, restore steps and how to verify a backup.
 
 ## Rotating secrets
 
 - **Tenant API key.** Add a key, move your clients to it, then revoke the old one:
 
   ```sh
+  DC="docker compose --env-file .env -f deploy/docker-compose.yml"
   $DC exec ohs /ohs admin tenant list
   $DC exec ohs /ohs admin key create --tenant <tenant id>
   $DC exec ohs /ohs admin key list --tenant <tenant id>
@@ -260,9 +268,26 @@ restores despite it. Restore the `.env` of the same date, so the key matches.
 
 ## Operating notes
 
-- **`/metrics` is unauthenticated and global.** It exposes instance wide counters, not
-  per-tenant data, but anyone who can reach it can read it. Block it at your reverse proxy, or
-  set `OHS_METRICS=false`.
+- **A token** (`OHS_METRICS_TOKEN`): the API listener serves `/metrics` to a scrape that sends
+  `Authorization: Bearer <token>`, and answers 401 otherwise. In Prometheus:
+
+  ```yaml
+  scrape_configs:
+    - job_name: ohs
+      authorization:
+        credentials_file: /etc/prometheus/ohs-metrics-token
+      static_configs:
+        - targets: ["ohs:8080"]
+  ```
+
+- **A private address** (`OHS_METRICS_LISTEN`, for example `127.0.0.1:9464` or an address on
+  your monitoring network): `/metrics` moves off the API listener to that address. Whoever can
+  reach the address can scrape it, unless `OHS_METRICS_TOKEN` is also set. Never publish that
+  port.
+
+With neither, `/metrics` answers 403 and names the two settings. `OHS_METRICS=false` removes the
+route altogether.
+
 - **Run `etl` somewhere.** User deletion is carried out by a worker that runs with the `etl`
   role. An `api` only deployment accepts `DELETE /v1/users/{id}` but never finishes it, and
   uploads are never processed, until a process with the `etl` role is running against the same
@@ -330,3 +355,9 @@ restores despite it. Restore the `.env` of the same date, so the key matches.
 - **Large uploads.** An instance processes a bounded number of uploads at once
   (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi) and answers 503 with `Retry-After` above it;
   clients retry.
+
+### Metrics
+
+`/metrics` serves Prometheus counters for the whole instance (requests by route, ingest load, ETL
+queues, sync state by provider), never per-tenant data. It is still information about your
+instance, so it is closed unless you open it one of two ways:

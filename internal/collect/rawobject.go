@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
@@ -88,10 +89,16 @@ func userActive(ctx context.Context, pool *pgxpool.Pool, tenant, user uuid.UUID)
 	return nil
 }
 
+// errErasing means the user's data from this provider is being erased
+// (a provider deletion job is unfinished): nothing of it is stored meanwhile.
+var errErasing = errors.New("collect: this provider's data is being deleted for this user")
+
 // registerRaw inserts the raw_objects row and its ETL job in one transaction
 // (the orphan scanner relies on both or neither). It returns false, with
 // nothing written, when a row with this key or these bytes already exists,
-// and errInactive when the user is gone or being deleted.
+// errInactive when the user is gone or being deleted, and errErasing while
+// the user's data from this provider is being erased. The caller removes the
+// file it wrote on either error, so none outlives the erasure's raw sweep.
 func registerRaw(ctx context.Context, pool *pgxpool.Pool, o rawObject) (bool, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -100,6 +107,14 @@ func registerRaw(ctx context.Context, pool *pgxpool.Pool, o rawObject) (bool, er
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if err := lockActiveUser(ctx, tx, o.tenant, o.user); err != nil {
 		return false, err
+	}
+	// The erasure job takes the user row FOR UPDATE: under this share lock
+	// it either has not started its delete (and is pending, seen here) or
+	// has committed.
+	if erasing, err := deletion.Pending(ctx, tx, o.tenant, o.user, o.provider); err != nil {
+		return false, fmt.Errorf("look up provider deletion: %w", err)
+	} else if erasing {
+		return false, errErasing
 	}
 
 	var id int64

@@ -10,6 +10,8 @@
 # compose command (compose reads variables for interpolation from deploy/.env,
 # not from the repository root).
 # OHS_HTTP_PORT picks the host port (default 8080); set OHS_PUBLIC_URL to match.
+# The port listens on 127.0.0.1 only: put a reverse proxy with TLS in front, or
+# set OHS_HTTP_BIND=0.0.0.0 to publish plain http on every interface.
 # A second install on the same host needs its own project name (-p, or
 # COMPOSE_PROJECT_NAME) and its own OHS_HTTP_PORT: see docs/self-hosting.md.
 name: ohs
@@ -50,7 +52,7 @@ services:
     # must not kill it before (its default is 10 s).
     stop_grace_period: 35s
     ports:
-      - "${OHS_HTTP_PORT:-8080}:8080"
+      - "${OHS_HTTP_BIND:-127.0.0.1}:${OHS_HTTP_PORT:-8080}:8080"
     volumes:
       - raw:/var/lib/ohs/raw
     healthcheck:

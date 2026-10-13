@@ -47,6 +47,9 @@ type env struct {
 	metrics *automation.Metrics
 }
 
+// testMetricsToken is the OHS_METRICS_TOKEN of the test router.
+const testMetricsToken = "test-metrics-token-0123"
+
 func newEnv(t *testing.T, tweak ...func(*api.Deps)) *env {
 	t.Helper()
 	ctx := context.Background()
@@ -70,6 +73,7 @@ func newEnv(t *testing.T, tweak ...func(*api.Deps)) *env {
 		// The Health Connect route shares the upload handler.
 		HealthConnect: healthconnect.New(),
 		Metrics:       true,
+		MetricsToken:  testMetricsToken,
 		ETLMetrics:    m,
 	}
 	for _, f := range tweak {
@@ -287,6 +291,7 @@ func TestCrossTenantRead(t *testing.T) {
 		fmt.Sprintf("%s/workouts/%d/route", base, workoutID),
 		base + "/nutrition",
 		base + "/daily",
+		base + "/menstrual-cycles",
 		base + "/coverage",
 	}
 	for _, p := range paths {
@@ -665,6 +670,12 @@ func TestProvidersAndOps(t *testing.T) {
 
 	e.metrics.ParkedJobs.Store(3)
 	r = e.do("GET", "/metrics", "", nil)
+	assert.Equal(t, http.StatusUnauthorized, r.code, "no token")
+	r = e.do("GET", "/metrics", "wrong-token", nil)
+	assert.Equal(t, http.StatusUnauthorized, r.code, "wrong token")
+	r = e.do("GET", "/metrics", e.keyA, nil)
+	assert.Equal(t, http.StatusUnauthorized, r.code, "an API key is not the metrics token")
+	r = e.do("GET", "/metrics", testMetricsToken, nil)
 	require.Equal(t, http.StatusOK, r.code)
 	text := string(r.body)
 	assert.Contains(t, r.header.Get("Content-Type"), "text/plain")
@@ -677,6 +688,27 @@ func TestProvidersAndOps(t *testing.T) {
 	r = e.do("GET", "/nowhere", "", nil)
 	assert.Equal(t, http.StatusNotFound, r.code)
 	assert.Equal(t, "application/problem+json", r.header.Get("Content-Type"))
+
+	// No token configured: the API listener refuses every scrape.
+	noToken := newEnv(t, func(d *api.Deps) { d.MetricsToken = "" })
+	r = noToken.do("GET", "/metrics", "", nil)
+	assert.Equal(t, http.StatusForbidden, r.code)
+	assert.Contains(t, string(r.body), "OHS_METRICS_TOKEN")
+
+	// A listener of its own takes /metrics; the token is optional there.
+	own := http.NewServeMux()
+	sep := newEnv(t, func(d *api.Deps) { d.MetricsToken = ""; d.MetricsMux = own })
+	r = sep.do("GET", "/metrics", "", nil)
+	assert.Equal(t, http.StatusNotFound, r.code, "not on the API listener")
+	rec := httptest.NewRecorder()
+	own.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ohs_ingest_in_flight 0")
+	ownTok := http.NewServeMux()
+	newEnv(t, func(d *api.Deps) { d.MetricsMux = ownTok })
+	rec = httptest.NewRecorder()
+	ownTok.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "a token set applies on its own listener too")
 
 	off := newEnv(t, func(d *api.Deps) { d.Metrics = false })
 	r = off.do("GET", "/metrics", "", nil)
@@ -694,7 +726,7 @@ func TestDeletingUserReadsAsAbsent(t *testing.T) {
 	_, workoutID := e.seed(e.tenantA, u)
 	e.exec(`UPDATE ohs_core.end_users SET status = 'deleting' WHERE id = $1`, u)
 	base := "/v1/users/" + u.String()
-	for _, p := range []string{base + "/samples?type=heart_rate", base + "/sleep", base + "/coverage",
+	for _, p := range []string{base + "/samples?type=heart_rate", base + "/sleep", base + "/coverage", base + "/menstrual-cycles",
 		fmt.Sprintf("%s/workouts/%d/route", base, workoutID)} {
 		r := e.do("GET", p, e.keyA, nil)
 		assert.Equal(t, http.StatusNotFound, r.code, p)

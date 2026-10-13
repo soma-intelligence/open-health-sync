@@ -49,6 +49,11 @@ to your idea.
    For a second person in the household, add `--person alex` and write to another file; point a
    recipe at it with `OHS_ENV_FILE=~/.ohs-alex.env`.
 
+   Running the recipes on another computer than the instance (a Raspberry Pi or a home server)?
+   The compose setup publishes the API on `127.0.0.1` only: set `OHS_HTTP_BIND=0.0.0.0` in `.env`
+   (or put a reverse proxy in front, see [self-hosting](../self-hosting.md#port-and-a-second-install)),
+   then change `OHS_URL` in the file to the instance's address.
+
 3. Bring your data in. Connect an account (set its keys on the server first, see
    [Connectors](../connectors/README.md)):
 

@@ -98,12 +98,6 @@ const sources: Record<string, Target[]> = {
       description: "Move to a new release safely, with a backup first.",
     },
     {
-      page: "(guides)/self-hosting/backup",
-      section: "Backup and restore",
-      title: "Backup and restore",
-      description: "The database, the raw store and the encryption key, taken and restored together.",
-    },
-    {
       page: "(guides)/self-hosting/rotating-secrets",
       section: "Rotating secrets",
       title: "Rotating secrets",
@@ -122,6 +116,13 @@ const sources: Record<string, Target[]> = {
       page: "(guides)/self-hosting/console",
       title: "Admin console",
       description: "A read-only page for operators: users, connections, freshness and webhook deliveries.",
+    },
+  ],
+  "docs/backup-and-restore.md": [
+    {
+      page: "(guides)/self-hosting/backup",
+      title: "Backup and restore",
+      description: "The database, the raw store and the encryption key, taken and restored together.",
     },
   ],
   "docs/fhir.md": [
@@ -145,6 +146,13 @@ const sources: Record<string, Target[]> = {
       description: "Download every record of a list as one CSV or Parquet file.",
     },
   ],
+  "docs/connect-page.md": [
+    {
+      page: "(guides)/guides/connect-page",
+      title: "Hosted connection page",
+      description: "Send users to a page served by Open Health Sync to connect their sources, no OAuth UI to build.",
+    },
+  ],
   "docs/webhooks.md": [
     {
       page: "(guides)/guides/webhooks",
@@ -157,6 +165,13 @@ const sources: Record<string, Target[]> = {
       page: "(guides)/guides/hrv",
       title: "RR intervals and HRV",
       description: "Read beat-to-beat intervals and the HRV derived from each heartbeat series.",
+    },
+  ],
+  "docs/menstrual-cycles.md": [
+    {
+      page: "(guides)/guides/menstrual-cycles",
+      title: "Menstrual cycles",
+      description: "Cycles derived at read time from the recorded menstrual flow, and the rules they follow.",
     },
   ],
 };
@@ -215,6 +230,7 @@ const icons: Record<string, string> = {
   "(guides)/guides/open-mhealth": "Activity",
   "(guides)/guides/exports": "FileDown",
   "(guides)/guides/webhooks": "Webhook",
+  "(guides)/guides/menstrual-cycles": "CalendarDays",
   "(guides)/recipes/index": "Sparkles",
   "(guides)/recipes/sleep-report": "Moon",
   "(guides)/recipes/heart-trend": "HeartPulse",
@@ -234,6 +250,7 @@ const icons: Record<string, string> = {
   "(guides)/learn/your-dashboard": "ChartLine",
   "(guides)/learn/sleep-alert": "BellRing",
   "(guides)/learn/prompts": "MessageSquareText",
+  "(guides)/guides/connect-page": "MousePointerClick",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).
@@ -247,6 +264,7 @@ const handWritten: Record<string, string> = {
   "docs/self-hosting.md#build-from-source": "/documentation/self-hosting/binaries#build-from-source",
   "docs/self-hosting.md#raspberry-pi-5-4-gb": "/documentation/self-hosting/raspberry-pi",
   "docs/self-hosting.md#s3-compatible-raw-store": "/documentation/self-hosting/s3",
+  "docs/self-hosting.md#backup-and-restore": "/documentation/self-hosting/backup",
   "README.md": "/documentation",
   "README.md#quickstart": "/documentation/quickstart",
 };

@@ -91,6 +91,36 @@ effort), deletes the user's raw files and every row, then the user.
 ```
 
 `status` is `pending`, `running`, `done` or `failed`; `finished_at` is null until the job ends.
+`provider` is null for a user deletion and names the provider for the erasure of one provider's
+data (below).
+
+### Erasing one provider's data
+
+Some providers' terms ask that a user's data from them be erased when the user disconnects them.
+Two routes do it, each answering 202 with a `job_id` that `GET /v1/deletions/{job_id}` reads
+like a user deletion:
+
+- `DELETE /v1/users/{id}/connections/{provider}?delete_data=true` disconnects the provider as a
+  plain disconnect does, then erases its data. Without `delete_data` (or with `false`) the
+  answer is still 204 and the data already collected is kept, as before.
+- `DELETE /v1/users/{id}/data/{provider}` erases a provider's data without touching any
+  connection: for device providers (`apple_health`, `health_connect`), which have no
+  connection, and for a provider already disconnected. A provider the user is still connected
+  to is a 409 (disconnect it with `delete_data=true`); a provider unknown to this build is a 404.
+
+The job deletes everything of that user and provider: the normalized records (samples, sleep
+sessions and phases, workouts with their routes and track summaries, nutrition, ECG recordings
+and voltages, heartbeat series, daily summaries, observations), the provider's tombstones, the
+raw files and their rows, failed records, ETL and pull jobs, pull coverage, the sync log, push
+subscriptions, unused consent states and the disconnected connection itself. Daily summaries are
+kept per provider, so the other providers' summaries need no recompute. The user and their other
+providers stay. Asking again while the job runs returns the same job.
+
+Until the job is done the provider cannot be connected again (409) and its uploads for the user
+are refused (409, nothing kept); afterwards new data is accepted as usual. Re-processing old raw
+objects cannot bring the data back, since the raw files and their registry rows are gone, and a
+pull still running when the job is due delays it until the pull ends. The `data.erased`
+[webhook](webhooks.md) announces the end.
 
 ## Connecting a provider
 
@@ -111,10 +141,16 @@ Without a `redirect_uri` the user sees a small built-in result page. `redirect_u
 absolute https URL (http is allowed for localhost). The `state` of a consent link is single use
 and expires after 10 minutes.
 
+To skip building this UI, create a connect session with `POST /v1/users/{id}/connect-sessions`
+and send the user to the link it returns: Open Health Sync serves a page that lists the providers
+with the user's status and starts the same consent flow. See
+[hosted connection page](connect-page.md).
+
 `GET /v1/users/{id}/connections` shows each connection's `status` (`active`, `needs_reauth`,
 `disconnected`), `last_sync_at` and `initial_backfill_at`. A connection in `needs_reauth` needs
 the user to go through consent again. `DELETE /v1/users/{id}/connections/{provider}` revokes the
-grant (best effort) and stops pulling; data already collected is kept.
+grant (best effort) and stops pulling; data already collected is kept, unless you add
+`?delete_data=true`, which also erases it (see [erasing one provider's data](#erasing-one-providers-data)).
 
 `GET /v1/users/{id}/freshness` says how up to date each source of the user is, Apple Health
 uploads included: `synced_through`, `lag_seconds`, the last provider notification, the next
@@ -146,6 +182,7 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 | `daily` | `start`, `end` (compared as dates) | `date` |
 | `rr-intervals` | `series_id`, `start`, `end` | `timestamp` (the beat) |
 | `hrv` | `series_id`, `start`, `end` (the series' first beat) | the series' first beat |
+| `menstrual-cycles` | `start`, `end` (compared as dates, on the cycle's start) | `start_date` |
 | `coverage` | `provider`, `start`, `end` | not paged |
 
 `samples` answers 400 when `type` is not a quantity type of the catalog (a typo such as
@@ -203,6 +240,13 @@ units are listed in [data-model.md](data-model.md). `daily` holds one row per pr
 calendar day; the ETL derives step, energy and distance totals from samples when a provider sends
 no daily summary of its own. `rr-intervals` serves the beat-to-beat intervals of heartbeat series
 and `hrv` the HRV derived from each series; the rules are in [hrv.md](hrv.md).
+
+`menstrual-cycles` is derived at read time from the `menstrual_flow` category samples of every
+provider: each cycle's start day, its period's flow days (the heaviest flow of each local day,
+with the providers that recorded it) and, once the next period is recorded, its length. The
+latest cycle is open, with `end_date` and `cycle_length_days` null. Nothing is predicted. The
+rules (local days, gaps inside a period, the read limit) are in
+[menstrual-cycles.md](menstrual-cycles.md).
 
 ### Knowing when an upload is processed
 
@@ -275,6 +319,7 @@ signature verification and the routes: [webhooks.md](webhooks.md).
 
 | Route | Purpose |
 |---|---|
+| `GET /connect`, `GET /connect/{provider}`, `POST /connect/{provider}` | The [hosted connection page](connect-page.md), for the user's browser |
 | `GET /oauth/{provider}/callback` | OAuth redirect target you register with the provider |
 | `POST /inbound/{provider}` | Provider push notifications, verified with the provider's own scheme |
 | `GET /healthz` | Liveness |
@@ -282,5 +327,6 @@ signature verification and the routes: [webhooks.md](webhooks.md).
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
 | `GET /console` | Read-only admin console (HTML), only when `OHS_CONSOLE=true`; see [console.md](console.md) |
 
-`/metrics` is unauthenticated and global to the instance (not per tenant). Keep it behind your
-reverse proxy or turn it off, see [self-hosting.md](self-hosting.md#operating-notes).
+`/metrics` is global to the instance (not per tenant). It asks for the `OHS_METRICS_TOKEN` bearer
+token, refuses every scrape when no token is set, and can move to a private address with
+`OHS_METRICS_LISTEN`; see [self-hosting.md](self-hosting.md#metrics).

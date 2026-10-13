@@ -208,15 +208,18 @@ paths:
       - name: job_id
         in: path
         required: true
-        description: The `job_id` returned by `DELETE /v1/users/{id}`.
+        description: |
+          The `job_id` returned by `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`
+          or `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`.
         schema: { type: string, format: uuid }
     get:
       tags: [users]
       operationId: getDeletion
-      summary: Status of a user deletion
+      summary: Status of a deletion
       description: |
-        Poll until `status` is `done`: the user's raw files and rows are gone. The job is kept
-        after the user is deleted. Another tenant's job is a 404.
+        Poll until `status` is `done`: the user's raw files and rows are gone (with `provider`
+        set, only those of that provider). The job is kept after the user is deleted. Another
+        tenant's job is a 404.
       responses:
         "200":
           description: The deletion job.
@@ -531,7 +534,8 @@ paths:
         Returns the provider's consent URL. Send the user there; after consent the user
         lands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in
         result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
-        `Idempotency-Key` is not honoured here.
+        `Idempotency-Key` is not honoured here. While the user's data from this provider is
+        being deleted the answer is 409: connect again once the deletion job is done.
       requestBody:
         required: false
         content:
@@ -555,13 +559,102 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
     delete:
       tags: [connections]
       operationId: deleteConnection
       summary: Disconnect a provider
-      description: Revokes the provider grant (best effort) and stops pulling. Data already collected is kept.
+      description: |
+        Revokes the provider grant (best effort) and stops pulling. By default the data
+        already collected is kept (204).
+
+        With `delete_data=true` the user's data from this provider is erased too: the
+        disconnect happens at once, then a background job deletes every record, raw file and
+        sync record of this user and provider (the user and their other providers stay). The
+        answer is 202 with the `job_id` to poll at `GET /v1/deletions/{job_id}`; asking again
+        while it runs returns the same job. Until it is done the provider cannot be connected
+        again and its uploads are refused. The `data.erased` webhook announces the end.
+      parameters:
+        - name: delete_data
+          in: query
+          required: false
+          description: true also erases the data the user holds from this provider.
+          schema: { type: boolean, default: false }
       responses:
-        "204": { description: Disconnected. }
+        "202":
+          description: Disconnected, and the erasure of the provider's data accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id: { type: string, format: uuid }
+        "204": { description: Disconnected; the data already collected is kept. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/data/{provider}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    delete:
+      tags: [users]
+      operationId: deleteProviderData
+      summary: Erase a user's data from one provider
+      description: |
+        Erases everything the user holds from one provider without touching any connection:
+        the route for device providers (`apple_health`, `health_connect`), which have no
+        connection, and for a provider already disconnected. A background job deletes every
+        record, raw file and sync record of this user and provider; the user and their other
+        providers stay. The answer is 202 with the `job_id` to poll at
+        `GET /v1/deletions/{job_id}`; asking again while it runs returns the same job. Until
+        it is done, uploads of that provider for the user are refused (409). A provider the
+        user is still connected to is a 409: use
+        `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`. A provider unknown to
+        this build is a 404.
+      responses:
+        "202":
+          description: Erasure accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id: { type: string, format: uuid }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/users/{id}/connect-sessions:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [connections]
+      operationId: createConnectSession
+      summary: Create a link to the hosted connection page
+      description: |
+        Returns a link to a page served by Open Health Sync where the user picks a provider and goes
+        through its consent, so your app needs no connection UI of its own. The token in the link is
+        the page's only credential: send the link to this user only. It serves several providers
+        until `expires_at`. After each consent the user lands on
+        `redirect_uri?status=connected|error&provider=<slug>`, or, without `redirect_uri`, on the
+        built-in result page, which links back to the connection page. See docs/connect-page.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectSessionRequest" }
+      responses:
+        "201":
+          description: The page link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -836,6 +929,39 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/menstrual-cycles:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: listMenstrualCycles
+      summary: Menstrual cycles derived from the recorded flow
+      description: |
+        Derived at read time from the `menstrual_flow` category samples, so it always agrees with
+        them, deletions included. A flow day is a local calendar day (the sample's `timezone`
+        metadata, else UTC) with a flow sample whose label is not `none`; a period is a run of
+        flow days with gaps of at most 2 days; a cycle runs from a period's first day to the day
+        before the next period's first day, and the latest cycle is open (`end_date` and
+        `cycle_length_days` null). Intermenstrual bleeding never starts a period. Nothing is
+        predicted. `start` and `end` compare as dates and select cycles by `start_date`. A call
+        reads at most 50000 flow samples: a page can then hold fewer than `limit` cycles and
+        still carry a `next_cursor`. See docs/menstrual-cycles.md.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by start_date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MenstrualCyclePage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/coverage:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1056,7 +1182,9 @@ paths:
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one data type per part.
         Re-sending the same part is safe: the answer is 200 with `duplicate: true`. Other
-        bytes under a (day, batch, part) already stored are a 409. Each instance processes a
+        bytes under a (day, batch, part) already stored are a 409, and so is a part sent while
+        this provider's data is being deleted for the user (nothing is kept; send it again
+        once the deletion job is done). Each instance processes a
         bounded number of uploads at once; above it the answer is 503 with `Retry-After`.
       security:
         - userToken: [upload]
@@ -1127,7 +1255,9 @@ paths:
         docs/connectors/health-connect.md). Same headers, limits and answers as the Apple Health
         upload.
         Re-sending the same part is safe: the answer is 200 with `duplicate: true`. Other
-        bytes under a (day, batch, part) already stored are a 409. Each instance processes a
+        bytes under a (day, batch, part) already stored are a 409, and so is a part sent while
+        this provider's data is being deleted for the user (nothing is kept; send it again
+        once the deletion job is done). Each instance processes a
         bounded number of uploads at once; above it the answer is 503 with `Retry-After`.
       security:
         - userToken: [upload]
@@ -1186,6 +1316,67 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
+
+  /connect:
+    get:
+      tags: [connections]
+      operationId: connectPage
+      summary: Hosted connection page
+      security: []
+      description: |
+        The page a connect session link opens, for the end user's browser. It shows the app name and
+        logo of the session and one button per allowed provider with the user's connection status
+        (connected, needs reconnecting, not connected). A button posts to `POST /connect/{provider}`.
+        An unknown token is 404 and an expired one 410, as a page that says nothing more.
+      parameters:
+        - $ref: "#/components/parameters/ConnectSessionToken"
+      responses:
+        "200": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
+
+  /connect/{provider}:
+    parameters:
+      - $ref: "#/components/parameters/Provider"
+    get:
+      tags: [connections]
+      operationId: connectProviderPage
+      summary: Hosted connection page for one provider
+      security: []
+      description: The connection page with only this provider's button. 404 when the session does not allow it.
+      parameters:
+        - $ref: "#/components/parameters/ConnectSessionToken"
+      responses:
+        "200": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
+    post:
+      tags: [connections]
+      operationId: connectStart
+      summary: Start consent from the hosted page
+      security: []
+      description: |
+        The form the page posts. Mints a single-use OAuth state exactly like
+        `POST /v1/users/{id}/connections/{provider}`, with the session's `redirect_uri`, and sends the
+        browser to the provider's consent page. The session stays usable until it expires.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [session]
+              properties:
+                session: { type: string, description: The token of the connect session link. }
+      responses:
+        "303":
+          description: To the provider's consent page.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        "400": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
 
   /oauth/{provider}/callback:
     parameters:
@@ -1281,8 +1472,8 @@ paths:
         tenant key reads every user of the tenant and passes `user_id` to each tool; a user
         token needs the `read` scope and reads only its own user. Tools: `list_users`,
         `list_quantity_types`, `get_samples`, `get_category_samples`, `get_sleep`,
-        `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_coverage`,
-        `list_connections`. Each tool result is JSON text with `records`, `next_cursor` and
+        `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_rr_intervals`,
+        `get_hrv`, `get_menstrual_cycles`, `get_coverage`, `list_connections`. Each tool result is JSON text with `records`, `next_cursor` and
         `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
         is a tool error inside a 200, as MCP prescribes. See docs/mcp.md.
       requestBody:
@@ -1353,13 +1544,30 @@ paths:
       tags: [ops]
       operationId: metrics
       summary: Prometheus metrics (absent when OHS_METRICS=false)
-      security: []
+      description: |
+        Instance wide counters, never per-tenant data. On the API listener a
+        scrape presents the `OHS_METRICS_TOKEN` bearer token; with no token
+        configured every scrape is refused with 403. With
+        `OHS_METRICS_LISTEN` set the route moves to that address (404 here),
+        where the token is asked for only when set.
+      security:
+        - metricsToken: []
       responses:
         "200":
           description: Prometheus text exposition format 0.0.4.
           content:
             text/plain:
               schema: { type: string }
+        "401":
+          description: The bearer token is missing or is not `OHS_METRICS_TOKEN`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "403":
+          description: No `OHS_METRICS_TOKEN` is configured, so the API listener serves no metrics.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
 
 components:
@@ -1372,6 +1580,10 @@ components:
       type: http
       scheme: bearer
       description: User token, `ohs_ut_` + 43 base62 characters, with the scope the route needs.
+    metricsToken:
+      type: http
+      scheme: bearer
+      description: The instance's `OHS_METRICS_TOKEN`, for Prometheus scrapes of `/metrics`.
 
   headers:
     IdempotentReplayed:
@@ -1394,6 +1606,12 @@ components:
       in: path
       required: true
       description: Connector slug, see GET /v1/providers.
+      schema: { type: string }
+    ConnectSessionToken:
+      name: session
+      in: query
+      required: true
+      description: The token of the connect session link.
       schema: { type: string }
     Cursor:
       name: cursor
@@ -1464,6 +1682,14 @@ components:
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
+    ConnectHTML:
+      description: |
+        A page of the hosted connection flow. Sent with `Cache-Control: no-store`,
+        `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and a Content-Security-Policy that
+        allows no script.
+      content:
+        text/html:
+          schema: { type: string }
 
   schemas:
     Problem:
@@ -1517,14 +1743,17 @@ components:
 
     DeletionJob:
       type: object
-      required: [job_id, user_id, status, created_at, finished_at]
+      required: [job_id, user_id, provider, status, created_at, finished_at]
       properties:
         job_id: { type: string, format: uuid }
         user_id: { type: string, format: uuid }
+        provider:
+          type: [string, "null"]
+          description: The provider whose data the job erases; null when it deletes the whole user.
         status:
           type: string
           enum: [pending, running, done, failed]
-          description: done once every raw file and row of the user is deleted.
+          description: done once every raw file and row of the user (or of the user and provider) is deleted.
         created_at: { type: string, format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
 
@@ -1557,10 +1786,11 @@ components:
 
     WebhookEventType:
       type: string
-      enum: [data.written, data.deleted, user.deleted, connection.needs_reauth]
+      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth]
       description: |
         `data.written`: a sync wrote new or changed records. `data.deleted`: records the
-        provider deleted were removed. `user.deleted`: a user and all their data were erased.
+        provider deleted were removed. `data.erased`: everything a user held from one provider
+        was erased on your request. `user.deleted`: a user and all their data were erased.
         `connection.needs_reauth`: a provider refused the user's grant; the user must connect again.
 
     CreateWebhookRequest:
@@ -1671,6 +1901,7 @@ components:
             first_day: { type: string, format: date, description: "data.written. First data day." }
             last_day: { type: string, format: date, description: "data.written. Last data day." }
             records_deleted: { type: integer, description: data.deleted. }
+            job_id: { type: string, format: uuid, description: "data.erased. The deletion job that finished." }
             endpoint_id: { type: string, format: uuid, description: webhook.test. }
 
     Connection:
@@ -1686,6 +1917,31 @@ components:
         initial_backfill_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    ConnectSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        redirect_uri:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Where the user lands after each consent. Absolute https URL (http only for localhost).
+        providers:
+          type: array
+          maxItems: 64
+          items: { type: string }
+          description: Provider slugs the page offers, in this order. Each must be an OAuth provider enabled on this instance. Default, every one.
+        app_name: { type: string, maxLength: 80, description: Shown as the page title. }
+        logo_url: { type: string, format: uri, maxLength: 2048, description: An https image shown above the title. }
+        ttl_seconds: { type: integer, minimum: 60, maximum: 3600, default: 1800 }
+
+    ConnectSession:
+      type: object
+      required: [url, expires_at]
+      properties:
+        url: { type: string, format: uri, description: "`<OHS_PUBLIC_URL>/connect?session=<token>`" }
+        expires_at: { type: string, format: date-time }
 
     SourceFreshness:
       type: object
@@ -1906,6 +2162,47 @@ components:
             hrv_avg_ms: { type: [number, "null"] }
             metadata: { $ref: "#/components/schemas/Metadata" }
 
+    MenstrualFlowDay:
+      type: object
+      required: [date, flow, providers]
+      properties:
+        date: { type: string, format: date, description: The user's local calendar day. }
+        flow:
+          type: string
+          enum: [unspecified, light, medium, heavy]
+          description: The heaviest flow recorded that day.
+        providers:
+          type: array
+          items: { type: string }
+          description: The providers that recorded flow that day, sorted.
+
+    MenstrualCycle:
+      type: object
+      required: [start_date, period_end_date, period_length_days, end_date, cycle_length_days, providers, flow_days]
+      properties:
+        start_date: { type: string, format: date, description: The first day of the period. }
+        period_end_date: { type: string, format: date, description: The period's last flow day. }
+        period_length_days:
+          type: integer
+          minimum: 1
+          description: Days from start_date to period_end_date, both included (gap days count).
+        end_date:
+          type: [string, "null"]
+          format: date
+          description: The day before the next period starts; null while the cycle is open.
+        cycle_length_days:
+          type: [integer, "null"]
+          minimum: 1
+          description: Days from start_date to the next period's first day; null while open.
+        providers:
+          type: array
+          items: { type: string }
+          description: The providers that recorded the period's flow days, sorted.
+        flow_days:
+          type: array
+          items: { $ref: "#/components/schemas/MenstrualFlowDay" }
+          description: The period's flow days in order; a gap day without flow is absent.
+
     Coverage:
       type: object
       required: [pending_jobs, parked_jobs, rejected_records, days, truncated]
@@ -1989,6 +2286,12 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/DailySummary" } }
+
+    MenstrualCyclePage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/MenstrualCycle" } }
 
     FHIRCoding:
       type: object

@@ -48,6 +48,12 @@ type Deps struct {
 	Metrics bool
 	// Console mounts the read-only admin console at /console (OHS_CONSOLE).
 	Console bool
+	// MetricsToken (OHS_METRICS_TOKEN) is the bearer secret /metrics asks
+	// for. Empty means /metrics on the API listener refuses every scrape.
+	MetricsToken string
+	// MetricsMux, when set (OHS_METRICS_LISTEN), takes GET /metrics instead
+	// of the API listener; there the token is asked for only when set.
+	MetricsMux *http.ServeMux
 	// ETLMetrics is exported on /metrics when set (the etl role runs here).
 	ETLMetrics *automation.Metrics
 	// Collect serves the connection, OAuth callback and notification routes.
