@@ -194,7 +194,10 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 			rows.Close()
 			return 0, fmt.Errorf("scan delivery: %w", err)
 		}
-		j.payload = []byte(payload)
+		if j.payload, err = compactPayload(payload); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("delivery %d: %w", j.id, err)
+		}
 		jobs = append(jobs, j)
 	}
 	rows.Close()

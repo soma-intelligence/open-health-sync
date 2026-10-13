@@ -85,3 +85,12 @@ func TestPayloadTestFlag(t *testing.T) {
 	p.Test = true
 	assert.Contains(t, string(mustJSON(p)), `"test":true`)
 }
+
+func TestCompactPayload(t *testing.T) {
+	// The text form of a jsonb value, as Postgres writes it.
+	got, err := compactPayload(`{"id": "e1", "data": {"n": 1, "s": "a, b: c"}, "test": true}`)
+	require.NoError(t, err)
+	assert.Equal(t, `{"id":"e1","data":{"n":1,"s":"a, b: c"},"test":true}`, string(got))
+	_, err = compactPayload(`{"id":`)
+	assert.Error(t, err)
+}

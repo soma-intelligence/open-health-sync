@@ -3,6 +3,7 @@
 package webhook
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -133,6 +134,17 @@ func recordAttempt(ctx context.Context, tx pgx.Tx, j job, o outcome, cause error
 	return nil
 }
 
+// compactPayload turns a payload read as jsonb text, which puts spaces after
+// separators, into the compact JSON the worker sends: the body a receiver
+// gets and the payload GET .../deliveries/{id} shows are the same bytes.
+func compactPayload(text string) ([]byte, error) {
+	var b bytes.Buffer
+	if err := json.Compact(&b, []byte(text)); err != nil {
+		return nil, fmt.Errorf("webhook: compact payload: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
 // GetDelivery returns one delivery of the endpoint with its payload and
 // attempts.
 func (s *Store) GetDelivery(ctx context.Context, tenant, endpoint uuid.UUID, id int64) (DeliveryDetail, error) {
@@ -143,7 +155,11 @@ func (s *Store) GetDelivery(ctx context.Context, tenant, endpoint uuid.UUID, id 
 	if err != nil {
 		return DeliveryDetail{}, err
 	}
-	out := DeliveryDetail{Delivery: d, Payload: json.RawMessage(payload), History: []Attempt{}}
+	body, err := compactPayload(payload)
+	if err != nil {
+		return DeliveryDetail{}, err
+	}
+	out := DeliveryDetail{Delivery: d, Payload: json.RawMessage(body), History: []Attempt{}}
 	rows, err := s.pool.Query(ctx, `SELECT id, attempt, started_at, duration_ms, status_code, error,
 			response_body_excerpt
 		FROM ohs_core.webhook_attempts WHERE tenant_id = $1 AND delivery_id = $2 ORDER BY id`, tenant, id)
