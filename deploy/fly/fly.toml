@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Fly.io app for ohs, built from deploy/Dockerfile. Steps in
+# docs/deploy-platforms.md. Run every fly command from the repository root,
+# with this file and the repository as build context:
+#   fly deploy . --config deploy/fly/fly.toml --dockerfile deploy/Dockerfile --ha=false
+# Replace the app name below with yours (or pass -a <name> to every command).
+# Needs a Postgres with the TimescaleDB extension: deploy/fly/postgres/fly.toml
+# runs one as a second app.
+
+app = "ohs-example"
+primary_region = "ams"
+
+# ohs gives work in flight 25 s after SIGTERM, plus a margin.
+kill_signal = "SIGTERM"
+kill_timeout = 35
+
+[build]
+  # Run as root: Fly volumes are mounted owned by root, and ohs writes its
+  # raw files to the volume.
+  [build.args]
+    IMAGE_UID = "0"
+
+[env]
+  OHS_RAW_STORE = "file:///var/lib/ohs/raw"
+  # Set OHS_PUBLIC_URL here or as a secret: https://<app>.fly.dev or your domain.
+  # OHS_DATABASE_URL and OHS_ENCRYPTION_KEY are secrets (fly secrets set).
+
+# The raw store. One volume per machine: keep this app at one machine.
+[mounts]
+  source = "ohs_raw"
+  destination = "/var/lib/ohs/raw"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Background sync pulls providers on a schedule: never stop the machine.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/readyz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

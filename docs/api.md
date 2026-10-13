@@ -17,7 +17,7 @@ Every call carries `Authorization: Bearer <secret>`.
 | Secret | Looks like | Used by | Calls |
 |---|---|---|---|
 | Tenant API key | `ohs_sk_` + 43 characters | your server | tenant routes: users, tokens, connections, reads, time tags |
-| User token | `ohs_ut_` + 43 characters | one end user's app | user routes: uploads (`upload`), reads over MCP (`read`) |
+| User token | `ohs_ut_` + 43 characters | one end user's app | user routes: uploads (`upload`), reads over MCP and the user archive (`read`) |
 
 The first key comes from `ohs admin tenant create --name <name>` (or `OHS_BOOTSTRAP_TENANT`,
 which logs a key once on first start). Both secrets are stored as SHA-256 hashes: a lost one
@@ -381,6 +381,17 @@ curl -sOJ "$OHS/v1/users/$USER_ID/exports/samples?format=parquet&start=2026-01-0
   -H "Authorization: Bearer $KEY"
 ```
 
+`GET /v1/users/{id}/archive` streams everything the instance holds about one user as one zip
+file, to answer a data portability request: the user and its connections (never a token),
+every record of every list as NDJSON, a FHIR R4 `collection` Bundle, the Open mHealth data
+points and every raw payload byte for byte, with a `manifest.json` that counts them. It takes a
+tenant key, or a user token with scope `read` for its own user (another user is a 404). See
+[exports.md](exports.md#complete-user-archive-data-portability).
+
+```sh
+curl -sOJ "$OHS/v1/users/$USER_ID/archive" -H "Authorization: Bearer $KEY"
+```
+
 ## Webhooks
 
 Rather than polling coverage, register an endpoint with `POST /v1/webhooks` and be told when a
@@ -395,6 +406,15 @@ Every request authenticated with a tenant key or a user token, every key command
 the action, the user it concerns, the route pattern and the status, never a value read or
 written. Read it with `GET /v1/audit` (tenant key; filters `user_id`, `action`, `since`,
 `until`). Details: [audit-log.md](audit-log.md).
+
+## Consent
+
+Per user, per source and per data category: `PUT /v1/users/{id}/consents/{provider}` with
+`{"granted":["heart","sleep"],"evidence":"..."}` sets the categories the user allows from that
+source (the others are revoked), `DELETE` revokes them all, `GET /v1/users/{id}/consents` and
+`GET /v1/users/{id}/consents/history` read the state and every change. Records outside the
+grant are not stored, and a revoked category's stored records are deleted. Details:
+[consent.md](consent.md).
 
 ## MCP
 

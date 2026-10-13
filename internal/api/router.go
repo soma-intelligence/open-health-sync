@@ -77,6 +77,9 @@ type Deps struct {
 	// Scorer, when set, ranks the sources of a metric a user has not ordered
 	// in merged reads (see fusion.Scorer). Nil uses the built-in defaults.
 	Scorer fusion.Scorer
+	// Version is the instance version the user archive's manifest states.
+	// Empty leaves it out.
+	Version string
 }
 
 type server struct {
@@ -108,9 +111,11 @@ func NewRouter(d Deps) http.Handler {
 	s.mountFHIR(mux)
 	s.mountOMH(mux)
 	s.mountExports(mux)
+	s.mountArchive(mux)
 	s.mountIngest(mux)
 	s.mountCollect(mux)
 	s.mountMCP(mux)
+	s.mountConsent(mux)
 	if d.Console {
 		console.Mount(mux)
 	}

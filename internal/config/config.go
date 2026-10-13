@@ -53,6 +53,10 @@ type Config struct {
 	Tracing bool
 	// TracingProtocol is the OTLP protocol, TracingHTTP or TracingGRPC.
 	TracingProtocol string
+	// ConsentRequired stores nothing from a source a user has recorded no
+	// consent for (OHS_CONSENT_REQUIRED, default false: such a source
+	// stores everything).
+	ConsentRequired bool
 	Providers       map[string]ProviderKeys // key = lower-case slug
 }
 
@@ -124,6 +128,7 @@ var reserved = map[string]bool{
 	"PULLS_PER_PROVIDER":     true,
 	"BACKFILLS_PER_PROVIDER": true,
 	"WEBHOOK_ALLOW_PRIVATE":  true,
+	"CONSENT_REQUIRED":       true,
 	"MCP_URL":                true, // client side settings of `ohs mcp`
 	"MCP_KEY":                true,
 	"HTTP_PORT":              true, // read by docker compose only (host port)
@@ -295,6 +300,13 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 
 	if c.Tracing, c.TracingProtocol, err = TracingFromEnv(env); err != nil {
 		return Config{}, err
+	}
+	if v := get("OHS_CONSENT_REQUIRED", ""); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("OHS_CONSENT_REQUIRED: %q is not a boolean", v)
+		}
+		c.ConsentRequired = b
 	}
 
 	for _, kv := range environ {

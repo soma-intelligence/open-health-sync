@@ -41,6 +41,20 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+// render.yaml lets Render generate OHS_ENCRYPTION_KEY (generateValue: a
+// base64-encoded 256-bit value). The example its Blueprint spec shows must load.
+func TestLoadAcceptsPlatformGeneratedKey(t *testing.T) {
+	m := base()
+	m["OHS_ENCRYPTION_KEY"] = "B0jrphAPOY7pg92AN0c9MN4yecczLMdwnx4OkA1KFUk="
+	c, err := load(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.EncryptionKey) != 32 {
+		t.Fatalf("key length %d", len(c.EncryptionKey))
+	}
+}
+
 func TestLoadRejectsBadKey(t *testing.T) {
 	for _, k := range []string{"!!notbase64!!", base64.StdEncoding.EncodeToString([]byte("short"))} {
 		m := base()

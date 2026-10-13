@@ -56,6 +56,8 @@ the REST routes.
 | `data.deleted` | Records the provider deleted were removed | `user_id`, `external_ref`, `provider`, `records_deleted` |
 | `data.erased` | The erasure of a user's data from one provider finished (a disconnect with `delete_data=true`, or `DELETE /v1/users/{id}/data/{provider}`) | `user_id`, `external_ref`, `provider`, `job_id` |
 | `user.deleted` | A user's erasure finished | `user_id`, `external_ref` |
+| `consent.granted` | Categories of a source were granted ([consent](consent.md)) | `user_id`, `external_ref`, `provider`, `categories` |
+| `consent.revoked` | Categories of a source were revoked; their stored records are being deleted | `user_id`, `external_ref`, `provider`, `categories` |
 | `connection.needs_reauth` | The provider refused the user's grant; nothing syncs until they connect again | `user_id`, `external_ref`, `provider` |
 | `connection.broken` | A connection stopped syncing: grant refused, a permission missing, pulls failing, or a provider quota spent | `user_id`, `external_ref`, `provider`, `reason`, `action`, and `retry_at` or `last_error` ([details](sync-health.md)) |
 | `connection.restored` | A broken connection synced again, or the user connected again | `user_id`, `external_ref`, `provider`, `previous_reason`, `broken_since`, `broken_seconds` |

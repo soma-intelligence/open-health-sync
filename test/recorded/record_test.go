@@ -89,7 +89,7 @@ func TestRecord(t *testing.T) {
 	for dt, ts := range sum {
 		t.Logf("%s: %d lines, %v", dt, ts.Lines, ts.Records)
 	}
-	t.Logf("wrote %s; read it before committing, then run go test ./test/recorded -run TestStatusPage -update", path)
+	t.Logf("wrote %s; read it before committing, then commit it with its summary", path)
 }
 
 // providerKeys reads OHS_<SLUG>_<FIELD> from the environment.
@@ -192,9 +192,14 @@ func recordUpload(t *testing.T, ctx context.Context, p Provider, from, now time.
 	e, err := export.Open(path)
 	require.NoError(t, err)
 	defer e.Close()
+	maxLines := 10
+	if s := os.Getenv("OHS_RECORD_MAX_LINES"); s != "" {
+		maxLines, err = strconv.Atoi(s)
+		require.NoError(t, err, "OHS_RECORD_MAX_LINES")
+	}
 	var parts []cassette.RawUpload
 	_, err = export.Convert(ctx, e, export.Options{Since: from.Format(time.DateOnly)}, func(pt export.Part) error {
-		parts = append(parts, cassette.RawUpload{Type: pt.Type, Day: pt.Day, Lines: bytes.Split(bytes.TrimSpace(pt.NDJSON), []byte("\n"))})
+		parts = append(parts, cassette.RawUpload{Type: pt.Type, Day: pt.Day, Lines: trim(bytes.Split(bytes.TrimSpace(pt.NDJSON), []byte("\n")), maxLines)})
 		return nil
 	})
 	require.NoError(t, err)
@@ -204,4 +209,16 @@ func recordUpload(t *testing.T, ctx context.Context, p Provider, from, now time.
 	}, cassette.Options{Keep: p.Keep})
 	require.NoError(t, err)
 	return cas
+}
+
+// trim keeps the first max lines of a part, plus every workout line: a
+// recording stays small, and a workout's route is cut to a few points.
+func trim(lines [][]byte, max int) [][]byte {
+	var out [][]byte
+	for _, l := range lines {
+		if len(out) < max || bytes.Contains(l, []byte(`"workoutActivityType"`)) {
+			out = append(out, l)
+		}
+	}
+	return out
 }

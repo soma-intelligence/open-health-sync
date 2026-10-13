@@ -4,6 +4,9 @@ This page covers Docker Compose. To run it on Kubernetes, use the Helm chart in
 `deploy/helm/ohs`: see [Kubernetes with Helm](helm.md). The configuration, backup and operating
 notes below apply to both; the commands are written for compose.
 
+No server of your own? [Render, Fly.io and Railway](deploy-platforms.md) runs it on Render (one
+button), Fly.io or Railway, with TimescaleDB and a persistent raw store.
+
 ## Quick start
 
 Needs Docker Compose v2.24 or later, and `openssl`. Run every command from the repository
@@ -15,6 +18,13 @@ sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 3
 docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
 docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
+```
+
+No wearable account yet? Fill the instance with 90 days of synthetic data from six sources, and
+get a tenant key, a user and example calls to try ([demo.md](demo.md)):
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs seed --demo
 ```
 
 Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `OHS_HTTP_BIND`, `POSTGRES_PASSWORD`, `S3_*`)
@@ -153,6 +163,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](self-hosting.md#metrics)) |
 | `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
 | `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
+| `OHS_CONSENT_REQUIRED` | `false` | Store nothing from a source until the user's [consent](consent.md) for it is recorded; by default a source without consent stores everything |
 | `OHS_AUDIT_RETENTION_DAYS` | `365` | Delete [audit events](audit-log.md) older than this many days, once a day; 0 keeps every event |
 | `OHS_RETENTION_DAYS` | `0` | Delete raw files and normalized data older than this many days; 0 keeps everything |
 | `OHS_PULLS_PER_PROVIDER` | `4` | Pulls of one provider running at once, across every `collect` instance. See [provider rate limits](background-sync.md#provider-rate-limits) |

@@ -139,6 +139,13 @@ const sources: Record<string, Target[]> = {
       description: "Logs, Prometheus metrics and OpenTelemetry traces: what each carries and how to turn traces on.",
     },
   ],
+  "docs/deploy-platforms.md": [
+    {
+      page: "(guides)/self-hosting/platforms",
+      title: "Render, Fly.io and Railway",
+      description: "Deploy without a server of your own: templates with TimescaleDB and a persistent raw store.",
+    },
+  ],
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",
@@ -174,6 +181,13 @@ const sources: Record<string, Target[]> = {
       description: "Why a user's data is not arriving: connection health, the last pulls, and sync now.",
     },
   ],
+  "docs/demo.md": [
+    {
+      page: "(guides)/guides/demo",
+      title: "Try it without a wearable",
+      description: "Fill an instance with synthetic data from six sources and try every read route.",
+    },
+  ],
   "docs/webhooks.md": [
     {
       page: "(guides)/guides/webhooks",
@@ -207,6 +221,13 @@ const sources: Record<string, Target[]> = {
       page: "(guides)/guides/audit-log",
       title: "Audit log",
       description: "Who read, exported or deleted which user's data, when and with which key.",
+    },
+  ],
+  "docs/consent.md": [
+    {
+      page: "(guides)/guides/consent",
+      title: "Consent",
+      description: "Per user, per source and per data category: what is stored, revocation and its purge.",
     },
   ],
 };
@@ -268,6 +289,7 @@ const icons: Record<string, string> = {
   "(guides)/connectors/recording": "Disc",
   "(guides)/connectors/apple-health": "Smartphone",
   "(guides)/self-hosting/kubernetes": "Ship",
+  "(guides)/self-hosting/platforms": "Cloud",
   "(guides)/self-hosting/doctor": "Stethoscope",
   "(guides)/self-hosting/configuration": "Settings",
   "(guides)/self-hosting/upgrading": "CircleArrowUp",
@@ -308,6 +330,7 @@ const icons: Record<string, string> = {
   "(guides)/learn/prompts": "MessageSquareText",
   "(guides)/guides/connect-page": "MousePointerClick",
   "(guides)/guides/sync-health": "HeartHandshake",
+  "(guides)/guides/demo": "FlaskConical",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

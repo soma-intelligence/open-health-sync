@@ -26,6 +26,8 @@ func init() {
 	openapi3filter.RegisterBodyDecoder("application/gzip", openapi3filter.FileBodyDecoder)
 	// Parquet exports are binary files.
 	openapi3filter.RegisterBodyDecoder("application/vnd.apache.parquet", openapi3filter.FileBodyDecoder)
+	// The user archive is a zip file.
+	openapi3filter.RegisterBodyDecoder("application/zip", openapi3filter.FileBodyDecoder)
 	// FHIR responses are JSON under their own media type.
 	openapi3filter.RegisterBodyDecoder("application/fhir+json", openapi3filter.JSONBodyDecoder)
 }

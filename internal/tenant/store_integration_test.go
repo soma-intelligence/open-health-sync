@@ -99,6 +99,34 @@ func TestCreateAndGetUser(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestEnsureUser(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	a, _, _ := s.CreateTenant(ctx, "A")
+	b, _, _ := s.CreateTenant(ctx, "B")
+
+	u, created, err := s.EnsureUser(ctx, a.ID, "demo-user")
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, "demo-user", u.ExternalRef)
+
+	again, created, err := s.EnsureUser(ctx, a.ID, "demo-user")
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, u.ID, again.ID)
+
+	// The same ref in another tenant is another user.
+	other, created, err := s.EnsureUser(ctx, b.ID, "demo-user")
+	require.NoError(t, err)
+	require.True(t, created)
+	require.NotEqual(t, u.ID, other.ID)
+
+	_, _, err = s.EnsureUser(ctx, uuid.New(), "demo-user")
+	require.ErrorIs(t, err, tenant.ErrNotFound)
+	_, _, err = s.EnsureUser(ctx, a.ID, "")
+	require.Error(t, err)
+}
+
 func TestGetUserOtherTenant(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)

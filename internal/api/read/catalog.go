@@ -147,3 +147,50 @@ func Connections(ctx context.Context, db Querier, tenantID, userID uuid.UUID) ([
 	}
 	return out, nil
 }
+
+// ConnectionDetail is a user's link to one provider as the user archive
+// describes it: a Connection plus the provider's own id of the user, the
+// granted scopes and the last change. Tokens and every sealed value never
+// leave the store.
+type ConnectionDetail struct {
+	Provider       string     `json:"provider"`
+	Status         string     `json:"status"`
+	ProviderUserID *string    `json:"provider_user_id"`
+	Scopes         []string   `json:"scopes"`
+	LastSyncAt     *time.Time `json:"last_sync_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// ConnectionDetails lists every provider connection of the user, ordered by
+// provider. ErrNotFound when the user is not the tenant's.
+func ConnectionDetails(ctx context.Context, db Querier, tenantID, userID uuid.UUID) ([]ConnectionDetail, error) {
+	if err := userExists(ctx, db, tenantID, userID); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(ctx, `SELECT provider, status, provider_user_id, scopes, last_sync_at, created_at, updated_at
+		FROM ohs_sync.connections WHERE tenant_id = $1 AND user_id = $2 ORDER BY provider`, tenantID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("read: connection details: %w", err)
+	}
+	defer rows.Close()
+	out := []ConnectionDetail{}
+	for rows.Next() {
+		var c ConnectionDetail
+		if err := rows.Scan(&c.Provider, &c.Status, &c.ProviderUserID, &c.Scopes, &c.LastSyncAt,
+			&c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("read: connection details: scan: %w", err)
+		}
+		if c.Scopes == nil {
+			c.Scopes = []string{}
+		}
+		utc(c.LastSyncAt)
+		utc(&c.CreatedAt)
+		utc(&c.UpdatedAt)
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read: connection details: %w", err)
+	}
+	return out, nil
+}

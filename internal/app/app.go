@@ -28,6 +28,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/consent"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
@@ -206,13 +207,17 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	if cfg.Roles["etl"] {
 		q := queue.NewETL(pool)
 		for _, tier := range []string{queue.TierStandard, queue.TierHighFreq} {
-			w := etl.NewWorkerWith(pool, raw, q, tier, ETLConcurrency, etl.WithShutdownGrace(opts.grace))
+			w := etl.NewWorkerWith(pool, raw, q, tier, ETLConcurrency, etl.WithShutdownGrace(opts.grace),
+				etl.WithConsentRequired(cfg.ConsentRequired))
 			goRole("etl "+tier, func() error { return w.Run(ctx) })
 		}
 		// Provider grants are revoked best effort before the user's rows go.
 		// A deletion cut short by shutdown stays pending for the next start.
 		dw := deletion.NewWorker(pool, raw, collectDeps).WithShutdownGrace(opts.grace)
 		goRole("deletion", func() error { return dw.Run(ctx) })
+		// Records of a category whose consent was revoked are purged here.
+		cp := consent.NewPurger(pool)
+		goRole("consent purge", func() error { return cp.Run(ctx) })
 		// Outgoing webhooks: deliveries are written with the change they
 		// announce, posted from here.
 		ww := webhook.NewWorker(pool, box, webhook.WorkerConfig{AllowPrivate: cfg.WebhookAllowPrivate})
@@ -248,6 +253,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.
 			IngestLimit: cfg.IngestConcurrency,
+			Version:     Version,
 		}
 		if cfg.Roles["etl"] {
 			deps.ETLMetrics = etlMetrics

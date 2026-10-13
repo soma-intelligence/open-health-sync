@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/consent"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
@@ -33,6 +34,9 @@ type Options struct {
 	Writer WriterConfig
 	// Now is the clock the future-timestamp check reads (default time.Now).
 	Now func() time.Time
+	// ConsentRequired (OHS_CONSENT_REQUIRED) stores nothing from a source
+	// the user has recorded no consent for.
+	ConsentRequired bool
 }
 
 // Process normalizes the raw object of job into the canonical store and
@@ -72,6 +76,14 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		log.InfoContext(ctx, "etl job skipped, user not active")
 		return Counts{}, nil
 	}
+
+	// Consent choke point: categories the user has not granted for this
+	// source are dropped before validation, so nothing of them is stored.
+	policy, err := consent.Load(ctx, pool, job.TenantID, job.UserID, job.Provider, opts.ConsentRequired)
+	if err != nil {
+		return nil, err
+	}
+	withheld := 0
 
 	dataType, err := rawDataType(ctx, pool, sc, job.Key)
 	if err != nil {
@@ -113,6 +125,12 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 			return nil
 		}
 		stampOwner(mr, sc)
+		if policy.Recorded || policy.Required {
+			withheld += consent.Filter(mr, policy.Allows)
+			if mr.IsEmpty() {
+				return nil
+			}
+		}
 
 		// Attribution choke point: which upstream produced each sample, not only
 		// which integration delivered it.
@@ -176,6 +194,9 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	}
 	if suspects > 0 {
 		log.WarnContext(ctx, "implausible values flagged", "count", suspects)
+	}
+	if withheld > 0 {
+		log.InfoContext(ctx, "records withheld, no consent for their category", "count", withheld)
 	}
 	recordsIn := rr.RecordCount + len(rr.ParseErrors) + rr.ParseErrorsDropped
 

@@ -28,7 +28,8 @@ info:
     them as Open mHealth data points; see docs/open-mhealth.md.
 
     **Exports.** `GET /v1/users/{id}/exports/{dataset}` streams every record of one list in a
-    time window as a single CSV or Parquet file; see docs/exports.md.
+    time window as a single CSV or Parquet file, and `GET /v1/users/{id}/archive` everything
+    held about one user as a single zip file (data portability); see docs/exports.md.
 
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
     of another tenant is a 404, never a 403.
@@ -54,6 +55,7 @@ tags:
   - name: tokens
   - name: webhooks
   - name: connections
+  - name: consent
   - name: read
   - name: tags
   - name: fhir
@@ -653,6 +655,132 @@ paths:
                 properties:
                   job_id: { type: string, format: uuid }
         "204": { description: Disconnected; the data already collected is kept. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/consents:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [consent]
+      operationId: listConsents
+      summary: The user's consent per source and data category
+      description: |
+        Every source the user has recorded consent for, with the state of each data
+        category, and the list of categories. A source with no consent recorded stores
+        everything, unless the instance sets `OHS_CONSENT_REQUIRED=true`, where it stores
+        nothing.
+      responses:
+        "200":
+          description: Consent per source.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, categories]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ConsentSource" }
+                  categories:
+                    type: array
+                    items: { $ref: "#/components/schemas/ConsentCategoryName" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/consents/history:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [consent]
+      operationId: listConsentHistory
+      summary: Every consent change of the user, newest first
+      description: |
+        One event per category granted or revoked, with the credential that made the change
+        and the evidence it gave. Kept while the user exists; erased with the user.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/ConsentEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/consents/{provider}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    put:
+      tags: [consent]
+      operationId: setConsent
+      summary: Set the categories the user allows from a source
+      description: |
+        `granted` becomes the whole list: every category left out is revoked. From then on
+        the source's records outside `granted` are dropped before they are stored, and the
+        records already stored in a revoked category are deleted in the background. Each
+        change is kept in the history and announced by the `consent.granted` and
+        `consent.revoked` webhooks. Raw payloads are not split by category: they follow
+        `OHS_RETENTION_DAYS` and the user's erasure.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [granted]
+              properties:
+                granted:
+                  type: array
+                  description: The categories allowed; [] for none.
+                  items: { $ref: "#/components/schemas/ConsentCategoryName" }
+                evidence:
+                  type: string
+                  maxLength: 500
+                  description: What backs the change, such as a consent form version.
+      responses:
+        "200":
+          description: The user's consent for this source after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsentSource" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [consent]
+      operationId: revokeConsent
+      summary: Revoke every category of a source
+      description: The same as a PUT with `granted` empty.
+      parameters:
+        - name: evidence
+          in: query
+          required: false
+          description: What backs the revocation, at most 500 characters.
+          schema: { type: string, maxLength: 500 }
+      responses:
+        "200":
+          description: The user's consent for this source after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsentSource" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -1708,6 +1836,43 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [exports]
+      operationId: getUserArchive
+      summary: Everything held about one user, as one zip file
+      description: |
+        The answer to a data portability request: one zip file streamed in a single response
+        (`Content-Disposition: attachment`) holding `manifest.json` (user, generation time,
+        instance version, record count of each file, a description of each folder),
+        `user.json` (the user and its provider connections, never a token),
+        `canonical/<list>.ndjson` (every record of samples, category-samples, sleep,
+        sleep-phases, workouts, workout-routes, nutrition and daily, the same JSON as the list
+        items, one per line), `fhir/bundle.json` (a FHIR R4 `collection` Bundle of every
+        Observation), `omh/data-points.ndjson` (the Open mHealth data points) and `raw/...`
+        (every raw payload of the user, byte for byte, under its path below the user). A
+        tenant key reads any user of the tenant; a user token with scope `read` reads only its
+        own user, and another user is a 404. A failure once the file has started cuts the
+        connection, so a truncated archive never looks complete. See docs/exports.md.
+      security:
+        - tenantKey: []
+        - userToken: [read]
+      responses:
+        "200":
+          description: The archive.
+          headers:
+            Content-Disposition:
+              description: '`attachment; filename="ohs-user-<user id>-<UTC time, YYYYMMDDTHHMMSSZ>.zip"`'
+              schema: { type: string }
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/ingest/apple-health:
     post:
       tags: [ingest]
@@ -2327,6 +2492,38 @@ components:
           type: [string, "null"]
           description: Null on the last page.
 
+    ConsentCategoryName:
+      type: string
+      enum: [activity, location, heart, ecg, blood_pressure, glucose, respiratory, body, sleep, nutrition, reproductive, mental, other]
+    ConsentCategory:
+      type: object
+      required: [category, granted, granted_at, revoked_at]
+      properties:
+        category: { $ref: "#/components/schemas/ConsentCategoryName" }
+        granted: { type: boolean }
+        granted_at: { type: [string, "null"], format: date-time, description: "When it was last granted." }
+        revoked_at: { type: [string, "null"], format: date-time, description: "When it was revoked, while it is." }
+    ConsentSource:
+      type: object
+      required: [provider, categories, updated_at]
+      properties:
+        provider: { type: string }
+        categories:
+          type: array
+          items: { $ref: "#/components/schemas/ConsentCategory" }
+        updated_at: { type: string, format: date-time }
+    ConsentEvent:
+      type: object
+      required: [id, at, provider, category, action, actor_id, evidence]
+      properties:
+        id: { type: integer }
+        at: { type: string, format: date-time }
+        provider: { type: string }
+        category: { $ref: "#/components/schemas/ConsentCategoryName" }
+        action: { type: string, enum: [granted, revoked] }
+        actor_id: { type: string, description: "The id of the API key that made the change." }
+        evidence: { type: string }
+
     AuditEvent:
       type: object
       required: [id, at, actor, action, user_id, status, detail]
@@ -2431,7 +2628,7 @@ components:
 
     WebhookEventType:
       type: string
-      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth, connection.broken, connection.restored, tag.created, tag.updated, tag.deleted]
+      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth, connection.broken, connection.restored, tag.created, tag.updated, tag.deleted, consent.granted, consent.revoked]
       description: |
         `data.written`: a sync wrote new or changed records. `data.deleted`: records the
         provider deleted were removed. `data.erased`: everything a user held from one provider
@@ -2442,6 +2639,7 @@ components:
         `connection.restored`: a broken connection synced again.
         `tag.created`, `tag.updated`, `tag.deleted`: a time tag of the user was created, changed
         or deleted through the API.
+        `consent.granted`, `consent.revoked`: a user granted or revoked data categories of a source.
 
     CreateWebhookRequest:
       type: object

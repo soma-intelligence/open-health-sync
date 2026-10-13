@@ -5,6 +5,7 @@
 package contract
 
 import (
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -171,6 +172,13 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 201, c.do("POST", "/v1/users", key, nil, map[string]string{"Idempotency-Key": "k1"}).status, "empty body")
 	assert.Equal(t, 200, c.json("GET", "/v1/users?limit=10", key, "").status)
 	assert.Equal(t, 200, c.json("GET", "/v1/users/"+user.ID, key, "").status)
+	// Consent, on a source the fixture does not use.
+	consents := "/v1/users/" + user.ID + "/consents"
+	assert.Equal(t, 200, c.json("PUT", consents+"/oura", key, `{"granted":["heart","sleep"],"evidence":"form v1"}`).status)
+	assert.Equal(t, 400, c.json("PUT", consents+"/oura", key, `{"granted":["genome"]}`).status)
+	assert.Equal(t, 200, c.json("DELETE", consents+"/oura?evidence=withdrawn", key, "").status)
+	assert.Equal(t, 200, c.json("GET", consents, key, "").status)
+	assert.Equal(t, 200, c.json("GET", consents+"/history?limit=2", key, "").status)
 	r = c.json("POST", "/v1/users/"+user.ID+"/tokens", key, `{"scopes":["upload"]}`)
 	require.Equal(t, 201, r.status, "%s", r.body)
 	var tok struct{ Token string }
@@ -451,6 +459,21 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	}
 	assert.Equal(t, 400, c.json("GET", u+"/exports/samples?format=xlsx", key, "").status)
 	assert.Equal(t, 400, c.json("GET", u+"/exports/samples?limit=10", key, "").status)
+
+	// The user archive: a zip with the manifest, and a user token without read refused.
+	r = c.json("GET", u+"/archive", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	zr, err := zip.NewReader(bytes.NewReader(r.body), int64(len(r.body)))
+	require.NoError(t, err)
+	var names []string
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	assert.Contains(t, names, "manifest.json")
+	assert.Contains(t, names, "fhir/bundle.json")
+	assert.True(t, slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "raw/apple_health/") }),
+		"the uploaded parts: %v", names)
+	assert.Equal(t, 403, c.json("GET", u+"/archive", tok.Token, "").status)
 
 	// Connections: an Apple Health user has none (device uploads are not connections).
 	r = c.json("GET", u+"/connections", key, "")

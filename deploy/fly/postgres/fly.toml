@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Fly.io app running Postgres 17 with TimescaleDB for ohs, from the same image
+# digest as deploy/docker-compose.yml. It has no public service: ohs reaches it
+# on the private network at <this app>.internal:5432. Steps in
+# docs/deploy-platforms.md:
+#   fly deploy --config deploy/fly/postgres/fly.toml --ha=false
+# Replace the app name below with yours (or pass -a <name> to every command).
+
+app = "ohs-db-example"
+primary_region = "ams"
+
+# Give Postgres time for a clean shutdown.
+kill_signal = "SIGINT"
+kill_timeout = 60
+
+[build]
+  image = "timescale/timescaledb:latest-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2"
+
+[env]
+  POSTGRES_USER = "ohs"
+  POSTGRES_DB = "ohs"
+  # initdb refuses a mount point that is not empty (lost+found).
+  PGDATA = "/var/lib/postgresql/data/pgdata"
+  # POSTGRES_PASSWORD is a secret (fly secrets set).
+
+[mounts]
+  source = "pgdata"
+  destination = "/var/lib/postgresql/data"
+
+[checks]
+  [checks.postgres]
+    type = "tcp"
+    port = 5432
+    grace_period = "30s"
+    interval = "15s"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

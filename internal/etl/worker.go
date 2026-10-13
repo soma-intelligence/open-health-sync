@@ -56,6 +56,10 @@ func WithShutdownGrace(d time.Duration) WorkerOption { return func(w *Worker) { 
 // WithWriterConfig sets the writer batch size and COPY threshold.
 func WithWriterConfig(c WriterConfig) WorkerOption { return func(w *Worker) { w.opts.Writer = c } }
 
+// WithConsentRequired stores nothing from a source the user has recorded no
+// consent for (OHS_CONSENT_REQUIRED).
+func WithConsentRequired(b bool) WorkerOption { return func(w *Worker) { w.opts.ConsentRequired = b } }
+
 // NewWorker returns a worker for tier running up to concurrency jobs at once.
 func NewWorker(pool *pgxpool.Pool, rs rawstore.Store, q *queue.ETL, tier string, concurrency int) *Worker {
 	return NewWorkerWith(pool, rs, q, tier, concurrency)
