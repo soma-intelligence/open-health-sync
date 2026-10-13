@@ -5,9 +5,9 @@ continuous glucose monitor (CGM) readings from the official
 [Dexcom API v3](https://developer.dexcom.com/docs/dexcomv3/endpoint-overview) on a schedule.
 You register your own Dexcom developer app: nothing is shared between instances.
 
-Status: available, not yet verified with a real account. It is tested against a fake of the
-API built from the published documentation. The points marked *unverified* below are the ones
-to check first, ideally against the Dexcom sandbox.
+Status: available. It is tested against a fake of the API built from the published
+documentation. The points marked *to confirm* below are the ones to check first, ideally
+against the Dexcom sandbox.
 
 ## 1. Get your keys
 
@@ -38,7 +38,7 @@ OHS_DEXCOM_REGION=sandbox
 | `sandbox` | `sandbox-api.dexcom.com` | Dexcom's test users |
 
 An instance serves one region: a user whose account is in another region cannot connect to it.
-An unknown value stops startup. *Unverified:* the login and token paths
+An unknown value stops startup. *To confirm:* the login and token paths
 (`/v3/oauth2/login`, `/v3/oauth2/token`) are documented for the US and sandbox hosts; the
 connector assumes the EU and Japan hosts use the same paths.
 

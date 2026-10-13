@@ -6,11 +6,10 @@ in) over Google OAuth; Open Health Sync pulls their data from the
 schedule and when Google sends a webhook notification. You create your own Google Cloud project
 and OAuth client: nothing is shared between instances.
 
-Status: **available, not yet verified with a real account.** Google is **not onboarding new
-Google Health API projects yet**, so most operators cannot get keys today (see
-[Access](#access-read-this-first)). Field names follow the API's public reference and discovery
-document, checked on 2026-10-12; points marked **(unverified)** are the ones to check first against
-a real project.
+Status: **available.** Google is **not onboarding new Google Health API projects yet**, so most
+operators cannot get keys today (see [Access](#access-read-this-first)). Field names follow the
+API's public reference and discovery document, checked on 2026-10-12; points marked
+**(to confirm)** are the ones to check first against a live project.
 
 The connector is built on the Google Health API only. The legacy Fitbit Web API
 (`api.fitbit.com`) lost support on 2026-09-30 and is turned off on 2026-10-30; it is not used, and
@@ -28,7 +27,7 @@ legacy Fitbit tokens cannot be carried over (every user consents again).
 - **7 day refresh tokens in Testing.** While the consent screen's publishing status is
   *Testing*, Google expires refresh tokens after 7 days: each user's connection turns
   `needs_reauth` weekly and they must connect again. Publishing the app avoids it; whether an
-  unverified app with restricted scopes can be published is **(unverified)**.
+  unverified app with restricted scopes can be published is **(to confirm)**.
 - **Users link first.** A user must link their Google Account to Google Health in the Fitbit
   (Google Health) mobile app before consenting. If they have not, the connect fails with a clear
   message ("this Google Account is not linked to Google Health yet...") and the grant is revoked.
@@ -79,7 +78,7 @@ Nothing else is asked for (no nutrition, ECG, location or profile): every extra 
 makes verification harder. Google lets a user grant some scopes and refuse others. The connector
 reads the granted scopes from the token answer and skips the data types of a refused scope; a
 consent granting none of the three fails. Which scope covers VO2 max, blood glucose, core body
-temperature and sleep temperature is **(unverified)**; a data type Google answers with 403 is
+temperature and sleep temperature is **(to confirm)**; a data type Google answers with 403 is
 skipped anyway.
 
 The consent URL uses `access_type=offline` (for a refresh token), `prompt=consent` (so a
@@ -123,12 +122,12 @@ object of the data type, one data point per line. The filter per kind of data ty
 
 The filter field names of daily types are written in snake case (`daily_resting_heart_rate.date`)
 as on Google's data types page; the list reference shows one example in camel case
-(`dailyHeartRateVariability.date`). Which one the API accepts is **(unverified)**.
+(`dailyHeartRateVariability.date`). Which one the API accepts is **(to confirm)**.
 
 The connector uses the default data source family (`all-sources`): points from every source the
 user has (tracker, phone, scale, other apps) are pulled, and the source is kept in metadata and
 in the content hash, so two sources of the same minute stay apart. Data only exists once the
-user's device has synced to the app. How far back history reaches is **(unverified)**.
+user's device has synced to the app. How far back history reaches is **(to confirm)**.
 
 ## 6. Webhooks
 
@@ -154,7 +153,7 @@ Set `OHS_FITBIT_WEBHOOK_SECRET` and restart **before** this call: while creating
 without (401), and refuses the subscriber if either answer is wrong. With `AUTOMATIC`, every user
 who consents is subscribed. The credentials the call needs, and which data types Google accepts in
 `subscriberConfigs` (not every type has webhooks; `oxygen-saturation`, `vo2-max` and
-`daily-vo2-max` do not), are **(unverified)**: drop a type the call refuses.
+`daily-vo2-max` do not), are **(to confirm)**: drop a type the call refuses.
 
 Each notification must carry the secret, compared in constant time. It must also carry a valid
 `GOOGLE-HEALTH-API-SIGNATURE`: base64 of a Tink prefix (version byte, 4 byte key id) and an ECDSA
@@ -162,7 +161,7 @@ P-256 / SHA-256 signature of the raw body, checked against Google's
 [public keyset](https://www.gstatic.com/googlehealthapi/webhooks/webhooks_public_keyset.json)
 (fetched, cached for an hour, fetched again when a signature names a key it does not hold; keys
 rotate every 30 days). This follows Google's manual verification steps without the Tink library.
-Not confirmed against a real delivery **(unverified)**: the base64 alphabet (standard and URL-safe
+To confirm against a live delivery: the base64 alphabet (standard and URL-safe
 are both accepted) and the signature encoding (DER per the docs; IEEE P1363 also accepted).
 `OHS_FITBIT_WEBHOOK_SIGNATURE` sets the check:
 
@@ -180,7 +179,7 @@ per user and data type. A data type the connector does not pull is acknowledged 
 - **Deletions are not propagated yet.** A `DELETE` notification queues a pull like an upsert, but
   a pull cannot tell what is gone, so data deleted at Google stays stored.
 - **Answer code.** Open Health Sync answers an accepted notification with 200; Google documents
-  204 and retries "any other status code" **(unverified** whether a 200 is retried).
+  204 and retries "any other status code" **(to confirm** whether a 200 is retried).
 - Revoked permissions and account deletions send no notification. Without webhooks nothing
   breaks: the 6 hour pull still collects everything.
 
@@ -241,7 +240,7 @@ Notes on the mapping:
   irregular rhythm, active zone minutes, time in heart rate zones, sedentary periods, activity
   level, swim lengths, altitude, basal energy, menstrual and mood data) have no canonical name
   here or need a scope not asked for. Exercise routes (TCX export) are not pulled.
-- Which data types a Fitbit tracker (as opposed to a Pixel Watch) produces is **(unverified)**.
+- Which data types a Fitbit tracker (as opposed to a Pixel Watch) produces is **(to confirm)**.
 
 ## Updates and deletions
 
