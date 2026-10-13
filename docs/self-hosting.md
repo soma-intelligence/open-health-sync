@@ -188,7 +188,8 @@ Put a reverse proxy with TLS in front of port 8080; the bearer secrets travel in
 ## Upgrading
 
 Releases are 0.x: any of them may change the API, the configuration or the schema, so read the
-[changelog](../CHANGELOG.md) and the release notes first, and take a backup (below). Then pin
+[changelog](../CHANGELOG.md) and the release notes first, and take a backup
+([`scripts/backup.sh`](backup-and-restore.md)). Then pin
 the new version in `.env` and recreate the container:
 
 ```sh
@@ -233,45 +234,19 @@ connections or a database tuned differently, so the backup above is still the sa
 
 ## Backup and restore
 
-A backup is three things taken together: the database, the raw store, and `.env` (it holds
-`OHS_ENCRYPTION_KEY`; without the key, stored OAuth tokens cannot be read and users must
-connect again). Raw files can rebuild normalized data, not users, keys or connections, so the
-database matters most. With the bundled compose stack (project `ohs`, so the volume is
-`ohs_raw`; replace `ohs` with your project name):
-
-```sh
-DC="docker compose --env-file .env -f deploy/docker-compose.yml"
-$DC exec -T postgres pg_dump -U ohs -Fc ohs > ohs-$(date +%F).dump
-docker run --rm -v ohs_raw:/raw alpine tar czf - -C /raw . > raw-$(date +%F).tgz
-cp .env env-$(date +%F).backup
-```
-
-With the S3 raw store, back the bucket up with your provider's tools instead. Restore into the
-same version that took the backup, with `ohs` stopped (TimescaleDB needs the pre and post
-restore calls):
-
-```sh
-$DC stop ohs
-$DC exec -T postgres psql -v ON_ERROR_STOP=1 -U ohs -d postgres \
-  -c 'DROP DATABASE ohs' -c 'CREATE DATABASE ohs'
-$DC exec -T postgres psql -v ON_ERROR_STOP=1 -U ohs -d ohs \
-  -c 'CREATE EXTENSION IF NOT EXISTS timescaledb' -c 'SELECT timescaledb_pre_restore()'
-$DC exec -T postgres pg_restore -U ohs -d ohs --no-owner < ohs-2026-10-11.dump
-$DC exec -T postgres psql -U ohs -d ohs -c 'SELECT timescaledb_post_restore()'
-# empty the raw volume first, so files written after the backup do not linger
-docker run --rm -v ohs_raw:/raw alpine find /raw -mindepth 1 -delete
-docker run --rm -i -v ohs_raw:/raw alpine tar xzf - -C /raw < raw-2026-10-11.tgz
-$DC start ohs
-```
-
-`pg_dump` warns about circular foreign keys in TimescaleDB's own catalog; the full dump above
-restores despite it. Restore the `.env` of the same date, so the key matches.
+`scripts/backup.sh` writes one archive with the database (`pg_dump`, run inside the database
+container) and the raw files; `scripts/restore.sh` puts it back into a fresh or existing stack
+and refuses an archive newer than the running release. Keep `.env` (it holds
+`OHS_ENCRYPTION_KEY`) separately: without the key the stored OAuth tokens cannot be read. CI
+tests the full cycle. See [Backup and restore](backup-and-restore.md) for what is in an
+archive, a cron example, the S3 raw store, restore steps and how to verify a backup.
 
 ## Rotating secrets
 
 - **Tenant API key.** Add a key, move your clients to it, then revoke the old one:
 
   ```sh
+  DC="docker compose --env-file .env -f deploy/docker-compose.yml"
   $DC exec ohs /ohs admin tenant list
   $DC exec ohs /ohs admin key create --tenant <tenant id>
   $DC exec ohs /ohs admin key list --tenant <tenant id>
