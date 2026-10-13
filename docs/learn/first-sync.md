@@ -39,9 +39,9 @@ Pick the source you have. You can add the others later, and they all land in the
 
 **An iPhone (and an Apple Watch).** On the phone, open the Health app, tap your picture, then
 *Export All Health Data*. Send the `export.zip` to your computer (AirDrop works). Install the
-`ohs` command from the [latest release](https://github.com/soma-intelligence/open-health-sync/releases)
-(the [binaries page](https://www.somalabs.me/open-health-sync/documentation/self-hosting/binaries) has the steps), then import the export
-through a token that can only upload:
+`ohs` command from the [latest release](https://github.com/soma-intelligence/open-health-sync/releases):
+take the archive for your system (`darwin` is macOS), unpack it and put `ohs` on your `PATH`.
+Then import the export through a token that can only upload:
 
 ```sh
 set -a; . ~/.ohs.env; set +a
