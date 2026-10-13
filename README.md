@@ -267,6 +267,7 @@ Want one sooner? Connectors are self-contained: read
 | FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | 🔜 On `main`, next release (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
 | RR intervals and HRV (RMSSD, SDNN, pNN50, mean RR and heart rate) per heartbeat series, over REST and MCP ([docs/hrv.md](docs/hrv.md)) | 🔜 On `main`, next release |
 | Menstrual cycles derived from recorded flow, over REST and MCP; no predictions ([docs/menstrual-cycles.md](docs/menstrual-cycles.md)) | 🔜 On `main`, next release |
+| Time tags (illness, injury, travel, jet lag, vaccination, medication, alcohol) that give context to the data, over REST, webhooks and MCP ([docs/time-tags.md](docs/time-tags.md)) | 🔜 On `main`, next release |
 | Read routes for ECG recordings, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
 | Open mHealth ([docs/open-mhealth.md](docs/open-mhealth.md)) | 🔜 On `main`, next release |
@@ -589,7 +590,7 @@ software.
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON and
 Health Connect connectors, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing webhooks,
-Health app export import, background sync, sample compression, RR intervals and HRV, menstrual cycles, per-source erasure, backup and restore, the hosted connect page, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
+Health app export import, background sync, sample compression, RR intervals and HRV, menstrual cycles, time tags, per-source erasure, backup and restore, the hosted connect page, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
@@ -627,6 +628,7 @@ SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as G
 - [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
 - [RR intervals and HRV](docs/hrv.md): beat-to-beat intervals and the HRV derived from them.
 - [Menstrual cycles](docs/menstrual-cycles.md): cycles derived from recorded flow, without predictions.
+- [Time tags](docs/time-tags.md): intervals such as an illness or a trip that give context to the data.
 
 ## Contributing
 
