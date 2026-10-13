@@ -629,6 +629,35 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /v1/users/{id}/connect-sessions:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [connections]
+      operationId: createConnectSession
+      summary: Create a link to the hosted connection page
+      description: |
+        Returns a link to a page served by Open Health Sync where the user picks a provider and goes
+        through its consent, so your app needs no connection UI of its own. The token in the link is
+        the page's only credential: send the link to this user only. It serves several providers
+        until `expires_at`. After each consent the user lands on
+        `redirect_uri?status=connected|error&provider=<slug>`, or, without `redirect_uri`, on the
+        built-in result page, which links back to the connection page. See docs/connect-page.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectSessionRequest" }
+      responses:
+        "201":
+          description: The page link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/users/{id}/samples:
     parameters:
@@ -1255,6 +1284,67 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /connect:
+    get:
+      tags: [connections]
+      operationId: connectPage
+      summary: Hosted connection page
+      security: []
+      description: |
+        The page a connect session link opens, for the end user's browser. It shows the app name and
+        logo of the session and one button per allowed provider with the user's connection status
+        (connected, needs reconnecting, not connected). A button posts to `POST /connect/{provider}`.
+        An unknown token is 404 and an expired one 410, as a page that says nothing more.
+      parameters:
+        - $ref: "#/components/parameters/ConnectSessionToken"
+      responses:
+        "200": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
+
+  /connect/{provider}:
+    parameters:
+      - $ref: "#/components/parameters/Provider"
+    get:
+      tags: [connections]
+      operationId: connectProviderPage
+      summary: Hosted connection page for one provider
+      security: []
+      description: The connection page with only this provider's button. 404 when the session does not allow it.
+      parameters:
+        - $ref: "#/components/parameters/ConnectSessionToken"
+      responses:
+        "200": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
+    post:
+      tags: [connections]
+      operationId: connectStart
+      summary: Start consent from the hosted page
+      security: []
+      description: |
+        The form the page posts. Mints a single-use OAuth state exactly like
+        `POST /v1/users/{id}/connections/{provider}`, with the session's `redirect_uri`, and sends the
+        browser to the provider's consent page. The session stays usable until it expires.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [session]
+              properties:
+                session: { type: string, description: The token of the connect session link. }
+      responses:
+        "303":
+          description: To the provider's consent page.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        "400": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
+
   /oauth/{provider}/callback:
     parameters:
       - $ref: "#/components/parameters/Provider"
@@ -1463,6 +1553,12 @@ components:
       required: true
       description: Connector slug, see GET /v1/providers.
       schema: { type: string }
+    ConnectSessionToken:
+      name: session
+      in: query
+      required: true
+      description: The token of the connect session link.
+      schema: { type: string }
     Cursor:
       name: cursor
       in: query
@@ -1532,6 +1628,14 @@ components:
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
+    ConnectHTML:
+      description: |
+        A page of the hosted connection flow. Sent with `Cache-Control: no-store`,
+        `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and a Content-Security-Policy that
+        allows no script.
+      content:
+        text/html:
+          schema: { type: string }
 
   schemas:
     Problem:
@@ -1759,6 +1863,31 @@ components:
         initial_backfill_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    ConnectSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        redirect_uri:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Where the user lands after each consent. Absolute https URL (http only for localhost).
+        providers:
+          type: array
+          maxItems: 64
+          items: { type: string }
+          description: Provider slugs the page offers, in this order. Each must be an OAuth provider enabled on this instance. Default, every one.
+        app_name: { type: string, maxLength: 80, description: Shown as the page title. }
+        logo_url: { type: string, format: uri, maxLength: 2048, description: An https image shown above the title. }
+        ttl_seconds: { type: integer, minimum: 60, maximum: 3600, default: 1800 }
+
+    ConnectSession:
+      type: object
+      required: [url, expires_at]
+      properties:
+        url: { type: string, format: uri, description: "`<OHS_PUBLIC_URL>/connect?session=<token>`" }
+        expires_at: { type: string, format: date-time }
 
     SourceFreshness:
       type: object
