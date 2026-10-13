@@ -199,6 +199,35 @@ The container runs `ohs up`, so pending migrations apply on start; `ohs migrate 
 the schema version. There is no step-by-step downgrade (`ohs migrate down --all` drops
 everything): to go back, run the old version on a restored backup.
 
+Without compose, the order is the same: back up, stop `ohs`, replace the binary, then start it
+with `ohs up` (or run `ohs migrate up` before `ohs serve`). Several processes on one database
+(split roles) must all run the same version: stop them all, migrate once, then start the new
+version everywhere. If a migration fails, `ohs migrate version` shows `(dirty)` and `ohs up`
+refuses to serve: restore the backup and report the error rather than editing the schema by
+hand.
+
+### What the upgrade test checks
+
+Every change to `main` runs [`test/upgrade/upgrade.sh`](../test/upgrade/upgrade.sh)
+(`make upgrade-test`). It builds the last release from its tag, installs it on Postgres with
+TimescaleDB, creates a tenant, a user and an upload token, and uploads the Apple Health test
+export. Then it migrates that database to the new code and checks that:
+
+- every migration applies on top of that data, and no table loses or gains rows (code catalogs
+  may gain new codes);
+- the server starts with `ohs up` and `/readyz` answers 200;
+- the API key and the upload token issued by the old release still work;
+- samples, sleep, workouts, daily summaries, coverage and the user record read back exactly as
+  before (new fields may be added, none change);
+- endpoints added since that release (freshness, webhooks, FHIR, Open mHealth, exports) answer
+  for the old user, and a new upload is processed;
+- the down migrations bring the schema back to the old release's version, the old release serves
+  the same data again, and the new code migrates up once more.
+
+It covers one data source (Apple Health uploads) and the bundled database, not your provider
+connections or a database tuned differently, so the backup above is still the safety net.
+`OHS_UPGRADE_FROM=v0.0.1 make upgrade-test` tests from an older release.
+
 ## Backup and restore
 
 A backup is three things taken together: the database, the raw store, and `.env` (it holds
