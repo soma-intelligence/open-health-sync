@@ -144,7 +144,7 @@ release may change the API, the configuration or the database schema.
   returns all of them as before. The order of sources is resolved per metric (metric, then
   group, then `*`, then built-in defaults) and set per user with
   `GET`/`PUT /v1/users/{id}/source-priorities`, stored in `ohs_sync.source_priorities`
-  (migration `0019`). Overlap is judged per kind of metric: any shared time for counts such as
+  (migration `0032`). Overlap is judged per kind of metric: any shared time for counts such as
   steps, 5 minutes for readings such as heart rate, 12 hours for nightly figures, an hour for
   body measurements, half the shorter session for sleep and workouts. `GET .../daily` merges
   one summary per day with each figure from its best ranked source and `sources` naming it;

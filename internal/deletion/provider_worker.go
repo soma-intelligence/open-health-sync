@@ -29,7 +29,7 @@ import (
 //     a provider table (sleep phases, route points, track summaries, ECG
 //     voltages) and are deleted with the parent's rows;
 //   - a kept table, listed in keptTables: its rows are the user's own, not
-//     any provider's (time tags), and stay;
+//     any provider's (time tags, the order of sources), and stay;
 //   - anything else is an error, so a new table cannot be left out silently.
 //
 // Daily summaries are per provider: a derived row sums one provider's own
@@ -50,7 +50,8 @@ var childTables = map[string]childOf{
 // keptTables are the user-scoped tables whose rows no provider wrote. A
 // provider erasure leaves them; a user deletion still erases them.
 var keptTables = map[string]bool{
-	"ohs_data.time_tags": true,
+	"ohs_data.time_tags":         true,
+	"ohs_sync.source_priorities": true,
 }
 
 // providerFilter narrows the delete of some provider tables. A connection is

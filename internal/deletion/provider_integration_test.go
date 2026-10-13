@@ -222,6 +222,8 @@ func TestProviderDeletionRemovesOnlyThatUserAndProvider(t *testing.T) {
 	// A time tag is the user's own entry, not the provider's: it stays.
 	e.exec(t, `INSERT INTO ohs_data.time_tags (tenant_id, user_id, kind, start_at) VALUES ($1, $2, 'travel', now())`,
 		e.tenant.ID, a.id)
+	e.exec(t, `INSERT INTO ohs_sync.source_priorities (tenant_id, user_id, metric, sources)
+		VALUES ($1, $2, 'sleep', ARRAY['oura'])`, e.tenant.ID, a.id)
 	for _, tbl := range seeded {
 		require.Equal(t, 1, e.providerRows(t, a.id, target)[tbl], tbl)
 	}
@@ -251,6 +253,9 @@ func TestProviderDeletionRemovesOnlyThatUserAndProvider(t *testing.T) {
 	var tags int
 	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_data.time_tags WHERE user_id = $1`, a.id).Scan(&tags))
 	assert.Equal(t, 1, tags, "the user's time tags stay")
+	var orders int
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_sync.source_priorities WHERE user_id = $1`, a.id).Scan(&orders))
+	assert.Equal(t, 1, orders, "the user's order of sources stays")
 
 	status, _ = e.jobStatus(t, job)
 	assert.Equal(t, "done", status)

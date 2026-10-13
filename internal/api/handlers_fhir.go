@@ -233,7 +233,7 @@ func (s *server) fhirProvenances(w http.ResponseWriter, r *http.Request) {
 	}
 	var provs []fhir.Provenance
 	if kind, panel, id, ok := fhir.ParseID(obsID); ok {
-		rec, err := read.ObservationByID(r.Context(), s.d.Pool, p.TenantID, user, kind, panel, id)
+		rec, err := read.ObservationByID(r.Context(), s.d.Pool, p.TenantID, user, kind, panel, id, read.ViewAll)
 		switch {
 		case err == nil:
 			provs = append(provs, fhir.FromRecordProvenance(user, rec))
@@ -259,7 +259,7 @@ func (s *server) fhirProvenance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, panel, id, _ := fhir.ParseID(obsID)
-	rec, err := read.ObservationByID(r.Context(), s.d.Pool, p.TenantID, user, kind, panel, id)
+	rec, err := read.ObservationByID(r.Context(), s.d.Pool, p.TenantID, user, kind, panel, id, read.ViewAll)
 	if err != nil {
 		readError(w, r, err, "provenance")
 		return

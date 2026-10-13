@@ -114,8 +114,8 @@ sessions and phases, workouts with their routes and track summaries, nutrition, 
 and voltages, heartbeat series, daily summaries, observations), the provider's tombstones, the
 raw files and their rows, failed records, ETL and pull jobs, pull coverage, the sync log, push
 subscriptions, unused consent states and the disconnected connection itself. Daily summaries are
-kept per provider, so the other providers' summaries need no recompute. The user and their other
-providers stay. Asking again while the job runs returns the same job.
+kept per provider, so the other providers' summaries need no recompute. The user, their other
+providers and their [order of sources](#several-sources-of-one-metric-the-merged-view) stay. Asking again while the job runs returns the same job.
 
 Until the job is done the provider cannot be connected again (409) and its uploads for the user
 are refused (409, nothing kept); afterwards new data is accepted as usual. Re-processing old raw
