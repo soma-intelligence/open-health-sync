@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -412,6 +411,17 @@ func TestPacing_SharedAcrossConcurrentPulls(t *testing.T) {
 		ClientID: "a", ClientSecret: "b", APIBase: f.URL(), HTTPClient: f.Client(),
 		PageDelay: delay, Now: func() time.Time { return fakeNow },
 	})
+	// The slots are checked, not the arrival times at the fake server: the
+	// pacer spaces sends, and goroutine and network jitter can bring two
+	// arrivals closer than the delay without any request leaving early.
+	var mu sync.Mutex
+	var slots []time.Time
+	c.onSlot = func(s time.Time) {
+		mu.Lock()
+		slots = append(slots, s)
+		mu.Unlock()
+	}
+	start := time.Now()
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
@@ -421,20 +431,20 @@ func TestPacing_SharedAcrossConcurrentPulls(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	var at []time.Time
+	require.Len(t, f.Requests(), 12)
+	require.Len(t, slots, 12, "one slot per request")
+	for i := 1; i < len(slots); i++ {
+		assert.GreaterOrEqual(t, slots[i].Sub(slots[i-1]), delay, "slot %d: one shared schedule", i)
+	}
+	// No request is sent before its slot: the last one arrives at least
+	// eleven delays after the pulls started.
+	var last time.Time
 	for _, r := range f.Requests() {
-		at = append(at, r.At)
+		if r.At.After(last) {
+			last = r.At
+		}
 	}
-	sort.Slice(at, func(i, j int) bool { return at[i].Before(at[j]) })
-	require.Len(t, at, 12)
-	// Slots are delay apart, but a request reaches the fake some scheduling
-	// noise after its slot, so one gap can be a little short: check each gap
-	// loosely (unpaced pulls would send at once) and the schedule from the
-	// first request tightly.
-	for i := 1; i < len(at); i++ {
-		assert.GreaterOrEqual(t, at[i].Sub(at[i-1]), delay/2, "request %d", i)
-		assert.GreaterOrEqual(t, at[i].Sub(at[0]), time.Duration(i)*delay-10*time.Millisecond, "request %d", i)
-	}
+	assert.GreaterOrEqual(t, last.Sub(start), 11*delay)
 	assert.Equal(t, 600*time.Millisecond, New(Options{}).pageDelay, "100 requests a minute")
 }
 
