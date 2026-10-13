@@ -153,6 +153,13 @@ const sources: Record<string, Target[]> = {
       description: "Send users to a page served by Open Health Sync to connect their sources, no OAuth UI to build.",
     },
   ],
+  "docs/sync-health.md": [
+    {
+      page: "(guides)/guides/sync-health",
+      title: "Sync history and connection health",
+      description: "Why a user's data is not arriving: connection health, the last pulls, and sync now.",
+    },
+  ],
   "docs/webhooks.md": [
     {
       page: "(guides)/guides/webhooks",
@@ -237,6 +244,7 @@ const icons: Record<string, string> = {
   "(guides)/recipes/connect": "Link",
   "(guides)/guides/hrv": "Waves",
   "(guides)/guides/connect-page": "MousePointerClick",
+  "(guides)/guides/sync-health": "HeartHandshake",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

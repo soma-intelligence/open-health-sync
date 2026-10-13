@@ -70,7 +70,8 @@ func (c *Connector) FetchNotified(ctx context.Context, conn connector.Connection
 //
 // A data type Google forbids (HTTP 403: scope not granted) or does not know
 // (404) is skipped with a warning; when every asked type is forbidden the
-// pull fails so the job shows it. Any other failure of one type is logged,
+// grant lacks the scopes and the pull fails with connector.ErrMissingScope,
+// so the connection asks the user to connect again. Any other failure of one type is logged,
 // the others are still pulled, and the failures are returned so the job is
 // retried. A rejected token, a rate limit, an unlinked account, a cancelled
 // context or a failing sink stops the pull at once.
@@ -119,7 +120,7 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 		return errors.Join(failed...)
 	}
 	if forbidden > 0 && forbidden == len(specs) {
-		return fmt.Errorf("fitbit: every data type answered 403: %w", errForbidden)
+		return fmt.Errorf("fitbit: every data type answered 403: %w: %w", errForbidden, connector.ErrMissingScope)
 	}
 	return nil
 }

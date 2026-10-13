@@ -68,6 +68,8 @@ type SourceFreshness struct {
 	LastAttemptAt       *time.Time `json:"last_attempt_at"`
 	LastError           *string    `json:"last_error"`
 	ConsecutiveFailures int        `json:"consecutive_failures"`
+	// Health says whether the source syncs, and if not why and what fixes it.
+	Health read.ConnectionHealth `json:"health"`
 }
 
 // FreshnessList is the Freshness response.
@@ -84,6 +86,9 @@ type freshRow struct {
 	lastAttempt         *time.Time
 	lastError           *string
 	failures            int
+	brokenReason        *string
+	brokenSince         *time.Time
+	rateLimitedUntil    *time.Time
 }
 
 // oauthFreshness derives the view of a connection at now. push says whether
@@ -97,6 +102,7 @@ func oauthFreshness(r freshRow, push bool, now time.Time) SourceFreshness {
 		LastEventAt: utcPtr(r.lastEvent), LastAttemptAt: utcPtr(r.lastAttempt),
 		LastError: r.lastError, ConsecutiveFailures: r.failures,
 		PushHealthy: healthy, PullEverySeconds: int64(every / time.Second),
+		Health: read.HealthOf(r.brokenReason, r.brokenSince, r.rateLimitedUntil, now),
 	}
 	if r.syncedThrough != nil {
 		lag := int64(now.Sub(*r.syncedThrough) / time.Second)
@@ -140,7 +146,7 @@ func deviceFreshness(provider string, lastUpload time.Time, now time.Time) Sourc
 	}
 	return SourceFreshness{
 		Provider: provider, Kind: KindDevice, Status: StatusActive, State: state,
-		SyncedThrough: &at, LastSyncAt: &at, LagSeconds: &lag,
+		SyncedThrough: &at, LastSyncAt: &at, LagSeconds: &lag, Health: read.ConnectionHealth{Healthy: true},
 	}
 }
 
@@ -198,7 +204,7 @@ func (d Deps) Freshness(ctx context.Context, tenantID, userID uuid.UUID) (Freshn
 	}
 	rows, err := d.Pool.Query(ctx, `
 		SELECT provider, status, synced_through, last_sync_at, last_event_at, last_attempt_at,
-			last_error, consecutive_failures
+			last_error, consecutive_failures, broken_reason, broken_since, rate_limited_until
 		FROM ohs_sync.connections WHERE tenant_id = $1 AND user_id = $2 ORDER BY provider`, tenantID, userID)
 	if err != nil {
 		return FreshnessList{}, fmt.Errorf("freshness: connections: %w", err)
@@ -206,7 +212,7 @@ func (d Deps) Freshness(ctx context.Context, tenantID, userID uuid.UUID) (Freshn
 	conns, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (freshRow, error) {
 		var x freshRow
 		err := r.Scan(&x.provider, &x.status, &x.syncedThrough, &x.lastSync, &x.lastEvent,
-			&x.lastAttempt, &x.lastError, &x.failures)
+			&x.lastAttempt, &x.lastError, &x.failures, &x.brokenReason, &x.brokenSince, &x.rateLimitedUntil)
 		return x, err
 	})
 	if err != nil {

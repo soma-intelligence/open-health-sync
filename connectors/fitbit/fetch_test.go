@@ -128,6 +128,7 @@ func TestFetchForbiddenTypeSkipped(t *testing.T) {
 	}
 	err := newConnector(f).Fetch(context.Background(), testConn(), pullFrom, pullTo, &recordingSink{})
 	require.ErrorIs(t, err, errForbidden)
+	require.ErrorIs(t, err, connector.ErrMissingScope, "the connection must be authorized again")
 }
 
 func TestFetchRateLimited(t *testing.T) {
