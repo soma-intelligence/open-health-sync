@@ -64,6 +64,13 @@ const sources: Record<string, Target[]> = {
       description: "The connector contract, a minimal device connector, registration and fixture tests.",
     },
   ],
+  "docs/connectors/recording.md": [
+    {
+      page: "(guides)/connectors/recording",
+      title: "Record a connector",
+      description: "Record a real account's answers, anonymized on your machine, so CI replays them on every change.",
+    },
+  ],
   "docs/connectors/README.md": [
     {
       page: "(guides)/connectors/sources",
@@ -156,7 +163,7 @@ const sources: Record<string, Target[]> = {
 
 // Each provider guide under docs/connectors becomes a page of its own.
 for (const file of readdirSync(join(repo, "docs", "connectors")).sort()) {
-  if (!file.endsWith(".md") || file === "README.md") continue;
+  if (!file.endsWith(".md") || file === "README.md" || sources[`docs/connectors/${file}`]) continue;
   sources[`docs/connectors/${file}`] = [{ page: `(guides)/connectors/${file.replace(/\.md$/, "")}` }];
 }
 
@@ -182,6 +189,7 @@ const icons: Record<string, string> = {
   "(guides)/concepts/background-sync": "RefreshCw",
   "(guides)/connectors/writing-a-connector": "Code",
   "(guides)/connectors/sources": "List",
+  "(guides)/connectors/recording": "Disc",
   "(guides)/connectors/apple-health": "Smartphone",
   "(guides)/self-hosting/doctor": "Stethoscope",
   "(guides)/self-hosting/configuration": "Settings",
