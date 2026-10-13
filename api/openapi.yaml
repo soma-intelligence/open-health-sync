@@ -365,13 +365,23 @@ paths:
       tags: [webhooks]
       operationId: testWebhook
       summary: Send a test event
-      description: Queues a `webhook.test` event for this endpoint alone, whatever its event types.
+      description: |
+        Queues a test event for this endpoint alone, whatever its event types. Without a body (or
+        with `event_type` `webhook.test`) it is the generic `webhook.test` event. With another
+        `event_type` it is a realistic sample of that event, about no real user (`user_id` is the
+        nil UUID, `external_ref` is `sample-user`). Either payload carries `"test": true`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TestWebhookRequest" }
       responses:
         "202":
           description: Queued.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/WebhookDelivery" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -409,13 +419,60 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/webhooks/{webhook_id}/deliveries/{delivery_id}:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+      - $ref: "#/components/parameters/DeliveryID"
+    get:
+      tags: [webhooks]
+      operationId: getWebhookDelivery
+      summary: One delivery with its payload and attempts
+      description: |
+        The delivery, the exact JSON body it sends (`payload`) and its attempts, oldest first: status
+        code, error, timing and the first 1 KiB of the receiver's answer. The last 20 attempts
+        are kept.
+      responses:
+        "200":
+          description: The delivery.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDeliveryDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/replay:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+      - $ref: "#/components/parameters/DeliveryID"
+    post:
+      tags: [webhooks]
+      operationId: replayWebhookDelivery
+      summary: Send a finished delivery's event again, as a new delivery
+      description: |
+        Queues a new delivery of a `done` or `parked` delivery's event: same `event_id` (so the same
+        `webhook-id` header, which receivers deduplicate on) and same payload. The new delivery
+        has `replay_of` set and its own attempts; the original keeps its history. One still pending
+        or running is a 409. At most 10 replays of an endpoint wait at once; more is a 429.
+      responses:
+        "202":
+          description: Queued. `Location` is the new delivery.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDelivery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/retry:
     parameters:
       - $ref: "#/components/parameters/WebhookID"
-      - name: delivery_id
-        in: path
-        required: true
-        schema: { type: integer }
+      - $ref: "#/components/parameters/DeliveryID"
     post:
       tags: [webhooks]
       operationId: retryWebhookDelivery
@@ -1547,6 +1604,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    DeliveryID:
+      name: delivery_id
+      in: path
+      required: true
+      schema: { type: integer }
     Provider:
       name: provider
       in: path
@@ -1615,6 +1677,11 @@ components:
           schema: { $ref: "#/components/schemas/Problem" }
     Conflict:
       description: Conflicts with the current state.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    TooManyRequests:
+      description: Too many requests of this kind are queued; wait for them to finish.
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -1800,7 +1867,7 @@ components:
 
     WebhookDelivery:
       type: object
-      required: [id, event_id, event_type, status, attempts, last_status_code, last_error, next_attempt_at, created_at, delivered_at]
+      required: [id, event_id, event_type, status, attempts, last_status_code, last_error, next_attempt_at, created_at, delivered_at, replay_of]
       properties:
         id: { type: integer }
         event_id: { type: string, format: uuid, description: "The webhook-id header and the payload's id." }
@@ -1815,6 +1882,53 @@ components:
         next_attempt_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         delivered_at: { type: [string, "null"], format: date-time }
+        replay_of:
+          type: [integer, "null"]
+          description: The delivery this one replays (same event and payload); null for an original.
+
+    WebhookAttempt:
+      type: object
+      required: [id, attempt, started_at, duration_ms, status_code, error, response_body_excerpt]
+      properties:
+        id: { type: integer }
+        attempt:
+          type: integer
+          minimum: 1
+          description: Counts the delivery's attempts from 1, across retries.
+        started_at: { type: string, format: date-time }
+        duration_ms: { type: integer, minimum: 0 }
+        status_code: { type: [integer, "null"], description: "Null when no HTTP answer came (timeout, refused connection)." }
+        error: { type: [string, "null"], description: Null on a success. }
+        response_body_excerpt:
+          type: [string, "null"]
+          maxLength: 1024
+          description: |
+            The first 1 KiB of the receiver's answer, printable UTF-8 only (other bytes become `?`).
+            Null when the answer had no body.
+
+    WebhookDeliveryDetail:
+      allOf:
+        - $ref: "#/components/schemas/WebhookDelivery"
+        - type: object
+          required: [payload, attempt_history]
+          properties:
+            payload:
+              $ref: "#/components/schemas/WebhookEvent"
+              description: The exact JSON body sent, on every attempt.
+            attempt_history:
+              type: array
+              description: The last 20 attempts, oldest first.
+              items: { $ref: "#/components/schemas/WebhookAttempt" }
+
+    TestWebhookRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        event_type:
+          description: The event to send a sample of. Absent means `webhook.test`.
+          oneOf:
+            - $ref: "#/components/schemas/WebhookEventType"
+            - { type: string, const: webhook.test }
 
     WebhookEvent:
       type: object
@@ -1830,6 +1944,10 @@ components:
             - $ref: "#/components/schemas/WebhookEventType"
             - { type: string, const: webhook.test }
         timestamp: { type: string, format: date-time }
+        test:
+          type: boolean
+          const: true
+          description: Present on events sent by the test route only. Such an event describes nothing that happened.
         data:
           type: object
           properties:

@@ -59,6 +59,9 @@ type Payload struct {
 	Type      string         `json:"type"`
 	Timestamp time.Time      `json:"timestamp"`
 	Data      map[string]any `json:"data"`
+	// Test marks an event sent by the test route: it describes nothing
+	// that happened.
+	Test bool `json:"test,omitempty"`
 }
 
 // enqueueSQL writes one delivery per active endpoint of the tenant that wants
@@ -110,4 +113,30 @@ func mustJSON(v any) []byte {
 		panic(fmt.Sprintf("webhook: encode payload: %v", err))
 	}
 	return b
+}
+
+// SampleUserRef is the external_ref of the user a sample event names; its
+// user_id is the nil UUID, so it never matches a real user.
+const SampleUserRef = "sample-user"
+
+// SampleData is a realistic data object for an event of type typ, as the
+// test route sends it: the fields a real event of that type carries, about
+// no real user. now sets the days a data.written sample names.
+func SampleData(typ string, now time.Time) map[string]any {
+	data := map[string]any{"user_id": uuid.Nil.String(), "external_ref": SampleUserRef}
+	switch typ {
+	case DataWritten:
+		day := now.UTC()
+		data["provider"] = "oura"
+		data["records"] = map[string]any{"sleep_sessions": 1, "sleep_phases": 24, "daily_summaries": 1}
+		data["types"] = []string{"daily_summary", "sleep_analysis"}
+		data["first_day"] = day.AddDate(0, 0, -1).Format(time.DateOnly)
+		data["last_day"] = day.Format(time.DateOnly)
+	case DataDeleted:
+		data["provider"] = "oura"
+		data["records_deleted"] = 3
+	case ConnectionNeedsReauth:
+		data["provider"] = "oura"
+	}
+	return data
 }

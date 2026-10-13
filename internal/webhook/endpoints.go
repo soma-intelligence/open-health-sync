@@ -60,6 +60,9 @@ type Delivery struct {
 	NextAttempt *time.Time `json:"next_attempt_at"`
 	CreatedAt   time.Time  `json:"created_at"`
 	DeliveredAt *time.Time `json:"delivered_at"`
+	// ReplayOf is the delivery this one replays (same event id and
+	// payload), nil for an original delivery.
+	ReplayOf *int64 `json:"replay_of"`
 }
 
 // Store manages a tenant's endpoints and deliveries.
@@ -284,23 +287,43 @@ func (s *Store) RotateSecret(ctx context.Context, tenant, id uuid.UUID) (string,
 // SendTest queues a webhook.test event for the endpoint alone, whatever its
 // event types and status say, and returns the delivery.
 func (s *Store) SendTest(ctx context.Context, tenant, id uuid.UUID) (Delivery, error) {
-	body, err := newPayload(Event{Tenant: tenant, Type: Test, Data: map[string]any{"endpoint_id": id}})
+	return s.SendSample(ctx, tenant, id, Test)
+}
+
+// SendSample queues a test event for the endpoint alone, whatever its event
+// types and status say, and returns the delivery. typ Test (or "") is the
+// generic webhook.test event; a subscribable type sends a sample of that
+// event (SampleData) about no real user. Either payload has "test": true.
+// An unknown type is ErrUnknownType.
+func (s *Store) SendSample(ctx context.Context, tenant, id uuid.UUID, typ string) (Delivery, error) {
+	ev := Event{Tenant: tenant, Type: typ}
+	switch {
+	case typ == "" || typ == Test:
+		ev.Type, ev.Data = Test, map[string]any{"endpoint_id": id}
+	case KnownType(typ):
+		ev.Data = SampleData(typ, time.Now())
+	default:
+		return Delivery{}, fmt.Errorf("%w %q", ErrUnknownType, typ)
+	}
+	body, err := newPayload(ev)
 	if err != nil {
 		return Delivery{}, err
 	}
+	body.Test = true
 	return scanDelivery(s.pool.QueryRow(ctx, `
 		INSERT INTO ohs_core.webhook_deliveries (tenant_id, endpoint_id, event_id, event_type, payload)
 		SELECT tenant_id, id, $3, $4, $5 FROM ohs_core.webhook_endpoints WHERE tenant_id = $1 AND id = $2
-		RETURNING `+deliveryCols, tenant, id, body.ID, Test, mustJSON(body)))
+		RETURNING `+deliveryCols, tenant, id, body.ID, ev.Type, mustJSON(body)))
 }
 
 const deliveryCols = `id, event_id, event_type, status, attempts, last_status, last_error,
-	CASE WHEN status IN ('pending', 'running') THEN not_before END, created_at, delivered_at`
+	CASE WHEN status IN ('pending', 'running') THEN not_before END, created_at, delivered_at, replay_of`
 
-func scanDelivery(row pgx.Row) (Delivery, error) {
+// scanDelivery reads deliveryCols, then extra.
+func scanDelivery(row pgx.Row, extra ...any) (Delivery, error) {
 	var d Delivery
-	err := row.Scan(&d.ID, &d.EventID, &d.EventType, &d.Status, &d.Attempts, &d.LastStatus, &d.LastError,
-		&d.NextAttempt, &d.CreatedAt, &d.DeliveredAt)
+	err := row.Scan(append([]any{&d.ID, &d.EventID, &d.EventType, &d.Status, &d.Attempts, &d.LastStatus, &d.LastError,
+		&d.NextAttempt, &d.CreatedAt, &d.DeliveredAt, &d.ReplayOf}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Delivery{}, ErrNotFound
 	}

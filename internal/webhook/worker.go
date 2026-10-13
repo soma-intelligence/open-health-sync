@@ -151,6 +151,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 type job struct {
 	id        int64
+	tenant    uuid.UUID
 	endpoint  uuid.UUID
 	eventID   uuid.UUID
 	attempts  int
@@ -176,7 +177,7 @@ const claimSQL = `
 	UPDATE ohs_core.webhook_deliveries t SET status = 'running', claimed_at = now()
 	FROM picked p, ohs_core.webhook_endpoints e
 	WHERE t.id = p.id AND e.id = t.endpoint_id
-	RETURNING t.id, t.endpoint_id, t.event_id, t.attempts, t.claimed_at, t.payload::text, e.url, e.secret_sealed`
+	RETURNING t.id, t.tenant_id, t.endpoint_id, t.event_id, t.attempts, t.claimed_at, t.payload::text, e.url, e.secret_sealed`
 
 // Pass claims up to Concurrency due deliveries, posts them concurrently and
 // settles each. It returns how many it claimed.
@@ -189,7 +190,7 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 	for rows.Next() {
 		var j job
 		var payload string
-		if err := rows.Scan(&j.id, &j.endpoint, &j.eventID, &j.attempts, &j.claimedAt, &payload, &j.url, &j.sealed); err != nil {
+		if err := rows.Scan(&j.id, &j.tenant, &j.endpoint, &j.eventID, &j.attempts, &j.claimedAt, &payload, &j.url, &j.sealed); err != nil {
 			rows.Close()
 			return 0, fmt.Errorf("scan delivery: %w", err)
 		}
@@ -216,35 +217,45 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 	return len(jobs), errors.Join(errs...)
 }
 
-// deliver makes one attempt and records its outcome.
-func (w *Worker) deliver(ctx context.Context, j job) error {
-	code, sendErr := w.send(ctx, j)
-	if sendErr == nil {
-		return w.succeed(ctx, j, code)
-	}
-	slog.InfoContext(ctx, "webhook: delivery attempt failed", "delivery_id", j.id, "endpoint_id", j.endpoint,
-		"attempt", j.attempts+1, "status_code", code, "err", sendErr)
-	return w.fail(ctx, j, code, sendErr)
+// outcome is what one attempt observed, recorded in webhook_attempts.
+type outcome struct {
+	started  time.Time
+	duration time.Duration
+	code     int    // HTTP status, 0 when there was none
+	excerpt  string // the start of the response body, sanitized
 }
 
-// send posts the payload; a non-2xx answer is an error. code is the HTTP
-// status, 0 when there was none.
-func (w *Worker) send(ctx context.Context, j job) (int, error) {
+// deliver makes one attempt and records its outcome.
+func (w *Worker) deliver(ctx context.Context, j job) error {
+	o := outcome{started: time.Now()}
+	sendErr := w.send(ctx, j, &o)
+	o.duration = time.Since(o.started)
+	if sendErr == nil {
+		return w.succeed(ctx, j, o)
+	}
+	slog.InfoContext(ctx, "webhook: delivery attempt failed", "delivery_id", j.id, "endpoint_id", j.endpoint,
+		"attempt", j.attempts+1, "status_code", o.code, "err", sendErr)
+	return w.fail(ctx, j, o, sendErr)
+}
+
+// send posts the payload; a non-2xx answer is an error. It fills o.code
+// and o.excerpt.
+func (w *Worker) send(ctx context.Context, j job, o *outcome) error {
 	secret, err := w.box.OpenFor(j.sealed, secretAAD(j.endpoint))
 	if err != nil {
-		return 0, errors.New("signing secret cannot be opened (was OHS_ENCRYPTION_KEY changed?)")
+		return errors.New("signing secret cannot be opened (was OHS_ENCRYPTION_KEY changed?)")
 	}
 	now := time.Now()
 	id := j.eventID.String()
 	sig, err := Sign(string(secret), id, now, j.payload)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	rctx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(rctx, http.MethodPost, j.url, bytes.NewReader(j.payload))
 	if err != nil {
-		return 0, err
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", UserAgent)
@@ -253,18 +264,22 @@ func (w *Worker) send(ctx context.Context, j job) (int, error) {
 	req.Header.Set(HeaderSignature, sig)
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer resp.Body.Close()
-	// Drain a little so the connection can be reused; the body is not kept.
+	o.code = resp.StatusCode
+	// Keep the start of the body for the attempt history, and drain a little
+	// more so the connection can be reused.
+	head, _ := io.ReadAll(io.LimitReader(resp.Body, ExcerptLen))
+	o.excerpt = Excerpt(head)
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return resp.StatusCode, fmt.Errorf("receiver answered HTTP %d", resp.StatusCode)
+		return fmt.Errorf("receiver answered HTTP %d", resp.StatusCode)
 	}
-	return resp.StatusCode, nil
+	return nil
 }
 
-func (w *Worker) succeed(ctx context.Context, j job, code int) error {
+func (w *Worker) succeed(ctx context.Context, j job, o outcome) error {
 	tx, err := w.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -272,12 +287,15 @@ func (w *Worker) succeed(ctx context.Context, j job, code int) error {
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 	tag, err := tx.Exec(ctx, `UPDATE ohs_core.webhook_deliveries SET status = 'done', attempts = attempts + 1,
 			claimed_at = NULL, last_status = $3, last_error = NULL, delivered_at = now()
-		WHERE id = $1 AND status = 'running' AND claimed_at = $2`, j.id, j.claimedAt, code)
+		WHERE id = $1 AND status = 'running' AND claimed_at = $2`, j.id, j.claimedAt, o.code)
 	if err != nil {
 		return fmt.Errorf("settle delivery: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return nil // reclaimed meanwhile: the other worker settles it
+	}
+	if err := recordAttempt(ctx, tx, j, o, nil); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET last_success_at = now(), failing_since = NULL
 		WHERE id = $1`, j.endpoint); err != nil {
@@ -286,15 +304,15 @@ func (w *Worker) succeed(ctx context.Context, j job, code int) error {
 	return tx.Commit(ctx)
 }
 
-func (w *Worker) fail(ctx context.Context, j job, code int, cause error) error {
+func (w *Worker) fail(ctx context.Context, j job, o outcome, cause error) error {
 	tx, err := w.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 	var lastStatus *int
-	if code != 0 {
-		lastStatus = &code
+	if o.code != 0 {
+		lastStatus = &o.code
 	}
 	var parked bool
 	err = tx.QueryRow(ctx, `UPDATE ohs_core.webhook_deliveries SET
@@ -312,6 +330,9 @@ func (w *Worker) fail(ctx context.Context, j job, code int, cause error) error {
 			return nil
 		}
 		return fmt.Errorf("settle delivery: %w", err)
+	}
+	if err := recordAttempt(ctx, tx, j, o, cause); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET failing_since = COALESCE(failing_since, now())
 		WHERE id = $1`, j.endpoint); err != nil {

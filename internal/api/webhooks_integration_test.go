@@ -8,8 +8,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,9 +49,16 @@ type deliveryJSON struct {
 	Attempts  int       `json:"attempts"`
 }
 
-func webhookEnv(t *testing.T, allowPrivate bool) *env {
+// webhookBox seals the secrets of webhookEnv; a delivery worker opens them
+// with it.
+func webhookBox(t *testing.T) *crypto.Box {
 	box, err := crypto.NewBox(bytes.Repeat([]byte{3}, 32))
 	require.NoError(t, err)
+	return box
+}
+
+func webhookEnv(t *testing.T, allowPrivate bool) *env {
+	box := webhookBox(t)
 	return newEnv(t, func(d *api.Deps) {
 		d.Webhooks = webhook.NewStore(d.Pool, box)
 		d.WebhookAllowPrivate = allowPrivate
@@ -192,6 +204,11 @@ func TestUserDeletionAnnouncedByWebhook(t *testing.T) {
 	u := e.user(e.tenantA, "ref-9")
 	_, err := webhook.Enqueue(ctx, e.pool, webhook.Event{Tenant: e.tenantA, User: &u, Type: webhook.DataWritten})
 	require.NoError(t, err)
+	// An attempt of that delivery, as the worker records it.
+	e.exec(`INSERT INTO ohs_core.webhook_attempts (tenant_id, delivery_id, endpoint_id, attempt, started_at,
+			duration_ms, status_code, error)
+		SELECT tenant_id, id, endpoint_id, 1, now(), 12, 503, 'receiver answered HTTP 503'
+		FROM ohs_core.webhook_deliveries WHERE tenant_id = $1 AND user_id = $2`, e.tenantA, u)
 
 	require.Equal(t, http.StatusAccepted, e.do("DELETE", "/v1/users/"+u.String(), e.keyA, nil).code)
 	raw, err := rawstore.Open("file://" + t.TempDir())
@@ -215,4 +232,150 @@ func TestUserDeletionAnnouncedByWebhook(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{"user.deleted"}, types)
+	var attempts int
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.webhook_attempts WHERE tenant_id = $1`,
+		e.tenantA).Scan(&attempts))
+	assert.Zero(t, attempts, "attempts go with the user's deliveries")
+}
+
+type attemptJSON struct {
+	Attempt             int       `json:"attempt"`
+	StartedAt           time.Time `json:"started_at"`
+	DurationMS          int       `json:"duration_ms"`
+	StatusCode          *int      `json:"status_code"`
+	Error               *string   `json:"error"`
+	ResponseBodyExcerpt *string   `json:"response_body_excerpt"`
+}
+
+type deliveryDetailJSON struct {
+	deliveryJSON
+	ReplayOf *int64          `json:"replay_of"`
+	Payload  json.RawMessage `json:"payload"`
+	History  []attemptJSON   `json:"attempt_history"`
+}
+
+// The sandbox: a receiver that fails then accepts, the attempt history, a
+// replay with the same webhook-id, and a sample of a chosen event type.
+func TestWebhookSandbox(t *testing.T) {
+	e := webhookEnv(t, true)
+	ctx := context.Background()
+	var mu sync.Mutex
+	codes := []int{http.StatusInternalServerError}
+	var ids []string
+	var bodies [][]byte
+	rcv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		defer mu.Unlock()
+		ids = append(ids, r.Header.Get(webhook.HeaderID))
+		bodies = append(bodies, body)
+		code := http.StatusOK
+		if len(codes) > 0 {
+			code, codes = codes[0], codes[1:]
+		}
+		w.WriteHeader(code)
+		_, _ = io.WriteString(w, `{"received":`+strconv.FormatBool(code == http.StatusOK)+`}`)
+	}))
+	t.Cleanup(rcv.Close)
+	worker := webhook.NewWorker(e.pool, webhookBox(t), webhook.WorkerConfig{
+		AllowPrivate: true, Delays: make([]time.Duration, webhook.MaxAttempts-1),
+	})
+	// drain runs passes until nothing is due and returns what the receiver
+	// got so far.
+	drain := func() ([]string, [][]byte) {
+		for {
+			n, err := worker.Pass(ctx)
+			require.NoError(t, err)
+			if n == 0 {
+				break
+			}
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(ids), slices.Clone(bodies)
+	}
+
+	r := e.do("POST", "/v1/webhooks", e.keyA, map[string]any{"url": rcv.URL + "/hooks"})
+	require.Equal(t, http.StatusCreated, r.code, string(r.body))
+	var wh webhookJSON
+	r.json(t, &wh)
+	path := "/v1/webhooks/" + wh.ID.String()
+
+	// A sample data.written, failed once, then accepted.
+	assert.Equal(t, http.StatusBadRequest, e.do("POST", path+"/test", e.keyA, map[string]any{"event_type": "data.everything"}).code)
+	tr := e.do("POST", path+"/test", e.keyA, map[string]any{"event_type": "data.written"})
+	require.Equal(t, http.StatusAccepted, tr.code, string(tr.body))
+	var d deliveryJSON
+	tr.json(t, &d)
+	assert.Equal(t, "data.written", d.EventType)
+	got, sent := drain()
+	require.Len(t, got, 2)
+
+	dpath := path + "/deliveries/" + jsonNumber(d.ID)
+	g := e.do("GET", dpath, e.keyA, nil)
+	require.Equal(t, http.StatusOK, g.code, string(g.body))
+	var detail deliveryDetailJSON
+	g.json(t, &detail)
+	assert.Equal(t, "done", detail.Status)
+	assert.Nil(t, detail.ReplayOf)
+	assert.Equal(t, string(sent[0]), string(detail.Payload))
+	var payload struct {
+		Type string         `json:"type"`
+		Test bool           `json:"test"`
+		Data map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(detail.Payload, &payload))
+	assert.Equal(t, "data.written", payload.Type)
+	assert.True(t, payload.Test)
+	assert.Equal(t, uuid.Nil.String(), payload.Data["user_id"])
+	require.Len(t, detail.History, 2)
+	require.NotNil(t, detail.History[0].StatusCode)
+	assert.Equal(t, 500, *detail.History[0].StatusCode)
+	require.NotNil(t, detail.History[0].Error)
+	require.NotNil(t, detail.History[0].ResponseBodyExcerpt)
+	assert.Equal(t, `{"received":false}`, *detail.History[0].ResponseBodyExcerpt)
+	require.NotNil(t, detail.History[1].StatusCode)
+	assert.Equal(t, 200, *detail.History[1].StatusCode)
+	assert.Nil(t, detail.History[1].Error)
+	assert.Equal(t, []int{1, 2}, []int{detail.History[0].Attempt, detail.History[1].Attempt})
+
+	// Replay: a new delivery of the same event.
+	rp := e.do("POST", dpath+"/replay", e.keyA, nil)
+	require.Equal(t, http.StatusAccepted, rp.code, string(rp.body))
+	var replay deliveryDetailJSON
+	rp.json(t, &replay)
+	assert.NotEqual(t, d.ID, replay.ID)
+	assert.Equal(t, d.EventID, replay.EventID)
+	assert.Equal(t, "pending", replay.Status)
+	require.NotNil(t, replay.ReplayOf)
+	assert.Equal(t, d.ID, *replay.ReplayOf)
+	assert.Equal(t, path+"/deliveries/"+jsonNumber(replay.ID), rp.header.Get("Location"))
+	rpath := path + "/deliveries/" + jsonNumber(replay.ID)
+	assert.Equal(t, http.StatusConflict, e.do("POST", rpath+"/replay", e.keyA, nil).code, "pending")
+	got, sent = drain()
+	require.Len(t, got, 3)
+	assert.Equal(t, got[0], got[2], "same webhook-id")
+	assert.Equal(t, sent[0], sent[2], "same payload")
+	var replayed deliveryDetailJSON
+	e.do("GET", rpath, e.keyA, nil).json(t, &replayed)
+	assert.Equal(t, "done", replayed.Status)
+	assert.Len(t, replayed.History, 1)
+
+	// The cap on queued replays.
+	for range webhook.MaxQueuedReplays {
+		require.Equal(t, http.StatusAccepted, e.do("POST", dpath+"/replay", e.keyA, nil).code)
+	}
+	assert.Equal(t, http.StatusTooManyRequests, e.do("POST", dpath+"/replay", e.keyA, nil).code)
+
+	// Another tenant sees nothing; unknown ids are 404.
+	assert.Equal(t, http.StatusNotFound, e.do("GET", dpath, e.keyB, nil).code)
+	assert.Equal(t, http.StatusNotFound, e.do("POST", dpath+"/replay", e.keyB, nil).code)
+	assert.Equal(t, http.StatusNotFound, e.do("GET", path+"/deliveries/999999", e.keyA, nil).code)
+	assert.Equal(t, http.StatusNotFound, e.do("POST", path+"/deliveries/999999/replay", e.keyA, nil).code)
+
+	// The generic test event still works without a body.
+	tr = e.do("POST", path+"/test", e.keyA, nil)
+	require.Equal(t, http.StatusAccepted, tr.code, string(tr.body))
+	tr.json(t, &d)
+	assert.Equal(t, "webhook.test", d.EventType)
 }
