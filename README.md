@@ -116,7 +116,7 @@ Provider deletions are honored too.
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
-| 🛠 | Personal mode (`ohs admin personal setup`) and small Python tools to build on your own data | | |
+| 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | | |
 
 A line moves up only when its pull request is merged, or its release is published. The 0.0.2
 image does not have the 🔜 lines yet. Details per source:
@@ -132,6 +132,9 @@ image does not have the 🔜 lines yet. Details per source:
   deletes for withdrawals, FHIR R4 out for the analysis side.
 - **A personal data archive.** Load years of history from the Health app export in one command,
   and keep it on a machine you own.
+- **Small tools on your own data.** `ohs admin personal setup` gives you one instance for
+  yourself, and the [recipes](docs/recipes/README.md) add a sleep report, a heart trend, a weekly
+  digest, a dashboard and more, each a single Python file with no dependency.
 
 ## Why
 
@@ -545,7 +548,7 @@ software.
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON and
 Health Connect connectors, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing webhooks,
-Health app export import, background sync and sample compression are on `main` and ship in the next release. What
+Health app export import, background sync, sample compression, personal mode and the recipes are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
@@ -575,6 +578,7 @@ SDKs. Requests are welcome as GitHub issues, including the connector request for
   [WHOOP](docs/connectors/whoop.md), [Strava](docs/connectors/strava.md),
   [Polar](docs/connectors/polar.md), [writing your own](docs/writing-a-connector.md).
 - [Background sync](docs/background-sync.md): webhooks, backstop pulls, freshness.
+- [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
 
 ## Contributing
 
