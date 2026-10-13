@@ -201,7 +201,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	}
 
 	if cfg.Roles["collect"] {
-		sch := collect.NewScheduler(collectDeps, collect.SchedulerConfig{ShutdownGrace: opts.grace})
+		sch := collect.NewScheduler(collectDeps, collect.SchedulerConfig{
+			ShutdownGrace: opts.grace,
+			PerProvider:   cfg.PullsPerProvider, BackfillPerProvider: cfg.BackfillsPerProvider,
+		})
 		goRole("collect", func() error { return sch.Run(ctx) })
 	}
 

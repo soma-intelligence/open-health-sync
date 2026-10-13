@@ -77,10 +77,12 @@ func (e *connEnv) health(t *testing.T) collect.ConnectionView {
 	return list.Data[0]
 }
 
-// retryDue makes the pending jobs due now.
+// retryDue makes the pending jobs due now, and ends any provider pause.
 func (e *connEnv) retryDue(t *testing.T) {
 	t.Helper()
 	_, err := e.pool.Exec(context.Background(), `UPDATE ohs_sync.pull_jobs SET not_before = now() WHERE status = 'pending'`)
+	require.NoError(t, err)
+	_, err = e.pool.Exec(context.Background(), `UPDATE ohs_core.provider_limits SET paused_until = now() - interval '1 second'`)
 	require.NoError(t, err)
 }
 
@@ -356,4 +358,37 @@ func TestFinishedRunsArePruned(t *testing.T) {
 	_, err = e.sched.Schedule(ctx)
 	require.NoError(t, err)
 	assert.Len(t, e.runs(t, "?provider="+fakeSlug).Data, 4)
+}
+
+func TestRateLimitPausesTheWholeProvider(t *testing.T) {
+	e := newConnEnv(t)
+	ctx := context.Background()
+	userB, err := e.store.CreateUser(ctx, e.tenantA, "a-2")
+	require.NoError(t, err)
+	e.connect(t, e.keyA, e.userA, "pu-1")
+	e.connect(t, e.keyA, userB.ID, "pu-2")
+	e.drain(t)
+
+	e.fake.fetchMode.Store("429")
+	_, _, _ = e.syncNow(t, "")
+	n, err := e.sched.PullOnce(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	before := e.fake.fetchN.Load()
+
+	// The other user's pull waits for the pause instead of drawing its own 429.
+	rec := e.do(t, http.MethodPost, "/v1/users/"+userB.ID.String()+"/connections/"+fakeSlug+"/sync", e.keyA, nil)
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	n, err = e.sched.PullOnce(ctx, 4)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+	assert.Equal(t, before, e.fake.fetchN.Load(), "no request while the provider is paused")
+	assert.Equal(t, 1, e.scalar(t, `SELECT count(*) FROM ohs_core.provider_limits WHERE provider = $1 AND paused_until > now()`, fakeSlug))
+
+	e.fake.fetchMode.Store("ok")
+	e.retryDue(t)
+	e.drain(t)
+	assert.Equal(t, 0, e.jobs(t, userB.ID, "pending"))
+	assert.Equal(t, 0, e.scalar(t, `SELECT consecutive FROM ohs_core.provider_limits WHERE provider = $1`, fakeSlug),
+		"a success resets the backoff")
 }

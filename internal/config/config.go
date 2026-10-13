@@ -37,6 +37,10 @@ type Config struct {
 	// IngestConcurrency bounds the device uploads one api process handles at
 	// once (OHS_INGEST_CONCURRENCY, default 8).
 	IngestConcurrency int
+	// PullsPerProvider caps the pulls of one provider running at once across
+	// every instance (OHS_PULLS_PER_PROVIDER, default 4); BackfillsPerProvider
+	// caps its backfill pulls (OHS_BACKFILLS_PER_PROVIDER, default 2).
+	PullsPerProvider, BackfillsPerProvider int
 	// WebhookAllowPrivate lets webhook endpoints use plain http and reach
 	// private and loopback addresses (OHS_WEBHOOK_ALLOW_PRIVATE, default false).
 	WebhookAllowPrivate bool
@@ -51,26 +55,28 @@ const DefaultIngestConcurrency = 8
 
 // reserved are the OHS_ variables (without prefix) that are never provider settings.
 var reserved = map[string]bool{
-	"DATABASE_URL":          true,
-	"ENCRYPTION_KEY":        true,
-	"PUBLIC_URL":            true,
-	"RAW_STORE":             true,
-	"ROLES":                 true,
-	"BOOTSTRAP_TENANT":      true,
-	"LISTEN":                true,
-	"LOG_LEVEL":             true,
-	"METRICS":               true,
-	"CONSOLE":               true,
-	"METRICS_TOKEN":         true,
-	"METRICS_LISTEN":        true,
-	"RETENTION_DAYS":        true,
-	"INGEST_CONCURRENCY":    true,
-	"WEBHOOK_ALLOW_PRIVATE": true,
-	"MCP_URL":               true, // client side settings of `ohs mcp`
-	"MCP_KEY":               true,
-	"HTTP_PORT":             true, // read by docker compose only (host port)
-	"HTTP_BIND":             true, // read by docker compose only (host address)
-	"VERSION":               true, // read by docker compose only (image tag)
+	"DATABASE_URL":           true,
+	"ENCRYPTION_KEY":         true,
+	"PUBLIC_URL":             true,
+	"RAW_STORE":              true,
+	"ROLES":                  true,
+	"BOOTSTRAP_TENANT":       true,
+	"LISTEN":                 true,
+	"LOG_LEVEL":              true,
+	"METRICS":                true,
+	"CONSOLE":                true,
+	"METRICS_TOKEN":          true,
+	"METRICS_LISTEN":         true,
+	"RETENTION_DAYS":         true,
+	"INGEST_CONCURRENCY":     true,
+	"PULLS_PER_PROVIDER":     true,
+	"BACKFILLS_PER_PROVIDER": true,
+	"WEBHOOK_ALLOW_PRIVATE":  true,
+	"MCP_URL":                true, // client side settings of `ohs mcp`
+	"MCP_KEY":                true,
+	"HTTP_PORT":              true, // read by docker compose only (host port)
+	"HTTP_BIND":              true, // read by docker compose only (host address)
+	"VERSION":                true, // read by docker compose only (image tag)
 }
 
 // ErrEncryptionKey is wrapped by every Load error about OHS_ENCRYPTION_KEY
@@ -202,6 +208,20 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_INGEST_CONCURRENCY: %q is not a positive integer", v)
 		}
 		c.IngestConcurrency = n
+	}
+
+	c.PullsPerProvider, c.BackfillsPerProvider = 4, 2
+	for _, x := range []struct {
+		name string
+		dst  *int
+	}{{"OHS_PULLS_PER_PROVIDER", &c.PullsPerProvider}, {"OHS_BACKFILLS_PER_PROVIDER", &c.BackfillsPerProvider}} {
+		if v := get(x.name, ""); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return Config{}, fmt.Errorf("%s: %q is not a positive integer", x.name, v)
+			}
+			*x.dst = n
+		}
 	}
 
 	if v := get("OHS_WEBHOOK_ALLOW_PRIVATE", ""); v != "" {

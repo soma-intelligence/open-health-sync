@@ -42,6 +42,12 @@ const (
 	defaultScheduleBatch = 1000
 )
 
+// Default pull budget per provider (see SchedulerConfig).
+const (
+	DefaultPullsPerProvider     = 4
+	DefaultBackfillsPerProvider = 2
+)
+
 // schedulerLock is the advisory lock key that makes one instance schedule at
 // a time ("ohs pull" as bytes).
 const schedulerLock int64 = 0x6f68732070756c6c
@@ -59,6 +65,11 @@ type SchedulerConfig struct {
 	// Batch bounds the backfills and the regular pulls one pass enqueues
 	// (default 1000 each); the rest wait for the next tick.
 	Batch int
+	// PerProvider caps the pulls of one provider running at once across
+	// every instance (default DefaultPullsPerProvider); BackfillPerProvider
+	// caps its backfill pulls (default DefaultBackfillsPerProvider). A
+	// negative value means no cap.
+	PerProvider, BackfillPerProvider int
 	// ShutdownGrace, when set, is how long pulls in flight may go on once
 	// Run's context ends; then their context is cancelled (an unsettled
 	// claim is reclaimed later). Zero leaves them bounded by JobTimeout only.
@@ -98,7 +109,15 @@ func NewScheduler(d Deps, cfg SchedulerConfig) *Scheduler {
 	if cfg.IdleMax < cfg.IdleMin {
 		cfg.IdleMax = 2 * cfg.IdleMin
 	}
-	return &Scheduler{d: d, q: queue.NewPull(d.Pool), cfg: cfg}
+	if cfg.PerProvider == 0 {
+		cfg.PerProvider = DefaultPullsPerProvider
+	}
+	if cfg.BackfillPerProvider == 0 {
+		cfg.BackfillPerProvider = DefaultBackfillsPerProvider
+	}
+	q := queue.NewPull(d.Pool)
+	q.Limits = queue.PullLimits{PerProvider: max(cfg.PerProvider, 0), BackfillPerProvider: max(cfg.BackfillPerProvider, 0)}
+	return &Scheduler{d: d, q: q, cfg: cfg}
 }
 
 // Run schedules and pulls until ctx is cancelled, then waits for the pulls
@@ -630,11 +649,21 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 			if uerr := s.recordSuccess(ctx, job); uerr != nil {
 				log.ErrorContext(ctx, "collect: record last sync", "error", uerr)
 			}
+			if uerr := s.q.ProviderOK(ctx, job.Provider); uerr != nil {
+				log.ErrorContext(ctx, "collect: reset provider backoff", "error", uerr)
+			}
 		}
 	case limited:
 		until := s.d.now().Add(rl.RetryAfter)
 		log.InfoContext(ctx, "collect: provider rate limit, pull deferred", "retry_after", rl.RetryAfter)
 		err = s.q.Defer(ctx, job, until)
+		// The limit is the provider's for the whole application, usually:
+		// every pull of it waits, instead of each drawing its own refusal.
+		if paused, perr := s.q.PauseProvider(ctx, job.Provider, rl.RetryAfter); perr != nil {
+			log.ErrorContext(ctx, "collect: pause provider", "error", perr)
+		} else {
+			log.InfoContext(ctx, "collect: provider paused after a rate limit", "until", paused)
+		}
 		if err == nil && rl.RetryAfter >= RateLimitBrokenAfter {
 			if uerr := s.recordRateLimit(ctx, job, until); uerr != nil {
 				log.ErrorContext(ctx, "collect: record rate limit", "error", uerr)
