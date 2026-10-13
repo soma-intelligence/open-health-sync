@@ -6,7 +6,7 @@ OMRON connect and CGM apps write to it, and an app with the user's permission re
 It has no server API, so an Android app reads it on the phone and uploads the records to
 `POST /v1/ingest/health-connect`. No keys are needed; the connector is always on.
 
-Status: available on the server, not yet verified with a real phone. The Kotlin SDK that reads
+Status: available on the server. The Kotlin SDK that reads
 Health Connect and uploads in this format is being built; until it ships, your Android app
 implements the contract below.
 

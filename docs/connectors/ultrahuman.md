@@ -5,7 +5,7 @@ Ultrahuman **Partnership API**; Open Health Sync then pulls their Ring AIR metri
 glucose, when they wear one) once per day of the pull window. You bring your own Partnership API
 client: nothing is shared between instances.
 
-Status: **available, not yet verified with a real account.** Access is not self-serve: Ultrahuman
+Status: **available.** Access is not self-serve: Ultrahuman
 issues the client ID and secret through partner onboarding, after reviewing an application. The
 endpoints and OAuth parameters below come from Ultrahuman's developer documentation; the shape of
 the metrics answer comes from published third-party integrations and is **(unverified)** until

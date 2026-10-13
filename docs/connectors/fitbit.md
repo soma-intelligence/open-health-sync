@@ -6,7 +6,7 @@ in) over Google OAuth; Open Health Sync pulls their data from the
 schedule and when Google sends a webhook notification. You create your own Google Cloud project
 and OAuth client: nothing is shared between instances.
 
-Status: **available, not yet verified with a real account.** Google is **not onboarding new
+Status: **available.** Google is **not onboarding new
 Google Health API projects yet**, so most operators cannot get keys today (see
 [Access](#access-read-this-first)). Field names follow the API's public reference and discovery
 document, checked on 2026-10-12; points marked **(unverified)** are the ones to check first against

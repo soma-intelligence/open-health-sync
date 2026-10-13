@@ -4,7 +4,7 @@ Slug `polar`. Users connect their own Polar Flow account over OAuth; Open Health
 them with your AccessLink client, pulls their data on a schedule and when Polar sends a webhook
 event. You register your own AccessLink client: nothing is shared between instances.
 
-Status: available, not yet verified with a real account. Field names follow the
+Status: available. Field names follow the
 [AccessLink v3 documentation](https://www.polar.com/accesslink-api/); the points marked
 *unverified* below are the ones to check first against a real account.
 
