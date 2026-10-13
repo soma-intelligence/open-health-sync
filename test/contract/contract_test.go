@@ -88,6 +88,9 @@ func freeAddr(t *testing.T) string {
 
 // startServer runs app.Run with every role on a fresh database and returns
 // its base URL and a pool on the same database.
+// contractMetricsToken is the OHS_METRICS_TOKEN of the contract server.
+const contractMetricsToken = "contract-metrics-token"
+
 func startServer(t *testing.T) (string, string) {
 	t.Helper()
 	url := db.TestDB(t)
@@ -100,6 +103,7 @@ func startServer(t *testing.T) (string, string) {
 		PublicURL:     "http://" + addr,
 		Roles:         map[string]bool{"api": true, "collect": true, "etl": true},
 		Metrics:       true,
+		MetricsToken:  contractMetricsToken,
 		EncryptionKey: make([]byte, 32),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -153,7 +157,8 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	// Ops.
 	assert.Equal(t, 200, c.json("GET", "/healthz", "", "").status)
 	assert.Equal(t, 200, c.json("GET", "/readyz", "", "").status)
-	assert.Equal(t, 200, c.json("GET", "/metrics", "", "").status)
+	assert.Equal(t, 401, c.json("GET", "/metrics", "", "").status)
+	assert.Equal(t, 200, c.json("GET", "/metrics", contractMetricsToken, "").status)
 	assert.Equal(t, 200, c.json("GET", "/v1/providers", key, "").status)
 
 	// User and token.
@@ -192,6 +197,34 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		require.Equal(t, 200, r.status, "%s: %s", p, r.body)
 	}
 	assert.Equal(t, 200, upload(parts[0]).status)
+
+	// Menstrual flow from Apple Health and from Health Connect, for the
+	// derived cycles (invented days).
+	gz := func(body string) io.Reader {
+		var b bytes.Buffer
+		w := gzip.NewWriter(&b)
+		_, err := w.Write([]byte(body))
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		return &b
+	}
+	var flow strings.Builder
+	for _, d := range []string{"2026-01-02", "2026-01-03", "2026-01-30"} {
+		fmt.Fprintf(&flow, `{"categoryType":"HKCategoryTypeIdentifierMenstrualFlow","startDate":"%sT08:00:00.000Z",`+
+			`"endDate":"%sT08:00:00.000Z","value":3,"sourceName":"Health","metadata":{"HKTimeZone":"Europe/Paris"}}`+"\n", d, d)
+	}
+	r = c.do("POST", "/v1/ingest/apple-health", tok.Token, gz(flow.String()), map[string]string{
+		"Content-Type": "application/gzip", "X-OHS-Type": "HKCategoryTypeIdentifierMenstrualFlow",
+		"X-OHS-Day": "2026-01-10", "X-OHS-Batch": "contract", "X-OHS-Part": "90",
+	})
+	require.Equal(t, 200, r.status, "%s", r.body)
+	r = c.do("POST", "/v1/ingest/health-connect", tok.Token, gz(
+		`{"recordType":"MenstruationFlow","metadata":{"id":"mf-1"},"time":"2026-01-03T09:00:00Z","zoneOffset":"+01:00","flow":"heavy"}`+"\n"),
+		map[string]string{
+			"Content-Type": "application/gzip", "X-OHS-Type": "MenstruationFlow",
+			"X-OHS-Day": "2026-01-03", "X-OHS-Batch": "contract", "X-OHS-Part": "91",
+		})
+	require.Equal(t, 200, r.status, "%s", r.body)
 
 	// Coverage until processed (ruling R4).
 	deadline := time.Now().Add(60 * time.Second)
@@ -253,6 +286,30 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	r.json(t, &page)
 	require.NotNil(t, page.NextCursor)
 	assert.Equal(t, 200, c.json("GET", u+"/samples?type=heart_rate&limit=100&cursor="+*page.NextCursor, key, "").status)
+
+	// Menstrual cycles derived from both providers' flow, then paged.
+	r = c.json("GET", u+"/menstrual-cycles", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	var cycles struct {
+		Data []struct {
+			StartDate       string   `json:"start_date"`
+			CycleLengthDays *int     `json:"cycle_length_days"`
+			Providers       []string `json:"providers"`
+		} `json:"data"`
+	}
+	r.json(t, &cycles)
+	require.Len(t, cycles.Data, 2, "%s", r.body)
+	assert.Equal(t, "2026-01-02", cycles.Data[0].StartDate)
+	assert.Equal(t, []string{"apple_health", "health_connect"}, cycles.Data[0].Providers)
+	require.NotNil(t, cycles.Data[0].CycleLengthDays)
+	assert.Equal(t, 28, *cycles.Data[0].CycleLengthDays)
+	assert.Nil(t, cycles.Data[1].CycleLengthDays)
+	r = c.json("GET", u+"/menstrual-cycles?limit=1&start=2026-01-01", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	r.json(t, &page)
+	require.NotNil(t, page.NextCursor)
+	assert.Equal(t, 200, c.json("GET", u+"/menstrual-cycles?limit=1&cursor="+*page.NextCursor, key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/menstrual-cycles?cursor=%25%25", key, "").status)
 
 	// FHIR: a page of Observations, its next link, and one Observation by id.
 	r = c.json("GET", u+"/fhir/Observation?type=heart_rate&limit=2", key, "")

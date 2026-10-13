@@ -167,6 +167,13 @@ const sources: Record<string, Target[]> = {
       description: "Read beat-to-beat intervals and the HRV derived from each heartbeat series.",
     },
   ],
+  "docs/menstrual-cycles.md": [
+    {
+      page: "(guides)/guides/menstrual-cycles",
+      title: "Menstrual cycles",
+      description: "Cycles derived at read time from the recorded menstrual flow, and the rules they follow.",
+    },
+  ],
 };
 
 // Each provider guide under docs/connectors becomes a page of its own.
@@ -210,6 +217,7 @@ const icons: Record<string, string> = {
   "(guides)/guides/open-mhealth": "Activity",
   "(guides)/guides/exports": "FileDown",
   "(guides)/guides/webhooks": "Webhook",
+  "(guides)/guides/menstrual-cycles": "CalendarDays",
   "(guides)/recipes/index": "Sparkles",
   "(guides)/recipes/sleep-report": "Moon",
   "(guides)/recipes/heart-trend": "HeartPulse",

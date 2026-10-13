@@ -24,6 +24,7 @@ func (s *server) mountReads(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/users/{id}/daily", listRoute(s, read.Daily))
 	s.tenantRoute(mux, "GET /v1/users/{id}/rr-intervals", rrRoute(s, read.RRIntervals))
 	s.tenantRoute(mux, "GET /v1/users/{id}/hrv", rrRoute(s, read.HRV))
+	s.tenantRoute(mux, "GET /v1/users/{id}/menstrual-cycles", listRoute(s, read.MenstrualCycles))
 	s.tenantRoute(mux, "GET /v1/users/{id}/coverage", s.coverage)
 }
 
