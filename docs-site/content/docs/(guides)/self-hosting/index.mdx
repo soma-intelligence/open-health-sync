@@ -4,7 +4,7 @@ description: Pick how to run it. Every option is the same binary and the same Po
 icon: Server
 ---
 
-import { Cpu, Container, Database, HardDrive, Package, ShieldCheck, Ship } from 'lucide-react';
+import { Cloud, Cpu, Container, Database, HardDrive, Package, ShieldCheck, Ship } from 'lucide-react';
 
 Open Health Sync is one Go binary, `ohs`, plus Postgres with the TimescaleDB extension. Raw
 payloads go to a local folder or an S3 compatible bucket. That is the whole stack.
@@ -21,6 +21,9 @@ payloads go to a local folder or an S3 compatible bucket. That is the whole stac
   </Card>
   <Card icon={<Ship />} title="Kubernetes with Helm" href="/documentation/self-hosting/kubernetes">
     The Helm chart, against a Postgres with TimescaleDB that you run.
+  </Card>
+  <Card icon={<Cloud />} title="Render, Fly.io and Railway" href="/documentation/self-hosting/platforms">
+    No server of your own: deploy templates with TimescaleDB and a persistent raw store.
   </Card>
   <Card icon={<Package />} title="Binaries and source" href="/documentation/self-hosting/binaries">
     Linux and macOS binaries, or build it yourself with Go.

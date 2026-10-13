@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Render Blueprint for Open Health Sync: TimescaleDB as a private service and
+# ohs as a web service built from deploy/Dockerfile. Render reads this file at
+# the repository root. Deploy with
+#   https://render.com/deploy?repo=https://github.com/soma-intelligence/open-health-sync
+# and read docs/deploy-platforms.md first. Both services carry a persistent
+# disk, which needs a paid instance type, rules out zero-downtime deploys and
+# keeps each service at one instance.
+# internal/docscheck/deploy_test.go checks this file against
+# deploy/docker-compose.yml (image digest) and the ohs configuration.
+
+services:
+  # Postgres 17 with TimescaleDB, reachable only on the private network.
+  - type: pserv
+    name: ohs-db
+    runtime: image
+    image:
+      # Same multi-arch digest as deploy/docker-compose.yml.
+      url: docker.io/timescale/timescaledb:latest-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2
+    disk:
+      name: pgdata
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 10
+    envVars:
+      - key: POSTGRES_USER
+        value: ohs
+      - key: POSTGRES_DB
+        value: ohs
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+      # initdb refuses a mount point that is not empty (lost+found).
+      - key: PGDATA
+        value: /var/lib/postgresql/data/pgdata
+
+  - type: web
+    name: ohs
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    # No dockerCommand: the image runs `ohs up` (migrations, then serve).
+    healthCheckPath: /readyz
+    # ohs gives work in flight 25 s after SIGTERM, plus a margin.
+    maxShutdownDelaySeconds: 35
+    disk:
+      name: raw
+      mountPath: /var/lib/ohs/raw
+      sizeGB: 5
+    envVars:
+      # Build argument of deploy/Dockerfile: run as root, because the disk is
+      # mounted owned by root and ohs must write its raw files there.
+      - key: IMAGE_UID
+        value: "0"
+      # 32 random bytes, base64: what OHS_ENCRYPTION_KEY requires. Generated
+      # once, never changed by a Blueprint sync. Copy it somewhere safe.
+      - key: OHS_ENCRYPTION_KEY
+        generateValue: true
+      # No host and no password in the URL: the generated password may hold
+      # characters a URL cannot carry. pgx reads them from PGHOST and
+      # PGPASSWORD below.
+      - key: OHS_DATABASE_URL
+        value: postgres://ohs@/ohs?sslmode=disable&pool_max_conns=20
+      - key: PGHOST
+        fromService:
+          type: pserv
+          name: ohs-db
+          property: host
+      - key: PGPASSWORD
+        fromService:
+          type: pserv
+          name: ohs-db
+          envVarKey: POSTGRES_PASSWORD
+      - key: OHS_RAW_STORE
+        value: file:///var/lib/ohs/raw
+      # The https address of this service, https://<name>.onrender.com or
+      # your own domain. OAuth callbacks are built from it.
+      - key: OHS_PUBLIC_URL
+        sync: false
+      # Creates this tenant at first start and logs its API key once
+      # (docs/deploy-platforms.md). Leave empty to create tenants later.
+      - key: OHS_BOOTSTRAP_TENANT
+        sync: false

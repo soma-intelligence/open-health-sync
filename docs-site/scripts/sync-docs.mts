@@ -139,6 +139,13 @@ const sources: Record<string, Target[]> = {
       description: "Logs, Prometheus metrics and OpenTelemetry traces: what each carries and how to turn traces on.",
     },
   ],
+  "docs/deploy-platforms.md": [
+    {
+      page: "(guides)/self-hosting/platforms",
+      title: "Render, Fly.io and Railway",
+      description: "Deploy without a server of your own: templates with TimescaleDB and a persistent raw store.",
+    },
+  ],
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",
@@ -275,6 +282,7 @@ const icons: Record<string, string> = {
   "(guides)/connectors/recording": "Disc",
   "(guides)/connectors/apple-health": "Smartphone",
   "(guides)/self-hosting/kubernetes": "Ship",
+  "(guides)/self-hosting/platforms": "Cloud",
   "(guides)/self-hosting/doctor": "Stethoscope",
   "(guides)/self-hosting/configuration": "Settings",
   "(guides)/self-hosting/upgrading": "CircleArrowUp",

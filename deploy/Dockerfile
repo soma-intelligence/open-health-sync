@@ -31,7 +31,11 @@ COPY --from=build /out/ohs /ohs
 COPY --from=build --chown=65532:65532 /out/raw /var/lib/ohs/raw
 VOLUME /var/lib/ohs/raw
 EXPOSE 8080
-USER 65532:65532
+# The distroless nonroot user. Hosting platforms that mount their volumes
+# owned by root (Fly.io, Render) build with --build-arg IMAGE_UID=0 so ohs can
+# write its raw store there: see docs/deploy-platforms.md.
+ARG IMAGE_UID=65532
+USER ${IMAGE_UID}:${IMAGE_UID}
 ENTRYPOINT ["/ohs"]
 # Default: apply migrations, then serve. Override with any ohs command.
 CMD ["up"]

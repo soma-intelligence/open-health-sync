@@ -4,6 +4,9 @@ This page covers Docker Compose. To run it on Kubernetes, use the Helm chart in
 `deploy/helm/ohs`: see [Kubernetes with Helm](helm.md). The configuration, backup and operating
 notes below apply to both; the commands are written for compose.
 
+No server of your own? [Render, Fly.io and Railway](deploy-platforms.md) runs it on Render (one
+button), Fly.io or Railway, with TimescaleDB and a persistent raw store.
+
 ## Quick start
 
 Needs Docker Compose v2.24 or later, and `openssl`. Run every command from the repository

@@ -6,6 +6,7 @@
     "raspberry-pi",
     "s3",
     "kubernetes",
+    "platforms",
     "binaries",
     "production",
     "configuration",
