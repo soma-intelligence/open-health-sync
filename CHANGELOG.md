@@ -19,6 +19,10 @@ release may change the API, the configuration or the database schema.
   HRV trend, source comparison, weekly digest, HTML dashboard, full export, read-only AI token,
   account connection. Each has a page under [docs/recipes](docs/recipes/README.md), and the
   quickstart end to end suite runs them all.
+- Learn by building: seven short beginner projects on your own data (first sync, sleep report,
+  HRV trend, an AI assistant over MCP, training against sleep, a dashboard, a webhook that writes
+  a morning line) and a prompt library for people who train. See
+  [docs/learn](docs/learn/README.md).
 - Recorded connector contracts: `make record PROVIDER=<slug>` records what a real account's API
   answers (or an Apple Health export), anonymized on the contributor's machine, and CI replays
   every committed recording through its connector. See
