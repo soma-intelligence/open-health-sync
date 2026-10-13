@@ -414,8 +414,10 @@ func TestWhoopEndToEnd(t *testing.T) {
 		}
 	}
 	// Both nights start on local day 0 (00:15 and 23:10); the first is on the
-	// previous day in UTC, where nothing may land.
-	assert.Equal(t, 2, sleepDays[tl.localDay(0)], "the 00:15 onset counts on its local day: %v", sleepDays)
+	// previous day in UTC, where nothing may land. The count is a high-water
+	// mark per raw object (see writeCoverage): whether the two nights come in
+	// one page or two depends on the hour the test runs, so it is 1 or 2.
+	assert.Contains(t, []int{1, 2}, sleepDays[tl.localDay(0)], "the 00:15 onset counts on its local day: %v", sleepDays)
 	assert.Zero(t, sleepDays[tl.localDay(-1)], "nothing on the UTC day of the 00:15 onset: %v", sleepDays)
 
 	// WHOOP scores the second night, its recovery and the lifting session,
