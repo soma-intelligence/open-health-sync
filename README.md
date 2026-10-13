@@ -45,6 +45,8 @@ docker pull ghcr.io/soma-intelligence/open-health-sync:0.0.2
 
 [**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
+<sub>If it saves you one more parser, a <a href="https://github.com/soma-intelligence/open-health-sync/stargazers">⭐ star</a> helps other developers find it. Questions and ideas: <a href="https://github.com/soma-intelligence/open-health-sync/discussions">Discussions</a>.</sub>
+
 <sub><b>v0.0.2, early preview.</b> APIs, configuration and schema may change in any 0.x release.</sub>
 
 </div>
@@ -606,17 +608,19 @@ SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as G
 
 ## Contributing
 
-Issues and pull requests are welcome, and connectors are the easiest way in: each one is
-self-contained. If Open Health Sync saves you from writing one more parser, a ⭐ helps other
-developers find it. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[code of conduct](CODE_OF_CONDUCT.md). To add a provider, start with
-[writing a connector](docs/writing-a-connector.md).
+Issues and pull requests are welcome. Three ways in, from five minutes to a weekend:
 
-**Have an account with one of the sources?** Record it. `make record PROVIDER=<slug>` captures what
-the provider's API answers for your account, or reads a Health app `export.zip`, and anonymizes it
-on your machine; nothing personal leaves it. Open a pull request with the recording and CI replays
-it on every change, so the connector keeps working with real answers, not only test fixtures.
-About five minutes per source: [recording a connector](docs/connectors/recording.md).
+- **Own a wearable?** Record your account in about five minutes with `make record PROVIDER=oura`
+  (or any other source). The recorder anonymizes on your machine and CI replays the file on every
+  change: pick a source in [#60](https://github.com/soma-intelligence/open-health-sync/issues/60),
+  and see [recording a connector](docs/connectors/recording.md).
+- **Pick a [good first issue](https://github.com/soma-intelligence/open-health-sync/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)**:
+  docs, a recipe, a CLI command or a deploy template, each scoped to one PR.
+- **Add a provider.** Connectors are self-contained: start with
+  [writing a connector](docs/writing-a-connector.md).
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md) first. Every
+first-time contributor gets a review within 48 hours.
 
 ```sh
 make setup        # git hooks
@@ -624,6 +628,12 @@ make build        # bin/ohs
 make test         # unit tests
 make integration  # needs Docker (testcontainers)
 ```
+
+### Contributors
+
+<a href="https://github.com/soma-intelligence/open-health-sync/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=soma-intelligence/open-health-sync" alt="Contributors to Open Health Sync">
+</a>
 
 ## Security
 
