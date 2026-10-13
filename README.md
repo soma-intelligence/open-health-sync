@@ -290,6 +290,10 @@ export OHS=http://localhost:8080
 export KEY=ohs_sk_...    # the key printed above
 ```
 
+The API listens on `127.0.0.1` only, so these steps run on the same machine. A phone app,
+provider webhooks or another computer need it exposed: put a reverse proxy with TLS in front, or
+set `OHS_HTTP_BIND=0.0.0.0` in `.env` for plain http on your network.
+
 Port 8080 taken? Set `OHS_HTTP_PORT` and a matching `OHS_PUBLIC_URL` in `.env` (see
 [self-hosting](docs/self-hosting.md#port-and-a-second-install)).
 
