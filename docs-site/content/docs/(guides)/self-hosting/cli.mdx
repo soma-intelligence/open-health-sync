@@ -23,6 +23,7 @@ ohs <command> [flags]
 | `ohs admin key list --tenant <id>` | Lists a tenant's keys by prefix, with creation and last use. |
 | `ohs admin key revoke --tenant <id> --key <key or prefix>` | Revokes a key. A whole user token is revoked the same way. |
 | `ohs admin personal setup [--person <name>]` | Readies a one person install for the [recipes](/documentation/recipes): a `personal` tenant, a user and a new key, printed as an env file. |
+| `ohs admin rekey [--batch <rows>]` | Re-seals every stored OAuth token and webhook secret under `OHS_ENCRYPTION_KEY` after a [key rotation](/documentation/self-hosting/key-rotation), and prints counts. |
 | `ohs import apple-health <export.zip\|export.xml> [--since] [--tz] [--dry-run]` | Loads a Health app export into an instance with a user token (`--url`/`OHS_URL`, `--token`/`OHS_TOKEN`). |
 | `ohs mcp` | Serves the read-only MCP tools on stdin and stdout for a local agent. See [AI agents](/documentation/guides/ai-agents). |
 | `ohs seed --demo [--tenant <id>] [--days 90] [--external-ref demo-user] [--seed N]` | Fills the instance with synthetic data for one user, from six sources. Running it again adds nothing. See [Try it without a wearable](/documentation/guides/demo). |
@@ -30,8 +31,9 @@ ohs <command> [flags]
 | `ohs help [command]` | Prints help, or the help of one command. |
 
 `up` and `serve` need `OHS_DATABASE_URL` and `OHS_ENCRYPTION_KEY`; `migrate`, `admin` and `seed` need
-`OHS_DATABASE_URL` only (`migrate latest` needs nothing); `mcp` needs `OHS_MCP_KEY` and the instance URL. `doctor` checks the
-same settings, and prints a fresh key when `OHS_ENCRYPTION_KEY` is empty.
+`OHS_DATABASE_URL` only (`migrate latest` needs nothing), except `admin rekey`, which also reads the
+encryption keys; `mcp` needs `OHS_MCP_KEY` and the instance URL. `doctor` checks the same settings,
+and prints a fresh key when `OHS_ENCRYPTION_KEY` is empty.
 
 **Exit status:** 0 on success, 1 on failure (a failed doctor check included), 2 on a command line
 error.

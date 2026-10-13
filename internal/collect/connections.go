@@ -102,8 +102,8 @@ func NewHandlers(d Deps) *Handlers {
 	return &Handlers{d: d}
 }
 
-// sealAAD binds a sealed token to its row (R15): tenant_id|user_id|provider.
-func sealAAD(tenantID, userID uuid.UUID, provider string) []byte {
+// SealAAD binds a sealed token to its row (R15): tenant_id|user_id|provider.
+func SealAAD(tenantID, userID uuid.UUID, provider string) []byte {
 	return []byte(tenantID.String() + "|" + userID.String() + "|" + provider)
 }
 
@@ -133,7 +133,7 @@ func scanConn(row pgx.Row) (connRow, error) {
 
 // open decrypts the row's tokens into a connector.Connection.
 func (d Deps) open(c connRow) (connector.Connection, error) {
-	aad := sealAAD(c.tenant, c.user, c.provider)
+	aad := SealAAD(c.tenant, c.user, c.provider)
 	conn := connector.Connection{
 		TenantID: c.tenant, UserID: c.user, Provider: c.provider,
 		Tokens: connector.Tokens{Scopes: c.scopes, ProviderUserID: c.providerUserID},
@@ -174,7 +174,7 @@ func (d Deps) seal(tenantID, userID uuid.UUID, provider string, t connector.Toke
 	if t.Access == "" {
 		return sealed{}, errors.New("provider returned no access token")
 	}
-	aad := sealAAD(tenantID, userID, provider)
+	aad := SealAAD(tenantID, userID, provider)
 	var s sealed
 	var err error
 	if s.access, err = d.Box.SealFor([]byte(t.Access), aad); err != nil {

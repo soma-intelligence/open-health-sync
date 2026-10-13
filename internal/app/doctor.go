@@ -18,11 +18,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/rekey"
 )
 
 // DoctorOptions tunes Doctor.
@@ -53,10 +56,11 @@ func NewEncryptionKey() (string, error) {
 	return base64.StdEncoding.EncodeToString(b), nil
 }
 
-// Doctor runs the configuration checks and writes one "ok" or "fail" line per
-// check to out. It returns ErrDoctorFailed when any check failed. Output never
-// contains secrets other than a newly generated encryption key, printed on
-// purpose so the operator can paste it.
+// Doctor runs the configuration checks and writes one "ok", "warn", "skip" or
+// "fail" line per check to out. It returns ErrDoctorFailed when any check
+// failed (a warning does not count). Output never contains secrets other than
+// a newly generated encryption key, printed on purpose so the operator can
+// paste it.
 func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 	if o.Lookup == nil {
 		o.Lookup = os.LookupEnv
@@ -109,7 +113,8 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 	// Database and raw store use the raw variables so they are still checked
 	// when another part of the configuration is invalid.
 	dbURL := get("OHS_DATABASE_URL", "")
-	report("database", checkDB(ctx, dbURL, o.Timeout), "")
+	dbErr := checkDB(ctx, dbURL, o.Timeout)
+	report("database", dbErr, "")
 	report("raw store", checkRawStore(ctx, get("OHS_RAW_STORE", "file:///var/lib/ohs/raw"), o.Timeout, !o.Quick), "")
 
 	if !o.Quick {
@@ -117,6 +122,9 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 		report("public url", config.CheckPublicURL(public), public)
 		if cfgErr == nil {
 			doctorConnectors(out, report, o, cfg, strings.TrimRight(public, "/"))
+			if dbErr == nil {
+				doctorKeys(ctx, out, report, cfg, dbURL, o.Timeout)
+			}
 		}
 	}
 	if failed {
@@ -177,6 +185,62 @@ func doctorConnectors(out io.Writer, report func(string, error, string), o Docto
 		if _, ok := connector.AsOAuth(c); ok {
 			fmt.Fprintf(out, "      %s callback: %s/oauth/%s/callback\n", slug, public, slug)
 		}
+	}
+}
+
+// doctorKeys counts the stored secrets by the key that seals them. None of
+// it fails the doctor: a value under a previous key still opens, and one no
+// configured key opens is a past loss, only repaired by connecting again.
+func doctorKeys(ctx context.Context, out io.Writer, report func(string, error, string), cfg config.Config, dbURL string, timeout time.Duration) {
+	const name = "encryption keys"
+	box, err := crypto.NewKeyring(cfg.EncryptionKey, cfg.PreviousEncryptionKeys...)
+	if err != nil {
+		report(name, err, "")
+		return
+	}
+	// Every value is decrypted: allow more than one network round trip.
+	ctx, cancel := context.WithTimeout(ctx, 6*timeout)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, db.ConnURL(dbURL))
+	if err != nil {
+		report(name, fmt.Errorf("cannot connect: %s", redact(err, dbURL)), "")
+		return
+	}
+	defer conn.Close(context.Background())
+	survey, err := rekey.Inspect(ctx, conn, box)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
+		fmt.Fprintf(out, "skip  %s: the database is not migrated yet (ohs migrate up)\n", name)
+		return
+	}
+	if err != nil {
+		report(name, fmt.Errorf("cannot read the sealed values: %s", redact(err, dbURL)), "")
+		return
+	}
+	var total rekey.Survey
+	for _, s := range survey {
+		total.Current += s.Current
+		total.Legacy += s.Legacy
+		total.Previous += s.Previous
+		total.Unknown += s.Unknown
+	}
+	if total.Previous > 0 {
+		fmt.Fprintf(out, "warn  %s: %d sealed value(s) still use a previous key: run `ohs admin rekey`\n", name, total.Previous)
+	}
+	if total.Unknown > 0 {
+		fmt.Fprintf(out, "warn  %s: %d sealed value(s) open with no configured key: add the key that sealed them to "+
+			"OHS_PREVIOUS_ENCRYPTION_KEYS, or connect those providers again and rotate those webhook secrets\n", name, total.Unknown)
+	}
+	if box.PreviousKeys() > 0 && total.Previous == 0 {
+		fmt.Fprintf(out, "warn  %s: no sealed value uses a previous key any more: "+
+			"you can remove OHS_PREVIOUS_ENCRYPTION_KEYS once every process runs with the new key\n", name)
+	}
+	if total.Previous == 0 && total.Unknown == 0 {
+		detail := fmt.Sprintf("%d sealed value(s), all under the active key", total.Current+total.Legacy)
+		if total.Legacy > 0 {
+			detail += fmt.Sprintf("; %d without a key id, which `ohs admin rekey` adds", total.Legacy)
+		}
+		report(name, nil, detail)
 	}
 }
 

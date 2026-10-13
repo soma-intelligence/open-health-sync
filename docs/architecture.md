@@ -90,8 +90,9 @@ overwrite), which S3 stores must support through `If-None-Match`.
 
 Secrets: API keys and user tokens are stored as SHA-256 hashes only. OAuth access and refresh
 tokens are sealed with AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to
-`tenant_id|user_id|provider` so a stolen ciphertext cannot be moved to another row. Logs never
-contain tokens, keys or health values.
+`tenant_id|user_id|provider` so a stolen ciphertext cannot be moved to another row. Each sealed
+value names the key that sealed it, so the key can be rotated online
+([key rotation](key-rotation.md)). Logs never contain tokens, keys or health values.
 
 ## Tenancy and auth
 

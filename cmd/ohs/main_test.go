@@ -124,6 +124,7 @@ func TestAdminUsage(t *testing.T) {
 		{"admin", "tenant", "list", "extra"},
 		{"admin", "tenant", "list", "--name", "x"}, {"admin", "tenant", "create", "--name", "a", "--tenant", "x"},
 		{"admin", "key", "create", "--tenant", "x", "--key", "y"}, {"admin", "key", "list", "--tenant", "x", "--name", "n"},
+		{"admin", "rekey", "extra"}, {"admin", "rekey", "--batch", "0"}, {"admin", "rekey", "--tenant", "x"},
 	} {
 		err := run(args, &buf)
 		if err == nil || !strings.Contains(err.Error(), "usage: ohs admin") {
@@ -132,6 +133,27 @@ func TestAdminUsage(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("usage errors print nothing: %q", buf.String())
+	}
+}
+
+// Unlike the other admin commands, rekey needs the encryption keys.
+func TestAdminRekeyNeedsKeys(t *testing.T) {
+	t.Setenv("OHS_DATABASE_URL", unreachableDB)
+	t.Setenv("OHS_ENCRYPTION_KEY", "")
+	err := run([]string{"admin", "rekey"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "OHS_ENCRYPTION_KEY") {
+		t.Fatalf("got %v, want an OHS_ENCRYPTION_KEY error", err)
+	}
+	t.Setenv("OHS_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	t.Setenv("OHS_PREVIOUS_ENCRYPTION_KEYS", "not-a-key")
+	err = run([]string{"admin", "rekey"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "OHS_PREVIOUS_ENCRYPTION_KEYS") || strings.Contains(err.Error(), "not-a-key") {
+		t.Fatalf("got %v, want an OHS_PREVIOUS_ENCRYPTION_KEYS error that does not echo the value", err)
+	}
+	// A bad previous key does not stop the commands that need no key.
+	err = run([]string{"migrate", "version"}, &bytes.Buffer{})
+	if err == nil || strings.Contains(err.Error(), "OHS_PREVIOUS_ENCRYPTION_KEYS") {
+		t.Fatalf("got %v, want a connection error", err)
 	}
 }
 

@@ -146,6 +146,13 @@ const sources: Record<string, Target[]> = {
       description: "Deploy without a server of your own: templates with TimescaleDB and a persistent raw store.",
     },
   ],
+  "docs/key-rotation.md": [
+    {
+      page: "(guides)/self-hosting/key-rotation",
+      title: "Rotating the encryption key",
+      description: "Replace OHS_ENCRYPTION_KEY online, re-seal the stored secrets, and what to do after a leak.",
+    },
+  ],
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",

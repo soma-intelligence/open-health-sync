@@ -32,7 +32,8 @@ from the shell or `--env-file`, so keep `--env-file .env` on every `docker compo
 The containers read `.env` themselves either way.
 
 `OHS_ENCRYPTION_KEY` must hold 32 random bytes in base64; the `sed` line above fills it. Keep
-it: it encrypts the OAuth tokens stored in the database. If it is empty, `ohs` exits at start
+it: it encrypts the OAuth tokens stored in the database. To change it later, follow
+[rotating the encryption key](key-rotation.md). If it is empty, `ohs` exits at start
 and its container restarts in a loop, never healthy. `ohs doctor` then prints a freshly
 generated key: paste it into `.env` and run the same `up -d` command again, so the container is
 recreated with the new environment.
@@ -71,12 +72,15 @@ last build is what each runs after its next restart.
 ## ohs doctor
 
 `ohs doctor` prints one `ok` or `fail` line per check and exits non-zero on any
-failure: configuration, database, raw store, public URL, and the required keys of
-every enabled connector. For each enabled OAuth connector it prints the callback
+failure: configuration, database, raw store, public URL, the required keys of
+every enabled connector, and the keys that seal the stored secrets. For each enabled OAuth connector it prints the callback
 URL to register with the provider: `<OHS_PUBLIC_URL>/oauth/<slug>/callback`.
 A connector that needs keys and has none set gets a `skip` line,
 `skip  connector withings: disabled (no keys)`; one with only some of its keys is a
-`fail`. `--quick` checks the database and raw store only. The full run also writes and deletes
+`fail`. The stored OAuth tokens and webhook secrets are counted by the key that seals them: a
+`warn` line (which does not fail the run) names how many still use a previous key or open with
+no configured key, and says when `OHS_PREVIOUS_ENCRYPTION_KEYS` is no longer needed (see
+[rotating the encryption key](key-rotation.md)). `--quick` checks the database and raw store only. The full run also writes and deletes
 a probe object in the raw store; a host folder bind mounted at `/var/lib/ohs/raw` must be
 writable by the container user (`chown -R 65532:65532 <folder>`). `ohs serve` runs the same
 write check at start and stops if it fails.
@@ -152,7 +156,8 @@ Environment variables only, documented line by line in `.env.example`.
 | Variable | Default | Meaning |
 |---|---|---|
 | `OHS_DATABASE_URL` | set by compose | Postgres connection URL; size its pool with `pool_max_conns` (see below) |
-| `OHS_ENCRYPTION_KEY` | none, required | 32 random bytes, base64. Seals stored OAuth tokens. `openssl rand -base64 32` makes one, or `ohs doctor` prints one |
+| `OHS_ENCRYPTION_KEY` | none, required | 32 random bytes, base64. Seals stored OAuth tokens and webhook secrets. `openssl rand -base64 32` makes one, or `ohs doctor` prints one |
+| `OHS_PREVIOUS_ENCRYPTION_KEYS` | none | Comma separated keys `OHS_ENCRYPTION_KEY` replaced: they still open what they sealed, never seal. Set only while [rotating the key](key-rotation.md) |
 | `OHS_PUBLIC_URL` | `http://localhost:8080` | Public base URL, used for OAuth callbacks and notification URLs. Use your https address |
 | `OHS_RAW_STORE` | `file:///var/lib/ohs/raw` | `file:///path` or `s3://bucket?endpoint=&region=&path_style=true` |
 | `OHS_ROLES` | `api,collect,etl` | Roles this process runs |
@@ -279,10 +284,13 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
 
   A user token minted with the old key keeps working until it expires. `key revoke` with a
   whole user token (`ohs_ut_...`) revokes that token.
-- **`OHS_ENCRYPTION_KEY`.** 0.x has one key and no re-encryption. A new key leaves the stored
-  OAuth tokens unreadable: pulls for those connections fail until each user connects the
-  provider again. Uploads and stored data are not affected. Change it only when the old key is
-  compromised.
+- **`OHS_ENCRYPTION_KEY`.** Rotate it online: put the new key in `OHS_ENCRYPTION_KEY` and the
+  old one in `OHS_PREVIOUS_ENCRYPTION_KEYS`, restart every process, run `ohs admin rekey`, then
+  remove the old key once `ohs doctor` says nothing uses it. The whole procedure, and what
+  happens when a step is skipped, is in [rotating the encryption key](key-rotation.md). Replacing
+  the key without keeping the old one leaves the stored OAuth tokens and webhook secrets
+  unreadable: each user must connect the provider again. Uploads and stored data are not
+  affected.
 - **Provider secrets.** See the Withings note under operating notes below.
 - **`POSTGRES_PASSWORD`** only applies when the database volume is first created. To change it
   later, run `ALTER USER ohs PASSWORD '...'` in `psql`, then update `.env` and recreate both

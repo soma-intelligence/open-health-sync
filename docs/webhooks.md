@@ -140,8 +140,10 @@ Finished deliveries are kept 30 days. When a user is deleted, the events not yet
 are dropped and `user.deleted` is queued.
 
 Deliveries are posted by the `etl` role, so an instance split into roles needs outbound network
-access from its `etl` processes. If `OHS_ENCRYPTION_KEY` changes, the stored secrets no longer
-open: deliveries fail with a message saying so, and each endpoint needs a `rotate-secret`.
+access from its `etl` processes. The signing secrets are sealed with `OHS_ENCRYPTION_KEY`;
+[rotating the key](key-rotation.md) keeps them. If the key changes without the old one kept in
+`OHS_PREVIOUS_ENCRYPTION_KEYS`, the stored secrets no longer open: deliveries fail with a
+message saying so, and each endpoint needs a `rotate-secret`.
 
 ## Debugging (sandbox)
 

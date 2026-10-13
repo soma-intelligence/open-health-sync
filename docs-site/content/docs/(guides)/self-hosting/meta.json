@@ -17,6 +17,7 @@
     "backup",
     "rotating-secrets",
     "observability",
+    "key-rotation",
     "operating-notes"
   ]
 }

@@ -85,6 +85,14 @@ release may change the API, the configuration or the database schema.
   `collection` Bundle, the Open mHealth data points and every raw payload byte for byte. It
   takes a tenant key, or a user token with scope `read` for its own user. See
   [docs/exports.md](docs/exports.md#complete-user-archive-data-portability).
+- Encryption key rotation: `OHS_PREVIOUS_ENCRYPTION_KEYS` lists, comma separated, the keys
+  `OHS_ENCRYPTION_KEY` replaced; they still open what they sealed and never seal. Sealed values
+  (OAuth tokens, webhook signing secrets) now start with a format version and the id of their
+  key; values written before open as they are. `ohs admin rekey` re-seals every stored secret
+  under the active key, in batches of short row-locked transactions, safe while the instance
+  runs, and prints how many it rewrote, found current or could not open (left as they are).
+  `ohs doctor` counts the secrets still under a previous or unknown key and says when the
+  previous keys can go. See [docs/key-rotation.md](docs/key-rotation.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and

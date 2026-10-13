@@ -21,9 +21,12 @@ type ProviderKeys map[string]string
 // Config is the full process configuration.
 type Config struct {
 	DatabaseURL, PublicURL, RawStore, Listen, LogLevel, BootstrapTenant string
-	EncryptionKey                                                       []byte          // decoded, len 32
-	Roles                                                               map[string]bool // "api", "collect", "etl"
-	Metrics                                                             bool
+	EncryptionKey                                                       []byte // decoded, len 32
+	// PreviousEncryptionKeys still open values sealed before a rotation but
+	// never seal (OHS_PREVIOUS_ENCRYPTION_KEYS, decoded, each len 32).
+	PreviousEncryptionKeys [][]byte
+	Roles                  map[string]bool // "api", "collect", "etl"
+	Metrics                bool
 	// Console serves the read-only admin console at /console (OHS_CONSOLE,
 	// default false).
 	Console bool
@@ -110,40 +113,46 @@ const DefaultIngestConcurrency = 8
 
 // reserved are the OHS_ variables (without prefix) that are never provider settings.
 var reserved = map[string]bool{
-	"DATABASE_URL":           true,
-	"ENCRYPTION_KEY":         true,
-	"PUBLIC_URL":             true,
-	"RAW_STORE":              true,
-	"ROLES":                  true,
-	"BOOTSTRAP_TENANT":       true,
-	"LISTEN":                 true,
-	"LOG_LEVEL":              true,
-	"METRICS":                true,
-	"CONSOLE":                true,
-	"METRICS_TOKEN":          true,
-	"METRICS_LISTEN":         true,
-	"RETENTION_DAYS":         true,
-	"AUDIT_RETENTION_DAYS":   true,
-	"INGEST_CONCURRENCY":     true,
-	"PULLS_PER_PROVIDER":     true,
-	"BACKFILLS_PER_PROVIDER": true,
-	"WEBHOOK_ALLOW_PRIVATE":  true,
-	"CONSENT_REQUIRED":       true,
-	"MCP_URL":                true, // client side settings of `ohs mcp`
-	"MCP_KEY":                true,
-	"HTTP_PORT":              true, // read by docker compose only (host port)
-	"HTTP_BIND":              true, // read by docker compose only (host address)
-	"VERSION":                true, // read by docker compose only (image tag)
+	"DATABASE_URL":             true,
+	"ENCRYPTION_KEY":           true,
+	"PREVIOUS_ENCRYPTION_KEYS": true,
+	"PUBLIC_URL":               true,
+	"RAW_STORE":                true,
+	"ROLES":                    true,
+	"BOOTSTRAP_TENANT":         true,
+	"LISTEN":                   true,
+	"LOG_LEVEL":                true,
+	"METRICS":                  true,
+	"CONSOLE":                  true,
+	"METRICS_TOKEN":            true,
+	"METRICS_LISTEN":           true,
+	"RETENTION_DAYS":           true,
+	"AUDIT_RETENTION_DAYS":     true,
+	"INGEST_CONCURRENCY":       true,
+	"PULLS_PER_PROVIDER":       true,
+	"BACKFILLS_PER_PROVIDER":   true,
+	"WEBHOOK_ALLOW_PRIVATE":    true,
+	"CONSENT_REQUIRED":         true,
+	"MCP_URL":                  true, // client side settings of `ohs mcp`
+	"MCP_KEY":                  true,
+	"HTTP_PORT":                true, // read by docker compose only (host port)
+	"HTTP_BIND":                true, // read by docker compose only (host address)
+	"VERSION":                  true, // read by docker compose only (image tag)
 }
 
 // ErrEncryptionKey is wrapped by every Load error about OHS_ENCRYPTION_KEY
 // (missing, not base64, wrong length).
 var ErrEncryptionKey = errors.New("OHS_ENCRYPTION_KEY")
 
-// keyHint ends every OHS_ENCRYPTION_KEY error. Changing the key of an
-// instance that already stores OAuth tokens makes them unreadable.
-const keyHint = ": generate one with `openssl rand -base64 32` (or run `ohs doctor`), " +
-	"and keep the same key for the life of the instance"
+// ErrPreviousEncryptionKeys is wrapped by every Load error about
+// OHS_PREVIOUS_ENCRYPTION_KEYS.
+var ErrPreviousEncryptionKeys = errors.New("OHS_PREVIOUS_ENCRYPTION_KEYS")
+
+// keyHint ends every OHS_ENCRYPTION_KEY error. Replacing the key of an
+// instance that already stores OAuth tokens makes them unreadable, unless the
+// old key moves to OHS_PREVIOUS_ENCRYPTION_KEYS.
+const keyHint = ": generate one with `openssl rand -base64 32` (or run `ohs doctor`); " +
+	"to change the key of a running instance, follow docs/key-rotation.md"
 
 // ErrPublicURL and ErrLogLevel are wrapped by the Load errors about
 // OHS_PUBLIC_URL and OHS_LOG_LEVEL, settings only serve reads.
@@ -202,6 +211,9 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		return Config{}, fmt.Errorf("%w must decode to 32 bytes, got %d%s", ErrEncryptionKey, len(key), keyHint)
 	}
 	c.EncryptionKey = key
+	if c.PreviousEncryptionKeys, err = previousKeys(get("OHS_PREVIOUS_ENCRYPTION_KEYS", ""), key); err != nil {
+		return Config{}, err
+	}
 
 	if err := CheckPublicURL(c.PublicURL); err != nil {
 		return Config{}, err
@@ -328,6 +340,38 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		c.Providers[slug][field] = v
 	}
 	return c, nil
+}
+
+// previousKeys decodes OHS_PREVIOUS_ENCRYPTION_KEYS: comma separated base64
+// keys of 32 bytes, none equal to the active key or to another. Errors name
+// the entry by position, never by value.
+func previousKeys(raw string, active []byte) ([][]byte, error) {
+	var keys [][]byte
+	n := 0
+	for _, s := range strings.Split(raw, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		n++
+		k, err := base64.StdEncoding.DecodeString(s)
+		if err != nil {
+			return nil, fmt.Errorf("%w: entry %d is not valid base64 (comma separated keys from `openssl rand -base64 32`)", ErrPreviousEncryptionKeys, n)
+		}
+		if len(k) != 32 {
+			return nil, fmt.Errorf("%w: entry %d must decode to 32 bytes, got %d", ErrPreviousEncryptionKeys, n, len(k))
+		}
+		if string(k) == string(active) {
+			return nil, fmt.Errorf("%w: entry %d is OHS_ENCRYPTION_KEY itself; list only the keys it replaced", ErrPreviousEncryptionKeys, n)
+		}
+		for i, o := range keys {
+			if string(o) == string(k) {
+				return nil, fmt.Errorf("%w: entries %d and %d are the same key", ErrPreviousEncryptionKeys, i+1, n)
+			}
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
 }
 
 // multiWordSlugs are the provider slugs that hold an underscore

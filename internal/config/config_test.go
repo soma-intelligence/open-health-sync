@@ -342,3 +342,61 @@ func TestLoadMetricsToken(t *testing.T) {
 		t.Fatalf("same address as OHS_LISTEN: %v", err)
 	}
 }
+
+func TestLoadPreviousKeys(t *testing.T) {
+	other := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789abcdef0123456789"))
+	third := base64.StdEncoding.EncodeToString([]byte("ABCDEF0123456789ABCDEF0123456789"))
+	m := base()
+	c, err := load(t, m)
+	if err != nil || len(c.PreviousEncryptionKeys) != 0 {
+		t.Fatalf("unset: %v %d", err, len(c.PreviousEncryptionKeys))
+	}
+	m["OHS_PREVIOUS_ENCRYPTION_KEYS"] = " " + other + " , " + third + ","
+	c, err = load(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.PreviousEncryptionKeys) != 2 || string(c.PreviousEncryptionKeys[0]) != "abcdef0123456789abcdef0123456789" {
+		t.Fatalf("previous keys: %d", len(c.PreviousEncryptionKeys))
+	}
+	if len(c.Providers) != 0 {
+		t.Fatalf("OHS_PREVIOUS_ENCRYPTION_KEYS read as a provider: %v", c.Providers)
+	}
+}
+
+func TestLoadRejectsBadPreviousKeys(t *testing.T) {
+	other := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789abcdef0123456789"))
+	for _, v := range []string{
+		"!!notbase64!!",
+		other + "," + base64.StdEncoding.EncodeToString([]byte("short")),
+		goodKey,             // the active key again
+		other + "," + other, // twice
+	} {
+		m := base()
+		m["OHS_PREVIOUS_ENCRYPTION_KEYS"] = v
+		_, err := load(t, m)
+		if !errors.Is(err, ErrPreviousEncryptionKeys) {
+			t.Fatalf("%q: %v", v, err)
+		}
+		// An error names the entry, never its value.
+		if strings.Contains(err.Error(), other) || strings.Contains(err.Error(), goodKey) {
+			t.Fatalf("the error echoes a key: %v", err)
+		}
+	}
+	m := base()
+	m["OHS_PREVIOUS_ENCRYPTION_KEYS"] = other + ",xx"
+	_, err := load(t, m)
+	if err == nil || !strings.Contains(err.Error(), "entry 2") {
+		t.Fatalf("the error names the entry: %v", err)
+	}
+}
+
+// The key hint points at rotation, not at keeping the key forever.
+func TestKeyHintPointsAtRotation(t *testing.T) {
+	m := base()
+	m["OHS_ENCRYPTION_KEY"] = "!!"
+	_, err := load(t, m)
+	if err == nil || !strings.Contains(err.Error(), "docs/key-rotation.md") {
+		t.Fatalf("got %v", err)
+	}
+}

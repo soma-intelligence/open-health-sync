@@ -74,8 +74,8 @@ type Store struct {
 // NewStore returns a Store. box seals the signing secrets.
 func NewStore(pool *pgxpool.Pool, box *crypto.Box) *Store { return &Store{pool: pool, box: box} }
 
-// secretAAD binds a sealed secret to its endpoint row.
-func secretAAD(id uuid.UUID) []byte { return []byte("webhook-secret:" + id.String()) }
+// SecretAAD binds a sealed secret to its endpoint row.
+func SecretAAD(id uuid.UUID) []byte { return []byte("webhook-secret:" + id.String()) }
 
 const endpointCols = `id, url, description, event_types, status, disabled_reason, failing_since,
 	last_success_at, created_at, updated_at`
@@ -132,7 +132,7 @@ func (s *Store) Create(ctx context.Context, tenant uuid.UUID, url, description s
 	if err != nil {
 		return Endpoint{}, "", err
 	}
-	sealed, err := s.box.SealFor([]byte(secret), secretAAD(id))
+	sealed, err := s.box.SealFor([]byte(secret), SecretAAD(id))
 	if err != nil {
 		return Endpoint{}, "", err
 	}
@@ -269,7 +269,7 @@ func (s *Store) RotateSecret(ctx context.Context, tenant, id uuid.UUID) (string,
 	if err != nil {
 		return "", err
 	}
-	sealed, err := s.box.SealFor([]byte(secret), secretAAD(id))
+	sealed, err := s.box.SealFor([]byte(secret), SecretAAD(id))
 	if err != nil {
 		return "", err
 	}

@@ -269,9 +269,9 @@ func (w *Worker) deliver(ctx context.Context, j job) (err error) {
 // send posts the payload; a non-2xx answer is an error. It fills o.code
 // and o.excerpt.
 func (w *Worker) send(ctx context.Context, j job, o *outcome) error {
-	secret, err := w.box.OpenFor(j.sealed, secretAAD(j.endpoint))
+	secret, err := w.box.OpenFor(j.sealed, SecretAAD(j.endpoint))
 	if err != nil {
-		return errors.New("signing secret cannot be opened (was OHS_ENCRYPTION_KEY changed?)")
+		return errors.New("signing secret cannot be opened (was OHS_ENCRYPTION_KEY changed without keeping the old key in OHS_PREVIOUS_ENCRYPTION_KEYS?)")
 	}
 	now := time.Now()
 	id := j.eventID.String()

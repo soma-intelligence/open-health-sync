@@ -112,9 +112,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	if err != nil {
 		return err
 	}
-	box, err := crypto.NewBox(cfg.EncryptionKey)
+	// Seals with OHS_ENCRYPTION_KEY, still opens what the previous keys sealed.
+	box, err := crypto.NewKeyring(cfg.EncryptionKey, cfg.PreviousEncryptionKeys...)
 	if err != nil {
-		return fmt.Errorf("OHS_ENCRYPTION_KEY: %w", err)
+		return fmt.Errorf("OHS_ENCRYPTION_KEY, OHS_PREVIOUS_ENCRYPTION_KEYS: %w", err)
 	}
 
 	// The raw store first: it is local and cheap to check, and an unwritable

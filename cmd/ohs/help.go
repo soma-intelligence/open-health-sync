@@ -33,7 +33,8 @@ Commands:
   serve     run the roles listed in OHS_ROLES (api, collect, etl)
   migrate   apply or inspect the database schema: up, version, latest, down --all
   doctor    check the configuration, database, raw store and connectors
-  admin     create tenants, create, list and revoke their API keys, personal setup
+  admin     create tenants, create, list and revoke their API keys, personal setup,
+            re-seal stored secrets after an encryption key rotation
   mcp       serve MCP on stdin and stdout for a local agent (Claude Desktop, Claude Code)
   import    load an existing history from a file export: apple-health
   seed      fill an instance with synthetic demo data: seed --demo
@@ -74,9 +75,10 @@ Needs OHS_DATABASE_URL only (latest needs nothing).
 	"doctor": `usage: ohs doctor [--quick]
 
 Checks the configuration, the database, the raw store, OHS_PUBLIC_URL and the
-keys of each connector, one "ok", "skip" or "fail" line per check, and prints
-the OAuth callback URL to register for each enabled OAuth connector. Exits 1
-when a check fails. With OHS_ENCRYPTION_KEY empty it prints a fresh key to
+keys of each connector, one "ok", "warn", "skip" or "fail" line per check, and
+prints the OAuth callback URL to register for each enabled OAuth connector. It
+counts the stored secrets still sealed with a previous or unknown key. Exits 1
+when a check fails (a warning does not). With OHS_ENCRYPTION_KEY empty it prints a fresh key to
 paste into .env.
 
   --quick   check the database and the raw store only (container healthcheck)
@@ -99,9 +101,15 @@ paste into .env.
                                  key, or with another --person for a second
                                  person of the household
 
+  rekey [--batch <rows>]         re-seal every stored OAuth token and webhook
+                                 secret under OHS_ENCRYPTION_KEY, after a key
+                                 rotation (docs/key-rotation.md); prints counts
+                                 and leaves a value no key opens as it is
+
 A new key (ohs_sk_...) is printed once: store it, it cannot be shown again.
 To rotate: key create, deploy the new key, key revoke the old one.
-Needs OHS_DATABASE_URL.
+Needs OHS_DATABASE_URL; rekey also needs OHS_ENCRYPTION_KEY and
+OHS_PREVIOUS_ENCRYPTION_KEYS.
 `,
 	"mcp": `usage: ohs mcp
 

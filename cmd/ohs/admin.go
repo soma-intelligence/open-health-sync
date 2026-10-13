@@ -19,13 +19,15 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
+	"github.com/soma-intelligence/open-health-sync/internal/rekey"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
 const adminUsage = "usage: ohs admin tenant create --name <name> | tenant list | " +
 	"key create --tenant <id> | key list --tenant <id> | key revoke --tenant <id> --key <key or prefix> | " +
-	"personal setup [--person <name>] [--url <url>]"
+	"personal setup [--person <name>] [--url <url>] | rekey [--batch <rows>]"
 
 // personalTenant is the tenant `ohs admin personal setup` keeps a person's
 // own data in.
@@ -36,6 +38,9 @@ var personPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 // runAdmin handles the tenant and API key commands. A key is printed once,
 // when it is created: it is never stored in clear and cannot be shown again.
 func runAdmin(rest []string, out io.Writer) error {
+	if len(rest) > 0 && rest[0] == "rekey" {
+		return runRekey(rest[1:], out)
+	}
 	if len(rest) < 2 {
 		return usageErr(adminUsage)
 	}
@@ -266,4 +271,60 @@ func printKeys(out io.Writer, keys []tenant.APIKey) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", k.Prefix, k.CreatedAt.UTC().Format(time.RFC3339), when(k.LastUsedAt), when(k.RevokedAt))
 	}
 	return w.Flush()
+}
+
+// runRekey implements `ohs admin rekey`: every sealed secret not yet under
+// OHS_ENCRYPTION_KEY is re-sealed under it (docs/key-rotation.md). It prints
+// counts and the rows no configured key opens, never a secret, and fails when
+// there is such a row, which it leaves as it is.
+func runRekey(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("admin rekey", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	batch := fs.Int("batch", rekey.DefaultBatch, "rows read at once")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || *batch < 1 {
+		return usageErr(adminUsage)
+	}
+	cfg, err := config.Load(os.LookupEnv, os.Environ())
+	if err != nil {
+		return err
+	}
+	box, err := crypto.NewKeyring(cfg.EncryptionKey, cfg.PreviousEncryptionKeys...)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	fmt.Fprintf(out, "rekey: sealing under OHS_ENCRYPTION_KEY, %d previous key(s) configured\n", box.PreviousKeys())
+	counts, err := rekey.Run(ctx, pool, box, rekey.Options{
+		Batch: *batch,
+		OnFailure: func(f rekey.Failure) {
+			fmt.Fprintf(out, "failed  %s %s: no configured key opens it, left as it is\n", f.Column, f.Row)
+		},
+	})
+	var total rekey.Counts
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "COLUMN\tREWRITTEN\tALREADY CURRENT\tFAILED")
+	for _, c := range counts {
+		fmt.Fprintf(w, "%s\t%d\t%d\t%d\n", c.Column, c.Rewritten, c.Current, c.Failed)
+		total.Rewritten += c.Rewritten
+		total.Current += c.Current
+		total.Failed += c.Failed
+	}
+	fmt.Fprintf(w, "total\t%d\t%d\t%d\n", total.Rewritten, total.Current, total.Failed)
+	if ferr := w.Flush(); ferr != nil && err == nil {
+		err = ferr
+	}
+	if err != nil {
+		return err
+	}
+	if total.Failed > 0 {
+		return fmt.Errorf("%d sealed value(s) open with no configured key and were left as they are: "+
+			"add the key that sealed them to OHS_PREVIOUS_ENCRYPTION_KEYS and run again, "+
+			"or reconnect those providers and rotate those webhook secrets", total.Failed)
+	}
+	return nil
 }
