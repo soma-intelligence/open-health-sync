@@ -87,7 +87,10 @@ run_android() {
   (cd examples/android && ./gradlew --no-daemon -q connectedDebugAndroidTest \
     -Pandroid.testInstrumentationRunnerArguments.ohsServerUrl="http://10.0.2.2:$port" \
     -Pandroid.testInstrumentationRunnerArguments.ohsToken="$TOKEN" \
-    -Pandroid.testInstrumentationRunnerArguments.ohsBpm=61) || die "instrumented test"
+    -Pandroid.testInstrumentationRunnerArguments.ohsBpm=61) || {
+    # Gradle only points at the report; show the failure itself.
+    find examples/android/app/build/outputs/androidTest-results -name '*.xml' -exec grep -h -A8 '<failure' {} + 2>/dev/null | head -n 40
+    die "instrumented test"; }
   ok "upload through the app"
   step "read back with the tenant key"
   verify_heart_rate "61" source_name "Android example"

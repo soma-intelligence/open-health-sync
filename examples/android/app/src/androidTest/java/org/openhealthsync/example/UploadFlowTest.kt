@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -81,10 +82,10 @@ class UploadFlowTest {
         if (compose.has("Upload failed")) {
             fail("upload failed: " + compose.texts().joinToString(" | "))
         }
-        // One part, newly stored (a duplicate would say "duplicate (already stored)").
-        compose.onNodeWithText("Part 1: HKQuantityTypeIdentifierHeartRate", substring = true)
+        // One heart rate part, newly stored (a duplicate would say "duplicate (already stored)").
+        compose.onNodeWithText(": HKQuantityTypeIdentifierHeartRate, day ", substring = true)
             .assertExists()
-        compose.onNodeWithText(", stored", substring = true).assertExists()
+            .assertTextContains(", stored", substring = true)
     }
 
     private fun SemanticsNodeInteractionsProvider.field(label: String) =
