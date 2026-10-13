@@ -67,9 +67,11 @@ func TestImportAppleHealth(t *testing.T) {
 		t.Error("the token must never be printed")
 	}
 	// Health values never reach the output: the fixture's heart rate of 61
-	// would show as "61" in a line.
+	// would show as "61" in a line. The server URL is left out first, since
+	// its random port can contain one of these digits (127.0.0.1:41127).
+	values := strings.ReplaceAll(text, srv.URL, "")
 	for _, value := range []string{"64.5", "70.5", "112"} {
-		if strings.Contains(text, value) {
+		if strings.Contains(values, value) {
 			t.Errorf("output shows %q, a health value of the fixture:\n%s", value, text)
 		}
 	}
