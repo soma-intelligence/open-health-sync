@@ -186,19 +186,20 @@ jobs:
         with:
           go-version: "1.26"
       # No Docker on macOS runners: the server runs natively, on PostgreSQL with TimescaleDB.
-      - name: PostgreSQL 17 with TimescaleDB
+      - name: PostgreSQL 18 with TimescaleDB (the version the tap's bottle is built for)
         run: |
           # Homebrew loads formulae from a third-party tap only once it is trusted.
           brew tap timescale/tap
           brew trust timescale/tap
-          brew install postgresql@17 timescale/tap/timescaledb xcodegen
+          brew install postgresql@18 timescale/tap/timescaledb xcodegen
           export PGDATA="$RUNNER_TEMP/pgdata"
-          pg="$(brew --prefix postgresql@17)/bin"
+          pg="$(brew --prefix postgresql@18)/bin"
           echo "$pg" >>"$GITHUB_PATH"
           "$(brew --prefix timescaledb)/bin/timescaledb_move.sh"
           "$pg/initdb" -U ohs --auth=trust
           echo "shared_preload_libraries = 'timescaledb'" >>"$PGDATA/postgresql.conf"
-          "$pg/pg_ctl" -l "$RUNNER_TEMP/postgres.log" -o "-p 5433 -k $RUNNER_TEMP" -w start
+          "$pg/pg_ctl" -l "$RUNNER_TEMP/postgres.log" -o "-p 5433 -k $RUNNER_TEMP" -w start ||
+            { cat "$RUNNER_TEMP/postgres.log"; exit 1; }
           "$pg/createdb" -h 127.0.0.1 -p 5433 -U ohs ohs
       - name: Server from this checkout
         run: |
