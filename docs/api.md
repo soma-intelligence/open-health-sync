@@ -148,8 +148,11 @@ with the user's status and starts the same consent flow. See
 [hosted connection page](connect-page.md).
 
 `GET /v1/users/{id}/connections` shows each connection's `status` (`active`, `needs_reauth`,
-`disconnected`), `last_sync_at` and `initial_backfill_at`. A connection in `needs_reauth` needs
-the user to go through consent again. `DELETE /v1/users/{id}/connections/{provider}` revokes the
+`disconnected`), `last_sync_at`, `initial_backfill_at` and `health` (whether it syncs, why not,
+and whether the user must `reconnect` or you only `wait`). A connection in `needs_reauth` needs
+the user to go through consent again. `GET /v1/users/{id}/sync-runs` is the history of its pulls,
+with the provider's error when one failed, and `POST /v1/users/{id}/connections/{provider}/sync`
+pulls it now. See [sync history and connection health](sync-health.md). `DELETE /v1/users/{id}/connections/{provider}` revokes the
 grant (best effort) and stops pulling; data already collected is kept, unless you add
 `?delete_data=true`, which also erases it (see [erasing one provider's data](#erasing-one-providers-data)).
 

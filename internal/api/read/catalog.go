@@ -48,6 +48,71 @@ type Connection struct {
 	Status      string     `json:"status"` // active, needs_reauth or disconnected
 	LastSyncAt  *time.Time `json:"last_sync_at"`
 	ConnectedAt time.Time  `json:"connected_at"`
+	// Health says whether the connection syncs, and if not why and what
+	// fixes it.
+	Health ConnectionHealth `json:"health"`
+}
+
+// Reasons a connection is broken (ohs_sync.connections.broken_reason).
+const (
+	// BrokenNeedsReauth: the provider refused the grant (token expired or
+	// revoked). The user must connect again.
+	BrokenNeedsReauth = "needs_reauth"
+	// BrokenMissingScope: the grant lacks a permission the data needs. The
+	// user must connect again and allow it.
+	BrokenMissingScope = "missing_scope"
+	// BrokenFailing: several pulls in a row failed (provider outage,
+	// unexpected answers). Pulls go on with backoff.
+	BrokenFailing = "failing"
+	// BrokenRateLimited: the provider asked to wait an hour or more (a spent
+	// daily quota). Pulls resume by themselves.
+	BrokenRateLimited = "rate_limited"
+)
+
+// Actions that fix a broken connection.
+const (
+	ActionReconnect = "reconnect" // send the user through the connect flow again
+	ActionWait      = "wait"      // nothing to do: syncing resumes by itself
+)
+
+// ConnectionHealth is the health of one connection.
+type ConnectionHealth struct {
+	// Healthy is false while the connection is broken.
+	Healthy bool `json:"healthy"`
+	// Reason is why it is broken (needs_reauth, missing_scope, failing,
+	// rate_limited); null when healthy.
+	Reason *string `json:"reason"`
+	// Action is what fixes it: reconnect or wait; null when healthy.
+	Action *string `json:"action"`
+	// Since is when it broke.
+	Since *time.Time `json:"since"`
+	// RetryAt is when a rate limited connection is pulled again.
+	RetryAt *time.Time `json:"retry_at"`
+}
+
+// ActionFor is what fixes a connection broken for reason.
+func ActionFor(reason string) string {
+	if reason == BrokenNeedsReauth || reason == BrokenMissingScope {
+		return ActionReconnect
+	}
+	return ActionWait
+}
+
+// HealthOf builds the health of a connection from its broken_reason,
+// broken_since and rate_limited_until columns.
+func HealthOf(reason *string, since, rateLimitedUntil *time.Time, now time.Time) ConnectionHealth {
+	if reason == nil {
+		return ConnectionHealth{Healthy: true}
+	}
+	h := ConnectionHealth{Reason: reason, Since: since}
+	utc(h.Since)
+	a := ActionFor(*reason)
+	h.Action = &a
+	if rateLimitedUntil != nil && rateLimitedUntil.After(now) {
+		t := rateLimitedUntil.UTC()
+		h.RetryAt = &t
+	}
+	return h
 }
 
 // Connections lists every provider connection of the user, ordered by
@@ -56,20 +121,25 @@ func Connections(ctx context.Context, db Querier, tenantID, userID uuid.UUID) ([
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(ctx, `SELECT provider, status, last_sync_at, created_at
+	rows, err := db.Query(ctx, `SELECT provider, status, last_sync_at, created_at,
+			broken_reason, broken_since, rate_limited_until
 		FROM ohs_sync.connections WHERE tenant_id = $1 AND user_id = $2 ORDER BY provider`, tenantID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("read: connections: %w", err)
 	}
 	defer rows.Close()
 	out := []Connection{}
+	now := time.Now()
 	for rows.Next() {
 		var c Connection
-		if err := rows.Scan(&c.Provider, &c.Status, &c.LastSyncAt, &c.ConnectedAt); err != nil {
+		var reason *string
+		var since, until *time.Time
+		if err := rows.Scan(&c.Provider, &c.Status, &c.LastSyncAt, &c.ConnectedAt, &reason, &since, &until); err != nil {
 			return nil, fmt.Errorf("read: connections: scan: %w", err)
 		}
 		utc(c.LastSyncAt)
 		utc(&c.ConnectedAt)
+		c.Health = HealthOf(reason, since, until, now)
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {

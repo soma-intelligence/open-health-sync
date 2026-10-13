@@ -216,7 +216,8 @@ const (
 // worker, which checks the connection status.
 func parkPending(ctx context.Context, q execer, tenantID, userID uuid.UUID, provider, reason string) error {
 	_, err := q.Exec(ctx, `
-		UPDATE ohs_sync.pull_jobs SET status = 'parked', claimed_at = NULL, last_error = $4
+		UPDATE ohs_sync.pull_jobs SET status = 'parked', claimed_at = NULL, last_error = $4,
+			outcome = 'inactive', finished_at = now()
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status = 'pending'`,
 		tenantID, userID, provider, reason)
 	if err != nil {
@@ -225,10 +226,11 @@ func parkPending(ctx context.Context, q execer, tenantID, userID uuid.UUID, prov
 	return nil
 }
 
-// markNeedsReauth flags an active connection needs_reauth and parks its
-// pending pull jobs. The scheduler only pulls active connections, so nothing
-// more is enqueued until the user connects again.
-func markNeedsReauth(ctx context.Context, q execer, tenantID, userID uuid.UUID, provider string) error {
+// markNeedsReauth flags an active connection needs_reauth, broken for reason
+// (BrokenNeedsReauth or BrokenMissingScope), and parks its pending pull jobs.
+// The scheduler only pulls active connections, so nothing more is enqueued
+// until the user connects again.
+func markNeedsReauth(ctx context.Context, q execer, tenantID, userID uuid.UUID, provider, reason string, now time.Time) error {
 	tag, err := q.Exec(ctx, `
 		UPDATE ohs_sync.connections SET status = 'needs_reauth', updated_at = now()
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status = 'active'`,
@@ -241,6 +243,9 @@ func markNeedsReauth(ctx context.Context, q execer, tenantID, userID uuid.UUID, 
 			Tenant: tenantID, User: &userID, Type: webhook.ConnectionNeedsReauth,
 			Data: map[string]any{"provider": provider},
 		}); err != nil {
+			return err
+		}
+		if err := markBroken(ctx, q, tenantID, userID, provider, reason, now, nil); err != nil {
 			return err
 		}
 	}
@@ -280,6 +285,10 @@ func (h *Handlers) caller(w http.ResponseWriter, r *http.Request) (uuid.UUID, uu
 
 func writeNotFound(w http.ResponseWriter, detail string) {
 	auth.WriteProblem(w, http.StatusNotFound, "Not Found", detail)
+}
+
+func writeBadRequest(w http.ResponseWriter, detail string) {
+	auth.WriteProblem(w, http.StatusBadRequest, "Bad Request", detail)
 }
 
 func writeInternal(w http.ResponseWriter) {
@@ -405,7 +414,8 @@ func (h *Handlers) DeleteConnection() http.Handler {
 		if _, err := tx.Exec(dctx, `
 			UPDATE ohs_sync.connections SET status = 'disconnected',
 				access_token_enc = NULL, refresh_token_enc = NULL, token_expires_at = NULL,
-				token_type = NULL, updated_at = now()
+				token_type = NULL, broken_reason = NULL, broken_since = NULL,
+				rate_limited_until = NULL, updated_at = now()
 			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 			tenantID, userID, provider); err != nil {
 			slog.ErrorContext(ctx, "collect: disconnect", "error", err)
