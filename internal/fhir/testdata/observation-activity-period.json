@@ -51,6 +51,7 @@
     "code": "{steps}"
   },
   "device": {
+    "reference": "Device/dev-cb819e71e1065efc",
     "display": "apple_watch"
   }
 }

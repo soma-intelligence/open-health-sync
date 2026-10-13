@@ -61,6 +61,7 @@
           "code": "s"
         },
         "device": {
+          "reference": "Device/dev-c973ca567439372b",
           "display": "oura_ring"
         },
         "component": [
@@ -299,6 +300,7 @@
         "effectiveDateTime": "2026-03-01T08:00:00Z",
         "issued": "2026-03-01T09:15:32.25Z",
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         },
         "component": [
@@ -398,6 +400,7 @@
           "code": "mm[Hg]"
         },
         "device": {
+          "reference": "Device/dev-4cd59d3e7b09cd28",
           "display": "apple_watch"
         }
       },
@@ -460,6 +463,7 @@
           "code": "s"
         },
         "device": {
+          "reference": "Device/dev-25677067c7caefaf",
           "display": "garmin_watch"
         },
         "component": [

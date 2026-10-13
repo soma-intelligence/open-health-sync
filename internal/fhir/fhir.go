@@ -4,7 +4,9 @@
 // holds only the few resource shapes the API serves, written with the
 // standard library: a quantity sample, a blood pressure pair, a sleep
 // session, a workout or a daily summary becomes an Observation, and a page of
-// them a searchset Bundle. The mapping is described in docs/fhir.md; the
+// them a searchset Bundle; the user is a Patient, the devices the records
+// came from Devices, and who produced each Observation its Provenance. The
+// mapping is described in docs/fhir.md; the
 // golden files under testdata are what the HL7 validator checks
 // (scripts/fhir-validate.sh).
 package fhir
@@ -70,10 +72,12 @@ type CodeableConcept struct {
 	Text   string   `json:"text,omitempty"`
 }
 
-// Reference is a FHIR Reference.
+// Reference is a FHIR Reference: a literal reference (Type/id), or a logical
+// one (an identifier).
 type Reference struct {
-	Reference string `json:"reference,omitempty"`
-	Display   string `json:"display,omitempty"`
+	Reference  string      `json:"reference,omitempty"`
+	Identifier *Identifier `json:"identifier,omitempty"`
+	Display    string      `json:"display,omitempty"`
 }
 
 // Period is a FHIR Period.
@@ -212,11 +216,7 @@ func FromQuantitySample(user uuid.UUID, s read.CodedSample) Observation {
 		}
 	}
 
-	if d := deref(s.Device); d != "" {
-		o.Device = &Reference{Display: d}
-	} else if d := deref(s.DeviceModel); d != "" {
-		o.Device = &Reference{Display: d}
-	}
+	o.Device = deviceRef(user, read.SampleDevice(s.Sample))
 	return o
 }
 
@@ -276,41 +276,62 @@ type BundleLink struct {
 	URL      string `json:"url"`
 }
 
-// BundleSearch says why an entry is in a searchset.
+// BundleSearch says why an entry is in a searchset: ModeMatch for a resource
+// the search asked for, ModeInclude for one it brings along.
 type BundleSearch struct {
 	Mode string `json:"mode"`
 }
 
-// BundleEntry is one entry of a searchset Bundle.
-type BundleEntry struct {
+// Search modes.
+const (
+	ModeMatch   = "match"
+	ModeInclude = "include"
+)
+
+// Entry is one entry of a searchset Bundle of resources of type T.
+type Entry[T any] struct {
 	FullURL  string        `json:"fullUrl"`
-	Resource Observation   `json:"resource"`
+	Resource T             `json:"resource"`
 	Search   *BundleSearch `json:"search,omitempty"`
 }
 
-// Bundle is a FHIR R4 Bundle of Observations.
-type Bundle struct {
-	ResourceType string        `json:"resourceType"`
-	Type         string        `json:"type"`
-	Link         []BundleLink  `json:"link,omitempty"`
-	Entry        []BundleEntry `json:"entry,omitempty"`
+// SearchBundle is a FHIR R4 searchset Bundle of resources of type T (any,
+// or json.RawMessage to read one, for a Bundle of several resource types).
+type SearchBundle[T any] struct {
+	ResourceType string       `json:"resourceType"`
+	Type         string       `json:"type"`
+	Link         []BundleLink `json:"link,omitempty"`
+	Entry        []Entry[T]   `json:"entry,omitempty"`
+}
+
+// BundleEntry is one entry of a searchset Bundle of Observations.
+type BundleEntry = Entry[Observation]
+
+// Bundle is a FHIR R4 searchset Bundle of Observations.
+type Bundle = SearchBundle[Observation]
+
+// newSearchSet is a searchset with its self link and, unless this is the
+// last page, its next link. total is left out: the API pages with a cursor
+// and never counts.
+func newSearchSet[T any](self, next string) SearchBundle[T] {
+	b := SearchBundle[T]{ResourceType: "Bundle", Type: "searchset", Link: []BundleLink{{Relation: "self", URL: self}}}
+	if next != "" {
+		b.Link = append(b.Link, BundleLink{Relation: "next", URL: next})
+	}
+	return b
+}
+
+func (b *SearchBundle[T]) add(fullURL string, r T, mode string) {
+	b.Entry = append(b.Entry, Entry[T]{FullURL: fullURL, Resource: r, Search: &BundleSearch{Mode: mode}})
 }
 
 // SearchSet is the searchset Bundle of one page of observations. base is the
 // absolute FHIR base URL the entries' fullUrl hang from (it ends before
-// "/Observation"); next is empty on the last page. total is left out: the
-// API pages with a cursor and never counts.
+// "/Observation"); next is empty on the last page.
 func SearchSet(base, self, next string, obs []Observation) Bundle {
-	b := Bundle{ResourceType: "Bundle", Type: "searchset", Link: []BundleLink{{Relation: "self", URL: self}}}
-	if next != "" {
-		b.Link = append(b.Link, BundleLink{Relation: "next", URL: next})
-	}
+	b := newSearchSet[Observation](self, next)
 	for _, o := range obs {
-		b.Entry = append(b.Entry, BundleEntry{
-			FullURL:  base + "/Observation/" + o.ID,
-			Resource: o,
-			Search:   &BundleSearch{Mode: "match"},
-		})
+		b.add(base+"/Observation/"+o.ID, o, ModeMatch)
 	}
 	return b
 }

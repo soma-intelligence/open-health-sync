@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api"
+	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/fhir"
 )
 
@@ -110,7 +111,7 @@ func TestFHIRObservations(t *testing.T) {
 	assert.Equal(t, "/min", o.ValueQuantity.Code)
 	assert.Equal(t, fhir.Namespace+"/provider/apple_health", o.Meta.Source)
 	assert.Equal(t, []fhir.Coding{{System: fhir.SourceSystem, Code: "apple"}}, o.Meta.Tag)
-	assert.Equal(t, &fhir.Reference{Display: "watch-1"}, o.Device)
+	assert.Equal(t, &fhir.Reference{Reference: "Device/" + fhir.DeviceID(u, read.Device{Provider: "apple_health", Source: "apple", DeviceID: "watch-1"}), Display: "watch-1"}, o.Device)
 	assert.NotEmpty(t, o.Issued)
 
 	var values []float64
@@ -272,7 +273,7 @@ func TestFHIRBloodPressurePanels(t *testing.T) {
 	require.Len(t, p.Component, 2)
 	assert.Equal(t, 120.0, *p.Component[0].ValueQuantity.Value)
 	assert.Equal(t, 80.0, *p.Component[1].ValueQuantity.Value)
-	assert.Equal(t, &fhir.Reference{Display: "cuff-1"}, p.Device)
+	assert.Equal(t, &fhir.Reference{Reference: "Device/" + fhir.DeviceID(u, read.Device{Provider: "withings", Source: "withings", DeviceID: "cuff-1"}), Display: "cuff-1"}, p.Device)
 	assert.Equal(t, 70.0, *panels[1].Component[1].ValueQuantity.Value)
 
 	// Everything: 12 samples of tenant A less the two absorbed halves.

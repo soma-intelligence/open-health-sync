@@ -45,6 +45,7 @@
     "code": "s"
   },
   "device": {
+    "reference": "Device/dev-c973ca567439372b",
     "display": "oura_ring"
   },
   "component": [

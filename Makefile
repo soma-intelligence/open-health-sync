@@ -74,7 +74,8 @@ guard:
 	scripts/guard.sh
 
 # The FHIR golden files through the official HL7 validator (FHIR R4). Needs
-# Java 17+ and the network; not part of CI. See docs/fhir.md.
+# Java 17+ and the network; CI runs it when internal/fhir changes
+# (.github/workflows/fhir-validate.yml). See docs/fhir.md.
 fhir-validate:
 	scripts/fhir-validate.sh
 
