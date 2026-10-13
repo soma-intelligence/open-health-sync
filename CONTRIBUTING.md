@@ -19,6 +19,9 @@ make test         # unit tests, no Docker
 make integration  # tests tagged integration, need Docker (testcontainers)
 ```
 
+Without Docker, point `OHS_TEST_DATABASE_URL` at a running TimescaleDB server (a user allowed to
+create databases) and the integration tests use it instead of a container.
+
 Other targets: `make e2e` (the quickstart against a real stack), `make reliability` (crash
 recovery) and `make upgrade-test` (the last release, with data in it, migrated to your checkout;
 a change to `internal/db/migrations` should pass it). `make guard` runs the repository checks

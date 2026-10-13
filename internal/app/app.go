@@ -230,12 +230,27 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		if c, ok := providers.lookup(healthconnect.Slug); ok {
 			deps.HealthConnect, _ = connector.AsDevice(c)
 		}
+		if cfg.Metrics && cfg.MetricsListen != "" {
+			deps.MetricsMux = http.NewServeMux()
+		}
+		deps.MetricsToken = cfg.MetricsToken
+		if cfg.Metrics && cfg.MetricsListen == "" && cfg.MetricsToken == "" {
+			slog.Info("metrics: /metrics refuses scrapes until OHS_METRICS_TOKEN or OHS_METRICS_LISTEN is set")
+		}
 		srv := &http.Server{
 			Addr:              cfg.Listen,
 			Handler:           api.NewRouter(deps),
 			ReadHeaderTimeout: readHeaderTimeout,
 			IdleTimeout:       idleTimeout,
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+		}
+		// Started first: its shutdown goroutine stops it if the API listener fails.
+		if deps.MetricsMux != nil {
+			if err := serveMetrics(ctx, cfg.MetricsListen, deps.MetricsMux, opts.grace, logger, goRole); err != nil {
+				cancel()
+				wg.Wait()
+				return err
+			}
 		}
 		ln, err := net.Listen("tcp", cfg.Listen)
 		if err != nil {
@@ -285,6 +300,40 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	slog.Info("ohs stopped")
 	errOnce.Do(func() {}) // firstErr is final from here on
 	return firstErr
+}
+
+// serveMetrics serves /metrics on an address of its own (OHS_METRICS_LISTEN),
+// stopped with the process.
+func serveMetrics(ctx context.Context, addr string, mux *http.ServeMux, grace time.Duration,
+	logger *slog.Logger, goRole func(string, func() error)) error {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("metrics: %w (OHS_METRICS_LISTEN)", err)
+	}
+	slog.Info("metrics listening", "addr", ln.Addr().String())
+	goRole("metrics", func() error {
+		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+	goRole("metrics shutdown", func() error {
+		<-ctx.Done()
+		sctx, scancel := context.WithTimeout(context.WithoutCancel(ctx), grace)
+		defer scancel()
+		if err := srv.Shutdown(sctx); err != nil {
+			_ = srv.Close()
+		}
+		return nil
+	})
+	return nil
 }
 
 // enabledProviders are the connectors enabled on this instance.

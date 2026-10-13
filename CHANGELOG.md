@@ -7,6 +7,15 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Security
+
+- `/metrics` is protected by default. On the API listener a scrape now presents the
+  `OHS_METRICS_TOKEN` bearer token; with no token set, every scrape is refused (403).
+  `OHS_METRICS_LISTEN` (for example `127.0.0.1:9464`) serves it on an address of its own
+  instead. **Breaking for scrapers:** set `OHS_METRICS_TOKEN` and give it to Prometheus
+  (`authorization: { credentials: ... }`), or set `OHS_METRICS_LISTEN`. See
+  [docs/self-hosting.md](docs/self-hosting.md#metrics).
+
 ### Added
 
 - RR intervals and HRV: `GET /v1/users/{id}/rr-intervals` serves the stored beat-to-beat

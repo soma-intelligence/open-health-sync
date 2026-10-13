@@ -88,6 +88,9 @@ func freeAddr(t *testing.T) string {
 
 // startServer runs app.Run with every role on a fresh database and returns
 // its base URL and a pool on the same database.
+// contractMetricsToken is the OHS_METRICS_TOKEN of the contract server.
+const contractMetricsToken = "contract-metrics-token"
+
 func startServer(t *testing.T) (string, string) {
 	t.Helper()
 	url := db.TestDB(t)
@@ -100,6 +103,7 @@ func startServer(t *testing.T) (string, string) {
 		PublicURL:     "http://" + addr,
 		Roles:         map[string]bool{"api": true, "collect": true, "etl": true},
 		Metrics:       true,
+		MetricsToken:  contractMetricsToken,
 		EncryptionKey: make([]byte, 32),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -153,7 +157,8 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	// Ops.
 	assert.Equal(t, 200, c.json("GET", "/healthz", "", "").status)
 	assert.Equal(t, 200, c.json("GET", "/readyz", "", "").status)
-	assert.Equal(t, 200, c.json("GET", "/metrics", "", "").status)
+	assert.Equal(t, 401, c.json("GET", "/metrics", "", "").status)
+	assert.Equal(t, 200, c.json("GET", "/metrics", contractMetricsToken, "").status)
 	assert.Equal(t, 200, c.json("GET", "/v1/providers", key, "").status)
 
 	// User and token.
