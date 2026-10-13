@@ -48,16 +48,16 @@ final class SyncFlowUITests: XCTestCase {
         app.buttons["Allow Health access"].tap()
         tapInHealthSheet(app, "Turn On All")
         tapInHealthSheet(app, "Allow")
-        XCTAssertTrue(element(app, startingWith: "Health access requested").waitForExistence(timeout: timeout), dump(app))
+        XCTAssertTrue(scrollUntilExists(element(app, startingWith: "Health access requested"), in: app), dump(app))
 
         // First sync: the seeded readings go up.
-        app.buttons["Sync now"].tap()
-        XCTAssertTrue(element(app, startingWith: "Lines uploaded").waitForExistence(timeout: timeout), dump(app))
+        tapSyncNow(app)
+        XCTAssertTrue(scrollUntilExists(element(app, startingWith: "Lines uploaded"), in: app), dump(app))
         XCTAssertFalse(app.staticTexts["Nothing new since the last sync."].exists, dump(app))
 
         // Second sync: the anchors hold, nothing is sent again.
-        app.buttons["Sync now"].tap()
-        XCTAssertTrue(app.staticTexts["Nothing new since the last sync."].waitForExistence(timeout: timeout), dump(app))
+        tapSyncNow(app)
+        XCTAssertTrue(scrollUntilExists(app.staticTexts["Nothing new since the last sync."], in: app), dump(app))
     }
 
     /// The Health sheet is a system view shown over the app; look for the control in the app and
@@ -77,6 +77,31 @@ final class SyncFlowUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
         }
         XCTFail("no \"\(label)\" in the Health sheet\n" + dump(app))
+    }
+
+    /// The list is lazy: rows off screen are not in the accessibility tree until shown. Swipes
+    /// between checks (toward the end of the list, or back toward its top) until `element` is
+    /// on screen or the timeout passes.
+    private func scrollUntilExists(_ element: XCUIElement, in app: XCUIApplication, towardTop: Bool = false) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.waitForExistence(timeout: 2) && element.isHittable {
+                return true
+            }
+            let list = app.collectionViews.firstMatch
+            if towardTop {
+                list.swipeDown()
+            } else {
+                list.swipeUp()
+            }
+        }
+        return element.exists
+    }
+
+    private func tapSyncNow(_ app: XCUIApplication) {
+        let sync = app.buttons["Sync now"]
+        XCTAssertTrue(scrollUntilExists(sync, in: app, towardTop: true), dump(app))
+        sync.tap()
     }
 
     /// The first element whose label starts with `prefix`: a SwiftUI row such as LabeledContent
