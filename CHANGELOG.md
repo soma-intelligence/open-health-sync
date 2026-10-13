@@ -56,7 +56,10 @@ release may change the API, the configuration or the database schema.
   writes nothing. `GET /v1/deletions/{job_id}` gains `provider` (null for a user deletion), and
   the new `data.erased` webhook announces the end. Without `delete_data` a disconnect keeps the
   data, as before. Migration `0020`.
-
+- Learn by building: seven short beginner projects on your own data (first sync, sleep report,
+  HRV trend, an AI assistant over MCP, training against sleep, a dashboard, a webhook that writes
+  a morning line) and a prompt library for people who train. See
+  [docs/learn](docs/learn/README.md).
 - Recorded connector contracts: `make record PROVIDER=<slug>` records what a real account's API
   answers (or an Apple Health export), anonymized on the contributor's machine, and CI replays
   every committed recording through its connector. See
