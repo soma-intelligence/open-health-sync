@@ -7,6 +7,9 @@ units and the same shape. From there, a useful tool is a few lines of code.
 The [`recipes/`](../../recipes) folder holds small tools that do one thing each. They are single
 Python files with no dependency: copy one, run it, change it.
 
+New to this? [Learn by building](../learn/README.md) walks you through them in seven short
+projects, from a first sync to a server of your own.
+
 | Recipe | What you get |
 |---|---|
 | [Sleep report](sleep-report.md) | your last nights in the terminal, whatever device measured them |
