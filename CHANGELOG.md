@@ -71,6 +71,12 @@ release may change the API, the configuration or the database schema.
   span carry `trace_id` and `span_id`. Spans never record a raw path, a query string, a
   header, an SQL argument, a secret or a health value. See
   [docs/observability.md](docs/observability.md).
+- Complete user archive (data portability): `GET /v1/users/{id}/archive` streams everything
+  the instance holds about one user as one zip file: a manifest with record counts, the user
+  and its connections (never a token), every record of every list as NDJSON, a FHIR R4
+  `collection` Bundle, the Open mHealth data points and every raw payload byte for byte. It
+  takes a tenant key, or a user token with scope `read` for its own user. See
+  [docs/exports.md](docs/exports.md#complete-user-archive-data-portability).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and

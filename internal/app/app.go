@@ -248,6 +248,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.
 			IngestLimit: cfg.IngestConcurrency,
+			Version:     Version,
 		}
 		if cfg.Roles["etl"] {
 			deps.ETLMetrics = etlMetrics

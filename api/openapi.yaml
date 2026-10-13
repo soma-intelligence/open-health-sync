@@ -28,7 +28,8 @@ info:
     them as Open mHealth data points; see docs/open-mhealth.md.
 
     **Exports.** `GET /v1/users/{id}/exports/{dataset}` streams every record of one list in a
-    time window as a single CSV or Parquet file; see docs/exports.md.
+    time window as a single CSV or Parquet file, and `GET /v1/users/{id}/archive` everything
+    held about one user as a single zip file (data portability); see docs/exports.md.
 
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
     of another tenant is a 404, never a 403.
@@ -1704,6 +1705,43 @@ paths:
             application/vnd.apache.parquet:
               schema: { type: string, format: binary }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [exports]
+      operationId: getUserArchive
+      summary: Everything held about one user, as one zip file
+      description: |
+        The answer to a data portability request: one zip file streamed in a single response
+        (`Content-Disposition: attachment`) holding `manifest.json` (user, generation time,
+        instance version, record count of each file, a description of each folder),
+        `user.json` (the user and its provider connections, never a token),
+        `canonical/<list>.ndjson` (every record of samples, category-samples, sleep,
+        sleep-phases, workouts, workout-routes, nutrition and daily, the same JSON as the list
+        items, one per line), `fhir/bundle.json` (a FHIR R4 `collection` Bundle of every
+        Observation), `omh/data-points.ndjson` (the Open mHealth data points) and `raw/...`
+        (every raw payload of the user, byte for byte, under its path below the user). A
+        tenant key reads any user of the tenant; a user token with scope `read` reads only its
+        own user, and another user is a 404. A failure once the file has started cuts the
+        connection, so a truncated archive never looks complete. See docs/exports.md.
+      security:
+        - tenantKey: []
+        - userToken: [read]
+      responses:
+        "200":
+          description: The archive.
+          headers:
+            Content-Disposition:
+              description: '`attachment; filename="ohs-user-<user id>-<UTC time, YYYYMMDDTHHMMSSZ>.zip"`'
+              schema: { type: string }
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
