@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"regexp"
 	"strings"
 	"testing"
@@ -123,5 +124,67 @@ func TestAdminKeyEdges(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "no active API key") {
 		t.Fatalf("no warning: %q", buf.String())
+	}
+}
+
+func TestAdminPersonalSetup(t *testing.T) {
+	url := db.TestDB(t)
+	t.Setenv("OHS_DATABASE_URL", url)
+	t.Setenv("OHS_PUBLIC_URL", "http://localhost:8081/")
+	env := func(out, name string) string {
+		m := regexp.MustCompile(`(?m)^` + name + `=(.*)$`).FindStringSubmatch(out)
+		if m == nil {
+			t.Fatalf("no %s line in %q", name, out)
+		}
+		return m[1]
+	}
+	var first bytes.Buffer
+	if err := run([]string{"admin", "personal", "setup"}, &first); err != nil {
+		t.Fatalf("personal setup: %v", err)
+	}
+	if got := env(first.String(), "OHS_URL"); got != "http://localhost:8081" {
+		t.Fatalf("OHS_URL = %q, want OHS_PUBLIC_URL without the trailing slash", got)
+	}
+	var second bytes.Buffer
+	if err := run([]string{"admin", "personal", "setup"}, &second); err != nil {
+		t.Fatalf("personal setup again: %v", err)
+	}
+	if env(first.String(), "OHS_USER") != env(second.String(), "OHS_USER") {
+		t.Fatal("a second run must reuse the user")
+	}
+	if env(first.String(), "OHS_KEY") == env(second.String(), "OHS_KEY") {
+		t.Fatal("a second run must print a new key")
+	}
+
+	pool, err := db.Open(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	s := tenant.New(pool)
+	var tenantID string
+	for _, out := range []string{first.String(), second.String()} {
+		p, err := s.LookupKey(context.Background(), auth.Hash(env(out, "OHS_KEY")))
+		if err != nil {
+			t.Fatalf("printed key does not authenticate: %v", err)
+		}
+		if tenantID != "" && p.TenantID.String() != tenantID {
+			t.Fatal("both keys must belong to the one personal tenant")
+		}
+		tenantID = p.TenantID.String()
+	}
+
+	var other bytes.Buffer
+	if err := run([]string{"admin", "personal", "setup", "--person", "alex", "--url", "https://health.example.org"}, &other); err != nil {
+		t.Fatalf("personal setup --person alex: %v", err)
+	}
+	if env(other.String(), "OHS_USER") == env(first.String(), "OHS_USER") {
+		t.Fatal("another --person must get another user")
+	}
+	if got := env(other.String(), "OHS_URL"); got != "https://health.example.org" {
+		t.Fatalf("OHS_URL = %q, want the --url value", got)
+	}
+	if err := run([]string{"admin", "personal", "setup", "--person", "a b"}, io.Discard); err == nil {
+		t.Fatal("a --person with a space must be refused")
 	}
 }
