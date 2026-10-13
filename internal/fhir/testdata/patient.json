@@ -1,0 +1,11 @@
+{
+  "resourceType": "Patient",
+  "id": "3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11",
+  "identifier": [
+    {
+      "system": "https://github.com/soma-intelligence/open-health-sync/fhir/tenant/6b1d4c2a-1f0e-4a9b-8c7d-5e4f3a2b1c0d/external-ref",
+      "value": "crm-0042"
+    }
+  ],
+  "active": true
+}

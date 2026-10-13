@@ -93,23 +93,51 @@ func TestRecorderFlagsWrongType(t *testing.T) {
 // The FHIR golden files are what the FHIR routes answer: they match the
 // document, and a member it does not name is flagged.
 func TestRecorderFHIRGoldenFiles(t *testing.T) {
-	const fhirPath = "/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation"
+	const (
+		fhirBase = "/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir"
+		fhirPath = fhirBase + "/Observation"
+	)
+	// Each golden file is the answer of one operation, by its name.
+	routes := []struct{ prefix, path, op string }{
+		{"observation-", fhirPath + "/qs-1001", "readFHIRObservation"},
+		{"bundle-searchset-", fhirPath, "searchFHIRObservations"},
+		{"patient", fhirBase + "/Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11", "readFHIRPatient"},
+		{"bundle-everything-", fhirBase + "/Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/$everything", "everythingFHIRPatient"},
+		{"device-", fhirBase + "/Device/dev-4cd59d3e7b09cd28", "readFHIRDevice"},
+		{"bundle-device-", fhirBase + "/Device", "searchFHIRDevices"},
+		{"provenance-", fhirBase + "/Provenance/prov-qs-1001", "readFHIRProvenance"},
+		{"bundle-provenance-", fhirBase + "/Provenance?target=Observation/qs-1001", "searchFHIRProvenance"},
+		{"capabilitystatement", fhirBase + "/metadata", "readFHIRCapabilityStatement"},
+	}
 	files, err := filepath.Glob("../../internal/fhir/testdata/*.json")
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 	for _, f := range files {
 		raw, err := os.ReadFile(f)
 		require.NoError(t, err)
-		path := fhirPath
-		if strings.HasPrefix(filepath.Base(f), "observation-") {
-			path += "/qs-1001"
+		path, op := "", ""
+		for _, r := range routes {
+			if strings.HasPrefix(filepath.Base(f), r.prefix) {
+				path, op = r.path, r.op
+				break
+			}
 		}
+		require.NotEmpty(t, path, "%s: no route for this golden file; add its prefix here", f)
 		c := record(t, func(*http.Request) (int, string, string) { return 200, "application/fhir+json", string(raw) },
 			"GET", path, "k")
 		assert.Empty(t, c.Problems, f)
+		assert.Equal(t, op, c.Operation, f)
 	}
 
+	// The entries of $everything are checked against the schema of their
+	// resource type, members included.
 	c := record(t, func(*http.Request) (int, string, string) {
+		return 200, "application/fhir+json", `{"resourceType":"Bundle","type":"searchset","link":[{"relation":"self","url":"http://h/x"}],` +
+			`"entry":[{"fullUrl":"http://h/Device/dev-0123456789abcdef","resource":{"resourceType":"Device","id":"dev-0123456789abcdef","serialNumber":"x"},"search":{"mode":"include"}}]}`
+	}, "GET", fhirBase+"/Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/$everything", "k")
+	assert.Equal(t, []string{"response: undocumented field $.entry[].resource.serialNumber"}, c.Problems)
+
+	c = record(t, func(*http.Request) (int, string, string) {
 		return 200, "application/fhir+json", `{"resourceType":"Bundle","type":"searchset","link":[{"relation":"self","url":"http://h/x"}],"total":3}`
 	}, "GET", fhirPath+"?code=http://loinc.org|8867-4", "k")
 	assert.Contains(t, c.Problems, "response: undocumented field $.total")

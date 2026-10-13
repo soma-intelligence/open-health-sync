@@ -215,15 +215,44 @@ func expand(ss []*openapi3.Schema) []*openapi3.Schema {
 	return out
 }
 
+// branchOf picks, among the oneOf or anyOf branches of s, the ones whose
+// resourceType constant is the object's (a FHIR resource). It returns nil
+// when the branches are not told apart that way.
+func branchOf(s *openapi3.Schema, val map[string]any) []*openapi3.Schema {
+	rt, ok := val["resourceType"].(string)
+	if !ok {
+		return nil
+	}
+	var out []*openapi3.Schema
+	for _, b := range append(append(openapi3.SchemaRefs{}, s.OneOf...), s.AnyOf...) {
+		if b.Value == nil {
+			return nil
+		}
+		p := b.Value.Properties["resourceType"]
+		if p == nil || p.Value == nil || p.Value.Const == nil {
+			return nil
+		}
+		if p.Value.Const == rt {
+			out = append(out, b.Value)
+		}
+	}
+	return out
+}
+
 func walk(v any, schemas []*openapi3.Schema, path string, out *[]string) {
 	ss := expand(schemas)
+	if val, ok := v.(map[string]any); ok {
+		for _, s := range ss {
+			ss = append(ss, expand(branchOf(s, val))...)
+		}
+	}
 	switch val := v.(type) {
 	case map[string]any:
 		props := map[string][]*openapi3.Schema{}
 		named, open := false, false
 		var extra []*openapi3.Schema
 		for _, s := range ss {
-			if len(s.OneOf) > 0 || len(s.AnyOf) > 0 {
+			if (len(s.OneOf) > 0 || len(s.AnyOf) > 0) && branchOf(s, val) == nil {
 				open = true // not resolved here; kin-openapi validates the branch
 			}
 			for name, p := range s.Properties {

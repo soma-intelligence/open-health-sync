@@ -288,8 +288,11 @@ curl -s "$OHS/v1/users/$USER_ID/tags?start=2026-03-01&end=2026-04-01" -H "Author
 summaries as FHIR R4 Observations, in one `searchset` Bundle (`application/fhir+json`) in time
 order, paged by its `next` link, and `GET /v1/users/{id}/fhir/Observation/{observation_id}` reads
 one back. Filters: `type`, `code` (`http://loinc.org|8867-4`), `category` (`vital-signs`,
-`laboratory`, `activity`), `start`, `end`. The mapping, the profiles met and the limits are in
-[fhir.md](fhir.md).
+`laboratory`, `activity`), `start`, `end`. The user is `GET /v1/users/{id}/fhir/Patient/{id}`,
+the devices the records came from `/fhir/Device`, who produced an Observation
+`/fhir/Provenance?target=Observation/{observation_id}`, and
+`/fhir/Patient/{id}/$everything` pages through all of them in one Bundle. The mapping, the
+profiles met and the limits are in [fhir.md](fhir.md).
 
 ```sh
 curl -s "$OHS/v1/users/$USER_ID/fhir/Observation?type=heart_rate&start=2026-03-01&limit=50" \

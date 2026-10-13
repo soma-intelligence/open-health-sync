@@ -35,6 +35,11 @@ func tenantRouter(t *testing.T) http.Handler {
 	return NewRouter(Deps{Pool: pool, Store: tenant.New(pool), Lookup: lookup})
 }
 
+const (
+	testUserID = "3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+	fhirRoot   = "/v1/users/" + testUserID + "/fhir"
+)
+
 func TestFHIRRefusalsBeforeAnyQuery(t *testing.T) {
 	h := tenantRouter(t)
 	base := "/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir/Observation"
@@ -56,6 +61,23 @@ func TestFHIRRefusalsBeforeAnyQuery(t *testing.T) {
 		base + "/qs-x":                          http.StatusNotFound,
 		base + "/1":                             http.StatusNotFound,
 		"/v1/users/not-a-uuid/fhir/Observation": http.StatusNotFound,
+		// Patient, $everything, Device and Provenance.
+		fhirRoot + "/Patient/00000000-0000-4000-8000-000000000009":               http.StatusNotFound,
+		fhirRoot + "/Patient/not-a-uuid/$everything":                             http.StatusNotFound,
+		fhirRoot + "/Patient/" + testUserID + "/$everything?cursor=bm9wZQ":       http.StatusBadRequest,
+		fhirRoot + "/Patient/" + testUserID + "/$everything?limit=0":             http.StatusBadRequest,
+		fhirRoot + "/Patient/" + testUserID + "/$everything?type=heart_rate":     http.StatusBadRequest,
+		fhirRoot + "/Device?limit=5":                                             http.StatusBadRequest,
+		fhirRoot + "/Device?cursor=abc":                                          http.StatusBadRequest,
+		fhirRoot + "/Device?start=yesterday":                                     http.StatusBadRequest,
+		fhirRoot + "/Device/1234":                                                http.StatusNotFound,
+		fhirRoot + "/Provenance":                                                 http.StatusBadRequest,
+		fhirRoot + "/Provenance?target=Patient/x":                                http.StatusBadRequest,
+		fhirRoot + "/Provenance?target=Observation/qs-1,Observation/qs-2":        http.StatusBadRequest,
+		fhirRoot + "/Provenance?target=Observation/qs-1&target=Observation/qs-2": http.StatusBadRequest,
+		fhirRoot + "/Provenance/qs-1":                                            http.StatusNotFound,
+		fhirRoot + "/Provenance/prov-qs-x":                                       http.StatusNotFound,
+		fhirRoot + "/Provenance/prov-":                                           http.StatusNotFound,
 	} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", path, nil)

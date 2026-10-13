@@ -1,0 +1,56 @@
+{
+  "resourceType": "Provenance",
+  "id": "prov-qs-2002",
+  "target": [
+    {
+      "reference": "Observation/qs-2002"
+    }
+  ],
+  "recorded": "2026-03-01T09:15:30.25Z",
+  "agent": [
+    {
+      "type": {
+        "coding": [
+          {
+            "system": "http://terminology.hl7.org/CodeSystem/provenance-participant-type",
+            "code": "author",
+            "display": "Author"
+          }
+        ]
+      },
+      "who": {
+        "reference": "Device/dev-cb819e71e1065efc",
+        "display": "apple_watch"
+      }
+    },
+    {
+      "type": {
+        "coding": [
+          {
+            "system": "http://terminology.hl7.org/CodeSystem/provenance-participant-type",
+            "code": "assembler",
+            "display": "Assembler"
+          }
+        ]
+      },
+      "who": {
+        "identifier": {
+          "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider",
+          "value": "apple_health"
+        },
+        "display": "apple_health"
+      }
+    }
+  ],
+  "entity": [
+    {
+      "role": "derivation",
+      "what": {
+        "identifier": {
+          "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/apple_health/external-id",
+          "value": "8d7c6b5a-0000-4000-8000-00000000c0de"
+        }
+      }
+    }
+  ]
+}

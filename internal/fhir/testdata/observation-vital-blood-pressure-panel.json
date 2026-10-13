@@ -56,6 +56,7 @@
   "effectiveDateTime": "2026-03-01T08:00:00Z",
   "issued": "2026-03-01T09:15:32.25Z",
   "device": {
+    "reference": "Device/dev-4cd59d3e7b09cd28",
     "display": "apple_watch"
   },
   "component": [

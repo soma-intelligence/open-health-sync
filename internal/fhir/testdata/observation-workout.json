@@ -51,6 +51,7 @@
     "code": "s"
   },
   "device": {
+    "reference": "Device/dev-25677067c7caefaf",
     "display": "garmin_watch"
   },
   "component": [

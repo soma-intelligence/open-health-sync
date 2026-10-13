@@ -48,6 +48,7 @@
     "code": "mg/dL"
   },
   "device": {
+    "reference": "Device/dev-c596ac5a9c93cf36",
     "display": "g7"
   }
 }

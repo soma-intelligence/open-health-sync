@@ -1,0 +1,30 @@
+{
+  "resourceType": "Provenance",
+  "id": "prov-daily-9009",
+  "target": [
+    {
+      "reference": "Observation/daily-9009"
+    }
+  ],
+  "recorded": "2026-03-01T09:15:30.25Z",
+  "agent": [
+    {
+      "type": {
+        "coding": [
+          {
+            "system": "http://terminology.hl7.org/CodeSystem/provenance-participant-type",
+            "code": "assembler",
+            "display": "Assembler"
+          }
+        ]
+      },
+      "who": {
+        "identifier": {
+          "system": "https://github.com/soma-intelligence/open-health-sync/fhir/provider",
+          "value": "oura"
+        },
+        "display": "oura"
+      }
+    }
+  ]
+}

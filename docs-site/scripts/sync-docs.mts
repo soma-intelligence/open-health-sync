@@ -129,7 +129,7 @@ const sources: Record<string, Target[]> = {
     {
       page: "(guides)/guides/fhir",
       title: "FHIR R4 export",
-      description: "Read quantity samples as FHIR R4 Observations.",
+      description: "Read records as FHIR R4 Observations, with the Patient, its Devices and Provenance.",
     },
   ],
   "docs/open-mhealth.md": [

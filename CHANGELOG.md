@@ -36,6 +36,16 @@ release may change the API, the configuration or the database schema.
   `/v1/users/{id}/tags`; the list keeps the tags that overlap a window. `tag.created`,
   `tag.updated` and `tag.deleted` webhook events, and the read-only MCP tool `get_tags`. Tags are
   deleted with their user. See [docs/time-tags.md](docs/time-tags.md).
+- FHIR beyond Observations: `GET /v1/users/{id}/fhir/Patient/{id}` serves the user as a
+  Patient (the tenant's `external_ref` as its identifier), `/fhir/Device` and
+  `/fhir/Device/{id}` the devices the records came from, with stable ids derived from their
+  provenance, and `/fhir/Provenance?target=Observation/{id}` and `/fhir/Provenance/{id}` who
+  produced each Observation (its device as author, the provider as assembler, the provider's
+  record as entity). `/fhir/Patient/{id}/$everything` pages through the Patient, the
+  Observations, their Devices and Provenance in one searchset Bundle, with the Observation
+  search's cursor, and `/fhir/metadata` serves a CapabilityStatement. `Observation.device` is
+  now a reference to the Device, and keeps its `display`. The HL7 validator runs in CI on every
+  change to the mapping (`.github/workflows/fhir-validate.yml`). See [docs/fhir.md](docs/fhir.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and
