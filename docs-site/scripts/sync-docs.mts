@@ -160,6 +160,13 @@ const sources: Record<string, Target[]> = {
       description: "Why a user's data is not arriving: connection health, the last pulls, and sync now.",
     },
   ],
+  "docs/demo.md": [
+    {
+      page: "(guides)/guides/demo",
+      title: "Try it without a wearable",
+      description: "Fill an instance with synthetic data from six sources and try every read route.",
+    },
+  ],
   "docs/webhooks.md": [
     {
       page: "(guides)/guides/webhooks",
@@ -285,6 +292,7 @@ const icons: Record<string, string> = {
   "(guides)/learn/prompts": "MessageSquareText",
   "(guides)/guides/connect-page": "MousePointerClick",
   "(guides)/guides/sync-health": "HeartHandshake",
+  "(guides)/guides/demo": "FlaskConical",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

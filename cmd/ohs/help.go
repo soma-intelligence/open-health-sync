@@ -36,6 +36,7 @@ Commands:
   admin     create tenants, create, list and revoke their API keys, personal setup
   mcp       serve MCP on stdin and stdout for a local agent (Claude Desktop, Claude Code)
   import    load an existing history from a file export: apple-health
+  seed      fill an instance with synthetic demo data: seed --demo
   version   print the version and commit
   help      print this help, or the help of one command: ohs help <command>
 
@@ -137,6 +138,30 @@ it is, in constant memory, and needs no database.
 
 Prints counts only, never a health value or the token. Details:
 docs/connectors/apple-health.md.
+`,
+	"seed": `usage: ohs seed --demo [flags]
+
+Fills an instance with synthetic, plausible data for one user, so every read
+route (samples, sleep, workouts, daily, FHIR, Open mHealth, exports, MCP) has
+something to return without a wearable account. About 90 days from six
+sources (oura, whoop, withings, fitbit, polar, apple_health) that overlap like
+real devices. The data is made up: every record carries metadata
+{"synthetic": true}. It goes through the ETL writer, so running the command
+again adds nothing (content hash dedup).
+
+  --demo              required: confirms that synthetic data is wanted
+  --tenant ID         tenant to write into; without it, the tenant named
+                      "demo" is used, created on the first run with an API
+                      key printed once
+  --days N            days of data, ending yesterday (default 90, max 365)
+  --external-ref REF  external_ref of the user, created or reused
+                      (default demo-user)
+  --seed N            random seed: the same seed gives the same data
+                      (default 1)
+
+Prints the tenant id, the user id, the API key when one was created, and
+curl calls to try (OHS_URL, default http://localhost:8080). Needs
+OHS_DATABASE_URL. Details: docs/demo.md.
 `,
 }
 

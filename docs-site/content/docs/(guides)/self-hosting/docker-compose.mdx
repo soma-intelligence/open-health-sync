@@ -47,6 +47,14 @@ docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin 
 The key is printed once. Continue with the [quickstart](/documentation/quickstart#create-a-user-and-a-token-for-their-app)
 to upload and read data.
 
+No wearable account yet? `ohs seed --demo` fills the instance with 90 days of synthetic data from
+six sources and prints a key, a user and calls to try. See
+[Try it without a wearable](/documentation/guides/demo).
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs seed --demo
+```
+
 </Step>
 </Steps>
 

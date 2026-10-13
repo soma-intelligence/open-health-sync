@@ -13,6 +13,13 @@ docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
 ```
 
+No wearable account yet? Fill the instance with 90 days of synthetic data from six sources, and
+get a tenant key, a user and example calls to try ([demo.md](demo.md)):
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs seed --demo
+```
+
 Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `OHS_HTTP_BIND`, `POSTGRES_PASSWORD`, `S3_*`)
 from the shell or `--env-file`, so keep `--env-file .env` on every `docker compose` command.
 The containers read `.env` themselves either way.
