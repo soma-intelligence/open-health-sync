@@ -116,7 +116,7 @@ Provider deletions are honored too.
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
-| 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | | |
+| 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR, after the SDKs |
 
 A line moves up only when its pull request is merged, or its release is published. The 0.0.2
 image does not have the 🔜 lines yet. Details per source:
@@ -259,6 +259,7 @@ Want one sooner? Connectors are self-contained: read
 | CSV and Parquet exports ([docs/exports.md](docs/exports.md)) | 🔜 On `main`, next release |
 | Outgoing webhooks, signed per Standard Webhooks ([docs/webhooks.md](docs/webhooks.md)) | 🔜 On `main`, next release (data written or deleted, user erased, connection needs reauthorization) |
 | SDKs: Swift, Kotlin, React Native, Flutter | 🛠 Planned |
+| Health records (EHR): lab results, conditions, medications and allergies read through SMART on FHIR, served as FHIR R4 | 🛠 Planned, after the SDKs |
 
 ## Quickstart
 
@@ -561,7 +562,7 @@ Known limitations:
 - `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
 
 Next: more connectors, standard outputs (more FHIR R4 resources), then client
-SDKs. Requests are welcome as GitHub issues, including the connector request form.
+SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as GitHub issues, including the connector request form.
 
 ## Documentation
 
