@@ -146,7 +146,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_LISTEN` | `:8080` | Listen address |
 | `OHS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON on stderr |
 | `OHS_CONSOLE` | `false` | `true` serves the read-only [admin console](console.md) on `/console`. It asks for a tenant API key and reads the API with it; off, the route is not mounted (404) |
-| `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](#metrics)) |
+| `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](self-hosting.md#metrics)) |
 | `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
 | `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
 | `OHS_RETENTION_DAYS` | `0` | Delete raw files and normalized data older than this many days; 0 keeps everything |
@@ -266,11 +266,7 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   later, run `ALTER USER ohs PASSWORD '...'` in `psql`, then update `.env` and recreate both
   containers.
 
-## Metrics
-
-`/metrics` serves Prometheus counters for the whole instance (requests by route, ingest load, ETL
-queues, sync state by provider), never per-tenant data. It is still information about your
-instance, so it is closed unless you open it one of two ways:
+## Operating notes
 
 - **A token** (`OHS_METRICS_TOKEN`): the API listener serves `/metrics` to a scrape that sends
   `Authorization: Bearer <token>`, and answers 401 otherwise. In Prometheus:
@@ -292,9 +288,6 @@ instance, so it is closed unless you open it one of two ways:
 With neither, `/metrics` answers 403 and names the two settings. `OHS_METRICS=false` removes the
 route altogether.
 
-## Operating notes
-
-- **`/metrics` is protected by default.** See [Metrics](#metrics).
 - **Run `etl` somewhere.** User deletion is carried out by a worker that runs with the `etl`
   role. An `api` only deployment accepts `DELETE /v1/users/{id}` but never finishes it, and
   uploads are never processed, until a process with the `etl` role is running against the same
@@ -362,3 +355,9 @@ route altogether.
 - **Large uploads.** An instance processes a bounded number of uploads at once
   (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi) and answers 503 with `Retry-After` above it;
   clients retry.
+
+### Metrics
+
+`/metrics` serves Prometheus counters for the whole instance (requests by route, ingest load, ETL
+queues, sync state by provider), never per-tenant data. It is still information about your
+instance, so it is closed unless you open it one of two ways:
