@@ -62,6 +62,7 @@ tags:
   - name: ingest
   - name: provider-facing
   - name: mcp
+  - name: audit
   - name: ops
 security:
   - tenantKey: []
@@ -2023,6 +2024,53 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /v1/audit:
+    get:
+      tags: [audit]
+      operationId: listAuditEvents
+      summary: The tenant's audit log, newest first
+      description: |
+        One event per authenticated request (tenant key or user token) and per
+        administrative or system action: who (the credential), what (the action
+        and route), about which user, when, and the status. Never a health value,
+        a secret or a query string. Append only; events older than
+        `OHS_AUDIT_RETENTION_DAYS` (default 365) are pruned.
+      parameters:
+        - name: user_id
+          in: query
+          description: Only events about this end user.
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          description: An exact action (`data.export`), or a prefix ending in a dot (`data.`).
+          schema: { type: string }
+        - name: since
+          in: query
+          description: Events at or after this time (RFC 3339 or YYYY-MM-DD).
+          schema: { type: string }
+        - name: until
+          in: query
+          description: Events before this time (RFC 3339 or YYYY-MM-DD).
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/AuditEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /healthz:
     get:
       tags: [ops]
@@ -2278,6 +2326,38 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Null on the last page.
+
+    AuditEvent:
+      type: object
+      required: [id, at, actor, action, user_id, status, detail]
+      properties:
+        id: { type: integer, description: "Increasing; the cursor of the next page." }
+        at: { type: string, format: date-time }
+        actor:
+          type: object
+          required: [type, id]
+          properties:
+            type:
+              type: string
+              enum: [api_key, user_token, admin, system]
+            id:
+              type: string
+              description: |
+                The API key's id, the first 16 hex characters of a user token's SHA-256
+                hash, or the command or worker for admin and system events.
+        action:
+          type: string
+          description: |
+            data.read, data.export, data.write, user.create, user.read, user.delete,
+            user.erased, token.create, connection.read, connection.create,
+            connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
+            config.write, tenant.create, key.create, key.revoke (more may be added).
+        user_id: { type: [string, "null"], format: uuid, description: "The end user the action concerns." }
+        method: { type: string, description: "The HTTP method, absent outside a request." }
+        route: { type: string, description: "The route pattern, absent outside a request." }
+        status: { type: [integer, "null"], description: "The HTTP status, null outside a request." }
+        request_id: { type: string, description: "The X-Request-Id of the request." }
+        detail: { type: object, description: "Identifiers only, such as a job id or a key prefix." }
 
     Provider:
       type: object

@@ -9,6 +9,13 @@ release may change the API, the configuration or the database schema.
 
 ### Security
 
+- Audit log: every request authenticated with a tenant key or a user token, every
+  `ohs admin` key command and every completed erasure is recorded in
+  `ohs_core.audit_events` (credential, action, user, route pattern, status, request id; never a
+  value, a query string or a secret). Append only, enforced by a database trigger; kept after a
+  user's erasure; pruned after `OHS_AUDIT_RETENTION_DAYS` (default 365). Read it with
+  `GET /v1/audit`. Failed writes count in `ohs_audit_write_failures_total`. See
+  [docs/audit-log.md](docs/audit-log.md).
 - `/metrics` is protected by default. On the API listener a scrape now presents the
   `OHS_METRICS_TOKEN` bearer token; with no token set, every scrape is refused (403).
   `OHS_METRICS_LISTEN` (for example `127.0.0.1:9464`) serves it on an address of its own

@@ -385,6 +385,14 @@ sync writes or deletes records, a user is erased, a connection needs the user to
 again or a time tag changes. Requests are signed per Standard Webhooks and retried for about 28 hours. Events,
 signature verification and the routes: [webhooks.md](webhooks.md).
 
+## Audit log
+
+Every request authenticated with a tenant key or a user token, every key command of
+`ohs admin` and every completed erasure is recorded in an append-only audit log: the credential,
+the action, the user it concerns, the route pattern and the status, never a value read or
+written. Read it with `GET /v1/audit` (tenant key; filters `user_id`, `action`, `since`,
+`until`). Details: [audit-log.md](audit-log.md).
+
 ## MCP
 
 `POST /mcp` speaks the Model Context Protocol for AI agents, read only. See [mcp.md](mcp.md).

@@ -34,6 +34,9 @@ type Config struct {
 	// RetentionDays prunes raw files and normalized data older than this
 	// many days; 0 keeps everything.
 	RetentionDays int
+	// AuditRetentionDays prunes audit events older than this many days
+	// (OHS_AUDIT_RETENTION_DAYS, default 365); 0 keeps every event.
+	AuditRetentionDays int
 	// IngestConcurrency bounds the device uploads one api process handles at
 	// once (OHS_INGEST_CONCURRENCY, default 8).
 	IngestConcurrency int
@@ -49,6 +52,10 @@ type Config struct {
 
 // MinMetricsToken is the shortest OHS_METRICS_TOKEN accepted.
 const MinMetricsToken = 16
+
+// DefaultAuditRetentionDays is OHS_AUDIT_RETENTION_DAYS when unset: a year
+// of audit events.
+const DefaultAuditRetentionDays = 365
 
 // DefaultIngestConcurrency is OHS_INGEST_CONCURRENCY when unset.
 const DefaultIngestConcurrency = 8
@@ -68,6 +75,7 @@ var reserved = map[string]bool{
 	"METRICS_TOKEN":          true,
 	"METRICS_LISTEN":         true,
 	"RETENTION_DAYS":         true,
+	"AUDIT_RETENTION_DAYS":   true,
 	"INGEST_CONCURRENCY":     true,
 	"PULLS_PER_PROVIDER":     true,
 	"BACKFILLS_PER_PROVIDER": true,
@@ -199,6 +207,15 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_RETENTION_DAYS: %q is not a non-negative integer", v)
 		}
 		c.RetentionDays = n
+	}
+
+	c.AuditRetentionDays = DefaultAuditRetentionDays
+	if v := get("OHS_AUDIT_RETENTION_DAYS", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("OHS_AUDIT_RETENTION_DAYS: %q is not a non-negative integer", v)
+		}
+		c.AuditRetentionDays = n
 	}
 
 	c.IngestConcurrency = DefaultIngestConcurrency

@@ -30,6 +30,9 @@ type Principal struct {
 	TenantID uuid.UUID
 	UserID   *uuid.UUID
 	Scopes   []string
+	// KeyID names the credential in the audit log without revealing it: the
+	// API key's id, or the first characters of a user token's hash.
+	KeyID string
 }
 
 // ErrUnauthenticated is what a Lookup returns for an unknown, revoked or expired
@@ -40,6 +43,24 @@ var ErrUnauthenticated = errors.New("auth: unauthenticated")
 type Lookup func(ctx context.Context, hash string) (Principal, error)
 
 type ctxKey struct{}
+
+type slotKey struct{}
+
+// Slot receives the Principal a middleware further in authenticates, so a
+// wrapper outside it (the audit log) learns who called.
+type Slot struct {
+	p  Principal
+	ok bool
+}
+
+// WithSlot returns ctx carrying a new, empty Slot.
+func WithSlot(ctx context.Context) (context.Context, *Slot) {
+	s := &Slot{}
+	return context.WithValue(ctx, slotKey{}, s), s
+}
+
+// Principal returns the Principal authenticated during the request, if any.
+func (s *Slot) Principal() (Principal, bool) { return s.p, s.ok }
 
 // From returns the Principal the middleware put on the context.
 func From(ctx context.Context) (Principal, bool) {
@@ -82,6 +103,9 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 			if !slices.ContainsFunc(wants, func(want Scope) bool { return allowed(p, want) }) {
 				WriteProblem(w, http.StatusForbidden, "Forbidden", forbidden)
 				return
+			}
+			if s, ok := r.Context().Value(slotKey{}).(*Slot); ok {
+				s.p, s.ok = p, true
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 		})
