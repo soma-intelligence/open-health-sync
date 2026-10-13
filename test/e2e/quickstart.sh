@@ -13,6 +13,8 @@
 #   6. POST /v1/ingest/apple-health, one call per part     (user token)
 #   7. GET /v1/users/{id}/coverage until pending_jobs is 0 (tenant key)
 #   8. read samples (heart rate, steps, SpO2), sleep and workouts back (tenant key)
+#   9. ohs admin personal setup, the same upload for that person, then every
+#      script of recipes/ against it (python3)
 #
 # The counts read back must equal what test/e2e/expect.go computes from the
 # fixture (connectors/applehealth/testdata/e2e).
@@ -91,5 +93,49 @@ check "step sum" "$(e2e_sum "$KEY" "$USER_ID" '/samples?type=step_count')" "$STE
 check "SpO2 samples" "$(e2e_count "$KEY" "$USER_ID" '/samples?type=oxygen_saturation')" "$SPO2_COUNT"
 check "sleep sessions" "$(e2e_count "$KEY" "$USER_ID" /sleep)" "$SLEEP_SESSIONS"
 check "workouts" "$(e2e_count "$KEY" "$USER_ID" /workouts)" "$WORKOUTS"
+
+step "9. personal setup and the recipes"
+command -v python3 >/dev/null || die "python3 is required for the recipes"
+ENV_FILE="$E2E_WORK/ohs.env"
+e2e_compose exec -T ohs /ohs admin personal setup --url "http://localhost:$OHS_E2E_PORT" >"$ENV_FILE" ||
+  die "ohs admin personal setup"
+P_KEY=$(sed -n 's/^OHS_KEY=//p' "$ENV_FILE")
+P_USER=$(sed -n 's/^OHS_USER=//p' "$ENV_FILE")
+[ -n "$P_KEY" ] && [ -n "$P_USER" ] && ok "personal setup printed OHS_URL, OHS_KEY and OHS_USER" ||
+  die "personal setup output: $(sed 's/ohs_sk_[A-Za-z0-9]*/ohs_sk_.../' "$ENV_FILE")"
+again=$(e2e_compose exec -T ohs /ohs admin personal setup | sed -n 's/^OHS_USER=//p') || again=""
+[ "$again" = "$P_USER" ] && ok "a second run keeps the user" || fail "second run user $again, want $P_USER"
+P_TOKEN=$(e2e_mint_token "$P_KEY" "$P_USER") || die "mint token for the personal user"
+e2e_upload_dir "$P_TOKEN" "$FIXTURE" "$DAY" personal || die "upload for the personal user"
+e2e_wait_processed "$P_KEY" "$P_USER" "$TIMEOUT" || die "processing for the personal user"
+# Windows long enough to reach the fixture's day from today.
+SINCE=$(python3 -c "import datetime as d; print((d.date.today() - d.date.fromisoformat('$DAY')).days + 2)")
+recipe() { # recipe NAME PATTERN ARGS...: recipes/NAME.py exits 0 and prints PATTERN
+  local name=$1 want=$2 out
+  shift 2
+  if out=$(cd "$E2E_WORK" && OHS_ENV_FILE="$ENV_FILE" python3 "$E2E_ROOT/recipes/$name.py" "$@" 2>&1) &&
+    grep -q -- "$want" <<<"$out"; then
+    ok "recipe $name"
+  else
+    fail "recipe $name: $out"
+  fi
+}
+recipe connect "apple_health"
+recipe sleep-report "(apple_health)" --days "$SINCE"
+recipe compare-sources "Only one source" --metric steps --days "$SINCE"
+recipe weekly-digest "## Health, week of"
+recipe dashboard "wrote health-dashboard.html" --days "$SINCE"
+grep -q '<svg' "$E2E_WORK/health-dashboard.html" && ok "dashboard has charts" || fail "dashboard has no chart"
+recipe export-all "daily.csv" --dir "$E2E_WORK/export"
+head -n 1 "$E2E_WORK/export/samples.csv" | grep -q '^id,type,value' && ok "export-all wrote samples.csv" ||
+  fail "samples.csv header: $(head -n 1 "$E2E_WORK/export/samples.csv")"
+recipe ai-agent "claude mcp add --transport http open-health-sync http://localhost:$OHS_E2E_PORT/mcp"
+# The fixture has no resting heart rate or HRV: the recipe says so and exits 1.
+if out=$(OHS_ENV_FILE="$ENV_FILE" python3 recipes/heart-trend.py 2>&1); then
+  fail "heart-trend exits 0 without data: $out"
+else
+  grep -q "no resting heart rate or HRV" <<<"$out" && ok "recipe heart-trend explains missing data" ||
+    fail "heart-trend: $out"
+fi
 
 e2e_summary

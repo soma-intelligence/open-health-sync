@@ -146,6 +146,19 @@ for (const file of readdirSync(join(repo, "docs", "connectors")).sort()) {
   sources[`docs/connectors/${file}`] = [{ page: `(guides)/connectors/${file.replace(/\.md$/, "")}` }];
 }
 
+// The recipes: the index page, then one page per recipe.
+sources["docs/recipes/README.md"] = [
+  {
+    page: "(guides)/recipes/index",
+    title: "Build with your data",
+    description: "Small tools on top of all your health data: set up a personal instance and run a recipe.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "recipes")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md") continue;
+  sources[`docs/recipes/${file}`] = [{ page: `(guides)/recipes/${file.replace(/\.md$/, "")}` }];
+}
+
 // Sidebar icons (lucide names) of the synced pages, by page path.
 const icons: Record<string, string> = {
   "api-reference/index": "BookOpen",
@@ -166,6 +179,15 @@ const icons: Record<string, string> = {
   "(guides)/guides/open-mhealth": "Activity",
   "(guides)/guides/exports": "FileDown",
   "(guides)/guides/webhooks": "Webhook",
+  "(guides)/recipes/index": "Sparkles",
+  "(guides)/recipes/sleep-report": "Moon",
+  "(guides)/recipes/heart-trend": "HeartPulse",
+  "(guides)/recipes/compare-sources": "GitCompare",
+  "(guides)/recipes/weekly-digest": "CalendarDays",
+  "(guides)/recipes/dashboard": "ChartLine",
+  "(guides)/recipes/export-all": "FileDown",
+  "(guides)/recipes/ai-agent": "Bot",
+  "(guides)/recipes/connect": "Link",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

@@ -202,6 +202,38 @@ func (s *Store) GetActiveUser(ctx context.Context, tenantID, userID uuid.UUID) (
 	return u, nil
 }
 
+// EnsureUser returns the tenant's user with this external ref, creating it
+// when none exists, and whether this call created it. A user with that ref
+// being deleted is ErrConflict: the ref is free again once the deletion ends.
+func (s *Store) EnsureUser(ctx context.Context, tenantID uuid.UUID, externalRef string) (User, bool, error) {
+	if externalRef == "" {
+		return User{}, false, errors.New("tenant: EnsureUser needs an external ref")
+	}
+	find := func() (User, error) {
+		return scanUser(s.pool.QueryRow(ctx,
+			`SELECT id, tenant_id, coalesce(external_ref, ''), status, created_at
+			 FROM ohs_core.end_users WHERE tenant_id = $1 AND external_ref = $2`, tenantID, externalRef))
+	}
+	u, err := find()
+	if errors.Is(err, pgx.ErrNoRows) {
+		u, err = s.CreateUser(ctx, tenantID, externalRef)
+		if err == nil {
+			return u, true, nil
+		}
+		if !errors.Is(err, ErrConflict) {
+			return User{}, false, err
+		}
+		u, err = find() // created by a concurrent call
+	}
+	if err != nil {
+		return User{}, false, fmt.Errorf("tenant: find user: %w", err)
+	}
+	if u.Status != "active" {
+		return User{}, false, ErrConflict
+	}
+	return u, false, nil
+}
+
 // ListUsers pages through a tenant's active users, oldest first. A user being
 // deleted is not listed. The returned cursor is empty on the last page.
 // limit <= 0 means 100; it is capped at 1000.
