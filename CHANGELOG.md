@@ -210,6 +210,11 @@ release may change the API, the configuration or the database schema.
 - A token refresh that returns no new refresh token keeps the stored one (RFC 6749 section 6);
   this was already the behaviour and is now covered by a test.
 
+### Security
+
+- CI checks the gitleaks release tarball against a pinned sha256 (taken from the release's
+  checksums file) before running it.
+
 ## [0.0.2] - 2026-10-11
 
 Usability release. Nothing changes in the data model or the database schema. Read the
