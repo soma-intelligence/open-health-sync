@@ -1,0 +1,25 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{- $c := .Values.config }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ohs.fullname" . }}-config
+  labels:
+    {{- include "ohs.labels" . | nindent 4 }}
+data:
+  OHS_PUBLIC_URL: {{ required "config.publicURL is required" $c.publicURL | quote }}
+  OHS_RAW_STORE: {{ include "ohs.rawStoreURL" . | quote }}
+  OHS_LISTEN: ":8080"
+  OHS_LOG_LEVEL: {{ $c.logLevel | quote }}
+  OHS_METRICS: {{ $c.metrics | toString | quote }}
+  OHS_RETENTION_DAYS: {{ $c.retentionDays | int | toString | quote }}
+  OHS_INGEST_CONCURRENCY: {{ $c.ingestConcurrency | int | toString | quote }}
+  {{- if $c.webhookAllowPrivate }}
+  OHS_WEBHOOK_ALLOW_PRIVATE: "true"
+  {{- end }}
+  {{- with $c.bootstrapTenant }}
+  OHS_BOOTSTRAP_TENANT: {{ . | quote }}
+  {{- end }}
+  {{- range $k, $v := $c.extra }}
+  {{ $k }}: {{ $v | toString | quote }}
+  {{- end }}

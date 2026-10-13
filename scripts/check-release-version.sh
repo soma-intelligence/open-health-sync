@@ -5,7 +5,8 @@
 # its release notes exist, and the compose file runs that version by default
 # (`${OHS_VERSION:-X.Y.Z}`), so `docker compose up` on the tagged checkout
 # pulls the image the tag publishes. server.json names the same version and image
-# tag, since the release publishes it to the MCP registry.
+# tag, since the release publishes it to the MCP registry. The Helm chart's
+# appVersion (the image tag it runs by default) names it too.
 #
 #   scripts/check-release-version.sh v0.0.2
 set -euo pipefail
@@ -31,6 +32,11 @@ fi
 server_versions="$(grep -oE '"version": *"[^"]*"|open-health-sync:[^"]*"' "$root/server.json" | grep -oE '[0-9][^"]*' | sort -u)"
 if [ "$server_versions" != "$version" ]; then
   echo "check-release-version: server.json names version '${server_versions//$'\n'/, }', the tag is $version" >&2
+  status=1
+fi
+chart_app="$(sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$root/deploy/helm/ohs/Chart.yaml")"
+if [ "$chart_app" != "$version" ]; then
+  echo "check-release-version: deploy/helm/ohs/Chart.yaml has appVersion '$chart_app', the tag is $version" >&2
   status=1
 fi
 [ "$status" -eq 0 ] && echo "check-release-version: $tag ok"

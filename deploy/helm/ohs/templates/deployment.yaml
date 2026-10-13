@@ -1,0 +1,13 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{- include "ohs.validate" . }}
+{{- $full := include "ohs.fullname" . }}
+{{- if .Values.splitRoles.enabled }}
+{{- $s := .Values.splitRoles }}
+{{- include "ohs.deployment" (dict "root" . "name" (printf "%s-api" $full) "component" "api" "roles" "api" "replicas" $s.api.replicaCount "resources" ($s.api.resources | default .Values.resources) "http" true) }}
+---
+{{ include "ohs.deployment" (dict "root" . "name" (printf "%s-collect" $full) "component" "collect" "roles" "collect" "replicas" $s.collect.replicaCount "resources" ($s.collect.resources | default .Values.resources) "http" false) }}
+---
+{{ include "ohs.deployment" (dict "root" . "name" (printf "%s-etl" $full) "component" "etl" "roles" "etl" "replicas" $s.etl.replicaCount "resources" ($s.etl.resources | default .Values.resources) "http" false) }}
+{{- else }}
+{{- include "ohs.deployment" (dict "root" . "name" $full "component" "server" "roles" "api,collect,etl" "replicas" .Values.replicaCount "resources" .Values.resources "http" true) }}
+{{- end }}

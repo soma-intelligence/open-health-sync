@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Turns on every optional template, for `helm lint` and `helm template` in CI:
+# split roles on an S3 raw store, Ingress, ServiceMonitor, NetworkPolicy,
+# HorizontalPodAutoscaler and PodDisruptionBudget.
+image:
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+database:
+  url: postgres://ohs:secret@db.example.org:5432/ohs?sslmode=require&pool_max_conns=12
+encryptionKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+secretEnv:
+  OHS_WITHINGS_CLIENT_ID: ci-client-id
+  OHS_WITHINGS_CLIENT_SECRET: ci-client-secret
+config:
+  publicURL: https://ohs.example.org
+  retentionDays: 365
+  webhookAllowPrivate: true
+  bootstrapTenant: ci
+  extra:
+    OHS_DEXCOM_REGION: sandbox
+rawStore:
+  type: s3
+  s3:
+    url: s3://ohs-raw?endpoint=https://s3.example.org&region=us-east-1&path_style=true
+    accessKeyId: ci-access-key
+    secretAccessKey: ci-secret-key
+splitRoles:
+  enabled: true
+  api:
+    replicaCount: 2
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+  collect:
+    replicaCount: 1
+  etl:
+    replicaCount: 2
+env:
+  - name: GOMEMLIMIT
+    value: 768MiB
+extraEnvFrom:
+  - secretRef:
+      name: ohs-extra
+imagePullSecrets:
+  - name: registry
+serviceAccountName: ohs
+podAnnotations:
+  example.org/owner: ci
+priorityClassName: ci
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: ohs
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 64m
+  hosts:
+    - host: ohs.example.org
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: ohs-tls
+      hosts: [ohs.example.org]
+serviceMonitor:
+  enabled: true
+  labels:
+    release: prometheus
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  databaseTo:
+    - ipBlock:
+        cidr: 10.0.0.0/24
+  extraEgress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.1.0/24
+      ports:
+        - port: 9000
+          protocol: TCP
+autoscaling:
+  enabled: true
+podDisruptionBudget:
+  enabled: true

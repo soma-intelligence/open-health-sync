@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# A throwaway Postgres with TimescaleDB for the chart's CI install on kind.
+# No volume: the data goes with the pod. Not for real use.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          # The image and digest of deploy/docker-compose.yml.
+          image: timescale/timescaledb:latest-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2
+          env:
+            - name: POSTGRES_USER
+              value: ohs
+            - name: POSTGRES_PASSWORD
+              value: ohs
+            - name: POSTGRES_DB
+              value: ohs
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "ohs", "-d", "ohs"]
+            periodSeconds: 3
+            failureThreshold: 40

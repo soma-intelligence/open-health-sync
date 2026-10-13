@@ -1,0 +1,32 @@
+{{- /* SPDX-License-Identifier: AGPL-3.0-only */ -}}
+Open Health Sync {{ .Values.image.tag | default .Chart.AppVersion }} is installed as {{ include "ohs.fullname" . }} in namespace {{ .Release.Namespace }}.
+{{- if .Values.splitRoles.enabled }}
+Roles run apart: {{ include "ohs.fullname" . }}-api, -collect and -etl.
+{{- end }}
+
+Public URL (OAuth callbacks are built from it): {{ .Values.config.publicURL }}
+
+Check it from your machine:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ohs.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -fsS http://localhost:8080/readyz
+
+Run the full check, then create a first tenant (it prints the tenant's API key once):
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "ohs.httpDeployment" . }} -- /ohs doctor
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "ohs.httpDeployment" . }} -- /ohs admin tenant create --name main
+{{- if not .Values.existingSecret }}
+
+The encryption key is in Secret {{ include "ohs.secretName" . }} (key OHS_ENCRYPTION_KEY). Back it up with
+the database: without it, stored OAuth tokens cannot be read. The Secret is kept on uninstall.
+{{- end }}
+{{- if and (eq .Values.rawStore.type "file") (not .Values.rawStore.persistence.enabled) }}
+
+WARNING: rawStore.persistence.enabled is false. Raw payloads live in an emptyDir and are lost
+with the pod.
+{{- end }}
+{{- if and .Values.config.metrics .Values.ingress.enabled }}
+
+/metrics is unauthenticated and the Ingress routes it: block it at your ingress controller,
+or set config.metrics=false.
+{{- end }}
