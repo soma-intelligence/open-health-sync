@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -31,11 +32,17 @@ var (
 
 // TestDB returns the URL of a fresh, fully migrated database. One TimescaleDB
 // container is started per test process; each call gets its own database in it.
+// OHS_TEST_DATABASE_URL, when set, names a running TimescaleDB server to use
+// instead of a container (a machine without Docker); its user needs CREATEDB.
 func TestDB(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
 	containerOnce.Do(func() {
+		if u := os.Getenv("OHS_TEST_DATABASE_URL"); u != "" {
+			containerURL = u
+			return
+		}
 		c, err := postgres.Run(ctx, TestImage,
 			postgres.WithDatabase("ohs"),
 			postgres.WithUsername("ohs"),

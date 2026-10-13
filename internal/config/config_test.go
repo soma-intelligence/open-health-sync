@@ -265,3 +265,28 @@ func TestLoadMultiWordSlug(t *testing.T) {
 		t.Fatalf("multi-word key filed under its first word: %v", c.Providers)
 	}
 }
+
+func TestLoadMetricsToken(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.MetricsToken != "" || c.MetricsListen != "" {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	m := base()
+	m["OHS_METRICS_TOKEN"] = "short"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_METRICS_TOKEN") {
+		t.Fatalf("short token: %v", err)
+	}
+	m["OHS_METRICS_TOKEN"] = "0123456789abcdef"
+	m["OHS_METRICS_LISTEN"] = "127.0.0.1:9464"
+	c, err = load(t, m)
+	if err != nil || c.MetricsToken != "0123456789abcdef" || c.MetricsListen != "127.0.0.1:9464" {
+		t.Fatalf("token and listen: %+v %v", c, err)
+	}
+	if len(c.Providers) != 0 {
+		t.Fatalf("metrics settings read as a provider: %v", c.Providers)
+	}
+	m["OHS_METRICS_LISTEN"] = ":8080"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_METRICS_LISTEN") {
+		t.Fatalf("same address as OHS_LISTEN: %v", err)
+	}
+}

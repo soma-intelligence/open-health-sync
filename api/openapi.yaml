@@ -1421,13 +1421,30 @@ paths:
       tags: [ops]
       operationId: metrics
       summary: Prometheus metrics (absent when OHS_METRICS=false)
-      security: []
+      description: |
+        Instance wide counters, never per-tenant data. On the API listener a
+        scrape presents the `OHS_METRICS_TOKEN` bearer token; with no token
+        configured every scrape is refused with 403. With
+        `OHS_METRICS_LISTEN` set the route moves to that address (404 here),
+        where the token is asked for only when set.
+      security:
+        - metricsToken: []
       responses:
         "200":
           description: Prometheus text exposition format 0.0.4.
           content:
             text/plain:
               schema: { type: string }
+        "401":
+          description: The bearer token is missing or is not `OHS_METRICS_TOKEN`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "403":
+          description: No `OHS_METRICS_TOKEN` is configured, so the API listener serves no metrics.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
 
 components:
@@ -1440,6 +1457,10 @@ components:
       type: http
       scheme: bearer
       description: User token, `ohs_ut_` + 43 base62 characters, with the scope the route needs.
+    metricsToken:
+      type: http
+      scheme: bearer
+      description: The instance's `OHS_METRICS_TOKEN`, for Prometheus scrapes of `/metrics`.
 
   headers:
     IdempotentReplayed:

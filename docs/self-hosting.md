@@ -145,8 +145,10 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_BOOTSTRAP_TENANT` | none | Creates this tenant at first start and logs its API key once |
 | `OHS_LISTEN` | `:8080` | Listen address |
 | `OHS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON on stderr |
-| `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` |
 | `OHS_CONSOLE` | `false` | `true` serves the read-only [admin console](console.md) on `/console`. It asks for a tenant API key and reads the API with it; off, the route is not mounted (404) |
+| `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](#metrics)) |
+| `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
+| `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
 | `OHS_RETENTION_DAYS` | `0` | Delete raw files and normalized data older than this many days; 0 keeps everything |
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
@@ -264,11 +266,35 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   later, run `ALTER USER ohs PASSWORD '...'` in `psql`, then update `.env` and recreate both
   containers.
 
+## Metrics
+
+`/metrics` serves Prometheus counters for the whole instance (requests by route, ingest load, ETL
+queues, sync state by provider), never per-tenant data. It is still information about your
+instance, so it is closed unless you open it one of two ways:
+
+- **A token** (`OHS_METRICS_TOKEN`): the API listener serves `/metrics` to a scrape that sends
+  `Authorization: Bearer <token>`, and answers 401 otherwise. In Prometheus:
+
+  ```yaml
+  scrape_configs:
+    - job_name: ohs
+      authorization:
+        credentials_file: /etc/prometheus/ohs-metrics-token
+      static_configs:
+        - targets: ["ohs:8080"]
+  ```
+
+- **A private address** (`OHS_METRICS_LISTEN`, for example `127.0.0.1:9464` or an address on
+  your monitoring network): `/metrics` moves off the API listener to that address. Whoever can
+  reach the address can scrape it, unless `OHS_METRICS_TOKEN` is also set. Never publish that
+  port.
+
+With neither, `/metrics` answers 403 and names the two settings. `OHS_METRICS=false` removes the
+route altogether.
+
 ## Operating notes
 
-- **`/metrics` is unauthenticated and global.** It exposes instance wide counters, not
-  per-tenant data, but anyone who can reach it can read it. Block it at your reverse proxy, or
-  set `OHS_METRICS=false`.
+- **`/metrics` is protected by default.** See [Metrics](#metrics).
 - **Run `etl` somewhere.** User deletion is carried out by a worker that runs with the `etl`
   role. An `api` only deployment accepts `DELETE /v1/users/{id}` but never finishes it, and
   uploads are never processed, until a process with the `etl` role is running against the same

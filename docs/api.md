@@ -313,5 +313,6 @@ signature verification and the routes: [webhooks.md](webhooks.md).
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
 | `GET /console` | Read-only admin console (HTML), only when `OHS_CONSOLE=true`; see [console.md](console.md) |
 
-`/metrics` is unauthenticated and global to the instance (not per tenant). Keep it behind your
-reverse proxy or turn it off, see [self-hosting.md](self-hosting.md#operating-notes).
+`/metrics` is global to the instance (not per tenant). It asks for the `OHS_METRICS_TOKEN` bearer
+token, refuses every scrape when no token is set, and can move to a private address with
+`OHS_METRICS_LISTEN`; see [self-hosting.md](self-hosting.md#metrics).
