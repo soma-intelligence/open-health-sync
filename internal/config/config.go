@@ -24,6 +24,9 @@ type Config struct {
 	EncryptionKey                                                       []byte          // decoded, len 32
 	Roles                                                               map[string]bool // "api", "collect", "etl"
 	Metrics                                                             bool
+	// Console serves the read-only admin console at /console (OHS_CONSOLE,
+	// default false).
+	Console bool
 	// RetentionDays prunes raw files and normalized data older than this
 	// many days; 0 keeps everything.
 	RetentionDays int
@@ -50,6 +53,7 @@ var reserved = map[string]bool{
 	"LISTEN":                true,
 	"LOG_LEVEL":             true,
 	"METRICS":               true,
+	"CONSOLE":               true,
 	"RETENTION_DAYS":        true,
 	"INGEST_CONCURRENCY":    true,
 	"WEBHOOK_ALLOW_PRIVATE": true,
@@ -155,6 +159,14 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_METRICS: %q is not a boolean", v)
 		}
 		c.Metrics = b
+	}
+
+	if v := get("OHS_CONSOLE", ""); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("OHS_CONSOLE: %q is not a boolean", v)
+		}
+		c.Console = b
 	}
 
 	if v := get("OHS_RETENTION_DAYS", ""); v != "" {

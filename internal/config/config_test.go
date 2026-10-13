@@ -131,6 +131,26 @@ func TestLoadRetentionDays(t *testing.T) {
 	}
 }
 
+func TestLoadConsole(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.Console {
+		t.Fatalf("default: %v %v", c.Console, err)
+	}
+	m := base()
+	m["OHS_CONSOLE"] = "true"
+	c, err = load(t, m)
+	if err != nil || !c.Console {
+		t.Fatalf("true: %v %v", c.Console, err)
+	}
+	if len(c.Providers) != 0 {
+		t.Fatalf("OHS_CONSOLE leaked as a provider: %v", c.Providers)
+	}
+	m["OHS_CONSOLE"] = "maybe"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_CONSOLE") {
+		t.Fatalf("bad value: %v", err)
+	}
+}
+
 func TestLoadBadMetrics(t *testing.T) {
 	m := base()
 	m["OHS_METRICS"] = "maybe"

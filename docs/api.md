@@ -277,6 +277,7 @@ signature verification and the routes: [webhooks.md](webhooks.md).
 | `GET /healthz` | Liveness |
 | `GET /readyz` | Readiness: database ping and raw store check, 503 when either fails |
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
+| `GET /console` | Read-only admin console (HTML), only when `OHS_CONSOLE=true`; see [console.md](console.md) |
 
 `/metrics` is unauthenticated and global to the instance (not per tenant). Keep it behind your
 reverse proxy or turn it off, see [self-hosting.md](self-hosting.md#operating-notes).
