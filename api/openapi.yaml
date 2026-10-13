@@ -659,6 +659,110 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/connections/{provider}/sync:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    post:
+      tags: [connections]
+      operationId: syncConnection
+      summary: Sync a connection now
+      description: |
+        Queues a pull of the connection ahead of routine work and answers with the sync run; follow it
+        at the `Location` header. The window ends now and starts where the connection's data ends
+        (minus an hour of overlap), a day back for a connection that never synced, or at `from`
+        (at most 30 days back). While a manual run of the connection is still queued or running, the
+        answer is 200 with that run and nothing new is queued. 409 when the connection does not sync
+        (`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                from: { type: string, format: date-time }
+      responses:
+        "200":
+          description: A manual run of this connection is already queued or running.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "202":
+          description: Queued.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/users/{id}/sync-runs:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [connections]
+      operationId: listSyncRuns
+      summary: The user's sync history
+      description: |
+        Every pull of the user's connections, newest first: what started it, its window, its status,
+        the raw payloads it stored and the provider's error when it failed. Finished runs are kept
+        30 days.
+      parameters:
+        - name: provider
+          in: query
+          description: Only this provider's runs.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of runs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/SyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/sync-runs/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    get:
+      tags: [connections]
+      operationId: getSyncRun
+      summary: One sync run
+      responses:
+        "200":
+          description: The run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/samples:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1732,12 +1836,15 @@ components:
 
     WebhookEventType:
       type: string
-      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth]
+      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth, connection.broken, connection.restored]
       description: |
         `data.written`: a sync wrote new or changed records. `data.deleted`: records the
         provider deleted were removed. `data.erased`: everything a user held from one provider
         was erased on your request. `user.deleted`: a user and all their data were erased.
         `connection.needs_reauth`: a provider refused the user's grant; the user must connect again.
+        `connection.broken`: a connection stopped syncing; `reason` says why and `action` what fixes
+        it (`reconnect`: send the user through the connect flow; `wait`: it resumes by itself).
+        `connection.restored`: a broken connection synced again.
 
     CreateWebhookRequest:
       type: object
@@ -1848,6 +1955,17 @@ components:
             last_day: { type: string, format: date, description: "data.written. Last data day." }
             records_deleted: { type: integer, description: data.deleted. }
             job_id: { type: string, format: uuid, description: "data.erased. The deletion job that finished." }
+            reason:
+              type: string
+              enum: [needs_reauth, missing_scope, failing, rate_limited]
+              description: connection.broken.
+            action: { type: string, enum: [reconnect, wait], description: connection.broken. }
+            retry_at: { type: string, format: date-time, description: "connection.broken, rate_limited. When pulls resume." }
+            last_error: { type: string, description: "connection.broken, failing. The provider error, made safe to show." }
+            consecutive_failures: { type: integer, description: "connection.broken, failing." }
+            previous_reason: { type: string, description: connection.restored. }
+            broken_since: { type: string, format: date-time, description: connection.restored. }
+            broken_seconds: { type: integer, description: connection.restored. }
             endpoint_id: { type: string, format: uuid, description: webhook.test. }
 
     Connection:
@@ -1863,6 +1981,49 @@ components:
         initial_backfill_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        health: { $ref: "#/components/schemas/ConnectionHealth" }
+
+    ConnectionHealth:
+      type: object
+      description: |
+        Whether the connection syncs, and if not why and what fixes it. `reason` is `needs_reauth`
+        (the provider refused the grant: token expired or revoked), `missing_scope` (the grant lacks a
+        permission the data needs), `failing` (the last 3 pulls failed) or `rate_limited` (the provider
+        asked to wait an hour or more, until `retry_at`). `action` is `reconnect` (send the user
+        through the connect flow again) or `wait` (it resumes by itself).
+      required: [healthy, reason, action, since, retry_at]
+      properties:
+        healthy: { type: boolean }
+        reason: { type: [string, "null"], enum: [needs_reauth, missing_scope, failing, rate_limited, null] }
+        action: { type: [string, "null"], enum: [reconnect, wait, null] }
+        since: { type: [string, "null"], format: date-time }
+        retry_at: { type: [string, "null"], format: date-time }
+
+    SyncRun:
+      type: object
+      description: |
+        One pull of one connection. `status` is `queued`, `running`, `retrying` (the last attempt
+        failed, see `error`; the next is at `next_attempt_at`), `rate_limited` (the provider asked to
+        wait until `next_attempt_at`), `succeeded`, `failed` (attempts spent, or the grant was refused)
+        or `cancelled` (the connection was disconnected). `objects_stored` counts the raw provider
+        payloads stored; the records written from them are announced by `data.written` webhooks.
+      required: [id, provider, trigger, status, data_type, window_start, window_end, attempts, objects_stored,
+        error, created_at, started_at, finished_at, next_attempt_at]
+      properties:
+        id: { type: integer, format: int64 }
+        provider: { type: string }
+        trigger: { type: string, enum: [backfill, scheduled, notification, manual] }
+        status: { type: string, enum: [queued, running, retrying, rate_limited, succeeded, failed, cancelled] }
+        data_type: { type: [string, "null"], description: Set when a notification named the one data type to pull. }
+        window_start: { type: string, format: date-time }
+        window_end: { type: string, format: date-time }
+        attempts: { type: integer, description: Failed attempts so far. }
+        objects_stored: { type: [integer, "null"] }
+        error: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        next_attempt_at: { type: [string, "null"], format: date-time }
 
     ConnectSessionRequest:
       type: object
@@ -1907,6 +2068,7 @@ components:
         last_attempt_at: { type: [string, "null"], format: date-time }
         last_error: { type: [string, "null"] }
         consecutive_failures: { type: integer }
+        health: { $ref: "#/components/schemas/ConnectionHealth" }
 
     Provenance:
       type: object

@@ -180,7 +180,7 @@ func addTools(s *sdk.Server, t *tools) {
 			return rrTool(ctx, t, a, read.HRV)
 		})
 	add(s, "get_coverage", "What has been synced: records per provider per local day with per metric counts, and the processing jobs still pending.", t.coverage)
-	add(s, "list_connections", "The user's provider connections with their status and last sync time.", t.connections)
+	add(s, "list_connections", "The user's provider connections with their status, last sync time and health (whether each syncs, why not, and whether the user must reconnect).", t.connections)
 	if t.d.Webhooks != nil {
 		add(s, "list_webhooks", "The tenant's outgoing webhook endpoints (tenant API key only) with their event types, "+
 			"status and delivery health, and with deliveries=true each endpoint's latest deliveries. "+

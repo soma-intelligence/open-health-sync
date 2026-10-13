@@ -28,13 +28,19 @@ const (
 	// ConnectionNeedsReauth: a provider refused the user's grant; nothing
 	// syncs until the user connects again.
 	ConnectionNeedsReauth = "connection.needs_reauth"
+	// ConnectionBroken: a connection stopped syncing and says why (grant
+	// refused, a permission missing, pulls failing, provider quota spent)
+	// and what the user can do.
+	ConnectionBroken = "connection.broken"
+	// ConnectionRestored: a broken connection synced again.
+	ConnectionRestored = "connection.restored"
 	// Test is sent by POST /v1/webhooks/{id}/test only.
 	Test = "webhook.test"
 )
 
 // Types are the event types an endpoint can subscribe to, in documentation
 // order. Test is not one: it goes to the endpoint it is asked for.
-var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth}
+var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth, ConnectionBroken, ConnectionRestored}
 
 // KnownType reports whether t can be subscribed to.
 func KnownType(t string) bool { return slices.Contains(Types, t) }

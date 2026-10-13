@@ -291,7 +291,8 @@ func TestEveryTool(t *testing.T) {
 	assert.Equal(t, "active", conns[0]["status"])
 	assert.Nil(t, conns[0]["last_sync_at"])
 	assert.NotEmpty(t, conns[0]["connected_at"])
-	assert.Len(t, conns[0], 4) // no token column ever leaves
+	assert.Equal(t, true, conns[0]["health"].(map[string]any)["healthy"])
+	assert.Len(t, conns[0], 5) // no token column ever leaves
 
 	msg, isErr = call(t, cs, "get_samples", map[string]any{"user_id": u, "type": "heart_rate", "cursor": "%%%"})
 	assert.True(t, isErr)

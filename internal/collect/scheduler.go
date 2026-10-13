@@ -275,6 +275,7 @@ func enqueueBackfill(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID,
 	for _, w := range backfillWindows(now) {
 		if err := queue.EnqueuePull(ctx, tx, queue.PullJob{
 			TenantID: tenantID, UserID: userID, Provider: provider, From: w[0], To: w[1],
+			Trigger: queue.TriggerBackfill,
 		}); err != nil {
 			return err
 		}
@@ -355,6 +356,9 @@ func (s *Scheduler) Schedule(ctx context.Context) (int, error) {
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM ohs_core.connect_sessions WHERE expires_at < $1`, now.Add(-time.Hour)); err != nil {
 		return 0, fmt.Errorf("purge connect sessions: %w", err)
+	}
+	if err := pruneRuns(ctx, tx, now, s.cfg.Batch); err != nil {
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit: %w", err)
@@ -529,6 +533,7 @@ func (s *Scheduler) handle(ctx context.Context, job queue.PullJob) {
 	defer cancel()
 	start := time.Now()
 	stored, err := s.pull(jobCtx, job)
+	job.Stored = stored
 	s.logSync(ctx, log, job, stored, time.Since(start), err)
 	s.settle(ctx, log, job, err)
 }
@@ -564,7 +569,7 @@ func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
 		if errors.Is(err, connector.ErrNeedsReauth) {
 			// Refused again: the grant is gone, unless a reconnect replaced
 			// the token in between.
-			err = s.d.markNeedsReauthIf(ctx, job.TenantID, job.UserID, job.Provider, conn.Tokens.Access)
+			err = s.d.markNeedsReauthIf(ctx, job.TenantID, job.UserID, job.Provider, conn.Tokens.Access, reauthReason(err))
 		}
 	}
 	return sink.stored, err
@@ -574,9 +579,10 @@ func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
 // holds (a reconnect landed meanwhile). The job is retried with the new one.
 var errTokenReplaced = errors.New("collect: provider refused a token that has since been replaced")
 
-// markNeedsReauthIf flags the connection needs_reauth under its row lock,
-// only while it still holds the refused access token.
-func (d Deps) markNeedsReauthIf(ctx context.Context, tenantID, userID uuid.UUID, provider, rejected string) error {
+// markNeedsReauthIf flags the connection needs_reauth (broken for reason)
+// under its row lock, only while it still holds the refused access token. It
+// returns connector.ErrMissingScope for that reason, else ErrNeedsReauth.
+func (d Deps) markNeedsReauthIf(ctx context.Context, tenantID, userID uuid.UUID, provider, rejected, reason string) error {
 	tx, err := d.Pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
@@ -601,33 +607,27 @@ func (d Deps) markNeedsReauthIf(ctx context.Context, tenantID, userID uuid.UUID,
 	if conn.Tokens.Access != rejected {
 		return errTokenReplaced
 	}
-	if err := markNeedsReauth(ctx, tx, tenantID, userID, provider); err != nil {
+	if err := markNeedsReauth(ctx, tx, tenantID, userID, provider, reason, d.now()); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
+	if reason == BrokenMissingScope {
+		return connector.ErrMissingScope
+	}
 	return connector.ErrNeedsReauth
 }
 
-// settle records the outcome on the job.
+// settle records the outcome on the job, and on the connection's freshness
+// and health.
 func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.PullJob, cause error) {
 	var err error
 	switch rl, limited := connector.AsRateLimit(cause); {
 	case cause == nil:
 		err = s.q.Complete(ctx, job)
 		if err == nil {
-			// synced_through only moves forward, never past now (a
-			// notification may name a window ending later), and only for a
-			// pull of every type: one type does not make the rest current.
-			now := s.d.now()
-			if _, uerr := s.d.Pool.Exec(ctx, `
-				UPDATE ohs_sync.connections SET last_sync_at = $4, last_attempt_at = $4,
-					synced_through = CASE WHEN $6 THEN synced_through
-						ELSE greatest(synced_through, least($5::timestamptz, $4::timestamptz)) END,
-					last_error = NULL, consecutive_failures = 0, updated_at = now()
-				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
-				job.TenantID, job.UserID, job.Provider, now, job.To, job.DataType != ""); uerr != nil {
+			if uerr := s.recordSuccess(ctx, job); uerr != nil {
 				log.ErrorContext(ctx, "collect: record last sync", "error", uerr)
 			}
 		}
@@ -635,21 +635,26 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 		until := s.d.now().Add(rl.RetryAfter)
 		log.InfoContext(ctx, "collect: provider rate limit, pull deferred", "retry_after", rl.RetryAfter)
 		err = s.q.Defer(ctx, job, until)
+		if err == nil && rl.RetryAfter >= RateLimitBrokenAfter {
+			if uerr := s.recordRateLimit(ctx, job, until); uerr != nil {
+				log.ErrorContext(ctx, "collect: record rate limit", "error", uerr)
+			}
+		}
 	case errors.Is(cause, connector.ErrNeedsReauth):
 		log.WarnContext(ctx, "collect: provider rejected the grant, connection needs reauthorization")
-		err = parkJob(ctx, s.d.Pool, job, reasonNeedsReauth)
+		outcome := queue.OutcomeNeedsReauth
+		if errors.Is(cause, connector.ErrMissingScope) {
+			outcome = queue.OutcomeMissingScope
+		}
+		err = parkJob(ctx, s.d.Pool, job, reasonNeedsReauth, outcome)
 	case errors.Is(cause, errInactive):
-		err = parkJob(ctx, s.d.Pool, job, reasonInactive)
+		err = parkJob(ctx, s.d.Pool, job, reasonInactive, queue.OutcomeInactive)
 	default:
 		msg := safeErr(cause)
 		log.WarnContext(ctx, "collect: pull failed", "error", msg)
 		err = s.q.Fail(ctx, job, errors.New(msg))
 		if err == nil {
-			if _, uerr := s.d.Pool.Exec(ctx, `
-				UPDATE ohs_sync.connections SET last_attempt_at = $4, last_error = $5,
-					consecutive_failures = consecutive_failures + 1, updated_at = now()
-				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
-				job.TenantID, job.UserID, job.Provider, s.d.now(), msg); uerr != nil {
+			if uerr := s.recordFailure(ctx, job, msg); uerr != nil {
 				log.ErrorContext(ctx, "collect: record pull failure", "error", uerr)
 			}
 		}
@@ -662,12 +667,108 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 	}
 }
 
+// recordSuccess moves the connection's freshness forward and restores it if
+// it was broken. synced_through only moves forward, never past now (a
+// notification may name a window ending later), and only for a pull of
+// every type: one type does not make the rest current.
+func (s *Scheduler) recordSuccess(ctx context.Context, job queue.PullJob) error {
+	now := s.d.now()
+	tx, err := s.d.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var status string
+	err = tx.QueryRow(ctx, `
+		UPDATE ohs_sync.connections SET last_sync_at = $4, last_attempt_at = $4,
+			synced_through = CASE WHEN $6 THEN synced_through
+				ELSE greatest(synced_through, least($5::timestamptz, $4::timestamptz)) END,
+			last_error = NULL, consecutive_failures = 0, updated_at = now()
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
+		RETURNING status`,
+		job.TenantID, job.UserID, job.Provider, now, job.To, job.DataType != "").Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// A disconnect or a needs_reauth that landed meanwhile stands.
+	if status == StatusActive {
+		if err := markRestored(ctx, tx, job.TenantID, job.UserID, job.Provider, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// recordFailure counts a failed pull on the connection; the FailingAfter-th
+// failure in a row breaks it.
+func (s *Scheduler) recordFailure(ctx context.Context, job queue.PullJob, msg string) error {
+	now := s.d.now()
+	tx, err := s.d.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var failures int
+	var status string
+	err = tx.QueryRow(ctx, `
+		UPDATE ohs_sync.connections SET last_attempt_at = $4, last_error = $5,
+			consecutive_failures = consecutive_failures + 1, updated_at = now()
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
+		RETURNING consecutive_failures, status`,
+		job.TenantID, job.UserID, job.Provider, now, msg).Scan(&failures, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if failures >= FailingAfter && status == StatusActive {
+		if err := markBroken(ctx, tx, job.TenantID, job.UserID, job.Provider, BrokenFailing, now,
+			map[string]any{"last_error": msg, "consecutive_failures": failures}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// recordRateLimit notes a long provider rate limit on the connection, which
+// breaks it until the next successful pull.
+func (s *Scheduler) recordRateLimit(ctx context.Context, job queue.PullJob, until time.Time) error {
+	tx, err := s.d.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var status string
+	err = tx.QueryRow(ctx, `
+		UPDATE ohs_sync.connections SET rate_limited_until = greatest(rate_limited_until, $4), updated_at = now()
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
+		RETURNING status`, job.TenantID, job.UserID, job.Provider, until).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if status == StatusActive {
+		if err := markBroken(ctx, tx, job.TenantID, job.UserID, job.Provider, BrokenRateLimited, s.d.now(),
+			map[string]any{"retry_at": until.UTC()}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 // parkJob stops a claimed job for good (its connection is no longer pulled).
 // It is fenced on the claim like the queue's own settles.
-func parkJob(ctx context.Context, q execer, job queue.PullJob, reason string) error {
+func parkJob(ctx context.Context, q execer, job queue.PullJob, reason, outcome string) error {
 	tag, err := q.Exec(ctx, `
-		UPDATE ohs_sync.pull_jobs SET status = 'parked', claimed_at = NULL, last_error = $3
-		WHERE id = $1 AND status = 'running' AND claimed_at = $2`, job.ID, job.ClaimedAt, reason)
+		UPDATE ohs_sync.pull_jobs SET status = 'parked', claimed_at = NULL, last_error = $3,
+			outcome = $4, objects_stored = $5, started_at = $2, finished_at = now()
+		WHERE id = $1 AND status = 'running' AND claimed_at = $2`, job.ID, job.ClaimedAt, reason, outcome, job.Stored)
 	if err != nil {
 		return fmt.Errorf("park pull job: %w", err)
 	}

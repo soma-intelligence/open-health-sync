@@ -24,6 +24,9 @@ func (s *server) mountCollect(mux *http.ServeMux) {
 	mux.Handle("GET /v1/users/{id}/freshness", tenantKey(h.Freshness()))
 	mux.Handle("POST /v1/users/{id}/connections/{provider}", tenantKey(h.StartConnection()))
 	mux.Handle("DELETE /v1/users/{id}/connections/{provider}", tenantKey(h.DeleteConnection()))
+	mux.Handle("POST /v1/users/{id}/connections/{provider}/sync", tenantKey(h.SyncNow()))
+	mux.Handle("GET /v1/users/{id}/sync-runs", tenantKey(h.ListSyncRuns()))
+	mux.Handle("GET /v1/users/{id}/sync-runs/{run}", tenantKey(h.GetSyncRun()))
 	mux.Handle("POST /v1/users/{id}/connect-sessions", tenantKey(h.CreateConnectSession()))
 	// The hosted connection page: the session token in the link (query or
 	// form field) is its credential, so no bearer.
