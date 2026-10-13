@@ -110,6 +110,13 @@ const sources: Record<string, Target[]> = {
         "Metrics exposure, crashes, long outages, re-processing a user and other things to know in production.",
     },
   ],
+  "docs/console.md": [
+    {
+      page: "(guides)/self-hosting/console",
+      title: "Admin console",
+      description: "A read-only page for operators: users, connections, freshness and webhook deliveries.",
+    },
+  ],
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",
@@ -175,6 +182,7 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/backup": "DatabaseBackup",
   "(guides)/self-hosting/rotating-secrets": "RotateCw",
   "(guides)/self-hosting/operating-notes": "NotebookPen",
+  "(guides)/self-hosting/console": "LayoutDashboard",
   "(guides)/guides/fhir": "HeartPulse",
   "(guides)/guides/open-mhealth": "Activity",
   "(guides)/guides/exports": "FileDown",
