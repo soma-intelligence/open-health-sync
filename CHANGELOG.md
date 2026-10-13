@@ -30,6 +30,12 @@ release may change the API, the configuration or the database schema.
   one period; intermenstrual bleeding never starts one. Nothing is predicted. Health Connect
   `MenstruationFlow` and `IntermenstrualBleeding` records are now stored, in the same category
   types as Apple Health's. See [docs/menstrual-cycles.md](docs/menstrual-cycles.md).
+- Time tags: intervals that give context to a user's data (`illness`, `injury`, `travel`,
+  `jet_lag`, `vaccination`, `medication`, `alcohol`, `other`), with an optional label, note and
+  IANA time zone, and an open end while ongoing. `POST`, `GET`, `PATCH` and `DELETE` under
+  `/v1/users/{id}/tags`; the list keeps the tags that overlap a window. `tag.created`,
+  `tag.updated` and `tag.deleted` webhook events, and the read-only MCP tool `get_tags`. Tags are
+  deleted with their user. See [docs/time-tags.md](docs/time-tags.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and
@@ -255,6 +261,11 @@ release may change the API, the configuration or the database schema.
   so the lookup is an index range, not a scan.
 - A token refresh that returns no new refresh token keeps the stored one (RFC 6749 section 6);
   this was already the behaviour and is now covered by a test.
+
+### Security
+
+- CI checks the gitleaks release tarball against a pinned sha256 (taken from the release's
+  checksums file) before running it.
 
 ## [0.0.2] - 2026-10-11
 

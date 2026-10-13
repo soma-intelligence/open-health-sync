@@ -35,7 +35,7 @@ info:
     `request_id`, and the server logs carry it too.
 
     **Idempotency.** `Idempotency-Key` (1 to 255 characters) is honoured on
-    `POST /v1/users`: a retry with the same key and the same request within 24 hours gets the first response back, with
+    `POST /v1/users` and `POST /v1/users/{id}/tags`: a retry with the same key and the same request within 24 hours gets the first response back, with
     `Idempotent-Replayed: true`. The same key with another request is a 422; a retry while
     the first call still runs is a 409. Token minting ignores the header (replaying it would
     mean storing the token); device uploads are idempotent by their own headers.
@@ -52,6 +52,7 @@ tags:
   - name: webhooks
   - name: connections
   - name: read
+  - name: tags
   - name: fhir
   - name: omh
   - name: exports
@@ -1050,6 +1051,131 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/tags:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [tags]
+      operationId: createTimeTag
+      summary: Record a time tag
+      description: |
+        A time tag is an interval that gives context to the user's data: an illness, a trip,
+        jet lag, a vaccination. It is context only: nothing is computed from it. `end_at`
+        absent or null is a tag still ongoing; close it later with PATCH. `start_at` and
+        `end_at` take an RFC 3339 time or a `YYYY-MM-DD` date (midnight UTC). `label` and
+        `note` are free text and are treated as health data: never logged. See
+        docs/time-tags.md.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTimeTagRequest" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location:
+              schema: { type: string }
+              description: /v1/users/{id}/tags/{tag_id}
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TimeTag" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: An idempotent request with this key is in progress.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/IdempotencyMismatch" }
+    get:
+      tags: [tags]
+      operationId: listTimeTags
+      summary: The user's time tags
+      description: |
+        By `start_at`, then id. With `start` and `end`, the tags that overlap the window
+        `[start, end)`: a tag `[start_at, end_at)` is listed when `start_at < end` and
+        `end_at > start`, and an ongoing tag (`end_at` null) when `start_at < end`. A tag that
+        ends exactly at `start`, or starts exactly at `end`, does not overlap. `start` equal to
+        `end` is an empty window.
+      parameters:
+        - name: kind
+          in: query
+          description: Only the tags of this kind. Another value is a 400.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by start_at.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TimeTagPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/tags/{tag_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/TagID"
+    get:
+      tags: [tags]
+      operationId: getTimeTag
+      summary: One time tag
+      responses:
+        "200":
+          description: The tag.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TimeTag" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [tags]
+      operationId: updateTimeTag
+      summary: Change a time tag
+      description: |
+        Absent members stay as they are; null clears `label`, `timezone`, `note` or `end_at`
+        (null `end_at` reopens the tag). `kind` and `start_at` cannot be null, and `source`
+        cannot change. The tag after the change is checked as a whole: `end_at` must stay after
+        `start_at`. A body that changes nothing returns the tag as it is.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTimeTagRequest" }
+      responses:
+        "200":
+          description: The tag after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TimeTag" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+    delete:
+      tags: [tags]
+      operationId: deleteTimeTag
+      summary: Delete a time tag
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/fhir/Observation:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1530,8 +1656,8 @@ paths:
         token needs the `read` scope and reads only its own user. Tools: `list_users`,
         `list_quantity_types`, `get_samples`, `get_category_samples`, `get_sleep`,
         `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_rr_intervals`,
-        `get_hrv`, `get_menstrual_cycles`, `get_coverage`, `list_connections`. Each tool result is JSON text with `records`, `next_cursor` and
-        `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
+        `get_hrv`, `get_menstrual_cycles`, `get_tags`, `get_coverage`, `list_connections`. Each
+        tool result is JSON text with `records`, `next_cursor` and `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
         is a tool error inside a 200, as MCP prescribes. See docs/mcp.md.
       requestBody:
         content:
@@ -1663,6 +1789,12 @@ components:
       in: path
       required: true
       schema: { type: integer }
+    TagID:
+      name: tag_id
+      in: path
+      required: true
+      description: The `id` of a time tag of this user.
+      schema: { type: string, format: uuid }
     Provider:
       name: provider
       in: path
@@ -1853,12 +1985,14 @@ components:
 
     WebhookEventType:
       type: string
-      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth]
+      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth, tag.created, tag.updated, tag.deleted]
       description: |
         `data.written`: a sync wrote new or changed records. `data.deleted`: records the
         provider deleted were removed. `data.erased`: everything a user held from one provider
         was erased on your request. `user.deleted`: a user and all their data were erased.
         `connection.needs_reauth`: a provider refused the user's grant; the user must connect again.
+        `tag.created`, `tag.updated`, `tag.deleted`: a time tag of the user was created, changed
+        or deleted through the API.
 
     CreateWebhookRequest:
       type: object
@@ -2020,6 +2154,7 @@ components:
             last_day: { type: string, format: date, description: "data.written. Last data day." }
             records_deleted: { type: integer, description: data.deleted. }
             job_id: { type: string, format: uuid, description: "data.erased. The deletion job that finished." }
+            tag_id: { type: string, format: uuid, description: "tag.created, tag.updated and tag.deleted." }
             endpoint_id: { type: string, format: uuid, description: webhook.test. }
 
     Connection:
@@ -2410,6 +2545,88 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/MenstrualCycle" } }
+
+    TimeTagKind:
+      type: string
+      enum: [illness, injury, travel, jet_lag, vaccination, medication, alcohol, other]
+      description: The controlled vocabulary of time tags; see docs/time-tags.md.
+
+    TimeTagTime:
+      oneOf:
+        - { type: string, format: date-time }
+        - { type: string, format: date }
+
+    TimeTag:
+      type: object
+      required: [id, kind, label, start_at, end_at, timezone, note, source, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/TimeTagKind" }
+        label: { type: [string, "null"], maxLength: 100 }
+        start_at: { type: string, format: date-time }
+        end_at:
+          type: [string, "null"]
+          format: date-time
+          description: Exclusive end; null while the tag is ongoing.
+        timezone:
+          type: [string, "null"]
+          description: An IANA time zone, for example the destination zone of a trip.
+          examples: [Asia/Tokyo]
+        note: { type: [string, "null"], maxLength: 2000 }
+        source:
+          type: string
+          description: Who recorded the tag; `user` unless the creator named itself.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateTimeTagRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, start_at]
+      properties:
+        kind: { $ref: "#/components/schemas/TimeTagKind" }
+        label:
+          type: [string, "null"]
+          maxLength: 100
+          description: A short free text. Empty or null is none.
+        start_at: { $ref: "#/components/schemas/TimeTagTime" }
+        end_at:
+          description: After `start_at`. Absent or null for a tag still ongoing.
+          oneOf:
+            - $ref: "#/components/schemas/TimeTagTime"
+            - { type: "null" }
+        timezone:
+          type: [string, "null"]
+          maxLength: 64
+          description: An IANA time zone name. Empty or null is none.
+        note:
+          type: [string, "null"]
+          maxLength: 2000
+          description: Free text, treated as health data. Empty or null is none.
+        source:
+          type: string
+          pattern: "^[A-Za-z0-9._:-]{1,64}$"
+          description: Who records the tag, for example your app's name. Absent means `user`.
+
+    UpdateTimeTagRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        kind: { $ref: "#/components/schemas/TimeTagKind" }
+        label: { type: [string, "null"], maxLength: 100 }
+        start_at: { $ref: "#/components/schemas/TimeTagTime" }
+        end_at:
+          oneOf:
+            - $ref: "#/components/schemas/TimeTagTime"
+            - { type: "null" }
+        timezone: { type: [string, "null"], maxLength: 64 }
+        note: { type: [string, "null"], maxLength: 2000 }
+
+    TimeTagPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/TimeTag" } }
 
     FHIRCoding:
       type: object
