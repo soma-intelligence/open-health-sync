@@ -25,6 +25,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // Connection statuses (ohs_sync.connections.status).
@@ -227,11 +228,20 @@ func parkPending(ctx context.Context, q execer, tenantID, userID uuid.UUID, prov
 // pending pull jobs. The scheduler only pulls active connections, so nothing
 // more is enqueued until the user connects again.
 func markNeedsReauth(ctx context.Context, q execer, tenantID, userID uuid.UUID, provider string) error {
-	if _, err := q.Exec(ctx, `
+	tag, err := q.Exec(ctx, `
 		UPDATE ohs_sync.connections SET status = 'needs_reauth', updated_at = now()
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status = 'active'`,
-		tenantID, userID, provider); err != nil {
+		tenantID, userID, provider)
+	if err != nil {
 		return fmt.Errorf("mark needs_reauth: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		if _, err := webhook.Enqueue(ctx, q, webhook.Event{
+			Tenant: tenantID, User: &userID, Type: webhook.ConnectionNeedsReauth,
+			Data: map[string]any{"provider": provider},
+		}); err != nil {
+			return err
+		}
 	}
 	return parkPending(ctx, q, tenantID, userID, provider, reasonNeedsReauth)
 }

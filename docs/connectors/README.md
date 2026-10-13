@@ -1,9 +1,10 @@
 # Connectors
 
-A connector teaches Open Health Sync one source. Ten are available: [Apple Health](apple-health.md),
-[Withings](withings.md), [Oura](oura.md), [WHOOP](whoop.md), [Strava](strava.md), [Polar](polar.md),
-[Fitbit](fitbit.md), [Suunto](suunto.md), [Ultrahuman](ultrahuman.md) and
-[intervals.icu](intervals-icu.md).
+A connector teaches Open Health Sync one source. Thirteen are available: [Apple Health](apple-health.md),
+[Health Connect](health-connect.md), [Withings](withings.md), [Oura](oura.md), [WHOOP](whoop.md),
+[Strava](strava.md), [Polar](polar.md), [Fitbit](fitbit.md), [Suunto](suunto.md),
+[Ultrahuman](ultrahuman.md), [intervals.icu](intervals-icu.md), [Dexcom](dexcom.md) and
+[OMRON](omron.md).
 Every other source below is **planned**: it is not built yet, and no code for it runs today. To build one, start with
 [writing a connector](../writing-a-connector.md).
 
@@ -13,8 +14,8 @@ Status:
 
 - **Available**: ships in this release.
 - **Planned**: on the roadmap, not built yet.
-- **Via Health Connect**: no server-side path we intend to use; the data would come through
-  Android's Health Connect and the planned Kotlin SDK. Planned, not built yet.
+- **Via Health Connect**: no server-side path we intend to use; the data comes through
+  Android's [Health Connect](health-connect.md) upload, from your Android app.
 - **No public API**: the vendor publishes no official API we can build on.
 
 Integration paths, as checked in October 2026 (vendors change their programs, so check the
@@ -40,9 +41,10 @@ linked tracking issue or the vendor's developer site before you start):
 | intervals.icu | Available, not yet verified with a real account | Cloud API v1, OAuth 2.0, scheduled pulls and webhooks (activity, wellness) | Activities as workouts, keeping their upstream source (Garmin, Wahoo, Zwift, Coros, Suunto, Polar, uploads); daily wellness: weight, resting heart rate, HRV (RMSSD and SDNN), sleep score, steps, SpO2, respiration, body fat, VO2 max, blood pressure | Apply for an OAuth app at intervals.icu; the intervals.icu developer approves it ([guide](intervals-icu.md)). No refresh tokens: a revoked token means reconnecting. Activities synced from Strava are not available through the API | |
 | Coros | Planned | Cloud API, OAuth 2.0; a partner API with webhooks for established platforms | Activities, health metrics, fitness assessments | Partner access is requested from COROS (api@coros.com); full docs are shared after registration | |
 | Suunto | Available, not yet verified with a real account | Partner program (Suunto Cloud API), OAuth 2.0 with an API Zone subscription key, scheduled pulls and signed notifications | Workouts (summary figures); 24/7 sleep, recovery and daily activity stored raw only | Companies and organizations apply to Suunto's partner program and sign its API agreement; not for personal use. Bring your own API Zone app and subscription key ([guide](suunto.md)). No FIT samples, laps or routes yet | |
-| Dexcom | Planned | Cloud API v3, OAuth 2.0 (scope `offline_access`) | Estimated glucose values (EGVs), events, calibrations, devices, alerts | Free sandbox; production beyond a few users needs Dexcom's approval. Separate hosts for the US, EU and Japan | |
-| FreeStyle Libre, Omron | Planned | Not researched yet | Glucose; blood pressure | Contributions of research notes are welcome | |
-| Health Connect | Planned | On-device (Android). Needs the planned Kotlin SDK in your Android app | Steps, heart rate, sleep, exercise, nutrition, body measurements and more | By default an app reads back only 30 days before its first permission grant; older data needs the history permission. Many Android apps write here, which is how Samsung Health, Fitbit and Zepp data can reach it | |
+| Dexcom | Available, not yet verified with a real account | Cloud API v3, OAuth 2.0 (scope `offline_access`), scheduled pulls | Estimated glucose values (EGVs) as `blood_glucose`, coded as interstitial glucose in FHIR | Bring your own app from developer.dexcom.com ([guide](dexcom.md)). Free sandbox; production use needs Dexcom's approval. One region per instance (US, EU, Japan). Readings reach the API 1 hour late in the US, 3 hours elsewhere. Events, calibrations and alerts are not pulled yet | |
+| OMRON | Available, not yet verified with a real account | Partner API (OMRON Wellness API), OAuth 2.0, scheduled pulls | Blood pressure (paired systolic and diastolic, pulse, possible AFib flag), weight and body composition | Apply at omronhealthcare.com/api; staging credentials first, production after OMRON's approval ([guide](omron.md)). Its upload notifications are not received yet (format not public) | |
+| FreeStyle Libre | No public API | Through Health Connect (Android) or Apple Health (iPhone), when the Libre app writes there | Glucose | Abbott publishes no developer API; LibreView integrations are by agreement only. We will not use the unofficial LibreLinkUp app API ([research notes](freestyle-libre.md)) | |
+| Health Connect | Available on the server, not yet verified with a real phone | On-device (Android). Your Android app uploads gzip NDJSON parts to `POST /v1/ingest/health-connect` | Steps, heart rate, resting heart rate, HRV, SpO2, respiratory rate, temperature, blood pressure, blood glucose, weight, height, body fat, active energy, distance, sleep with stages, exercise sessions, deletions | Your app implements the [upload contract](health-connect.md); the Kotlin SDK that does it is being built. By default an app reads back only 30 days before its first permission grant; older data needs the history permission. Many Android apps write here, which is how Samsung Health, Fitbit, Zepp and CGM apps can reach it | |
 | Samsung Health | Via Health Connect | On-device only: the Samsung Health Data SDK (partner approval needed to distribute), or Health Connect, which Samsung Health writes to | Activity, sleep, heart rate, skin temperature | The older Samsung Health SDK for Android was deprecated on 2025-07-31. We plan to read Samsung Health data through Health Connect, which needs no Samsung partnership | |
 | Google Fit | Deprecated by Google, use Health Connect (planned Kotlin SDK) | None to build on | | Google closed sign-ups on 2024-05-01 and supports the Fit APIs only until the end of 2026. It points Android apps to Health Connect and cloud apps to the Google Health API | |
 | Zepp / Amazfit | Via Health Connect | On-device: the Zepp app writes to Health Connect on Android and to Apple Health on iOS | Steps, heart rate, sleep, workouts, calories | We found no official public API. On iPhone, what the Zepp app writes to HealthKit is ordinary Apple Health data | |
