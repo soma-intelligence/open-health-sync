@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/soma-intelligence/open-health-sync/internal/collect"
+	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -99,5 +101,31 @@ func TestConsoleMountedWithFlag(t *testing.T) {
 	// The API itself is unchanged: reads still need a key.
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/v1/users", nil))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestConnectPageRoutesMounted(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	box, err := crypto.NewBox(make([]byte, 32))
+	require.NoError(t, err)
+	store := tenant.New(pool)
+	h := NewRouter(Deps{Pool: pool, Store: store, Collect: collect.NewHandlers(collect.Deps{Pool: pool, Box: box, Tenants: store})})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/connect?session=not-a-token", nil))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, "text/html; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"))
+	assert.Contains(t, rec.Body.String(), "This link is not valid")
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/connect", nil))
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	assert.Equal(t, "GET, HEAD", rec.Header().Get("Allow"))
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/users/00000000-0000-0000-0000-000000000001/connect-sessions", nil))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

@@ -145,6 +145,13 @@ const sources: Record<string, Target[]> = {
       description: "Download every record of a list as one CSV or Parquet file.",
     },
   ],
+  "docs/connect-page.md": [
+    {
+      page: "(guides)/guides/connect-page",
+      title: "Hosted connection page",
+      description: "Send users to a page served by Open Health Sync to connect their sources, no OAuth UI to build.",
+    },
+  ],
   "docs/webhooks.md": [
     {
       page: "(guides)/guides/webhooks",
@@ -212,6 +219,7 @@ const icons: Record<string, string> = {
   "(guides)/recipes/ai-agent": "Bot",
   "(guides)/recipes/connect": "Link",
   "(guides)/guides/hrv": "Waves",
+  "(guides)/guides/connect-page": "MousePointerClick",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).
