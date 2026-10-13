@@ -115,6 +115,7 @@ Provider deletions are honored too.
 | 🔜 | CSV and Parquet exports ([docs](docs/exports.md)) | 🔜 | Dexcom (CGM), OMRON |
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
+| 🔜 | Read-only admin console at `/console` ([docs](docs/console.md)) | | |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
 | 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR, after the SDKs |
 
@@ -549,7 +550,7 @@ software.
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON and
 Health Connect connectors, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing webhooks,
-Health app export import, background sync, sample compression, personal mode and the recipes are on `main` and ship in the next release. What
+Health app export import, background sync, sample compression, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
@@ -579,6 +580,7 @@ SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as G
   [WHOOP](docs/connectors/whoop.md), [Strava](docs/connectors/strava.md),
   [Polar](docs/connectors/polar.md), [writing your own](docs/writing-a-connector.md).
 - [Background sync](docs/background-sync.md): webhooks, backstop pulls, freshness.
+- [Admin console](docs/console.md): a read-only page for users, connections, freshness and webhook deliveries.
 - [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
 
 ## Contributing
