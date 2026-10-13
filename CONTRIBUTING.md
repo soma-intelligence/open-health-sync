@@ -19,8 +19,10 @@ make test         # unit tests, no Docker
 make integration  # tests tagged integration, need Docker (testcontainers)
 ```
 
-Other targets: `make e2e` (the quickstart against a real stack) and `make reliability` (crash
-recovery). `make guard` runs the repository checks described below.
+Other targets: `make e2e` (the quickstart against a real stack), `make reliability` (crash
+recovery) and `make upgrade-test` (the last release, with data in it, migrated to your checkout;
+a change to `internal/db/migrations` should pass it). `make guard` runs the repository checks
+described below.
 
 ## Layout
 
@@ -53,8 +55,8 @@ Read [docs/architecture.md](docs/architecture.md) first. To add a provider, read
 - **No secrets, no health values in logs.** Tokens, keys and measurements never reach a log
   line, an error message or a test fixture. Fixtures use invented values.
 - **Migrations.** Add a numbered pair of `.up.sql` and `.down.sql` files under
-  `internal/db/migrations`. Use hypertables only: no continuous aggregates, no compression
-  policies.
+  `internal/db/migrations`. Use hypertables. No continuous aggregates; compression only
+  as migration 0015 sets it up.
 - **Standard library first.** The router is `http.ServeMux`; a new dependency needs a reason.
 - **Repository checks.** `make guard` scans the tracked files and the branch's commit messages
   for names that must not appear in this repository. The list is kept private by the maintainers

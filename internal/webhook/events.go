@@ -19,6 +19,10 @@ const (
 	DataWritten = "data.written"
 	// DataDeleted: records the provider deleted were removed.
 	DataDeleted = "data.deleted"
+	// DataErased: everything a user held from one provider was erased, on a
+	// request of the tenant (a disconnect with delete_data=true, or
+	// DELETE /v1/users/{id}/data/{provider}).
+	DataErased = "data.erased"
 	// UserDeleted: a user and all their data were erased.
 	UserDeleted = "user.deleted"
 	// ConnectionNeedsReauth: a provider refused the user's grant; nothing
@@ -30,7 +34,7 @@ const (
 
 // Types are the event types an endpoint can subscribe to, in documentation
 // order. Test is not one: it goes to the endpoint it is asked for.
-var Types = []string{DataWritten, DataDeleted, UserDeleted, ConnectionNeedsReauth}
+var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth}
 
 // KnownType reports whether t can be subscribed to.
 func KnownType(t string) bool { return slices.Contains(Types, t) }

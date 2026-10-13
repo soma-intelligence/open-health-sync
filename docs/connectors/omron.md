@@ -5,9 +5,9 @@ their blood pressure and weight readings from the official OMRON Wellness API (t
 [Partner API](https://omronhealthcare-ohi.atlassian.net/wiki/spaces/API/pages/2480308225/Omron+Partner+API+for+US))
 on a schedule. You register your own app with OMRON: nothing is shared between instances.
 
-Status: available. It is tested against a fake of the
-API built from the published documentation. The points marked *unverified* below are the ones
-to check first, in OMRON's staging environment.
+Status: available. It is tested against a fake of the API built from the published
+documentation. The points marked *to confirm* below are the ones to check first, in OMRON's
+staging environment.
 
 ## 1. Get your keys
 
@@ -38,7 +38,7 @@ An unknown environment stops startup.
 The consent page asks for `bloodpressure weight openid offline_access`. `openid` gives an
 `id_token` whose `sub` claim is the OMRON user id; `offline_access` gives the refresh token.
 Access tokens last an hour. Each refresh returns a new refresh token, which replaces the stored
-one. *Unverified:* OMRON's example refresh request also sends `redirect_uri`; the connector
+one. *To confirm:* OMRON's example refresh request also sends `redirect_uri`; the connector
 does not, because the redirect is not known at refresh time.
 
 ## 4. Connect a user

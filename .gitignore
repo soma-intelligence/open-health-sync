@@ -8,3 +8,12 @@ coverage.*
 !.env.example
 .DS_Store
 .superpowers/
+# Built binary from a bare `go build ./cmd/ohs`
+/ohs
+# Recipe outputs hold real health data
+health-dashboard.html
+health-export-*/
+*.parquet
+# Keys and certificates
+*.pem
+*.key

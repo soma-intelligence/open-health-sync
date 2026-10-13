@@ -91,6 +91,36 @@ effort), deletes the user's raw files and every row, then the user.
 ```
 
 `status` is `pending`, `running`, `done` or `failed`; `finished_at` is null until the job ends.
+`provider` is null for a user deletion and names the provider for the erasure of one provider's
+data (below).
+
+### Erasing one provider's data
+
+Some providers' terms ask that a user's data from them be erased when the user disconnects them.
+Two routes do it, each answering 202 with a `job_id` that `GET /v1/deletions/{job_id}` reads
+like a user deletion:
+
+- `DELETE /v1/users/{id}/connections/{provider}?delete_data=true` disconnects the provider as a
+  plain disconnect does, then erases its data. Without `delete_data` (or with `false`) the
+  answer is still 204 and the data already collected is kept, as before.
+- `DELETE /v1/users/{id}/data/{provider}` erases a provider's data without touching any
+  connection: for device providers (`apple_health`, `health_connect`), which have no
+  connection, and for a provider already disconnected. A provider the user is still connected
+  to is a 409 (disconnect it with `delete_data=true`); a provider unknown to this build is a 404.
+
+The job deletes everything of that user and provider: the normalized records (samples, sleep
+sessions and phases, workouts with their routes and track summaries, nutrition, ECG recordings
+and voltages, heartbeat series, daily summaries, observations), the provider's tombstones, the
+raw files and their rows, failed records, ETL and pull jobs, pull coverage, the sync log, push
+subscriptions, unused consent states and the disconnected connection itself. Daily summaries are
+kept per provider, so the other providers' summaries need no recompute. The user and their other
+providers stay. Asking again while the job runs returns the same job.
+
+Until the job is done the provider cannot be connected again (409) and its uploads for the user
+are refused (409, nothing kept); afterwards new data is accepted as usual. Re-processing old raw
+objects cannot bring the data back, since the raw files and their registry rows are gone, and a
+pull still running when the job is due delays it until the pull ends. The `data.erased`
+[webhook](webhooks.md) announces the end.
 
 ## Connecting a provider
 
@@ -114,7 +144,8 @@ and expires after 10 minutes.
 `GET /v1/users/{id}/connections` shows each connection's `status` (`active`, `needs_reauth`,
 `disconnected`), `last_sync_at` and `initial_backfill_at`. A connection in `needs_reauth` needs
 the user to go through consent again. `DELETE /v1/users/{id}/connections/{provider}` revokes the
-grant (best effort) and stops pulling; data already collected is kept.
+grant (best effort) and stops pulling; data already collected is kept, unless you add
+`?delete_data=true`, which also erases it (see [erasing one provider's data](#erasing-one-providers-data)).
 
 `GET /v1/users/{id}/freshness` says how up to date each source of the user is, Apple Health
 uploads included: `synced_through`, `lag_seconds`, the last provider notification, the next

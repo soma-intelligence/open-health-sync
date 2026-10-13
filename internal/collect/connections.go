@@ -23,6 +23,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
+	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
@@ -338,13 +339,32 @@ const finishTimeout = 10 * time.Second
 // connection disconnected, wipes its tokens and parks its pending pull jobs.
 // 204 on success, also for an already disconnected connection; 404 when the
 // user has no connection to that provider.
+//
+// With ?delete_data=true it also queues, in the same transaction, the
+// erasure of everything the user holds from that provider (see package
+// deletion), drops the user's unused consent states for it, and answers 202
+// with the job id instead. Without the parameter (or with false) the data
+// already collected is kept, as before.
 func (h *Handlers) DeleteConnection() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var deleteData bool
+		switch v := r.URL.Query().Get("delete_data"); v {
+		case "", "false":
+		case "true":
+			deleteData = true
+		default:
+			auth.WriteProblem(w, http.StatusBadRequest, "Bad Request", "delete_data must be true or false")
+			return
+		}
 		tenantID, userID, ok := h.caller(w, r)
 		if !ok {
 			return
 		}
 		provider := r.PathValue("provider")
+		if deleteData && !deletion.ValidProvider(provider) {
+			writeNotFound(w, "no connection to this provider")
+			return
+		}
 		ctx := r.Context()
 		// The row stays locked from the read through the revoke to the wipe,
 		// so a refresh or a reconnect cannot interleave.
@@ -397,12 +417,34 @@ func (h *Handlers) DeleteConnection() http.Handler {
 			writeInternal(w)
 			return
 		}
+		var jobID uuid.UUID
+		if deleteData {
+			// A consent link handed out earlier must not reconnect the
+			// provider while (or after) its data is erased.
+			if _, err := tx.Exec(dctx, `DELETE FROM ohs_sync.oauth_states
+				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`, tenantID, userID, provider); err != nil {
+				slog.ErrorContext(ctx, "collect: disconnect", "error", err)
+				writeInternal(w)
+				return
+			}
+			if jobID, err = deletion.QueueProvider(dctx, tx, tenantID, userID, provider); err != nil {
+				slog.ErrorContext(ctx, "collect: queue provider data deletion", "error", err)
+				writeInternal(w)
+				return
+			}
+		}
 		if err := tx.Commit(dctx); err != nil {
 			slog.ErrorContext(ctx, "collect: disconnect commit", "error", err)
 			writeInternal(w)
 			return
 		}
 		slog.InfoContext(ctx, "collect: connection disconnected", "tenant_id", tenantID, "user_id", userID, "provider", provider)
+		if deleteData {
+			slog.InfoContext(ctx, "collect: provider data deletion requested", "tenant_id", tenantID, "user_id", userID,
+				"provider", provider, "job_id", jobID)
+			deletion.WriteAccepted(w, jobID)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

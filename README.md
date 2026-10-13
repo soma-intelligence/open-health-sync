@@ -168,6 +168,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 | A crash mid-run | rerun the script and hope | Postgres queue, retries with backoff, parked after 5 attempts |
 | Provider OAuth tokens | a plain column or a `.env` | sealed with AES-256-GCM under `OHS_ENCRYPTION_KEY` |
 | Delete a user | grep across tables and buckets | `DELETE /v1/users/{id}`, then poll `GET /v1/deletions/{job_id}` |
+| Erase one provider's data | the same grep, filtered by hand | `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`, or `DELETE /v1/users/{id}/data/{provider}` for a device |
 | Let an AI agent read it | build an integration | read-only MCP server, `ohs mcp` for desktop agents |
 
 ## Features
