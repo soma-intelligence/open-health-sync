@@ -11,3 +11,6 @@ func ChildTables() map[string][2]string {
 	}
 	return out
 }
+
+// KeptTables are the user-scoped tables a provider erasure leaves.
+func KeptTables() map[string]bool { return keptTables }

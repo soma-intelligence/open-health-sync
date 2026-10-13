@@ -174,6 +174,13 @@ const sources: Record<string, Target[]> = {
       description: "Cycles derived at read time from the recorded menstrual flow, and the rules they follow.",
     },
   ],
+  "docs/time-tags.md": [
+    {
+      page: "(guides)/guides/time-tags",
+      title: "Time tags",
+      description: "Mark the periods that give context to the data: illness, travel, jet lag and more.",
+    },
+  ],
 };
 
 // Each provider guide under docs/connectors becomes a page of its own.
@@ -218,6 +225,7 @@ const icons: Record<string, string> = {
   "(guides)/guides/exports": "FileDown",
   "(guides)/guides/webhooks": "Webhook",
   "(guides)/guides/menstrual-cycles": "CalendarDays",
+  "(guides)/guides/time-tags": "Tag",
   "(guides)/recipes/index": "Sparkles",
   "(guides)/recipes/sleep-report": "Moon",
   "(guides)/recipes/heart-trend": "HeartPulse",

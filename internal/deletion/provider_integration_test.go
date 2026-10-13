@@ -158,6 +158,9 @@ func (e *env) providerRows(t *testing.T, user uuid.UUID, provider string) map[st
 	children := deletion.ChildTables()
 	out := map[string]int{}
 	for _, tbl := range e.userTables(t) {
+		if deletion.KeptTables()[tbl] {
+			continue
+		}
 		q := fmt.Sprintf(`SELECT count(*) FROM %s WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`, tbl)
 		if c, ok := children[tbl]; ok {
 			q = fmt.Sprintf(`SELECT count(*) FROM %s c WHERE c.tenant_id = $1 AND c.user_id = $2
@@ -206,10 +209,19 @@ func TestProviderDeletionRemovesOnlyThatUserAndProvider(t *testing.T) {
 	e.seed(t, b.id, target, "active")
 	e.seed(t, b.id, other, "active")
 
-	// The seed covers every user-scoped table: a new table fails here until
-	// it is seeded, and so proven erased.
-	assert.ElementsMatch(t, e.userTables(t), seeded,
+	// The seed covers every user-scoped table but the kept ones: a new table
+	// fails here until it is seeded, and so proven erased.
+	var erasable []string
+	for _, tbl := range e.userTables(t) {
+		if !deletion.KeptTables()[tbl] {
+			erasable = append(erasable, tbl)
+		}
+	}
+	assert.ElementsMatch(t, erasable, seeded,
 		"seed() must write every table with a user_id column; add the new table to it")
+	// A time tag is the user's own entry, not the provider's: it stays.
+	e.exec(t, `INSERT INTO ohs_data.time_tags (tenant_id, user_id, kind, start_at) VALUES ($1, $2, 'travel', now())`,
+		e.tenant.ID, a.id)
 	for _, tbl := range seeded {
 		require.Equal(t, 1, e.providerRows(t, a.id, target)[tbl], tbl)
 	}
@@ -236,6 +248,9 @@ func TestProviderDeletionRemovesOnlyThatUserAndProvider(t *testing.T) {
 	assert.NotEmpty(t, e.providerFiles(t, b.id, target))
 	_, err = e.store.GetActiveUser(ctx, e.tenant.ID, a.id)
 	assert.NoError(t, err, "the user stays")
+	var tags int
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_data.time_tags WHERE user_id = $1`, a.id).Scan(&tags))
+	assert.Equal(t, 1, tags, "the user's time tags stay")
 
 	status, _ = e.jobStatus(t, job)
 	assert.Equal(t, "done", status)
