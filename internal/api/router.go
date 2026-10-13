@@ -111,6 +111,7 @@ func NewRouter(d Deps) http.Handler {
 	s.mountIngest(mux)
 	s.mountCollect(mux)
 	s.mountMCP(mux)
+	s.mountConsent(mux)
 	if d.Console {
 		console.Mount(mux)
 	}

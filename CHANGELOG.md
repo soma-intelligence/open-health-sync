@@ -9,6 +9,14 @@ release may change the API, the configuration or the database schema.
 
 ### Security
 
+- Consent per user, per source and per data category (activity, location, heart, ECG, blood
+  pressure, glucose, respiratory, body, sleep, nutrition, reproductive, mental, other).
+  `PUT /v1/users/{id}/consents/{provider}` sets the granted categories, `DELETE` revokes them,
+  `GET /v1/users/{id}/consents` and `.../consents/history` read the state and every change
+  (credential and evidence). Records of a category not granted are dropped before they are
+  stored; a revoked category's stored records are deleted in the background. New webhooks
+  `consent.granted` and `consent.revoked`. `OHS_CONSENT_REQUIRED=true` stores nothing from a
+  source until consent is recorded. See [docs/consent.md](docs/consent.md).
 - Audit log: every request authenticated with a tenant key or a user token, every
   `ohs admin` key command and every completed erasure is recorded in
   `ohs_core.audit_events` (credential, action, user, route pattern, status, request id; never a

@@ -16,7 +16,7 @@ import (
 var wantTables = map[string][]string{
 	"ohs_core": {"tenants", "api_keys", "end_users", "user_tokens", "idempotency_keys", "deletion_jobs"},
 	"ohs_sync": {"connections", "oauth_states", "pull_jobs", "pull_coverage", "sync_log",
-		"inbound_subscriptions", "raw_objects", "etl_jobs"},
+		"inbound_subscriptions", "raw_objects", "etl_jobs", "consents", "consent_events", "consent_purges"},
 	"ohs_data": {"quantity_samples", "category_samples", "sleep_sessions", "workouts", "route_points",
 		"nutrition_logs", "ecg_recordings", "ecg_samples", "heartbeat_samples", "daily_summaries",
 		"observations", "sleep_phases", "workout_tracks", "quantity_codes", "device_aliases", "failed_records",

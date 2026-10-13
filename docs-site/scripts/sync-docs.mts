@@ -216,6 +216,13 @@ const sources: Record<string, Target[]> = {
       description: "Who read, exported or deleted which user's data, when and with which key.",
     },
   ],
+  "docs/consent.md": [
+    {
+      page: "(guides)/guides/consent",
+      title: "Consent",
+      description: "Per user, per source and per data category: what is stored, revocation and its purge.",
+    },
+  ],
 };
 
 // The SDK overview, then one page per SDK guide under docs/sdks.

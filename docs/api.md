@@ -396,6 +396,15 @@ the action, the user it concerns, the route pattern and the status, never a valu
 written. Read it with `GET /v1/audit` (tenant key; filters `user_id`, `action`, `since`,
 `until`). Details: [audit-log.md](audit-log.md).
 
+## Consent
+
+Per user, per source and per data category: `PUT /v1/users/{id}/consents/{provider}` with
+`{"granted":["heart","sleep"],"evidence":"..."}` sets the categories the user allows from that
+source (the others are revoked), `DELETE` revokes them all, `GET /v1/users/{id}/consents` and
+`GET /v1/users/{id}/consents/history` read the state and every change. Records outside the
+grant are not stored, and a revoked category's stored records are deleted. Details:
+[consent.md](consent.md).
+
 ## MCP
 
 `POST /mcp` speaks the Model Context Protocol for AI agents, read only. See [mcp.md](mcp.md).

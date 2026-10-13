@@ -51,6 +51,8 @@ const (
 	ConnectionCreate = "connection.create"
 	ConnectionDelete = "connection.delete"
 	ConnectionSync   = "connection.sync"
+	ConsentRead      = "consent.read"
+	ConsentWrite     = "consent.write"
 	WebhookRead      = "webhook.read"
 	WebhookWrite     = "webhook.write"
 	AuditRead        = "audit.read"
@@ -168,6 +170,11 @@ func Classify(method, pattern string) string {
 			return ConnectionDelete
 		}
 		return ConnectionRead
+	case strings.HasPrefix(path, userPrefix+"/consents"):
+		if method == "GET" {
+			return ConsentRead
+		}
+		return ConsentWrite
 	case strings.HasPrefix(path, userPrefix+"/exports/") || path == userPrefix+"/archive":
 		return DataExport
 	case strings.HasPrefix(path, userPrefix+"/"):

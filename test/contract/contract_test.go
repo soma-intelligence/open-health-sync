@@ -171,6 +171,13 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 201, c.do("POST", "/v1/users", key, nil, map[string]string{"Idempotency-Key": "k1"}).status, "empty body")
 	assert.Equal(t, 200, c.json("GET", "/v1/users?limit=10", key, "").status)
 	assert.Equal(t, 200, c.json("GET", "/v1/users/"+user.ID, key, "").status)
+	// Consent, on a source the fixture does not use.
+	consents := "/v1/users/" + user.ID + "/consents"
+	assert.Equal(t, 200, c.json("PUT", consents+"/oura", key, `{"granted":["heart","sleep"],"evidence":"form v1"}`).status)
+	assert.Equal(t, 400, c.json("PUT", consents+"/oura", key, `{"granted":["genome"]}`).status)
+	assert.Equal(t, 200, c.json("DELETE", consents+"/oura?evidence=withdrawn", key, "").status)
+	assert.Equal(t, 200, c.json("GET", consents, key, "").status)
+	assert.Equal(t, 200, c.json("GET", consents+"/history?limit=2", key, "").status)
 	r = c.json("POST", "/v1/users/"+user.ID+"/tokens", key, `{"scopes":["upload"]}`)
 	require.Equal(t, 201, r.status, "%s", r.body)
 	var tok struct{ Token string }

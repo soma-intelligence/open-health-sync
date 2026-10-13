@@ -16,7 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/consent"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
+	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
 
@@ -316,3 +318,38 @@ func (b brokenStore) Get(ctx context.Context, key string) (io.ReadCloser, error)
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errBroken }
+
+// A user's consent decides which categories of a source are stored: the
+// others are withheld before anything is written. Without a recorded consent
+// everything is stored, unless consent is required.
+func TestProcess_ConsentWithholdsCategories(t *testing.T) {
+	e := newEnv(t)
+	e.register("apple_health", quantityMap)
+	at := recent()
+	upload := func(tag string) queue.ETLJob {
+		return e.upload(e.tenant, e.user, "apple_health", tag,
+			q("heart_rate", 62, "bpm", at),
+			q("step_count", 100, "count", at),
+		)
+	}
+
+	required := e.opts()
+	required.ConsentRequired = true
+	c, err := ProcessWith(context.Background(), e.pool, e.rs, upload("required"), required)
+	require.NoError(t, err)
+	assert.Zero(t, c["quantity_samples"].Written, "consent required and none recorded: nothing stored")
+	assert.Equal(t, 0, e.count("failed_records"), "withheld records are not failures")
+
+	tx, err := e.pool.Begin(context.Background())
+	require.NoError(t, err)
+	_, err = consent.Set(context.Background(), tx, e.tenant, e.user, "apple_health", []string{consent.Activity}, "k", "")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(context.Background()))
+
+	c = e.process(upload("granted"))
+	assert.Equal(t, 1, c["quantity_samples"].Written)
+	var typ string
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT quantity_type FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&typ))
+	assert.Equal(t, "step_count", typ, "heart rate withheld, activity stored")
+}

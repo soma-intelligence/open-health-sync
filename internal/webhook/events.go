@@ -39,13 +39,18 @@ const (
 	TagCreated = "tag.created"
 	TagUpdated = "tag.updated"
 	TagDeleted = "tag.deleted"
+	// ConsentGranted: a user granted data categories of a source.
+	ConsentGranted = "consent.granted"
+	// ConsentRevoked: a user revoked data categories of a source; their
+	// stored records are being purged and no new ones are stored.
+	ConsentRevoked = "consent.revoked"
 	// Test is sent by POST /v1/webhooks/{id}/test only.
 	Test = "webhook.test"
 )
 
 // Types are the event types an endpoint can subscribe to, in documentation
 // order. Test is not one: it goes to the endpoint it is asked for.
-var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth, ConnectionBroken, ConnectionRestored, TagCreated, TagUpdated, TagDeleted}
+var Types = []string{DataWritten, DataDeleted, DataErased, UserDeleted, ConnectionNeedsReauth, ConnectionBroken, ConnectionRestored, TagCreated, TagUpdated, TagDeleted, ConsentGranted, ConsentRevoked}
 
 // KnownType reports whether t can be subscribed to.
 func KnownType(t string) bool { return slices.Contains(Types, t) }
