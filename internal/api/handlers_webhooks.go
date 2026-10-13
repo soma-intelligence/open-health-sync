@@ -38,6 +38,11 @@ type secretResponse struct {
 	Secret string `json:"secret"`
 }
 
+// testWebhookRequest is the optional body of the test route.
+type testWebhookRequest struct {
+	EventType string `json:"event_type"`
+}
+
 func (s *server) mountWebhooks(mux *http.ServeMux) {
 	if s.d.Webhooks == nil {
 		return
@@ -51,7 +56,9 @@ func (s *server) mountWebhooks(mux *http.ServeMux) {
 	s.tenantRoute(mux, "POST /v1/webhooks/{webhook_id}/rotate-secret", s.rotateWebhookSecret)
 	s.tenantRoute(mux, "POST /v1/webhooks/{webhook_id}/test", s.testWebhook)
 	s.tenantRoute(mux, "GET /v1/webhooks/{webhook_id}/deliveries", s.listWebhookDeliveries)
+	s.tenantRoute(mux, "GET /v1/webhooks/{webhook_id}/deliveries/{delivery_id}", s.getWebhookDelivery)
 	s.tenantRoute(mux, "POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/retry", s.retryWebhookDelivery)
+	s.tenantRoute(mux, "POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/replay", s.replayWebhookDelivery)
 }
 
 // pathWebhook parses {webhook_id}. A malformed id is an endpoint that does
@@ -192,7 +199,15 @@ func (s *server) testWebhook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d, err := s.d.Webhooks.SendTest(r.Context(), p.TenantID, id)
+	var req testWebhookRequest
+	if !decodeJSON(w, r, &req, true) {
+		return
+	}
+	if req.EventType != "" && req.EventType != webhook.Test && !webhook.KnownType(req.EventType) {
+		badRequest(w, "event_type: unknown type; known types are "+strings.Join(webhook.Types, ", ")+", "+webhook.Test)
+		return
+	}
+	d, err := s.d.Webhooks.SendSample(r.Context(), p.TenantID, id, req.EventType)
 	if !webhookErr(w, r, err, "api: test webhook") {
 		return
 	}
@@ -231,29 +246,75 @@ func (s *server) listWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newPage(list, next))
 }
 
-func (s *server) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
+// pathDelivery parses {webhook_id} and {delivery_id}. A malformed id is a
+// delivery that does not exist.
+func pathDelivery(w http.ResponseWriter, r *http.Request) (auth.Principal, uuid.UUID, int64, bool) {
 	p, id, ok := pathWebhook(w, r)
 	if !ok {
-		return
+		return p, id, 0, false
 	}
 	delivery, err := strconv.ParseInt(r.PathValue("delivery_id"), 10, 64)
 	if err != nil || delivery <= 0 {
 		notFound(w, "delivery")
+		return p, id, 0, false
+	}
+	return p, id, delivery, true
+}
+
+func (s *server) getWebhookDelivery(w http.ResponseWriter, r *http.Request) {
+	p, id, delivery, ok := pathDelivery(w, r)
+	if !ok {
+		return
+	}
+	d, err := s.d.Webhooks.GetDelivery(r.Context(), p.TenantID, id, delivery)
+	if !deliveryErr(w, r, err, "api: get webhook delivery") {
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+func (s *server) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
+	p, id, delivery, ok := pathDelivery(w, r)
+	if !ok {
 		return
 	}
 	d, err := s.d.Webhooks.Retry(r.Context(), p.TenantID, id, delivery)
-	switch {
-	case errors.Is(err, webhook.ErrNotRetryable):
-		problem(w, http.StatusConflict, "this delivery has not finished yet: only done or parked deliveries are retried")
-		return
-	case errors.Is(err, webhook.ErrNotFound):
-		notFound(w, "delivery")
-		return
-	case err != nil:
-		internalError(w, r, "api: retry webhook delivery", err)
+	if !deliveryErr(w, r, err, "api: retry webhook delivery") {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, d)
+}
+
+func (s *server) replayWebhookDelivery(w http.ResponseWriter, r *http.Request) {
+	p, id, delivery, ok := pathDelivery(w, r)
+	if !ok {
+		return
+	}
+	d, err := s.d.Webhooks.Replay(r.Context(), p.TenantID, id, delivery)
+	if !deliveryErr(w, r, err, "api: replay webhook delivery") {
+		return
+	}
+	w.Header().Set("Location", "/v1/webhooks/"+id.String()+"/deliveries/"+strconv.FormatInt(d.ID, 10))
+	writeJSON(w, http.StatusAccepted, d)
+}
+
+// deliveryErr answers the errors of the delivery routes. It returns true
+// when err is nil.
+func deliveryErr(w http.ResponseWriter, r *http.Request, err error, msg string) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, webhook.ErrNotRetryable):
+		problem(w, http.StatusConflict, "this delivery has not finished yet: only done or parked deliveries are sent again")
+	case errors.Is(err, webhook.ErrTooManyReplays):
+		problem(w, http.StatusTooManyRequests, "this webhook already has "+strconv.Itoa(webhook.MaxQueuedReplays)+
+			" replays waiting to be sent: wait for them to finish")
+	case errors.Is(err, webhook.ErrNotFound):
+		notFound(w, "delivery")
+	default:
+		internalError(w, r, msg, err)
+	}
+	return false
 }
 
 // webhookErr answers 404 for ErrNotFound and 500 for any other error. It

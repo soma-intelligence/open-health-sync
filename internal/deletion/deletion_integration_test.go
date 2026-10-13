@@ -447,7 +447,7 @@ func TestDeleteRemovesRowsInCompressedChunks(t *testing.T) {
 	a := e.newUser(t, "a")
 	e.ingest(t, a)
 	require.NotEmpty(t, e.rowsFor(t, a.id)["ohs_data.quantity_samples"])
-	_, err := e.pool.Exec(ctx, `SELECT compress_chunk(c) FROM show_chunks('ohs_data.quantity_samples') c`)
+	_, err := e.pool.Exec(ctx, `SELECT compress_chunk(c, if_not_compressed => true) FROM show_chunks('ohs_data.quantity_samples') c`)
 	require.NoError(t, err)
 	// A limit far below one compressed batch.
 	_, err = e.pool.Exec(ctx, `DO $$ BEGIN EXECUTE format(

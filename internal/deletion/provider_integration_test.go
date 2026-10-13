@@ -461,7 +461,7 @@ func TestProviderDeletionRemovesRowsInCompressedChunks(t *testing.T) {
 	e.seed(t, a.id, other, "active")
 	require.NotEmpty(t, e.providerRows(t, a.id, applehealth.Slug)["ohs_data.quantity_samples"])
 	keepB := e.rowsFor(t, b.id)
-	_, err := e.pool.Exec(ctx, `SELECT compress_chunk(c) FROM show_chunks('ohs_data.quantity_samples') c`)
+	_, err := e.pool.Exec(ctx, `SELECT compress_chunk(c, if_not_compressed => true) FROM show_chunks('ohs_data.quantity_samples') c`)
 	require.NoError(t, err)
 	_, err = e.pool.Exec(ctx, `DO $$ BEGIN EXECUTE format(
 		'ALTER DATABASE %I SET timescaledb.max_tuples_decompressed_per_dml_transaction = 1', current_database()); END $$`)

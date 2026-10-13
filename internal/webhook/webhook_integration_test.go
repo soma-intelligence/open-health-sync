@@ -70,6 +70,7 @@ func (e *env) enqueue(typ string) {
 type receiver struct {
 	mu     sync.Mutex
 	status []int
+	reply  string // response body
 	got    []*http.Request
 	bodies [][]byte
 	srv    *httptest.Server
@@ -86,8 +87,10 @@ func newReceiver(t *testing.T, status ...int) *receiver {
 		if len(r.status) > 0 {
 			code, r.status = r.status[0], r.status[1:]
 		}
+		reply := r.reply
 		r.mu.Unlock()
 		w.WriteHeader(code)
+		_, _ = io.WriteString(w, reply)
 	}))
 	t.Cleanup(r.srv.Close)
 	return r
@@ -351,4 +354,189 @@ func TestPrivateDestinationRefusedByDefault(t *testing.T) {
 	assert.Equal(t, "pending", ds[0].Status)
 	assert.Contains(t, *ds[0].LastError, "private or reserved")
 	assert.Nil(t, ds[0].LastStatus)
+}
+
+// drain runs passes until nothing is due.
+func drain(t *testing.T, w *webhook.Worker) {
+	t.Helper()
+	for pass(t, w) > 0 {
+		continue
+	}
+}
+
+func TestAttemptHistory(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	rcv := newReceiver(t, 500)
+	rcv.reply = "{\"error\":\"db down\"}\r\n\x00"
+	ep, _, err := e.store.Create(ctx, e.tenant, rcv.srv.URL, "", []string{})
+	require.NoError(t, err)
+	e.enqueue(webhook.DataWritten)
+	w := e.worker()
+	pass(t, w)
+	pass(t, w)
+	require.Equal(t, 2, rcv.count())
+
+	ds, _, err := e.store.ListDeliveries(ctx, e.tenant, ep.ID, webhook.DeliveryQuery{})
+	require.NoError(t, err)
+	require.Len(t, ds, 1)
+	d, err := e.store.GetDelivery(ctx, e.tenant, ep.ID, ds[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, "done", d.Status)
+	assert.Equal(t, string(rcv.bodies[0]), string(d.Payload), "the payload is the body sent, byte for byte")
+	require.Len(t, d.History, 2)
+	first, second := d.History[0], d.History[1]
+	assert.Equal(t, 1, first.Attempt)
+	require.NotNil(t, first.StatusCode)
+	assert.Equal(t, 500, *first.StatusCode)
+	require.NotNil(t, first.Error)
+	assert.Contains(t, *first.Error, "HTTP 500")
+	require.NotNil(t, first.ResponseBodyExcerpt)
+	assert.Equal(t, "{\"error\":\"db down\"}\n?", *first.ResponseBodyExcerpt)
+	assert.GreaterOrEqual(t, first.DurationMS, 0)
+	assert.Equal(t, 2, second.Attempt)
+	require.NotNil(t, second.StatusCode)
+	assert.Equal(t, 204, *second.StatusCode)
+	assert.Nil(t, second.Error)
+	assert.Nil(t, second.ResponseBodyExcerpt, "204 has no body")
+	assert.False(t, second.StartedAt.Before(first.StartedAt))
+
+	// Another tenant sees nothing; an unknown id is not found.
+	var other uuid.UUID
+	require.NoError(t, e.pool.QueryRow(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('o') RETURNING id`).Scan(&other))
+	_, err = e.store.GetDelivery(ctx, other, ep.ID, d.ID)
+	assert.ErrorIs(t, err, webhook.ErrNotFound)
+	_, err = e.store.GetDelivery(ctx, e.tenant, ep.ID, d.ID+1000)
+	assert.ErrorIs(t, err, webhook.ErrNotFound)
+
+	// The history counts on across retries and keeps the last KeepAttempts.
+	codes := make([]int, 3*webhook.MaxAttempts)
+	for i := range codes {
+		codes[i] = 503
+	}
+	rcv.mu.Lock()
+	rcv.status, rcv.reply = codes, ""
+	rcv.mu.Unlock()
+	for range 3 {
+		_, err := e.store.Retry(ctx, e.tenant, ep.ID, d.ID)
+		require.NoError(t, err)
+		for range webhook.MaxAttempts {
+			pass(t, w)
+		}
+	}
+	d, err = e.store.GetDelivery(ctx, e.tenant, ep.ID, d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "parked", d.Status)
+	require.Len(t, d.History, webhook.KeepAttempts)
+	last := 2 + 3*webhook.MaxAttempts
+	assert.Equal(t, last-webhook.KeepAttempts+1, d.History[0].Attempt)
+	assert.Equal(t, last, d.History[webhook.KeepAttempts-1].Attempt)
+
+	// Attempts go with their delivery: deleting the user's deliveries (what
+	// the deletion worker does) removes them.
+	_, err = e.pool.Exec(ctx, `DELETE FROM ohs_core.webhook_deliveries WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user)
+	require.NoError(t, err)
+	var n int
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.webhook_attempts`).Scan(&n))
+	assert.Zero(t, n)
+}
+
+func TestReplay(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	rcv := newReceiver(t)
+	ep, secret, err := e.store.Create(ctx, e.tenant, rcv.srv.URL, "", []string{})
+	require.NoError(t, err)
+	e.enqueue(webhook.DataWritten)
+	w := e.worker()
+	pass(t, w)
+	ds, _, err := e.store.ListDeliveries(ctx, e.tenant, ep.ID, webhook.DeliveryQuery{})
+	require.NoError(t, err)
+	require.Len(t, ds, 1)
+	orig := ds[0]
+	require.Equal(t, "done", orig.Status)
+	assert.Nil(t, orig.ReplayOf)
+
+	r, err := e.store.Replay(ctx, e.tenant, ep.ID, orig.ID)
+	require.NoError(t, err)
+	assert.NotEqual(t, orig.ID, r.ID, "a new delivery")
+	assert.Equal(t, orig.EventID, r.EventID)
+	assert.Equal(t, orig.EventType, r.EventType)
+	assert.Equal(t, "pending", r.Status)
+	require.NotNil(t, r.ReplayOf)
+	assert.Equal(t, orig.ID, *r.ReplayOf)
+	_, err = e.store.Replay(ctx, e.tenant, ep.ID, r.ID)
+	assert.ErrorIs(t, err, webhook.ErrNotRetryable, "a pending delivery is not replayed")
+
+	assert.Equal(t, 1, pass(t, w))
+	require.Equal(t, 2, rcv.count())
+	assert.Equal(t, rcv.got[0].Header.Get(webhook.HeaderID), rcv.got[1].Header.Get(webhook.HeaderID))
+	assert.Equal(t, rcv.bodies[0], rcv.bodies[1])
+	require.NoError(t, webhook.Verify(secret, rcv.got[1].Header.Get(webhook.HeaderID),
+		rcv.got[1].Header.Get(webhook.HeaderTimestamp), rcv.got[1].Header.Get(webhook.HeaderSignature), rcv.bodies[1], time.Now()))
+	o, err := e.store.GetDelivery(ctx, e.tenant, ep.ID, orig.ID)
+	require.NoError(t, err)
+	assert.Len(t, o.History, 1, "the original keeps its own history")
+	rd, err := e.store.GetDelivery(ctx, e.tenant, ep.ID, r.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "done", rd.Status)
+	assert.Len(t, rd.History, 1)
+	assert.Equal(t, string(o.Payload), string(rd.Payload))
+
+	// At most MaxQueuedReplays wait at once per endpoint.
+	for range webhook.MaxQueuedReplays {
+		_, err := e.store.Replay(ctx, e.tenant, ep.ID, orig.ID)
+		require.NoError(t, err)
+	}
+	_, err = e.store.Replay(ctx, e.tenant, ep.ID, orig.ID)
+	assert.ErrorIs(t, err, webhook.ErrTooManyReplays)
+	drain(t, w)
+	_, err = e.store.Replay(ctx, e.tenant, ep.ID, orig.ID)
+	assert.NoError(t, err, "sent replays free the queue")
+
+	var other uuid.UUID
+	require.NoError(t, e.pool.QueryRow(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('o') RETURNING id`).Scan(&other))
+	_, err = e.store.Replay(ctx, other, ep.ID, orig.ID)
+	assert.ErrorIs(t, err, webhook.ErrNotFound)
+	_, err = e.store.Replay(ctx, e.tenant, ep.ID, orig.ID+1000)
+	assert.ErrorIs(t, err, webhook.ErrNotFound)
+
+	// A replay names the same user, so a user's erasure removes it too.
+	var n int
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.webhook_deliveries
+		WHERE replay_of IS NOT NULL AND user_id IS DISTINCT FROM $1`, e.user).Scan(&n))
+	assert.Zero(t, n)
+}
+
+func TestSampleEvent(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	rcv := newReceiver(t)
+	ep, _, err := e.store.Create(ctx, e.tenant, rcv.srv.URL, "", []string{webhook.UserDeleted})
+	require.NoError(t, err)
+	d, err := e.store.SendSample(ctx, e.tenant, ep.ID, webhook.DataWritten)
+	require.NoError(t, err)
+	assert.Equal(t, webhook.DataWritten, d.EventType)
+	_, err = e.store.SendSample(ctx, e.tenant, ep.ID, "data.everything")
+	assert.ErrorIs(t, err, webhook.ErrUnknownType)
+	_, err = e.store.SendTest(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, pass(t, e.worker()), "samples go out whatever the event types")
+
+	byType := map[string]map[string]any{}
+	for _, b := range rcv.bodies {
+		var p map[string]any
+		require.NoError(t, json.Unmarshal(b, &p))
+		assert.Equal(t, true, p["test"], "every test-route event is marked")
+		byType[p["type"].(string)] = p
+	}
+	sample := byType[webhook.DataWritten]
+	require.NotNil(t, sample)
+	data := sample["data"].(map[string]any)
+	assert.Equal(t, uuid.Nil.String(), data["user_id"])
+	assert.Equal(t, webhook.SampleUserRef, data["external_ref"])
+	assert.Equal(t, "oura", data["provider"])
+	assert.NotEmpty(t, data["first_day"])
+	require.NotNil(t, byType[webhook.Test])
+	assert.Equal(t, ep.ID.String(), byType[webhook.Test]["data"].(map[string]any)["endpoint_id"])
 }
