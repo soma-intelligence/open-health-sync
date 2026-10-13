@@ -1,0 +1,141 @@
+{
+  "HKCategoryTypeIdentifierAppleStandHour": {
+    "lines": 30,
+    "records": {
+      "category:apple_stand_hour": 30
+    }
+  },
+  "HKCategoryTypeIdentifierSleepAnalysis": {
+    "lines": 30,
+    "records": {
+      "sleep_phase": 30
+    }
+  },
+  "HKQuantityTypeIdentifierActiveEnergyBurned": {
+    "lines": 30,
+    "records": {
+      "quantity:active_energy_burned": 30
+    }
+  },
+  "HKQuantityTypeIdentifierAppleExerciseTime": {
+    "lines": 30,
+    "records": {
+      "quantity:apple_exercise_time": 30
+    }
+  },
+  "HKQuantityTypeIdentifierAppleSleepingWristTemperature": {
+    "lines": 2,
+    "records": {
+      "quantity:apple_sleeping_wrist_temperature": 2
+    }
+  },
+  "HKQuantityTypeIdentifierAppleStandTime": {
+    "lines": 30,
+    "records": {
+      "quantity:apple_stand_time": 30
+    }
+  },
+  "HKQuantityTypeIdentifierBasalEnergyBurned": {
+    "lines": 30,
+    "records": {
+      "quantity:basal_energy_burned": 30
+    }
+  },
+  "HKQuantityTypeIdentifierDistanceWalkingRunning": {
+    "lines": 30,
+    "records": {
+      "quantity:distance_walking_running": 30
+    }
+  },
+  "HKQuantityTypeIdentifierEnvironmentalAudioExposure": {
+    "lines": 30,
+    "records": {
+      "quantity:environmental_audio_exposure": 30
+    }
+  },
+  "HKQuantityTypeIdentifierEnvironmentalSoundReduction": {
+    "lines": 12,
+    "records": {
+      "quantity:environmental_sound_reduction": 12
+    }
+  },
+  "HKQuantityTypeIdentifierFlightsClimbed": {
+    "lines": 27,
+    "records": {
+      "quantity:flights_climbed": 27
+    }
+  },
+  "HKQuantityTypeIdentifierHeadphoneAudioExposure": {
+    "lines": 20,
+    "records": {
+      "quantity:headphone_audio_exposure": 20
+    }
+  },
+  "HKQuantityTypeIdentifierHeartRate": {
+    "lines": 30,
+    "records": {
+      "quantity:heart_rate": 30
+    }
+  },
+  "HKQuantityTypeIdentifierHeartRateVariabilitySDNN": {
+    "lines": 30,
+    "records": {
+      "quantity:hrv_sdnn": 30
+    }
+  },
+  "HKQuantityTypeIdentifierOxygenSaturation": {
+    "lines": 30,
+    "records": {
+      "quantity:oxygen_saturation": 30
+    }
+  },
+  "HKQuantityTypeIdentifierPhysicalEffort": {
+    "lines": 30,
+    "records": {
+      "quantity:physical_effort": 30
+    }
+  },
+  "HKQuantityTypeIdentifierRespiratoryRate": {
+    "lines": 30,
+    "records": {
+      "quantity:respiratory_rate": 30
+    }
+  },
+  "HKQuantityTypeIdentifierRestingHeartRate": {
+    "lines": 3,
+    "records": {
+      "quantity:resting_heart_rate": 3
+    }
+  },
+  "HKQuantityTypeIdentifierStepCount": {
+    "lines": 30,
+    "records": {
+      "quantity:step_count": 30
+    }
+  },
+  "HKQuantityTypeIdentifierVO2Max": {
+    "lines": 7,
+    "records": {
+      "quantity:vo2_max": 7
+    }
+  },
+  "HKQuantityTypeIdentifierWalkingHeartRateAverage": {
+    "lines": 3,
+    "records": {
+      "quantity:walking_heart_rate_average": 3
+    }
+  },
+  "HKQuantityTypeIdentifierWalkingSpeed": {
+    "lines": 30,
+    "records": {
+      "quantity:walking_speed": 30
+    }
+  },
+  "HKWorkoutTypeIdentifier": {
+    "lines": 60,
+    "records": {
+      "route_point": 54,
+      "workout": 6
+    }
+  }
+}

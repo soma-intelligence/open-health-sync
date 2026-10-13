@@ -48,9 +48,10 @@ Keys that are not secret and change the API the connector calls (`OHS_DEXCOM_REG
 OHS_RECORD_EXPORT=~/Downloads/export.zip make record PROVIDER=apple_health
 ```
 
-The recorder converts the export the way `ohs import apple-health` does, keeps the last 7 days,
-anonymizes the upload lines and checks they replay through the connector. Health Connect has no
-export file yet, so it cannot be recorded this way.
+The recorder converts the export the way `ohs import apple-health` does and keeps the last 7 days.
+Of each type and day it keeps the first 10 lines (`OHS_RECORD_MAX_LINES`) and every workout, so a
+workout's route is cut to a few points. It then anonymizes the lines and checks they replay through
+the connector. Health Connect has no export file yet, so it cannot be recorded this way.
 
 ## Before you commit
 
@@ -71,12 +72,13 @@ The rules live in `internal/connector/cassette` (`AnonymizeHTTP`). In short:
 | Identifiers, names, free text, emails, device names, serial numbers, pagination tokens | A stand-in of the same shape, the same everywhere it appears |
 | Dates and times (ISO strings, Unix seconds and milliseconds) | Moved by one secret number of weeks, forgotten after the recording |
 | Measured values | Scaled by a factor between 0.95 and 1.05, type and decimals kept |
-| Latitude, longitude, polylines, altitude | 0 or empty |
+| Latitude, longitude, polylines, altitude, course | 0 or empty |
+| Time zone names (`Europe/Paris`) | `Etc/UTC` |
 | Birth dates | 1980-01-01 |
 | A body that is not JSON | Dropped |
 
-Codes and small integers (types, units, sleep stages, enumerations) and time zone names stay as they
-are, because the mapping depends on them. Only the day of the recording is kept unshifted, so we
+Codes and small integers (types, units, sleep stages, enumerations) stay as they are, because the
+mapping depends on them. Only the day of the recording is kept unshifted, so we
 know how fresh a recording is.
 
 When the anonymized recording no longer maps (a provider puts something the mapping reads in a
