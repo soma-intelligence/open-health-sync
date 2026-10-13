@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Open Health Sync console</title>
+<link rel="stylesheet" href="/console/console.css">
+<script type="module" src="/console/app.mjs"></script>
+</head>
+<body>
+<header class="bar">
+  <span class="brand">Open Health Sync console</span>
+  <nav id="nav" hidden>
+    <a href="#/overview">Overview</a>
+    <a href="#/users">Users</a>
+    <a href="#/webhooks">Webhooks</a>
+  </nav>
+  <button id="signout" type="button" hidden>Sign out</button>
+</header>
+<main id="main">
+  <section id="signin" hidden>
+    <h1>Sign in</h1>
+    <p>Paste a tenant API key. It stays in this browser tab (sessionStorage) and is sent only to
+    this server's read API. Closing the tab or signing out forgets it.</p>
+    <form id="signin-form" autocomplete="off">
+      <label for="key">Tenant API key</label>
+      <input id="key" name="key" type="password" autocomplete="off" spellcheck="false" required>
+      <button type="submit">Sign in</button>
+    </form>
+    <p id="signin-error" class="bad" role="alert"></p>
+  </section>
+  <section id="view"></section>
+</main>
+<noscript><p>The console needs JavaScript.</p></noscript>
+</body>
+</html>

@@ -260,7 +260,7 @@ Stored in `ohs_data.daily_summaries`.
 
 HeartbeatSample represents a single beat-to-beat RR interval measurement.
 
-Stored in `ohs_data.heartbeat_samples`. No read route yet (planned): stored and counted in coverage, not served by the API or MCP.
+Stored in `ohs_data.heartbeat_samples`.
 
 | Field | Type | Note |
 |---|---|---|

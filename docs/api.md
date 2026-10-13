@@ -16,7 +16,7 @@ Every call carries `Authorization: Bearer <secret>`.
 
 | Secret | Looks like | Used by | Calls |
 |---|---|---|---|
-| Tenant API key | `ohs_sk_` + 43 characters | your server | tenant routes: users, tokens, connections, reads |
+| Tenant API key | `ohs_sk_` + 43 characters | your server | tenant routes: users, tokens, connections, reads, time tags |
 | User token | `ohs_ut_` + 43 characters | one end user's app | user routes: uploads (`upload`), reads over MCP (`read`) |
 
 The first key comes from `ohs admin tenant create --name <name>` (or `OHS_BOOTSTRAP_TENANT`,
@@ -54,7 +54,8 @@ configuration. The response is `Cache-Control: no-store`; the token is shown onc
   `request_id`. Send your own `X-Request-Id` (1 to 128 letters, digits, `-`, `_`, `.`) to have
   it kept, for example your proxy's. Every log line about the call carries it as `request_id`,
   so quote it when you ask the operator about a failed call.
-- **Idempotency.** Send `Idempotency-Key` (1 to 255 characters) on `POST /v1/users`. A retry with the same key and request within
+- **Idempotency.** Send `Idempotency-Key` (1 to 255 characters) on `POST /v1/users` or
+  `POST /v1/users/{id}/tags`. A retry with the same key and request within
   24 hours gets the first response back with `Idempotent-Replayed: true`. The same key with a
   different request is a 422; a retry while the first call still runs is a 409. Other routes
   ignore the header (token minting would have to store the token, and each connect call mints a
@@ -91,6 +92,36 @@ effort), deletes the user's raw files and every row, then the user.
 ```
 
 `status` is `pending`, `running`, `done` or `failed`; `finished_at` is null until the job ends.
+`provider` is null for a user deletion and names the provider for the erasure of one provider's
+data (below).
+
+### Erasing one provider's data
+
+Some providers' terms ask that a user's data from them be erased when the user disconnects them.
+Two routes do it, each answering 202 with a `job_id` that `GET /v1/deletions/{job_id}` reads
+like a user deletion:
+
+- `DELETE /v1/users/{id}/connections/{provider}?delete_data=true` disconnects the provider as a
+  plain disconnect does, then erases its data. Without `delete_data` (or with `false`) the
+  answer is still 204 and the data already collected is kept, as before.
+- `DELETE /v1/users/{id}/data/{provider}` erases a provider's data without touching any
+  connection: for device providers (`apple_health`, `health_connect`), which have no
+  connection, and for a provider already disconnected. A provider the user is still connected
+  to is a 409 (disconnect it with `delete_data=true`); a provider unknown to this build is a 404.
+
+The job deletes everything of that user and provider: the normalized records (samples, sleep
+sessions and phases, workouts with their routes and track summaries, nutrition, ECG recordings
+and voltages, heartbeat series, daily summaries, observations), the provider's tombstones, the
+raw files and their rows, failed records, ETL and pull jobs, pull coverage, the sync log, push
+subscriptions, unused consent states and the disconnected connection itself. Daily summaries are
+kept per provider, so the other providers' summaries need no recompute. The user and their other
+providers stay. Asking again while the job runs returns the same job.
+
+Until the job is done the provider cannot be connected again (409) and its uploads for the user
+are refused (409, nothing kept); afterwards new data is accepted as usual. Re-processing old raw
+objects cannot bring the data back, since the raw files and their registry rows are gone, and a
+pull still running when the job is due delays it until the pull ends. The `data.erased`
+[webhook](webhooks.md) announces the end.
 
 ## Connecting a provider
 
@@ -111,10 +142,16 @@ Without a `redirect_uri` the user sees a small built-in result page. `redirect_u
 absolute https URL (http is allowed for localhost). The `state` of a consent link is single use
 and expires after 10 minutes.
 
+To skip building this UI, create a connect session with `POST /v1/users/{id}/connect-sessions`
+and send the user to the link it returns: Open Health Sync serves a page that lists the providers
+with the user's status and starts the same consent flow. See
+[hosted connection page](connect-page.md).
+
 `GET /v1/users/{id}/connections` shows each connection's `status` (`active`, `needs_reauth`,
 `disconnected`), `last_sync_at` and `initial_backfill_at`. A connection in `needs_reauth` needs
 the user to go through consent again. `DELETE /v1/users/{id}/connections/{provider}` revokes the
-grant (best effort) and stops pulling; data already collected is kept.
+grant (best effort) and stops pulling; data already collected is kept, unless you add
+`?delete_data=true`, which also erases it (see [erasing one provider's data](#erasing-one-providers-data)).
 
 `GET /v1/users/{id}/freshness` says how up to date each source of the user is, Apple Health
 uploads included: `synced_through`, `lag_seconds`, the last provider notification, the next
@@ -144,6 +181,9 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 | `workouts/{workout_id}/route` | `start`, `end` | `timestamp` |
 | `nutrition` | `start`, `end` | `start_date` |
 | `daily` | `start`, `end` (compared as dates) | `date` |
+| `rr-intervals` | `series_id`, `start`, `end` | `timestamp` (the beat) |
+| `hrv` | `series_id`, `start`, `end` (the series' first beat) | the series' first beat |
+| `menstrual-cycles` | `start`, `end` (compared as dates, on the cycle's start) | `start_date` |
 | `coverage` | `provider`, `start`, `end` | not paged |
 
 `samples` answers 400 when `type` is not a quantity type of the catalog (a typo such as
@@ -199,7 +239,15 @@ Every record carries its provenance: `provider` (the integration it came through
 vendor that produced it, when known), `device` and `ingested_at`. The quantity names and their
 units are listed in [data-model.md](data-model.md). `daily` holds one row per provider and local
 calendar day; the ETL derives step, energy and distance totals from samples when a provider sends
-no daily summary of its own.
+no daily summary of its own. `rr-intervals` serves the beat-to-beat intervals of heartbeat series
+and `hrv` the HRV derived from each series; the rules are in [hrv.md](hrv.md).
+
+`menstrual-cycles` is derived at read time from the `menstrual_flow` category samples of every
+provider: each cycle's start day, its period's flow days (the heaviest flow of each local day,
+with the providers that recorded it) and, once the next period is recorded, its length. The
+latest cycle is open, with `end_date` and `cycle_length_days` null. Nothing is predicted. The
+rules (local days, gaps inside a period, the read limit) are in
+[menstrual-cycles.md](menstrual-cycles.md).
 
 ### Knowing when an upload is processed
 
@@ -215,6 +263,23 @@ providers and days, not narrowed by the filters), each line once even if the obj
 processed again; an object that failed as a whole, with no line singled out, counts as one. A
 line the server later recovers, after a fix, stops counting. A non-zero value after `pending_jobs` reaches 0 means some uploaded lines were
 not stored; an operator finds each line and its reason in `ohs_data.failed_records`.
+
+## Time tags
+
+A time tag gives context to a user's data: an interval with a `kind` from a fixed vocabulary
+(`illness`, `injury`, `travel`, `jet_lag`, `vaccination`, `medication`, `alcohol`, `other`), an
+optional `label`, `note` and IANA `timezone`, and an `end_at` that stays null while the tag is
+ongoing. `POST /v1/users/{id}/tags` records one, `PATCH` changes it (for example
+`{"end_at":"2026-03-05"}` to close it), `DELETE` removes it. `GET /v1/users/{id}/tags` lists them
+by `start_at`; `start` and `end` keep the tags that overlap the window, ongoing tags included, and
+`kind` keeps one kind. The server computes nothing from them. Vocabulary, overlap rules and
+examples: [time-tags.md](time-tags.md).
+
+```sh
+curl -s -X POST $OHS/v1/users/$USER_ID/tags -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{"kind":"illness","label":"Flu","start_at":"2026-03-02"}'
+curl -s "$OHS/v1/users/$USER_ID/tags?start=2026-03-01&end=2026-04-01" -H "Authorization: Bearer $KEY"
+```
 
 ## FHIR R4
 
@@ -260,8 +325,8 @@ curl -sOJ "$OHS/v1/users/$USER_ID/exports/samples?format=parquet&start=2026-01-0
 ## Webhooks
 
 Rather than polling coverage, register an endpoint with `POST /v1/webhooks` and be told when a
-sync writes or deletes records, a user is erased or a connection needs the user to sign in
-again. Requests are signed per Standard Webhooks and retried for about 28 hours. Events,
+sync writes or deletes records, a user is erased, a connection needs the user to sign in
+again or a time tag changes. Requests are signed per Standard Webhooks and retried for about 28 hours. Events,
 signature verification and the routes: [webhooks.md](webhooks.md).
 
 ## MCP
@@ -272,11 +337,14 @@ signature verification and the routes: [webhooks.md](webhooks.md).
 
 | Route | Purpose |
 |---|---|
+| `GET /connect`, `GET /connect/{provider}`, `POST /connect/{provider}` | The [hosted connection page](connect-page.md), for the user's browser |
 | `GET /oauth/{provider}/callback` | OAuth redirect target you register with the provider |
 | `POST /inbound/{provider}` | Provider push notifications, verified with the provider's own scheme |
 | `GET /healthz` | Liveness |
 | `GET /readyz` | Readiness: database ping and raw store check, 503 when either fails |
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
+| `GET /console` | Read-only admin console (HTML), only when `OHS_CONSOLE=true`; see [console.md](console.md) |
 
-`/metrics` is unauthenticated and global to the instance (not per tenant). Keep it behind your
-reverse proxy or turn it off, see [self-hosting.md](self-hosting.md#operating-notes).
+`/metrics` is global to the instance (not per tenant). It asks for the `OHS_METRICS_TOKEN` bearer
+token, refuses every scrape when no token is set, and can move to a private address with
+`OHS_METRICS_LISTEN`; see [self-hosting.md](self-hosting.md#metrics).

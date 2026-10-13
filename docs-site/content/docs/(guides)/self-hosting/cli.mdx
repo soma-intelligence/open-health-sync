@@ -13,7 +13,8 @@ ohs <command> [flags]
 | `ohs up` | Applies pending migrations, then serves. The container entrypoint. |
 | `ohs serve` | Runs the roles in `OHS_ROLES` (`api`, `collect`, `etl`) until `SIGINT` or `SIGTERM`. Needs a migrated database. |
 | `ohs migrate up` | Applies every pending migration. Safe to run on each start. |
-| `ohs migrate version` | Prints the schema version. |
+| `ohs migrate version` | Prints the schema version of the database. |
+| `ohs migrate latest` | Prints the schema version this binary migrates to. Needs no database. |
 | `ohs migrate down --all` | Reverts every migration: **drops all Open Health Sync data**. |
 | `ohs doctor [--quick]` | Checks configuration, database, raw store, public URL and connectors. `--quick` checks the database and raw store only. |
 | `ohs admin tenant create --name <name>` | Creates a tenant and prints its first API key, once. |
@@ -21,12 +22,14 @@ ohs <command> [flags]
 | `ohs admin key create --tenant <id>` | Adds an API key to a tenant, for rotation. |
 | `ohs admin key list --tenant <id>` | Lists a tenant's keys by prefix, with creation and last use. |
 | `ohs admin key revoke --tenant <id> --key <key or prefix>` | Revokes a key. A whole user token is revoked the same way. |
+| `ohs admin personal setup [--person <name>]` | Readies a one person install for the [recipes](/documentation/recipes): a `personal` tenant, a user and a new key, printed as an env file. |
+| `ohs import apple-health <export.zip\|export.xml> [--since] [--tz] [--dry-run]` | Loads a Health app export into an instance with a user token (`--url`/`OHS_URL`, `--token`/`OHS_TOKEN`). |
 | `ohs mcp` | Serves the read-only MCP tools on stdin and stdout for a local agent. See [AI agents](/documentation/guides/ai-agents). |
 | `ohs version` | Prints the version and the commit it was built from. |
 | `ohs help [command]` | Prints help, or the help of one command. |
 
 `up` and `serve` need `OHS_DATABASE_URL` and `OHS_ENCRYPTION_KEY`; `migrate` and `admin` need
-`OHS_DATABASE_URL` only; `mcp` needs `OHS_MCP_KEY` and the instance URL. `doctor` checks the
+`OHS_DATABASE_URL` only (`migrate latest` needs nothing); `mcp` needs `OHS_MCP_KEY` and the instance URL. `doctor` checks the
 same settings, and prints a fresh key when `OHS_ENCRYPTION_KEY` is empty.
 
 **Exit status:** 0 on success, 1 on failure (a failed doctor check included), 2 on a command line

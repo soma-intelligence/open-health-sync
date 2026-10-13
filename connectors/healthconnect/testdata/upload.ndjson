@@ -7,4 +7,7 @@
 {"recordType":"SleepSession","metadata":{"id":"sl-1","dataOrigin":"com.ouraring.oura"},"startTime":"2026-03-01T22:30:00Z","endTime":"2026-03-02T06:30:00Z","startZoneOffset":"+01:00","stages":[{"startTime":"2026-03-01T22:30:00Z","endTime":"2026-03-01T23:00:00Z","stage":"awake_in_bed"},{"startTime":"2026-03-01T23:00:00Z","endTime":"2026-03-02T02:00:00Z","stage":"light"},{"startTime":"2026-03-02T02:00:00Z","endTime":"2026-03-02T03:30:00Z","stage":"deep"},{"startTime":"2026-03-02T03:30:00Z","endTime":"2026-03-02T05:00:00Z","stage":"rem"},{"startTime":"2026-03-02T05:00:00Z","endTime":"2026-03-02T06:30:00Z","stage":"out_of_bed"}]}
 {"recordType":"ExerciseSession","metadata":{"id":"ex-1","dataOrigin":"com.strava"},"startTime":"2026-03-02T17:00:00Z","endTime":"2026-03-02T17:45:00Z","exerciseType":"biking","title":"Evening ride"}
 {"recordType":"Deletion","recordId":"st-0"}
-{"recordType":"MenstruationFlow","metadata":{"id":"mf-1"},"time":"2026-03-02T06:00:00Z","flow":"light"}
+{"recordType":"MenstruationFlow","metadata":{"id":"mf-1","dataOrigin":"com.example.cycles","recordingMethod":"manual"},"time":"2026-03-01T23:30:00Z","zoneOffset":"+01:00","flow":"light"}
+{"recordType":"MenstruationFlow","metadata":{"id":"mf-2","dataOrigin":"com.example.cycles"},"time":"2026-03-03T08:00:00Z","flow":"unknown"}
+{"recordType":"IntermenstrualBleeding","metadata":{"id":"ib-1","dataOrigin":"com.example.cycles"},"time":"2026-03-15T08:00:00Z","zoneOffset":"+01:00"}
+{"recordType":"Hydration","metadata":{"id":"hy-1"},"startTime":"2026-03-02T08:00:00Z","endTime":"2026-03-02T08:01:00Z","volumeLiters":0.25}

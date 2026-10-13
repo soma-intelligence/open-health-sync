@@ -4,9 +4,9 @@ Slug `polar`. Users connect their own Polar Flow account over OAuth; Open Health
 them with your AccessLink client, pulls their data on a schedule and when Polar sends a webhook
 event. You register your own AccessLink client: nothing is shared between instances.
 
-Status: available, not yet verified with a real account. Field names follow the
+Status: available. Field names follow the
 [AccessLink v3 documentation](https://www.polar.com/accesslink-api/); the points marked
-*unverified* below are the ones to check first against a real account.
+*to confirm* below are the ones to check first.
 
 ## 1. Get your keys
 
@@ -105,7 +105,7 @@ shown **once**: set it as `OHS_POLAR_WEBHOOK_SECRET` and restart. From then on e
 carry a valid `Polar-Webhook-Signature` (the hex HMAC-SHA256 of the body keyed by that secret),
 or it is refused with 401.
 
-Without `OHS_POLAR_WEBHOOK_SECRET`, events are accepted unverified. That is safe but not
+Without `OHS_POLAR_WEBHOOK_SECRET`, events are accepted without a signature check. That is safe but not
 recommended: an event only triggers a pull of the recent window (at most 7 days back) for a
 connected user, so a forged one cannot make the server fetch anything else.
 
@@ -113,7 +113,7 @@ An event queues a pull of the user's recent window. `SLEEP_WISE_*` and unknown e
 acknowledged and ignored. For events to arrive, `OHS_PUBLIC_URL` must be reachable from the
 internet. Without the webhook nothing breaks: the 6 hour pull still collects everything. Polar
 deactivates a webhook after seven days of failed deliveries; reactivate it with
-`POST /v3/webhooks/activate` (*unverified* path) or recreate it.
+`POST /v3/webhooks/activate` (*to confirm* path) or recreate it.
 
 ## 7. Rate limits
 
@@ -145,10 +145,10 @@ Notes on the mapping:
   times carry no offset at all: the connector borrows the offset of a sleep or an exercise of the
   same pull (the same date, or up to 3 days away); without one the times are read as UTC and the
   samples say so (`local_time_as_utc`).
-- **Hypnogram** (*unverified*): read as a map of local `HH:MM` change points to stage codes
+- **Hypnogram** (*to confirm*): read as a map of local `HH:MM` change points to stage codes
   (0 wake, 1 REM, 2 and 3 light, 4 deep, 5 unknown), each stage lasting until the next entry.
   Unknown stages are dropped.
-- **Sports** (*unverified*): AccessLink does not publish the full list of sport names. Common ones
+- **Sports** (*to confirm*): AccessLink does not publish the full list of sport names. Common ones
   are mapped; an unknown one becomes `other` with its Polar name in the metadata.
 
 ## Updates and deletions

@@ -72,10 +72,21 @@ match() {
       # hyphen) before it, no word character or hyphen after it. A slash
       # may precede it (a URL path) or follow it (a Go import path).
       for my $a (@allowed) { $text =~ s/(?<![\w.-])\Q$a\E(?![\w-])//g; }
-      if ($text =~ /$re/i) { print "$path:$line:$text"; $hit = 1; }
+      # CI logs of a public repository are public: there, name the place
+      # only, never the matched text (it would reveal the private term).
+      if ($text =~ /$re/i) {
+        print $ENV{GITHUB_ACTIONS} ? "$path:$line\n" : "$path:$line:$text";
+        $hit = 1;
+      }
     }
     exit($hit ? 0 : 1);
   ' "$1"
+}
+
+# shown TERM prints the term for a local run, and nothing that names it in
+# GitHub Actions, whose logs are public.
+shown() {
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then printf '(hidden in CI)'; else printf '/%s/' "$1"; fi
 }
 
 # Commit messages of the branch (only commits not on main, when main exists).
@@ -110,12 +121,12 @@ while IFS= read -r term; do
     exit 2
   fi
   if [ "$rc" -eq 0 ] && match "$term" <"$hits"; then
-    echo "guard: forbidden term /$term/ found in files above" >&2
+    echo "guard: forbidden term $(shown "$term") found in files above" >&2
     status=1
   fi
 
   if [ -n "$msgs" ] && printf '%s\n' "$msgs" | perl -ne 'print "commit message\0$.\0$_"' | match "$term" >/dev/null; then
-    echo "guard: forbidden term /$term/ found in a commit message" >&2
+    echo "guard: forbidden term $(shown "$term") found in a commit message" >&2
     status=1
   fi
 done <<< "$terms"

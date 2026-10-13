@@ -5,12 +5,12 @@ their workouts from the Suunto Cloud API on a schedule, and again when Suunto se
 notification. You need your own access to the Suunto Cloud API: nothing is shared between
 instances.
 
-Status: available, not yet verified with a real account. **Partner access required**: Suunto
+Status: available. **Partner access required**: Suunto
 gives API access only to companies and organizations accepted into its partner program, not
 to individuals. Tests run against a fake of the Suunto API built from the public
 documentation listed at the end.
 
-Statements we could not confirm from a public Suunto page are marked **(unverified)**.
+Statements that no public Suunto page confirms are marked **(to confirm)**.
 
 ## Before you start: getting access
 
@@ -29,7 +29,7 @@ Statements we could not confirm from a public Suunto page are marked **(unverifi
 - **Rate limits.** The Development API includes every endpoint but has lower request limits.
   The Production API comes after you submit your app details. Suunto does not publish the
   figures. A third party reports 10 calls per minute and 200 calls per week for the
-  Development API (**unverified**). The FAQ asks partners to avoid unnecessary polling.
+  Development API (**to confirm**). The FAQ asks partners to avoid unnecessary polling.
   Section 6 lists what each pull costs.
 
 ## 1. Set up the API Zone application
@@ -45,7 +45,7 @@ Once Suunto accepts you, it invites the developers you listed to
    example `https://ohs.example.org/oauth/suunto/callback` (`ohs doctor` prints it). The
    **client ID** is generated for you.
 3. Set the **notification URL** to `<OHS_PUBLIC_URL>/inbound/suunto` and note the
-   notification signing secret (**unverified**: where API Zone shows the notification URL and
+   notification signing secret (**to confirm**: where API Zone shows the notification URL and
    secret is behind the partner login). Notifications are optional; see section 5.
 
 API Zone allows one account per application and one email address per account (FAQ).
@@ -103,7 +103,7 @@ How the OAuth calls work:
 - **Provider user id.** The access token is a JWT. Its `user` claim holds the Suunto
   username, which the connector stores as the provider user id. Notifications name the user
   by this username. If the token is not a readable JWT, the connector uses a top-level `user`
-  field of the token answer instead (**unverified** that Suunto sends one).
+  field of the token answer instead (**to confirm** that Suunto sends one).
 - **No signature check on the token.** The connector reads the JWT without verifying its
   signature. The token comes straight from Suunto's token endpoint over TLS, in answer to a
   request signed with your client secret, so we already know where it came from. Suunto
@@ -114,7 +114,9 @@ How the OAuth calls work:
   header.
 - **Disconnect.** Disconnecting calls
   `GET https://cloudapi-oauth.suunto.com/oauth/deauthorize?client_id=...` with the user's token,
-  best effort.
+  best effort. The data already collected is kept, unless the disconnect is
+  `DELETE /v1/users/{id}/connections/suunto?delete_data=true`, which erases everything held from
+  Suunto for that user (see [erasing one provider's data](../api.md#erasing-one-providers-data)).
 
 ## 4. What is pulled
 
@@ -134,7 +136,7 @@ How the OAuth calls work:
   window, but not the fields of the answers. The connector stores each answer as is, in
   windows of at most 28 days: one raw line per element of an array answer, or one line for
   an object. It maps nothing from them yet, because Open Health Sync never guesses a field's
-  unit. Once the schema is confirmed with a real account, these raw objects can be mapped
+  unit. Once the schema is known, these raw objects can be mapped
   by reprocessing. If one of these endpoints answers with an error (for example, one your
   subscription does not include), it is logged and skipped, and workouts still arrive.
 - **Not fetched.** FIT exports (`/v3/workouts/{key}/fit`: samples, laps, GPS), the
@@ -145,11 +147,11 @@ How the OAuth calls work:
 
 Suunto sends notifications to one URL per application, for every user who authorized it:
 `<OHS_PUBLIC_URL>/inbound/suunto`. Suunto expects an answer within 2 seconds (third-party
-report, **unverified**). The route only queues a pull, so it answers right away.
+report, **to confirm**). The route only queues a pull, so it answers right away.
 
 Each notification is a POST. The `X-HMAC-SHA256-Signature` header carries the HMAC-SHA256 of
 the raw body, keyed with the notification secret. Header name and algorithm come from a
-third-party integration (**unverified**), and so does the digest encoding: the connector
+third-party integration (**to confirm**), and so does the digest encoding: the connector
 accepts hex in either case and base64. With `OHS_SUUNTO_NOTIFICATION_SECRET` unset, every
 notification is refused. A notification never carries data into the store. It only queues
 a pull for a user who has an active connection here, read with that user's own token.
@@ -158,7 +160,7 @@ a pull for a user who has an active connection here, read with that user's own t
 |---|---|
 | `{"type":"WORKOUT_CREATED","username":"...","workout":{"workoutKey":"...","startTime":<ms>}}` | A workout pull, from 2 hours before the workout's start (at most 7 days back, at least 24 hours) until now |
 | `username` and `workoutid` only, as a form or as JSON (the shape the API Zone FAQ describes) | A workout pull of the last 24 hours |
-| `SUUNTO_247_SLEEP_CREATED`, `SUUNTO_247_RECOVERY_CREATED`, `SUUNTO_247_ACTIVITY_CREATED` | A pull of that 24/7 type over the last 48 hours (stored raw only). The FAQ says activity data has no notifications; third-party code handles these types (**unverified**) |
+| `SUUNTO_247_SLEEP_CREATED`, `SUUNTO_247_RECOVERY_CREATED`, `SUUNTO_247_ACTIVITY_CREATED` | A pull of that 24/7 type over the last 48 hours (stored raw only). The FAQ says activity data has no notifications; third-party code handles these types (**to confirm**) |
 | Any other type (`ROUTE_CREATED` and others) | Ignored, answered 200 so Suunto does not retry |
 | Missing or wrong signature, no `username`, a body that is not JSON or a form | Refused with 401 |
 
@@ -178,7 +180,7 @@ A notification pulls only the data type it names, so it costs one request (or on
 
 Cost of one scheduled pull: one workout request per 100 workouts, plus one request for each
 24/7 type per 28 days of window, so 4 requests for a normal pull. At the reported
-Development API limits (**unverified**), that is enough for testing with a handful of users,
+Development API limits (**to confirm**), that is enough for testing with a handful of users,
 not for production.
 
 ## Data produced
@@ -187,12 +189,12 @@ Each workout summary becomes one workout:
 
 | Workout field | From |
 |---|---|
-| `activity_type` | `activityId`, mapped to the activity names the other connectors use: 1 Running, 22 Trail running, 53 Treadmill → `running`; 2 Cycling, 10 Mountain biking, 52 Indoor cycling, 99 Gravel cycling → `cycling`; 0 Walking → `walking`; 11 Hiking → `hiking`; 21 Swimming → `swimming`; 85 Openwater swimming → `swimming_open_water`; 23 Gym → `traditional_strength_training`; and so on. An unknown id gives `other`. The id is always kept in `metadata.suunto_activity_id`, with Suunto's name in `metadata.suunto_activity`. Suunto does not publish the id list publicly; ours follows a third-party integration's table (**unverified**) |
+| `activity_type` | `activityId`, mapped to the activity names the other connectors use: 1 Running, 22 Trail running, 53 Treadmill → `running`; 2 Cycling, 10 Mountain biking, 52 Indoor cycling, 99 Gravel cycling → `cycling`; 0 Walking → `walking`; 11 Hiking → `hiking`; 21 Swimming → `swimming`; 85 Openwater swimming → `swimming_open_water`; 23 Gym → `traditional_strength_training`; and so on. An unknown id gives `other`. The id is always kept in `metadata.suunto_activity_id`, with Suunto's name in `metadata.suunto_activity`. Suunto does not publish the id list publicly; ours follows a third-party integration's table (**to confirm**) |
 | `start_date` | `startTime` (epoch ms) |
 | `end_date` | `stopTime` (epoch ms, pauses included); if missing, the start plus `totalTime` |
 | `duration_s` | `totalTime` (seconds of timer time, pauses excluded), rounded. The exact value is kept in `metadata.total_time_s` |
 | `distance_m` | `totalDistance` (metres). A zero distance (gym, indoor cycling) is left empty |
-| `active_energy_kcal` | `energyConsumption`, read as kilocalories with no conversion. Third parties report kcal for workouts (**unverified**); Suunto documents joules only for the 24/7 data |
+| `active_energy_kcal` | `energyConsumption`, read as kilocalories with no conversion. Third parties report kcal for workouts (**to confirm**); Suunto documents joules only for the 24/7 data |
 | `elevation_gain_m` | `totalAscent` (metres) |
 | `avg_heart_rate` | `hrdata.workoutAvgHR`, or `hrdata.avg` |
 | `max_heart_rate` | `hrdata.workoutMaxHR`, or `hrdata.hrmax`. `hrdata.max` is reported to be the user's own maximum heart rate setting, not the workout's, so it is never used |
@@ -208,10 +210,9 @@ are left empty.
 
 ## Limitations
 
-- **Not verified.** The connector has not been run against a real Suunto account yet. The
-  JSON field names of the workout summary come from third-party integrations of the same
-  API, because Suunto's reference is behind the partner login. Please report anything that
-  differs.
+- **Field names.** The JSON field names of the workout summary come from third-party
+  integrations of the same API, because Suunto's reference is behind the partner login.
+  Something differs from what you see with your account? Open an issue.
 - **24/7 data is raw only.** Sleep, recovery and daily activity are stored but not mapped
   (see section 4).
 - **No samples, laps or routes.** They are only in the FIT export, which is not fetched.
@@ -228,7 +229,7 @@ are left empty.
 - The API Zone API catalog (public operation list): the `/v3/workouts` operations with
   `since`, `until`, `limit` and `offset`; the 24/7 endpoints, their parameters, the 28-day
   limit and joules for daily energy; the token, refresh and deauthorize endpoints.
-- Third party: [Open Wearables' Suunto notes](https://openwearables.io/docs/providers/suunto-api-integration)
-  and their source code. They are the source for the notification signature header and
+- Third party: the published notes and source code of another open-source project's Suunto
+  integration. They are the source for the notification signature header and
   types, the 2-second answer, the reported Development API limits, the `activityId` table
   and the heart rate fields.

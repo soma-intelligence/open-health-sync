@@ -64,6 +64,13 @@ const sources: Record<string, Target[]> = {
       description: "The connector contract, a minimal device connector, registration and fixture tests.",
     },
   ],
+  "docs/connectors/recording.md": [
+    {
+      page: "(guides)/connectors/recording",
+      title: "Record a connector",
+      description: "Record a real account's answers, anonymized on your machine, so CI replays them on every change.",
+    },
+  ],
   "docs/connectors/README.md": [
     {
       page: "(guides)/connectors/sources",
@@ -91,12 +98,6 @@ const sources: Record<string, Target[]> = {
       description: "Move to a new release safely, with a backup first.",
     },
     {
-      page: "(guides)/self-hosting/backup",
-      section: "Backup and restore",
-      title: "Backup and restore",
-      description: "The database, the raw store and the encryption key, taken and restored together.",
-    },
-    {
       page: "(guides)/self-hosting/rotating-secrets",
       section: "Rotating secrets",
       title: "Rotating secrets",
@@ -108,6 +109,20 @@ const sources: Record<string, Target[]> = {
       title: "Operating notes",
       description:
         "Metrics exposure, crashes, long outages, re-processing a user and other things to know in production.",
+    },
+  ],
+  "docs/console.md": [
+    {
+      page: "(guides)/self-hosting/console",
+      title: "Admin console",
+      description: "A read-only page for operators: users, connections, freshness and webhook deliveries.",
+    },
+  ],
+  "docs/backup-and-restore.md": [
+    {
+      page: "(guides)/self-hosting/backup",
+      title: "Backup and restore",
+      description: "The database, the raw store and the encryption key, taken and restored together.",
     },
   ],
   "docs/fhir.md": [
@@ -131,11 +146,39 @@ const sources: Record<string, Target[]> = {
       description: "Download every record of a list as one CSV or Parquet file.",
     },
   ],
+  "docs/connect-page.md": [
+    {
+      page: "(guides)/guides/connect-page",
+      title: "Hosted connection page",
+      description: "Send users to a page served by Open Health Sync to connect their sources, no OAuth UI to build.",
+    },
+  ],
   "docs/webhooks.md": [
     {
       page: "(guides)/guides/webhooks",
       title: "Outgoing webhooks",
       description: "Be told when data changes: events, signature verification, retries and the routes.",
+    },
+  ],
+  "docs/hrv.md": [
+    {
+      page: "(guides)/guides/hrv",
+      title: "RR intervals and HRV",
+      description: "Read beat-to-beat intervals and the HRV derived from each heartbeat series.",
+    },
+  ],
+  "docs/menstrual-cycles.md": [
+    {
+      page: "(guides)/guides/menstrual-cycles",
+      title: "Menstrual cycles",
+      description: "Cycles derived at read time from the recorded menstrual flow, and the rules they follow.",
+    },
+  ],
+  "docs/time-tags.md": [
+    {
+      page: "(guides)/guides/time-tags",
+      title: "Time tags",
+      description: "Mark the periods that give context to the data: illness, travel, jet lag and more.",
     },
   ],
 };
@@ -155,8 +198,34 @@ for (const file of readdirSync(join(repo, "docs", "sdks")).sort()) {
 
 // Each provider guide under docs/connectors becomes a page of its own.
 for (const file of readdirSync(join(repo, "docs", "connectors")).sort()) {
-  if (!file.endsWith(".md") || file === "README.md") continue;
+  if (!file.endsWith(".md") || file === "README.md" || sources[`docs/connectors/${file}`]) continue;
   sources[`docs/connectors/${file}`] = [{ page: `(guides)/connectors/${file.replace(/\.md$/, "")}` }];
+}
+
+// The recipes: the index page, then one page per recipe.
+sources["docs/recipes/README.md"] = [
+  {
+    page: "(guides)/recipes/index",
+    title: "Build with your data",
+    description: "Small tools on top of all your health data: set up a personal instance and run a recipe.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "recipes")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md") continue;
+  sources[`docs/recipes/${file}`] = [{ page: `(guides)/recipes/${file.replace(/\.md$/, "")}` }];
+}
+
+// Learn by building: the index page, then one page per project.
+sources["docs/learn/README.md"] = [
+  {
+    page: "(guides)/learn/index",
+    title: "Learn by building",
+    description: "Seven short projects on your own health data, from a first sync to a webhook, plus a prompt library.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "learn")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md") continue;
+  sources[`docs/learn/${file}`] = [{ page: `(guides)/learn/${file.replace(/\.md$/, "")}` }];
 }
 
 // Sidebar icons (lucide names) of the synced pages, by page path.
@@ -168,6 +237,7 @@ const icons: Record<string, string> = {
   "(guides)/concepts/background-sync": "RefreshCw",
   "(guides)/connectors/writing-a-connector": "Code",
   "(guides)/connectors/sources": "List",
+  "(guides)/connectors/recording": "Disc",
   "(guides)/connectors/apple-health": "Smartphone",
   "(guides)/self-hosting/doctor": "Stethoscope",
   "(guides)/self-hosting/configuration": "Settings",
@@ -175,6 +245,7 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/backup": "DatabaseBackup",
   "(guides)/self-hosting/rotating-secrets": "RotateCw",
   "(guides)/self-hosting/operating-notes": "NotebookPen",
+  "(guides)/self-hosting/console": "LayoutDashboard",
   "(guides)/guides/fhir": "HeartPulse",
   "(guides)/sdks/index": "Package",
   "(guides)/sdks/kotlin": "Smartphone",
@@ -184,6 +255,28 @@ const icons: Record<string, string> = {
   "(guides)/guides/open-mhealth": "Activity",
   "(guides)/guides/exports": "FileDown",
   "(guides)/guides/webhooks": "Webhook",
+  "(guides)/guides/menstrual-cycles": "CalendarDays",
+  "(guides)/guides/time-tags": "Tag",
+  "(guides)/recipes/index": "Sparkles",
+  "(guides)/recipes/sleep-report": "Moon",
+  "(guides)/recipes/heart-trend": "HeartPulse",
+  "(guides)/recipes/compare-sources": "GitCompare",
+  "(guides)/recipes/weekly-digest": "CalendarDays",
+  "(guides)/recipes/dashboard": "ChartLine",
+  "(guides)/recipes/export-all": "FileDown",
+  "(guides)/recipes/ai-agent": "Bot",
+  "(guides)/recipes/connect": "Link",
+  "(guides)/guides/hrv": "Waves",
+  "(guides)/learn/index": "GraduationCap",
+  "(guides)/learn/first-sync": "Plug",
+  "(guides)/learn/read-your-sleep": "Moon",
+  "(guides)/learn/hrv-trend": "HeartPulse",
+  "(guides)/learn/ask-an-ai": "Bot",
+  "(guides)/learn/training-vs-sleep": "Dumbbell",
+  "(guides)/learn/your-dashboard": "ChartLine",
+  "(guides)/learn/sleep-alert": "BellRing",
+  "(guides)/learn/prompts": "MessageSquareText",
+  "(guides)/guides/connect-page": "MousePointerClick",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).
@@ -197,6 +290,7 @@ const handWritten: Record<string, string> = {
   "docs/self-hosting.md#build-from-source": "/documentation/self-hosting/binaries#build-from-source",
   "docs/self-hosting.md#raspberry-pi-5-4-gb": "/documentation/self-hosting/raspberry-pi",
   "docs/self-hosting.md#s3-compatible-raw-store": "/documentation/self-hosting/s3",
+  "docs/self-hosting.md#backup-and-restore": "/documentation/self-hosting/backup",
   "README.md": "/documentation",
   "README.md#quickstart": "/documentation/quickstart",
 };

@@ -164,7 +164,7 @@ func TestTenantIsolation(t *testing.T) {
 	e := newEnv(t)
 	csB := Connect(t, e.srv.URL+"/mcp", e.keyB)
 	for _, tool := range []string{"get_samples", "get_category_samples", "get_sleep", "get_workouts",
-		"get_nutrition", "get_daily", "get_coverage", "list_connections"} {
+		"get_nutrition", "get_daily", "get_rr_intervals", "get_hrv", "get_menstrual_cycles", "get_coverage", "list_connections"} {
 		args := map[string]any{"user_id": e.userA.String()}
 		if tool == "get_samples" {
 			args["type"] = "heart_rate"
@@ -268,7 +268,7 @@ func TestEveryTool(t *testing.T) {
 	r = get(t, cs, "get_workout_route", map[string]any{"user_id": u, "workout_id": workouts[0].ID})
 	assert.Equal(t, 1, count(t, r))
 
-	for _, tool := range []string{"get_category_samples", "get_nutrition", "get_daily"} {
+	for _, tool := range []string{"get_category_samples", "get_nutrition", "get_daily", "get_menstrual_cycles"} {
 		r = get(t, cs, tool, map[string]any{"user_id": u})
 		assert.Equal(t, 0, count(t, r), tool)
 	}
@@ -308,4 +308,47 @@ func TestDeletingUserIsNotFound(t *testing.T) {
 	msg, isErr := call(t, cs, "get_samples", map[string]any{"user_id": e.userA.String(), "type": "heart_rate"})
 	assert.True(t, isErr)
 	assert.Equal(t, "user not found", msg)
+}
+
+// get_menstrual_cycles answers what GET /v1/users/{id}/menstrual-cycles
+// answers, page by page.
+func TestGetMenstrualCyclesMatchesREST(t *testing.T) {
+	e := newEnv(t)
+	for i, d := range []string{"2026-01-02", "2026-01-03", "2026-01-30", "2026-02-27"} {
+		at, _ := time.Parse(time.DateOnly, d)
+		e.exec(`INSERT INTO ohs_data.category_samples
+			(tenant_id, user_id, provider, category_type, value_label, start_date, content_hash)
+			SELECT tenant_id, id, 'apple_health', 'menstrual_flow', 'light', $2, $3
+			FROM ohs_core.end_users WHERE id = $1`, e.userA, at.Add(12*time.Hour), "mf-"+strconv.Itoa(i))
+	}
+	cs := Connect(t, e.srv.URL+"/mcp", e.keyA)
+	u := e.userA.String()
+	r := get(t, cs, "get_menstrual_cycles", map[string]any{"user_id": u})
+	want := e.rest("/v1/users/"+u+"/menstrual-cycles", e.keyA)
+	assert.JSONEq(t, string(want), string(r.Records))
+	assert.Equal(t, 3, count(t, r))
+	assert.False(t, r.Truncated)
+
+	r = get(t, cs, "get_menstrual_cycles", map[string]any{"user_id": u, "limit": 1})
+	require.True(t, r.Truncated)
+	require.NotNil(t, r.NextCursor)
+	r2 := get(t, cs, "get_menstrual_cycles", map[string]any{"user_id": u, "limit": 1, "cursor": *r.NextCursor})
+	want = e.rest("/v1/users/"+u+"/menstrual-cycles?limit=1&cursor="+*r.NextCursor, e.keyA)
+	assert.JSONEq(t, string(want), string(r2.Records))
+
+	r = get(t, cs, "get_menstrual_cycles", map[string]any{"user_id": u, "start": "2026-01-15", "end": "2026-02-01"})
+	var cycles []struct {
+		StartDate       string `json:"start_date"`
+		CycleLengthDays *int   `json:"cycle_length_days"`
+	}
+	require.NoError(t, json.Unmarshal(r.Records, &cycles))
+	require.Len(t, cycles, 1)
+	assert.Equal(t, "2026-01-30", cycles[0].StartDate)
+	require.NotNil(t, cycles[0].CycleLengthDays)
+	assert.Equal(t, 28, *cycles[0].CycleLengthDays)
+
+	// A user token reads its own cycles.
+	tok := e.token(e.keyA, e.userA, "read")
+	r = get(t, Connect(t, e.srv.URL+"/mcp", tok), "get_menstrual_cycles", nil)
+	assert.Equal(t, 3, count(t, r))
 }

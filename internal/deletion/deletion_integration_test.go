@@ -34,7 +34,10 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/timetag"
 )
+
+func ptr[T any](v T) *T { return &v }
 
 type env struct {
 	pool   *pgxpool.Pool
@@ -159,7 +162,7 @@ func (e *env) userTables(t *testing.T) []string {
 	tables, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(t, err)
 	require.Greater(t, len(tables), 20)
-	for _, want := range []string{"quantity_samples", "daily_summaries", "raw_objects", "etl_jobs", "connections", "failed_records", "sync_log", "pull_jobs"} {
+	for _, want := range []string{"quantity_samples", "daily_summaries", "raw_objects", "etl_jobs", "connections", "failed_records", "sync_log", "pull_jobs", "time_tags"} {
 		found := false
 		for _, tbl := range tables {
 			if strings.HasSuffix(tbl, "."+want) {
@@ -215,8 +218,14 @@ func TestDeleteRemovesEverythingOfTheUserOnly(t *testing.T) {
 	e.ingest(t, b)
 	_, err := e.pool.Exec(ctx, `INSERT INTO ohs_sync.connections (tenant_id, user_id, provider) VALUES ($1, $2, 'withings')`, e.tenant.ID, a.id)
 	require.NoError(t, err)
+	for _, u := range []user{a, b} {
+		_, err = timetag.Create(ctx, e.pool, e.tenant.ID, u.id, timetag.Fields{Kind: "illness",
+			StartAt: time.Date(2026, 1, 9, 0, 0, 0, 0, time.UTC), Note: ptr("invented note")})
+		require.NoError(t, err)
+	}
 
 	beforeA, beforeB := e.rowsFor(t, a.id), e.rowsFor(t, b.id)
+	require.Equal(t, 1, beforeA["ohs_data.time_tags"], "time tags are user rows")
 	require.NotEmpty(t, beforeA["ohs_data.quantity_samples"])
 	require.NotEmpty(t, beforeA["ohs_sync.raw_objects"])
 	require.Equal(t, 1, beforeA["ohs_sync.connections"])

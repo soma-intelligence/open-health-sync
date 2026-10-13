@@ -45,6 +45,39 @@ func TestRegisterRawRefusesUserBeingDeleted(t *testing.T) {
 	assert.Equal(t, 0, n)
 }
 
+// While the user's data from a provider is being erased nothing of that
+// provider is registered; other providers are not affected.
+func TestRegisterRawRefusesProviderBeingErased(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	st := tenant.New(pool)
+	ten, _, err := st.CreateTenant(ctx, "A")
+	require.NoError(t, err)
+	u, err := st.CreateUser(ctx, ten.ID, "u")
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO ohs_core.deletion_jobs (tenant_id, user_id, provider) VALUES ($1, $2, 'p')`, ten.ID, u.ID)
+	require.NoError(t, err)
+
+	obj := func(provider, key string) rawObject {
+		return rawObject{tenant: ten.ID, user: u.ID, provider: provider, key: key, hash: key, size: 1,
+			batch: "b", part: 0, dataType: "steps", tier: queue.TierStandard}
+	}
+	ok, err := registerRaw(ctx, pool, obj("p", "raw/k1"))
+	assert.False(t, ok)
+	assert.ErrorIs(t, err, errErasing)
+	ok, err = registerRaw(ctx, pool, obj("q", "raw/k2"))
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	_, err = pool.Exec(ctx, `UPDATE ohs_core.deletion_jobs SET status = 'done'`)
+	require.NoError(t, err)
+	ok, err = registerRaw(ctx, pool, obj("p", "raw/k3"))
+	require.NoError(t, err)
+	assert.True(t, ok, "once the job is done, new data of the provider is stored again")
+}
+
 // afterPut runs hook once a Put succeeded: it lets a test land between the
 // unlocked user check and the registration.
 type afterPut struct {

@@ -2,8 +2,8 @@
 
 Instead of polling `coverage`, your server can be told when something changes. Register an
 endpoint, and Open Health Sync posts a signed JSON event to it when a sync writes new or changed
-records, when a provider deletes records, when a user is erased, or when a connection needs the
-user to sign in again.
+records, when a provider deletes records, when a user is erased, when a connection needs the
+user to sign in again, or when a time tag is created, changed or deleted.
 
 Events are thin: they say what changed, for which user, from which provider and over which days,
 never a health value. Your server reads the data with the API it already uses. A leaked or
@@ -52,8 +52,10 @@ the REST routes.
 |---|---|---|
 | `data.written` | A sync or an upload wrote new or changed records | `user_id`, `external_ref`, `provider`, `records` (rows per table), `types`, `first_day`, `last_day` |
 | `data.deleted` | Records the provider deleted were removed | `user_id`, `external_ref`, `provider`, `records_deleted` |
+| `data.erased` | The erasure of a user's data from one provider finished (a disconnect with `delete_data=true`, or `DELETE /v1/users/{id}/data/{provider}`) | `user_id`, `external_ref`, `provider`, `job_id` |
 | `user.deleted` | A user's erasure finished | `user_id`, `external_ref` |
 | `connection.needs_reauth` | The provider refused the user's grant; nothing syncs until they connect again | `user_id`, `external_ref`, `provider` |
+| `tag.created`, `tag.updated`, `tag.deleted` | A [time tag](time-tags.md) of the user was created, changed or deleted through the API | `user_id`, `external_ref`, `tag_id` |
 | `webhook.test` | You called the test route | `endpoint_id` |
 
 ```json

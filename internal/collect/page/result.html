@@ -17,6 +17,7 @@
           font-size: 24px; font-weight: 700; color: var(--card); background: {{if .Connected}}var(--ok){{else}}var(--err){{end}}; }
   h1 { margin: 0 0 8px; font-size: 20px; }
   p { margin: 0; color: var(--muted); }
+  a { color: inherit; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -24,10 +25,10 @@
   <div class="mark" aria-hidden="true">{{if .Connected}}&#10003;{{else}}!{{end}}</div>
   {{if .Connected}}
   <h1>{{.Provider}} is connected</h1>
-  <p>You can close this window.</p>
+  {{if .Back}}<p><a href="{{.Back}}">Back to your sources</a></p>{{else}}<p>You can close this window.</p>{{end}}
   {{else}}
   <h1>The connection did not complete</h1>
-  <p>Close this window and start again from the app.</p>
+  {{if .Back}}<p><a href="{{.Back}}">Back to your sources</a> to try again.</p>{{else}}<p>Close this window and start again from the app.</p>{{end}}
   {{end}}
 </main>
 </body>

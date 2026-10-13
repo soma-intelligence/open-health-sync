@@ -353,6 +353,9 @@ func (s *Scheduler) Schedule(ctx context.Context) (int, error) {
 	if _, err := tx.Exec(ctx, `DELETE FROM ohs_sync.oauth_states WHERE expires_at < $1`, now.Add(-time.Hour)); err != nil {
 		return 0, fmt.Errorf("purge oauth states: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `DELETE FROM ohs_core.connect_sessions WHERE expires_at < $1`, now.Add(-time.Hour)); err != nil {
+		return 0, fmt.Errorf("purge connect sessions: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit: %w", err)
 	}

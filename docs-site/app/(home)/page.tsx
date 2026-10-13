@@ -19,6 +19,7 @@ const planned = [
   "Swift, Kotlin, React Native and Flutter SDKs",
   "Garmin, Fitbit and more",
   "Dexcom, FreeStyle Libre, Omron and Health Connect",
+  "Health records (EHR) through SMART on FHIR",
 ];
 
 export const metadata: Metadata = { alternates: { canonical: asset("") || "/" } };

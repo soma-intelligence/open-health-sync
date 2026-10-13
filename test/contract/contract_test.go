@@ -88,6 +88,9 @@ func freeAddr(t *testing.T) string {
 
 // startServer runs app.Run with every role on a fresh database and returns
 // its base URL and a pool on the same database.
+// contractMetricsToken is the OHS_METRICS_TOKEN of the contract server.
+const contractMetricsToken = "contract-metrics-token"
+
 func startServer(t *testing.T) (string, string) {
 	t.Helper()
 	url := db.TestDB(t)
@@ -100,6 +103,7 @@ func startServer(t *testing.T) (string, string) {
 		PublicURL:     "http://" + addr,
 		Roles:         map[string]bool{"api": true, "collect": true, "etl": true},
 		Metrics:       true,
+		MetricsToken:  contractMetricsToken,
 		EncryptionKey: make([]byte, 32),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -153,7 +157,8 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	// Ops.
 	assert.Equal(t, 200, c.json("GET", "/healthz", "", "").status)
 	assert.Equal(t, 200, c.json("GET", "/readyz", "", "").status)
-	assert.Equal(t, 200, c.json("GET", "/metrics", "", "").status)
+	assert.Equal(t, 401, c.json("GET", "/metrics", "", "").status)
+	assert.Equal(t, 200, c.json("GET", "/metrics", contractMetricsToken, "").status)
 	assert.Equal(t, 200, c.json("GET", "/v1/providers", key, "").status)
 
 	// User and token.
@@ -193,6 +198,34 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	}
 	assert.Equal(t, 200, upload(parts[0]).status)
 
+	// Menstrual flow from Apple Health and from Health Connect, for the
+	// derived cycles (invented days).
+	gz := func(body string) io.Reader {
+		var b bytes.Buffer
+		w := gzip.NewWriter(&b)
+		_, err := w.Write([]byte(body))
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		return &b
+	}
+	var flow strings.Builder
+	for _, d := range []string{"2026-01-02", "2026-01-03", "2026-01-30"} {
+		fmt.Fprintf(&flow, `{"categoryType":"HKCategoryTypeIdentifierMenstrualFlow","startDate":"%sT08:00:00.000Z",`+
+			`"endDate":"%sT08:00:00.000Z","value":3,"sourceName":"Health","metadata":{"HKTimeZone":"Europe/Paris"}}`+"\n", d, d)
+	}
+	r = c.do("POST", "/v1/ingest/apple-health", tok.Token, gz(flow.String()), map[string]string{
+		"Content-Type": "application/gzip", "X-OHS-Type": "HKCategoryTypeIdentifierMenstrualFlow",
+		"X-OHS-Day": "2026-01-10", "X-OHS-Batch": "contract", "X-OHS-Part": "90",
+	})
+	require.Equal(t, 200, r.status, "%s", r.body)
+	r = c.do("POST", "/v1/ingest/health-connect", tok.Token, gz(
+		`{"recordType":"MenstruationFlow","metadata":{"id":"mf-1"},"time":"2026-01-03T09:00:00Z","zoneOffset":"+01:00","flow":"heavy"}`+"\n"),
+		map[string]string{
+			"Content-Type": "application/gzip", "X-OHS-Type": "MenstruationFlow",
+			"X-OHS-Day": "2026-01-03", "X-OHS-Batch": "contract", "X-OHS-Part": "91",
+		})
+	require.Equal(t, 200, r.status, "%s", r.body)
+
 	// Coverage until processed (ruling R4).
 	deadline := time.Now().Add(60 * time.Second)
 	for {
@@ -223,6 +256,27 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		r := c.json("GET", p, key, "")
 		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)
 	}
+	// RR intervals and the HRV derived from them: the fixtures carry no
+	// heartbeat series, so one is written straight to the table.
+	pool, err = db.Open(context.Background(), url)
+	require.NoError(t, err)
+	at := time.Date(2026, 1, 10, 7, 0, 0, 0, time.UTC)
+	for i := range 12 {
+		at = at.Add(800 * time.Millisecond)
+		_, err := pool.Exec(context.Background(), `INSERT INTO ohs_data.heartbeat_samples
+			(tenant_id, user_id, provider, series_id, "timestamp", rr_ms, content_hash)
+			SELECT tenant_id, id, 'apple_health', 'contract-series', $2, 800, $3 FROM ohs_core.end_users WHERE id = $1`,
+			user.ID, at, "contract-hb-"+strconv.Itoa(i))
+		require.NoError(t, err)
+	}
+	pool.Close()
+	for _, p := range []string{u + "/rr-intervals?limit=5", u + "/hrv", u + "/hrv?series_id=contract-series&start=2026-01-10"} {
+		r := c.json("GET", p, key, "")
+		assert.Equal(t, 200, r.status, "%s: %s", p, r.body)
+		assert.Contains(t, string(r.body), "contract-series", p)
+	}
+	assert.Equal(t, 400, c.json("GET", u+"/hrv?cursor=nope", key, "").status)
+
 	// Page through heart rate with a small limit to exercise next_cursor.
 	r = c.json("GET", u+"/samples?type=heart_rate&limit=100", key, "")
 	require.Equal(t, 200, r.status)
@@ -232,6 +286,30 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	r.json(t, &page)
 	require.NotNil(t, page.NextCursor)
 	assert.Equal(t, 200, c.json("GET", u+"/samples?type=heart_rate&limit=100&cursor="+*page.NextCursor, key, "").status)
+
+	// Menstrual cycles derived from both providers' flow, then paged.
+	r = c.json("GET", u+"/menstrual-cycles", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	var cycles struct {
+		Data []struct {
+			StartDate       string   `json:"start_date"`
+			CycleLengthDays *int     `json:"cycle_length_days"`
+			Providers       []string `json:"providers"`
+		} `json:"data"`
+	}
+	r.json(t, &cycles)
+	require.Len(t, cycles.Data, 2, "%s", r.body)
+	assert.Equal(t, "2026-01-02", cycles.Data[0].StartDate)
+	assert.Equal(t, []string{"apple_health", "health_connect"}, cycles.Data[0].Providers)
+	require.NotNil(t, cycles.Data[0].CycleLengthDays)
+	assert.Equal(t, 28, *cycles.Data[0].CycleLengthDays)
+	assert.Nil(t, cycles.Data[1].CycleLengthDays)
+	r = c.json("GET", u+"/menstrual-cycles?limit=1&start=2026-01-01", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	r.json(t, &page)
+	require.NotNil(t, page.NextCursor)
+	assert.Equal(t, 200, c.json("GET", u+"/menstrual-cycles?limit=1&cursor="+*page.NextCursor, key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/menstrual-cycles?cursor=%25%25", key, "").status)
 
 	// FHIR: a page of Observations, its next link, and one Observation by id.
 	r = c.json("GET", u+"/fhir/Observation?type=heart_rate&limit=2", key, "")
@@ -323,6 +401,29 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 200, r.status, "%s", r.body)
 	assert.JSONEq(t, `{"data":[]}`, string(r.body))
 
+	// Time tags: create (with a replay), list with a window, read, close, delete.
+	r = c.do("POST", u+"/tags", key, strings.NewReader(`{"kind":"travel","label":"Trip","start_at":"2026-01-08",
+		"timezone":"Asia/Tokyo","source":"contract"}`), map[string]string{"Content-Type": "application/json", "Idempotency-Key": "tag-1"})
+	require.Equal(t, 201, r.status, "%s", r.body)
+	var tag struct{ ID string }
+	r.json(t, &tag)
+	assert.Equal(t, 201, c.do("POST", u+"/tags", key, strings.NewReader(`{"kind":"travel","label":"Trip","start_at":"2026-01-08",
+		"timezone":"Asia/Tokyo","source":"contract"}`), map[string]string{"Content-Type": "application/json", "Idempotency-Key": "tag-1"}).status)
+	r = c.json("POST", u+"/tags", key, `{"kind":"illness","start_at":"2026-01-09T08:00:00Z","end_at":"2026-01-12T00:00:00Z","note":"invented"}`)
+	require.Equal(t, 201, r.status, "%s", r.body)
+	assert.Equal(t, 200, c.json("GET", u+"/tags?start=2026-01-10&end=2026-01-11&kind=travel&limit=1", key, "").status)
+	r = c.json("GET", u+"/tags?limit=1", key, "")
+	require.Equal(t, 200, r.status)
+	r.json(t, &page)
+	require.NotNil(t, page.NextCursor)
+	assert.Equal(t, 200, c.json("GET", u+"/tags?limit=1&cursor="+*page.NextCursor, key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/tags/"+tag.ID, key, "").status)
+	assert.Equal(t, 200, c.json("PATCH", u+"/tags/"+tag.ID, key, `{"end_at":"2026-01-15","label":null}`).status)
+	assert.Equal(t, 400, c.json("PATCH", u+"/tags/"+tag.ID, key, `{"end_at":"2026-01-01"}`).status)
+	assert.Equal(t, 400, c.json("POST", u+"/tags", key, `{"kind":"travel","start_at":"2026-01-08","timezone":"Mars/Base"}`).status)
+	assert.Equal(t, 204, c.json("DELETE", u+"/tags/"+tag.ID, key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/tags/"+tag.ID, key, "").status)
+
 	// Refusals are documented problems too.
 	assert.Equal(t, 401, c.json("GET", "/v1/users", "", "").status)
 	assert.Equal(t, 401, c.json("GET", "/v1/users", "ohs_sk_unknown", "").status)
@@ -336,6 +437,37 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		"Content-Type": "application/gzip", "X-OHS-Type": "HKQuantityTypeIdentifierHeartRate",
 		"X-OHS-Day": "2026-01-10", "X-OHS-Batch": "contract", "X-OHS-Part": "99",
 	}).status, "not gzip")
+
+	// Erasing the user's data from one provider (a device provider, no
+	// connection), and its job read back until done.
+	assert.Equal(t, 404, c.json("DELETE", u+"/connections/withings?delete_data=true", key, "").status)
+	assert.Equal(t, 404, c.json("DELETE", u+"/data/not_a_provider", key, "").status)
+	r = c.json("DELETE", u+"/data/apple_health", key, "")
+	require.Equal(t, 202, r.status, "%s", r.body)
+	var erase struct {
+		JobID string `json:"job_id"`
+	}
+	r.json(t, &erase)
+	deadline = time.Now().Add(60 * time.Second)
+	for {
+		r = c.json("GET", "/v1/deletions/"+erase.JobID, key, "")
+		require.Equal(t, 200, r.status, "%s", r.body)
+		var dj struct {
+			Status   string  `json:"status"`
+			Provider *string `json:"provider"`
+		}
+		r.json(t, &dj)
+		require.NotNil(t, dj.Provider)
+		assert.Equal(t, "apple_health", *dj.Provider)
+		if dj.Status == "done" {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "provider deletion not done: %s", r.body)
+		time.Sleep(200 * time.Millisecond)
+	}
+	r = c.json("GET", u+"/samples?type=heart_rate", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	assert.JSONEq(t, `{"data":[],"next_cursor":null}`, string(r.body), "the provider's data is gone")
 
 	// Deletion, and its job read back until done.
 	r = c.json("DELETE", u, key, "")

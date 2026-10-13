@@ -50,6 +50,19 @@ func TestMigrateNeedsDatabaseURL(t *testing.T) {
 	}
 }
 
+// migrate latest reads the binary's own migrations: it needs no database.
+func TestMigrateLatestNeedsNoDatabase(t *testing.T) {
+	t.Setenv("OHS_DATABASE_URL", "")
+	t.Setenv("OHS_ENCRYPTION_KEY", "")
+	var buf bytes.Buffer
+	if err := run([]string{"migrate", "latest"}, &buf); err != nil {
+		t.Fatalf("migrate latest: %v", err)
+	}
+	if !regexp.MustCompile(`^latest schema version [1-9][0-9]*\n$`).MatchString(buf.String()) {
+		t.Fatalf("output %q", buf.String())
+	}
+}
+
 // migrate only needs the database URL: a missing encryption key must not stop it.
 func TestMigrateWithoutEncryptionKey(t *testing.T) {
 	t.Setenv("OHS_DATABASE_URL", "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")

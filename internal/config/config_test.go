@@ -89,8 +89,9 @@ func TestLoadProviderKeys(t *testing.T) {
 	m["OHS_MCP_KEY"] = "k"
 	m["OHS_METRICS"] = "false"
 	m["OHS_BOOTSTRAP_TENANT"] = "acme"
-	m["OHS_HTTP_PORT"] = "8081" // compose only
-	m["OHS_VERSION"] = "0.0.1"  // compose only
+	m["OHS_HTTP_PORT"] = "8081"    // compose only
+	m["OHS_HTTP_BIND"] = "0.0.0.0" // compose only
+	m["OHS_VERSION"] = "0.0.1"     // compose only
 	m["OHS_WEBHOOK_ALLOW_PRIVATE"] = "true"
 	m["OTHER"] = "z"
 	c, err := load(t, m)
@@ -128,6 +129,26 @@ func TestLoadRetentionDays(t *testing.T) {
 		if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_RETENTION_DAYS") {
 			t.Fatalf("%q: %v", v, err)
 		}
+	}
+}
+
+func TestLoadConsole(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.Console {
+		t.Fatalf("default: %v %v", c.Console, err)
+	}
+	m := base()
+	m["OHS_CONSOLE"] = "true"
+	c, err = load(t, m)
+	if err != nil || !c.Console {
+		t.Fatalf("true: %v %v", c.Console, err)
+	}
+	if len(c.Providers) != 0 {
+		t.Fatalf("OHS_CONSOLE leaked as a provider: %v", c.Providers)
+	}
+	m["OHS_CONSOLE"] = "maybe"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_CONSOLE") {
+		t.Fatalf("bad value: %v", err)
 	}
 }
 
@@ -242,5 +263,30 @@ func TestLoadMultiWordSlug(t *testing.T) {
 	}
 	if _, ok := c.Providers["multi"]["WORD_CLIENT_ID"]; ok {
 		t.Fatalf("multi-word key filed under its first word: %v", c.Providers)
+	}
+}
+
+func TestLoadMetricsToken(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.MetricsToken != "" || c.MetricsListen != "" {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	m := base()
+	m["OHS_METRICS_TOKEN"] = "short"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_METRICS_TOKEN") {
+		t.Fatalf("short token: %v", err)
+	}
+	m["OHS_METRICS_TOKEN"] = "0123456789abcdef"
+	m["OHS_METRICS_LISTEN"] = "127.0.0.1:9464"
+	c, err = load(t, m)
+	if err != nil || c.MetricsToken != "0123456789abcdef" || c.MetricsListen != "127.0.0.1:9464" {
+		t.Fatalf("token and listen: %+v %v", c, err)
+	}
+	if len(c.Providers) != 0 {
+		t.Fatalf("metrics settings read as a provider: %v", c.Providers)
+	}
+	m["OHS_METRICS_LISTEN"] = ":8080"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_METRICS_LISTEN") {
+		t.Fatalf("same address as OHS_LISTEN: %v", err)
 	}
 }

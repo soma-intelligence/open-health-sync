@@ -4,8 +4,11 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	apispec "github.com/soma-intelligence/open-health-sync/api"
@@ -25,9 +28,42 @@ func (s *server) mountOps(mux *http.ServeMux) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		_, _ = w.Write(apispec.OpenAPI)
 	})
-	if s.d.Metrics {
-		mux.HandleFunc("GET /metrics", s.metricsHandler)
+	if !s.d.Metrics {
+		return
 	}
+	if s.d.MetricsMux != nil {
+		// A listener of its own: the operator controls who reaches it by
+		// its bind address, so the token is optional there.
+		h := http.Handler(http.HandlerFunc(s.metricsHandler))
+		if s.d.MetricsToken != "" {
+			h = metricsAuth(s.d.MetricsToken, h)
+		}
+		s.d.MetricsMux.Handle("GET /metrics", h)
+		return
+	}
+	mux.Handle("GET /metrics", metricsAuth(s.d.MetricsToken, http.HandlerFunc(s.metricsHandler)))
+}
+
+// metricsAuth lets a scrape through only with the bearer token. With no token
+// configured every scrape is refused, so the API listener never serves the
+// counters to whoever reaches it.
+func metricsAuth(token string, next http.Handler) http.Handler {
+	want := sha256.Sum256([]byte(token))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token == "" {
+			problem(w, http.StatusForbidden, "metrics need OHS_METRICS_TOKEN, or OHS_METRICS_LISTEN to serve them on a private address")
+			return
+		}
+		h := r.Header.Get("Authorization")
+		ok := len(h) > len("Bearer ") && strings.EqualFold(h[:len("Bearer ")], "Bearer ")
+		sum := sha256.Sum256([]byte(strings.TrimSpace(h[min(len(h), len("Bearer ")):])))
+		if !ok || subtle.ConstantTimeCompare(sum[:], want[:]) != 1 {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			problem(w, http.StatusUnauthorized, "metrics need the OHS_METRICS_TOKEN bearer token")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
