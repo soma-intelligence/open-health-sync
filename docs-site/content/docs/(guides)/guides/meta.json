@@ -1,4 +1,4 @@
 {
   "title": "Guides",
-  "pages": ["connect-a-provider", "ai-agents", "fhir", "open-mhealth", "exports", "webhooks"]
+  "pages": ["connect-a-provider", "ai-agents", "fhir", "open-mhealth", "exports", "webhooks", "alternatives"]
 }
