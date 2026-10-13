@@ -45,6 +45,23 @@ expect "a dotted prefix is flagged" 1 "$T" "x.$R"
 expect "an invalid term fails closed" 2 "($T" 'nothing to see'
 expect "an invalid term fails closed even with a match" 2 "($T"$'\n'"$T" "$T inside"
 
+# In GitHub Actions the output names the file and line only: CI logs are
+# public, and neither the matched text nor the term may appear in them.
+repo="$work/ci"
+git init -q "$repo"
+printf 'line with %s inside\n' "$T" >"$repo/file.txt"
+git -C "$repo" add file.txt
+out="$(cd "$repo" && GITHUB_ACTIONS=true OHS_FORBIDDEN_TERMS="$T" "$guard" 2>&1)" || true
+if printf '%s' "$out" | grep -qi "$T"; then
+  echo "FAIL CI output hides the term and the matched text"
+  fails=$((fails + 1))
+elif ! printf '%s' "$out" | grep -q '^file.txt:1$'; then
+  echo "FAIL CI output names the file and line"
+  fails=$((fails + 1))
+else
+  echo "ok   CI output names the place, not the term"
+fi
+
 if [ "$fails" -gt 0 ]; then
   echo "guard_test: $fails failure(s)"
   exit 1

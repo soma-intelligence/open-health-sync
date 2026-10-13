@@ -89,8 +89,9 @@ func TestLoadProviderKeys(t *testing.T) {
 	m["OHS_MCP_KEY"] = "k"
 	m["OHS_METRICS"] = "false"
 	m["OHS_BOOTSTRAP_TENANT"] = "acme"
-	m["OHS_HTTP_PORT"] = "8081" // compose only
-	m["OHS_VERSION"] = "0.0.1"  // compose only
+	m["OHS_HTTP_PORT"] = "8081"    // compose only
+	m["OHS_HTTP_BIND"] = "0.0.0.0" // compose only
+	m["OHS_VERSION"] = "0.0.1"     // compose only
 	m["OHS_WEBHOOK_ALLOW_PRIVATE"] = "true"
 	m["OTHER"] = "z"
 	c, err := load(t, m)
