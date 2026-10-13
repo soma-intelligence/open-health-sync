@@ -38,7 +38,7 @@ const maxStartBody = 64 << 10
 // maxRedirectURI caps the tenant's redirect_uri.
 const maxRedirectURI = 2048
 
-//go:embed page/result.html
+//go:embed page/*.html
 var pageFS embed.FS
 
 var resultPage = template.Must(template.ParseFS(pageFS, "page/result.html"))
@@ -152,31 +152,43 @@ func (h *Handlers) StartConnection() http.Handler {
 			return
 		}
 
-		state, err := newState()
+		authorize, err := h.authorize(r.Context(), tenantID, userID, provider, oc, req.RedirectURI)
 		if err != nil {
-			writeInternal(w)
-			return
-		}
-		authorize, err := oc.AuthorizeURL(state, h.d.CallbackURL(provider))
-		if err != nil {
-			slog.ErrorContext(r.Context(), "collect: authorize url", "provider", provider, "error", safeErr(err))
-			writeInternal(w)
-			return
-		}
-		var redirect *string
-		if req.RedirectURI != "" {
-			redirect = &req.RedirectURI
-		}
-		if _, err := h.d.Pool.Exec(r.Context(), `
-			INSERT INTO ohs_sync.oauth_states (state, tenant_id, user_id, provider, redirect_uri, expires_at)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			hashState(state), tenantID, userID, provider, redirect, h.d.now().Add(StateTTL)); err != nil {
-			slog.ErrorContext(r.Context(), "collect: store oauth state", "tenant_id", tenantID, "user_id", userID, "error", err)
 			writeInternal(w)
 			return
 		}
 		writeJSON(w, http.StatusOK, StartResponse{AuthorizeURL: authorize})
 	})
+}
+
+// authorize mints a single-use state for one user and provider, stores its
+// hash with the redirect (empty: the built-in result page) for StateTTL, and
+// returns the provider's consent URL. Both ways to start a connection go
+// through it: the API (StartConnection) and the hosted page (ConnectStart).
+// Errors are logged here; the caller answers 500.
+func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, provider string, oc connector.OAuthConnector, redirect string) (string, error) {
+	state, err := newState()
+	if err != nil {
+		slog.ErrorContext(ctx, "collect: oauth state", "error", err)
+		return "", err
+	}
+	authorize, err := oc.AuthorizeURL(state, h.d.CallbackURL(provider))
+	if err != nil {
+		slog.ErrorContext(ctx, "collect: authorize url", "provider", provider, "error", safeErr(err))
+		return "", err
+	}
+	var redirectCol *string
+	if redirect != "" {
+		redirectCol = &redirect
+	}
+	if _, err := h.d.Pool.Exec(ctx, `
+		INSERT INTO ohs_sync.oauth_states (state, tenant_id, user_id, provider, redirect_uri, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		hashState(state), tenantID, userID, provider, redirectCol, h.d.now().Add(StateTTL)); err != nil {
+		slog.ErrorContext(ctx, "collect: store oauth state", "tenant_id", tenantID, "user_id", userID, "error", err)
+		return "", err
+	}
+	return authorize, nil
 }
 
 // oauthState is a consumed oauth_states row.
@@ -377,7 +389,7 @@ func (h *Handlers) finish(w http.ResponseWriter, r *http.Request, st oauthState,
 		if !ok {
 			code = http.StatusBadRequest
 		}
-		renderResult(w, code, provider, ok)
+		renderResultBack(w, code, provider, ok, h.connectBackLink(r, st))
 		return
 	}
 	u, err := url.Parse(st.redirect)
@@ -393,6 +405,12 @@ func (h *Handlers) finish(w http.ResponseWriter, r *http.Request, st oauthState,
 }
 
 func renderResult(w http.ResponseWriter, code int, provider string, ok bool) {
+	renderResultBack(w, code, provider, ok, "")
+}
+
+// renderResultBack renders the result page; back, when set, is the hosted
+// connection page the user came from, offered as a link.
+func renderResultBack(w http.ResponseWriter, code int, provider string, ok bool, back string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	w.Header().Set("Cache-Control", "no-store")
@@ -401,5 +419,6 @@ func renderResult(w http.ResponseWriter, code int, provider string, ok bool) {
 	_ = resultPage.Execute(w, struct {
 		Connected bool
 		Provider  string
-	}{Connected: ok, Provider: provider})
+		Back      string
+	}{Connected: ok, Provider: providerName(provider), Back: back})
 }
