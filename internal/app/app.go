@@ -212,6 +212,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			Raw:       raw,
 			Providers: providers.list,
 			Metrics:   cfg.Metrics,
+			Console:   cfg.Console,
 			Collect:   collect.NewHandlers(collectDeps),
 			PublicURL: cfg.PublicURL,
 			Webhooks:  webhook.NewStore(pool, box),

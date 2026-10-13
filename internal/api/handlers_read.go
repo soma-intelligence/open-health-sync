@@ -22,6 +22,8 @@ func (s *server) mountReads(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/users/{id}/workouts/{workout_id}/route", childRoute(s, "workout_id", "workout", read.WorkoutRoute))
 	s.tenantRoute(mux, "GET /v1/users/{id}/nutrition", listRoute(s, read.Nutrition))
 	s.tenantRoute(mux, "GET /v1/users/{id}/daily", listRoute(s, read.Daily))
+	s.tenantRoute(mux, "GET /v1/users/{id}/rr-intervals", rrRoute(s, read.RRIntervals))
+	s.tenantRoute(mux, "GET /v1/users/{id}/hrv", rrRoute(s, read.HRV))
 	s.tenantRoute(mux, "GET /v1/users/{id}/coverage", s.coverage)
 }
 
@@ -68,6 +70,29 @@ func childRoute[T any](s *server, param, what string, fn childFunc[T]) http.Hand
 		pg, err := fn(r.Context(), s.d.Pool, p.TenantID, user, parent, q)
 		if err != nil {
 			readError(w, r, err, what)
+			return
+		}
+		writeJSON(w, http.StatusOK, newPage(pg.Records, pg.NextCursor))
+	}
+}
+
+// rrRoute serves a heartbeat list: series_id, start, end, cursor and limit.
+func rrRoute[T any](s *server, fn func(context.Context, read.Querier, uuid.UUID, uuid.UUID, read.RRQuery) (read.Page[T], error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, user, ok := pathUser(w, r)
+		if !ok {
+			return
+		}
+		rq, err := parseReadQuery(r)
+		if err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+		q := read.RRQuery{SeriesID: r.URL.Query().Get("series_id"), Start: rq.Start, End: rq.End,
+			Cursor: rq.Cursor, Limit: rq.Limit}
+		pg, err := fn(r.Context(), s.d.Pool, p.TenantID, user, q)
+		if err != nil {
+			readError(w, r, err, "user")
 			return
 		}
 		writeJSON(w, http.StatusOK, newPage(pg.Records, pg.NextCursor))

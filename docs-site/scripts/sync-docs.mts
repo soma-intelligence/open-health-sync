@@ -110,6 +110,13 @@ const sources: Record<string, Target[]> = {
         "Metrics exposure, crashes, long outages, re-processing a user and other things to know in production.",
     },
   ],
+  "docs/console.md": [
+    {
+      page: "(guides)/self-hosting/console",
+      title: "Admin console",
+      description: "A read-only page for operators: users, connections, freshness and webhook deliveries.",
+    },
+  ],
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",
@@ -136,6 +143,13 @@ const sources: Record<string, Target[]> = {
       page: "(guides)/guides/webhooks",
       title: "Outgoing webhooks",
       description: "Be told when data changes: events, signature verification, retries and the routes.",
+    },
+  ],
+  "docs/hrv.md": [
+    {
+      page: "(guides)/guides/hrv",
+      title: "RR intervals and HRV",
+      description: "Read beat-to-beat intervals and the HRV derived from each heartbeat series.",
     },
   ],
 };
@@ -175,6 +189,7 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/backup": "DatabaseBackup",
   "(guides)/self-hosting/rotating-secrets": "RotateCw",
   "(guides)/self-hosting/operating-notes": "NotebookPen",
+  "(guides)/self-hosting/console": "LayoutDashboard",
   "(guides)/guides/fhir": "HeartPulse",
   "(guides)/guides/open-mhealth": "Activity",
   "(guides)/guides/exports": "FileDown",
@@ -188,6 +203,7 @@ const icons: Record<string, string> = {
   "(guides)/recipes/export-all": "FileDown",
   "(guides)/recipes/ai-agent": "Bot",
   "(guides)/recipes/connect": "Link",
+  "(guides)/guides/hrv": "Waves",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

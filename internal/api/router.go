@@ -16,6 +16,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/console"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/mcp"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
@@ -45,6 +46,8 @@ type Deps struct {
 	IngestLimit int
 	// Metrics mounts GET /metrics (OHS_METRICS).
 	Metrics bool
+	// Console mounts the read-only admin console at /console (OHS_CONSOLE).
+	Console bool
 	// ETLMetrics is exported on /metrics when set (the etl role runs here).
 	ETLMetrics *automation.Metrics
 	// Collect serves the connection, OAuth callback and notification routes.
@@ -91,6 +94,9 @@ func NewRouter(d Deps) http.Handler {
 	s.mountIngest(mux)
 	s.mountCollect(mux)
 	s.mountMCP(mux)
+	if d.Console {
+		console.Mount(mux)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// The catch-all matches every method, so the mux never answers 405
 		// itself: a known path called with the wrong method lands here.

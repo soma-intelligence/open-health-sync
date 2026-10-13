@@ -144,6 +144,8 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 | `workouts/{workout_id}/route` | `start`, `end` | `timestamp` |
 | `nutrition` | `start`, `end` | `start_date` |
 | `daily` | `start`, `end` (compared as dates) | `date` |
+| `rr-intervals` | `series_id`, `start`, `end` | `timestamp` (the beat) |
+| `hrv` | `series_id`, `start`, `end` (the series' first beat) | the series' first beat |
 | `coverage` | `provider`, `start`, `end` | not paged |
 
 `samples` answers 400 when `type` is not a quantity type of the catalog (a typo such as
@@ -199,7 +201,8 @@ Every record carries its provenance: `provider` (the integration it came through
 vendor that produced it, when known), `device` and `ingested_at`. The quantity names and their
 units are listed in [data-model.md](data-model.md). `daily` holds one row per provider and local
 calendar day; the ETL derives step, energy and distance totals from samples when a provider sends
-no daily summary of its own.
+no daily summary of its own. `rr-intervals` serves the beat-to-beat intervals of heartbeat series
+and `hrv` the HRV derived from each series; the rules are in [hrv.md](hrv.md).
 
 ### Knowing when an upload is processed
 
@@ -277,6 +280,7 @@ signature verification and the routes: [webhooks.md](webhooks.md).
 | `GET /healthz` | Liveness |
 | `GET /readyz` | Readiness: database ping and raw store check, 503 when either fails |
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
+| `GET /console` | Read-only admin console (HTML), only when `OHS_CONSOLE=true`; see [console.md](console.md) |
 
 `/metrics` is unauthenticated and global to the instance (not per tenant). Keep it behind your
 reverse proxy or turn it off, see [self-hosting.md](self-hosting.md#operating-notes).
