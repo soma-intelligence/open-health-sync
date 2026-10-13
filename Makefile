@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test test-js integration contract e2e reliability upgrade-test guard fhir-validate release-check
+.PHONY: setup build image test test-js integration contract e2e reliability upgrade-test guard fhir-validate release-check record
 
 setup:
 	git config core.hooksPath .githooks
@@ -54,6 +54,13 @@ reliability:
 # tags, go, curl, jq. See docs/self-hosting.md#upgrading.
 upgrade-test:
 	test/upgrade/upgrade.sh
+
+# Record one connector against a real account, anonymized on this machine
+# (docs/connectors/recording.md). Never in CI: CI replays the recordings in
+# test/recorded as part of `make test`.
+#   make record PROVIDER=withings
+record:
+	OHS_RECORD_PROVIDER=$(PROVIDER) go test -tags record -run TestRecord -count=1 -v -timeout 30m ./test/recorded/
 
 guard:
 	scripts/guard_test.sh

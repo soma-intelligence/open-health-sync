@@ -1,4 +1,4 @@
 {
   "title": "Connectors",
-  "pages": ["index", "apple-health", "withings", "oura", "whoop", "strava", "polar", "fitbit", "suunto", "ultrahuman", "intervals-icu", "health-connect", "dexcom", "omron", "...", "sources", "writing-a-connector"]
+  "pages": ["index", "apple-health", "withings", "oura", "whoop", "strava", "polar", "fitbit", "suunto", "ultrahuman", "intervals-icu", "health-connect", "dexcom", "omron", "...", "sources", "recording", "writing-a-connector"]
 }

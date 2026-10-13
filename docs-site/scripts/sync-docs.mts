@@ -64,6 +64,13 @@ const sources: Record<string, Target[]> = {
       description: "The connector contract, a minimal device connector, registration and fixture tests.",
     },
   ],
+  "docs/connectors/recording.md": [
+    {
+      page: "(guides)/connectors/recording",
+      title: "Record a connector",
+      description: "Record a real account's answers, anonymized on your machine, so CI replays them on every change.",
+    },
+  ],
   "docs/connectors/README.md": [
     {
       page: "(guides)/connectors/sources",
@@ -145,11 +152,18 @@ const sources: Record<string, Target[]> = {
       description: "Be told when data changes: events, signature verification, retries and the routes.",
     },
   ],
+  "docs/hrv.md": [
+    {
+      page: "(guides)/guides/hrv",
+      title: "RR intervals and HRV",
+      description: "Read beat-to-beat intervals and the HRV derived from each heartbeat series.",
+    },
+  ],
 };
 
 // Each provider guide under docs/connectors becomes a page of its own.
 for (const file of readdirSync(join(repo, "docs", "connectors")).sort()) {
-  if (!file.endsWith(".md") || file === "README.md") continue;
+  if (!file.endsWith(".md") || file === "README.md" || sources[`docs/connectors/${file}`]) continue;
   sources[`docs/connectors/${file}`] = [{ page: `(guides)/connectors/${file.replace(/\.md$/, "")}` }];
 }
 
@@ -175,6 +189,7 @@ const icons: Record<string, string> = {
   "(guides)/concepts/background-sync": "RefreshCw",
   "(guides)/connectors/writing-a-connector": "Code",
   "(guides)/connectors/sources": "List",
+  "(guides)/connectors/recording": "Disc",
   "(guides)/connectors/apple-health": "Smartphone",
   "(guides)/self-hosting/doctor": "Stethoscope",
   "(guides)/self-hosting/configuration": "Settings",
@@ -196,6 +211,7 @@ const icons: Record<string, string> = {
   "(guides)/recipes/export-all": "FileDown",
   "(guides)/recipes/ai-agent": "Bot",
   "(guides)/recipes/connect": "Link",
+  "(guides)/guides/hrv": "Waves",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

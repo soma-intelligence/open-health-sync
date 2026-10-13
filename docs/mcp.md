@@ -133,6 +133,8 @@ Arguments mirror the REST query parameters. Times take RFC 3339 or `YYYY-MM-DD` 
 | `get_workout_route` | `user_id`, `workout_id` (required), `start`, `end`, `cursor`, `limit` | the workout's GPS points |
 | `get_nutrition` | `user_id`, `start`, `end`, `cursor`, `limit` | nutrition logs |
 | `get_daily` | `user_id`, `start`, `end`, `cursor`, `limit` | daily summaries per local day |
+| `get_rr_intervals` | `user_id`, `series_id`, `start`, `end`, `cursor`, `limit` | beat-to-beat (RR) intervals, as `GET /v1/users/{id}/rr-intervals` |
+| `get_hrv` | `user_id`, `series_id`, `start`, `end`, `cursor`, `limit` | the HRV derived from each heartbeat series, as `GET /v1/users/{id}/hrv` (see [hrv.md](hrv.md)) |
 | `get_coverage` | `user_id`, `provider`, `start`, `end` | records per provider per day, plus `pending_jobs`, `parked_jobs` and `rejected_records` (lines not stored) |
 | `list_connections` | `user_id` | provider connections, status and last sync time |
 | `list_webhooks` | `deliveries` | the tenant's [webhook](webhooks.md) endpoints and their health; with `deliveries`, each one's 10 latest deliveries (tenant key only; endpoints are managed through the REST API) |

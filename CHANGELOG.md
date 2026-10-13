@@ -9,12 +9,20 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- RR intervals and HRV: `GET /v1/users/{id}/rr-intervals` serves the stored beat-to-beat
+  intervals of heartbeat series, and `GET /v1/users/{id}/hrv` the RMSSD, SDNN, pNN50, mean RR
+  and mean heart rate derived from each series, after implausible and ectopic intervals are set
+  aside. MCP tools `get_rr_intervals` and `get_hrv`. See [docs/hrv.md](docs/hrv.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and
   HRV trend, source comparison, weekly digest, HTML dashboard, full export, read-only AI token,
   account connection. Each has a page under [docs/recipes](docs/recipes/README.md), and the
   quickstart end to end suite runs them all.
+- Recorded connector contracts: `make record PROVIDER=<slug>` records what a real account's API
+  answers (or an Apple Health export), anonymized on the contributor's machine, and CI replays
+  every committed recording through its connector. See
+  [docs/connectors/recording.md](docs/connectors/recording.md).
 - Dexcom connector (`dexcom`, API v3, OAuth 2.0, scheduled pulls): CGM estimated glucose values
   as `blood_glucose`, with trend and out-of-range status. `OHS_DEXCOM_REGION` picks the US, EU,
   Japan or sandbox host. See
