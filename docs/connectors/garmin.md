@@ -89,6 +89,11 @@ From Garmin's [OAuth 2.0 PKCE specification](https://developerportal.garmin.com/
 | Granted permissions | `GET https://apis.garmin.com/wellness-api/rest/user/permissions`; changes arrive as a `userPermissionsChange` notification |
 | Disconnect | `DELETE https://apis.garmin.com/wellness-api/rest/user/registration` |
 
+A connector built from these notes gets erasure on disconnect for free: a disconnect with
+`?delete_data=true` erases everything Open Health Sync holds from the provider for that user (see
+[erasing one provider's data](../api.md#erasing-one-providers-data)). A deregistration
+notification should lead to the same erasure.
+
 The FAQ says "All APIs in the Developer Program use OAUTH 2.0". Older integrations used OAuth
 1.0a; we found no public date for when OAuth 1.0a stops working (**unverified**). A new
 connector should implement OAuth 2.0 only.

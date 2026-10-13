@@ -152,6 +152,11 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		auth.WriteProblem(w, http.StatusGone, "Gone", "this user is being deleted")
 		return
 	}
+	if errors.Is(err, errErasing) {
+		auth.WriteProblem(w, http.StatusConflict, "Conflict",
+			"this user's data from this provider is being deleted; nothing was kept, upload again once the deletion job is done")
+		return
+	}
 	if err != nil {
 		slog.ErrorContext(r.Context(), "collect: upload failed",
 			"tenant_id", req.tenant, "user_id", req.user, "provider", h.provider, "error", err)
@@ -304,14 +309,15 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 		tenant: q.tenant, user: q.user, provider: h.provider, key: key, hash: hash, size: len(body),
 		batch: q.batch, part: q.part, dataType: q.dataType, tier: queue.TierHighFreq,
 	})
-	if errors.Is(err, errInactive) {
-		// The user started being deleted between the check and the
-		// registration: the file just written is removed again.
+	if errors.Is(err, errInactive) || errors.Is(err, errErasing) {
+		// The user, or their data from this provider, started being deleted
+		// between the check and the registration: the file just written is
+		// removed again.
 		if derr := h.d.Raw.DeletePrefix(context.WithoutCancel(ctx), key); derr != nil {
 			slog.WarnContext(ctx, "collect: could not remove the file of a refused part",
 				"tenant_id", q.tenant, "user_id", q.user, "error", derr)
 		}
-		return UploadResponse{}, 0, errInactive
+		return UploadResponse{}, 0, err
 	}
 	if err != nil {
 		return UploadResponse{}, 0, err

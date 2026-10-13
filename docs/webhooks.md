@@ -52,6 +52,7 @@ the REST routes.
 |---|---|---|
 | `data.written` | A sync or an upload wrote new or changed records | `user_id`, `external_ref`, `provider`, `records` (rows per table), `types`, `first_day`, `last_day` |
 | `data.deleted` | Records the provider deleted were removed | `user_id`, `external_ref`, `provider`, `records_deleted` |
+| `data.erased` | The erasure of a user's data from one provider finished (a disconnect with `delete_data=true`, or `DELETE /v1/users/{id}/data/{provider}`) | `user_id`, `external_ref`, `provider`, `job_id` |
 | `user.deleted` | A user's erasure finished | `user_id`, `external_ref` |
 | `connection.needs_reauth` | The provider refused the user's grant; nothing syncs until they connect again | `user_id`, `external_ref`, `provider` |
 | `webhook.test` | You called the test route | `endpoint_id` |

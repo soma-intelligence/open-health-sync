@@ -190,16 +190,21 @@ func (w *Worker) clearFailure(id uuid.UUID) {
 	delete(w.fails, id)
 }
 
-type job struct{ id, tenant, user uuid.UUID }
+// job is one deletion job: the whole user, or with provider set only the
+// user's data from that provider.
+type job struct {
+	id, tenant, user uuid.UUID
+	provider         *string
+}
 
 // pick returns the oldest unfinished job not in skip, without locking it.
 func (w *Worker) pick(ctx context.Context, skip []string) (job, bool, error) {
 	var j job
 	err := w.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, user_id FROM ohs_core.deletion_jobs
+		SELECT id, tenant_id, user_id, provider FROM ohs_core.deletion_jobs
 		WHERE status IN ('pending', 'running') AND id::text <> ALL($1::text[])
 		ORDER BY created_at
-		LIMIT 1`, skip).Scan(&j.id, &j.tenant, &j.user)
+		LIMIT 1`, skip).Scan(&j.id, &j.tenant, &j.user, &j.provider)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return job{}, false, nil
 	}
@@ -209,8 +214,12 @@ func (w *Worker) pick(ctx context.Context, skip []string) (job, bool, error) {
 	return j, true, nil
 }
 
-// run does one job. It reports false when another worker finished it first.
+// run does one job. It reports false when another worker finished it first,
+// or when a provider job waits for a pull that is still running.
 func (w *Worker) run(ctx context.Context, j job) (bool, error) {
+	if j.provider != nil {
+		return w.runProvider(ctx, j, *j.provider)
+	}
 	log := slog.With("job_id", j.id, "tenant_id", j.tenant, "user_id", j.user)
 
 	if w.revoker != nil {

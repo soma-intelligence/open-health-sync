@@ -337,6 +337,37 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 		"X-OHS-Day": "2026-01-10", "X-OHS-Batch": "contract", "X-OHS-Part": "99",
 	}).status, "not gzip")
 
+	// Erasing the user's data from one provider (a device provider, no
+	// connection), and its job read back until done.
+	assert.Equal(t, 404, c.json("DELETE", u+"/connections/withings?delete_data=true", key, "").status)
+	assert.Equal(t, 404, c.json("DELETE", u+"/data/not_a_provider", key, "").status)
+	r = c.json("DELETE", u+"/data/apple_health", key, "")
+	require.Equal(t, 202, r.status, "%s", r.body)
+	var erase struct {
+		JobID string `json:"job_id"`
+	}
+	r.json(t, &erase)
+	deadline = time.Now().Add(60 * time.Second)
+	for {
+		r = c.json("GET", "/v1/deletions/"+erase.JobID, key, "")
+		require.Equal(t, 200, r.status, "%s", r.body)
+		var dj struct {
+			Status   string  `json:"status"`
+			Provider *string `json:"provider"`
+		}
+		r.json(t, &dj)
+		require.NotNil(t, dj.Provider)
+		assert.Equal(t, "apple_health", *dj.Provider)
+		if dj.Status == "done" {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "provider deletion not done: %s", r.body)
+		time.Sleep(200 * time.Millisecond)
+	}
+	r = c.json("GET", u+"/samples?type=heart_rate", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	assert.JSONEq(t, `{"data":[],"next_cursor":null}`, string(r.body), "the provider's data is gone")
+
 	// Deletion, and its job read back until done.
 	r = c.json("DELETE", u, key, "")
 	require.Equal(t, 202, r.status, "%s", r.body)

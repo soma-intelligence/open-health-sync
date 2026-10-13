@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package deletion hard-deletes an end user: the HTTP request that starts it
-// and the worker that finishes it.
+// Package deletion hard-deletes an end user, or the data an end user holds
+// from one provider: the HTTP requests that start it and the worker that
+// finishes it.
 package deletion
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -18,9 +18,13 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 )
 
-// Deps is what the delete handler needs.
+// Deps is what the delete handlers need.
 type Deps struct {
 	Pool *pgxpool.Pool
+	// KnownProvider reports whether a slug names a connector of this build.
+	// The provider data route answers 404 for any other slug. Nil accepts
+	// every well-formed slug.
+	KnownProvider func(slug string) bool
 }
 
 // NewDeleteHandler serves DELETE /v1/users/{id}. It expects to run behind
@@ -63,9 +67,7 @@ func (h *deleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.InfoContext(ctx, "deletion: requested", "tenant_id", p.TenantID, "user_id", userID, "job_id", jobID)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]string{"job_id": jobID.String()})
+	WriteAccepted(w, jobID)
 }
 
 func (h *deleteHandler) request(ctx context.Context, tenantID, userID uuid.UUID) (uuid.UUID, bool, error) {
@@ -93,7 +95,7 @@ func (h *deleteHandler) request(ctx context.Context, tenantID, userID uuid.UUID)
 	var id uuid.UUID
 	err = tx.QueryRow(ctx, `
 		SELECT id FROM ohs_core.deletion_jobs
-		WHERE tenant_id = $1 AND user_id = $2 AND status IN ('pending', 'running')
+		WHERE tenant_id = $1 AND user_id = $2 AND provider IS NULL AND status IN ('pending', 'running')
 		ORDER BY created_at LIMIT 1`, tenantID, userID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx,

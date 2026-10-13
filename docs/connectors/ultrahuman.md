@@ -95,7 +95,9 @@ are reported as an operator error instead, so a mistyped secret does not disconn
 
 Disconnecting the provider, or deleting the user, revokes the refresh token and then the access
 token at `POST /api/partners/oauth/revoke` (best effort; Ultrahuman answers 200 for a token
-already invalid).
+already invalid). A disconnect keeps the data already collected; add `?delete_data=true` to
+erase everything held from Ultrahuman for that user (see
+[erasing one provider's data](../api.md#erasing-one-providers-data)).
 
 ## 5. What is pulled
 

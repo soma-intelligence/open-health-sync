@@ -25,6 +25,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -139,6 +140,15 @@ func (h *Handlers) StartConnection() http.Handler {
 		}
 		if req.RedirectURI != "" && !validRedirect(req.RedirectURI) {
 			auth.WriteProblem(w, http.StatusBadRequest, "Bad Request", "redirect_uri must be an absolute https URL (http only for localhost)")
+			return
+		}
+		if erasing, err := deletion.Pending(r.Context(), h.d.Pool, tenantID, userID, provider); err != nil {
+			slog.ErrorContext(r.Context(), "collect: look up provider deletion", "tenant_id", tenantID, "user_id", userID, "error", err)
+			writeInternal(w)
+			return
+		} else if erasing {
+			auth.WriteProblem(w, http.StatusConflict, "Conflict",
+				"this user's data from this provider is being deleted; connect again once the deletion job is done")
 			return
 		}
 
@@ -265,8 +275,9 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	}
 	err = h.d.connect(ctx, st.tenant, st.user, provider, tokens)
 	if errors.Is(err, errInactive) {
-		// The user started being deleted during the exchange: the grant
-		// just issued would otherwise stay valid at the provider.
+		// The user, or their data from this provider, started being
+		// deleted during the exchange: the grant just issued would
+		// otherwise stay valid at the provider.
 		if rv, ok := oc.(connector.Revoker); ok {
 			rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revokeTimeout)
 			if rerr := rv.Revoke(rctx, tokens); rerr != nil {
@@ -298,6 +309,13 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if err := lockActiveUser(ctx, tx, tenantID, userID); err != nil {
 		return err
+	}
+	// A consent completed while the provider's data is being erased would
+	// pull it back: refused like a user being deleted (the grant is revoked).
+	if erasing, err := deletion.Pending(ctx, tx, tenantID, userID, provider); err != nil {
+		return fmt.Errorf("look up provider deletion: %w", err)
+	} else if erasing {
+		return errInactive
 	}
 	// A connection that is active and already backfilled (the user went
 	// through consent again) only gets new tokens.
