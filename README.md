@@ -131,6 +131,8 @@ Provider deletions are honored too.
 | 🔜 | Twelve MCP prompts on training, sleep and recovery, and an agent skill ([docs](docs/mcp.md#prompts)) | | |
 | 🔜 | Server SDKs for TypeScript and Python, and a Postman collection ([docs](docs/server-sdks.md)) | | |
 | 🔜 | Rate limits on the provider-facing routes ([docs](docs/self-hosting.md#rate-limits)) | | |
+| 🔜 | Images and `checksums.txt` signed with cosign, keyless ([verify](SECURITY.md#verifying-releases)) | | |
+| 🔜 | Online rotation of the encryption key ([docs](docs/key-rotation.md)) | | |
 | ✅ | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
 | ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Garmin, Coros |
 
@@ -517,6 +519,8 @@ and units):
   own Postgres with TimescaleDB and run `ohs doctor`, then `ohs up` (migrate, then serve). Each
   archive unpacks to `ohs_<version>_<os>_<arch>/ohs` ([install](#install-the-ohs-binary)). The
   macOS binaries are not signed yet: clear the quarantine flag with `xattr -d com.apple.quarantine`.
+  From the next release, the image and `checksums.txt` are signed with cosign
+  ([verifying releases](SECURITY.md#verifying-releases)).
 - **Build from source.** Go 1.26: `make build` gives `bin/ohs`. For compose, add
   `deploy/docker-compose.build.yml`, which needs `docker buildx`; without it, see
   [build from source](docs/self-hosting.md#build-from-source).
@@ -553,7 +557,8 @@ erasing one source's data for a user is a single call,
 consent is kept per source and data category and enforced on every write,
 `GET /v1/users/{id}/archive` gives one person everything held about them in a zip,
 `OHS_RETENTION_DAYS` enforces a retention period, every query is scoped to a tenant and a user,
-keys and tokens are stored hashed, and provider OAuth tokens are encrypted with AES-256-GCM.
+keys and tokens are stored hashed, and provider OAuth tokens are encrypted with AES-256-GCM
+under a key that can be rotated online (next release, [key rotation](docs/key-rotation.md)).
 Health records themselves are not encrypted by `ohs`: use disk or database encryption, TLS in
 front of the API, and your own access controls. Whether a deployment meets HIPAA, GDPR or any
 other rule depends on how you run it.
@@ -640,6 +645,8 @@ Health Connect reading in the Kotlin SDK, then health records (EHR) through SMAR
 ## Documentation
 
 - [Self-hosting](docs/self-hosting.md): configuration, images, Raspberry Pi, S3, operating notes.
+- [Security model](docs/security-model.md) and [hardening checklist](docs/hardening.md): what is
+  protected and how, and what to set before an instance holds real people's data.
 - [API guide](docs/api.md) and the [OpenAPI file](api/openapi.yaml), the source of truth.
 - [MCP server](docs/mcp.md): tools, prompts, credentials, desktop and remote agents.
 - [FHIR R4 output](docs/fhir.md): the user's records as Observations, the mapping and its limits.
