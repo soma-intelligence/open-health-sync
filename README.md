@@ -599,7 +599,9 @@ Known limitations:
 - One database and one raw store per instance; no multi-region replication.
 - FHIR R4 serves Observations only (samples, blood pressure, sleep, workouts, daily summaries); no
   mobile SDKs yet.
-- `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
+- In v0.0.2, `/metrics` is unauthenticated: block it at your proxy or set `OHS_METRICS=false`.
+  On `main` (next release) it is closed by default and opens with a token or a private listener
+  ([metrics](docs/self-hosting.md#metrics)).
 
 Next: more connectors, standard outputs (more FHIR R4 resources), then client
 SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as GitHub issues, including the connector request form.
