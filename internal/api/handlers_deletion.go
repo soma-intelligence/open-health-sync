@@ -11,22 +11,35 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 )
 
-// mountDeletion serves DELETE /v1/users/{id}: 202 with the job id; the etl
-// role's deletion worker finishes the job. GET /v1/deletions/{job_id} reads
-// the job back.
+// mountDeletion serves DELETE /v1/users/{id} and DELETE
+// /v1/users/{id}/data/{provider}: 202 with the job id; the etl role's
+// deletion worker finishes the job. GET /v1/deletions/{job_id} reads either
+// kind of job back.
 func (s *server) mountDeletion(mux *http.ServeMux) {
-	mux.Handle("DELETE /v1/users/{id}",
-		auth.Middleware(s.lookup, auth.TenantKey)(deletion.NewDeleteHandler(deletion.Deps{Pool: s.d.Pool})))
+	tenantKey := auth.Middleware(s.lookup, auth.TenantKey)
+	deps := deletion.Deps{Pool: s.d.Pool, KnownProvider: knownProvider}
+	mux.Handle("DELETE /v1/users/{id}", tenantKey(deletion.NewDeleteHandler(deps)))
+	mux.Handle("DELETE /v1/users/{id}/data/{provider}", tenantKey(deletion.NewProviderDeleteHandler(deps)))
 	s.tenantRoute(mux, "GET /v1/deletions/{job_id}", s.getDeletion)
+}
+
+// knownProvider accepts every connector of this build, enabled on this
+// instance or not: data collected before a provider was turned off can still
+// be erased.
+func knownProvider(slug string) bool {
+	_, ok := connector.Get(slug)
+	return ok
 }
 
 type deletionJob struct {
 	JobID      uuid.UUID  `json:"job_id"`
 	UserID     uuid.UUID  `json:"user_id"`
-	Status     string     `json:"status"` // pending, running, done or failed
+	Provider   *string    `json:"provider"` // null: the whole user
+	Status     string     `json:"status"`   // pending, running, done or failed
 	CreatedAt  time.Time  `json:"created_at"`
 	FinishedAt *time.Time `json:"finished_at"`
 }
@@ -45,9 +58,9 @@ func (s *server) getDeletion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var j deletionJob
-	err = s.d.Pool.QueryRow(r.Context(), `SELECT id, user_id, status, created_at, finished_at
+	err = s.d.Pool.QueryRow(r.Context(), `SELECT id, user_id, provider, status, created_at, finished_at
 		FROM ohs_core.deletion_jobs WHERE tenant_id = $1 AND id = $2`, p.TenantID, id).
-		Scan(&j.JobID, &j.UserID, &j.Status, &j.CreatedAt, &j.FinishedAt)
+		Scan(&j.JobID, &j.UserID, &j.Provider, &j.Status, &j.CreatedAt, &j.FinishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		notFound(w, "deletion job")
 		return

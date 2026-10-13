@@ -19,6 +19,21 @@ release may change the API, the configuration or the database schema.
   HRV trend, source comparison, weekly digest, HTML dashboard, full export, read-only AI token,
   account connection. Each has a page under [docs/recipes](docs/recipes/README.md), and the
   quickstart end to end suite runs them all.
+- Erasing one provider's data of one user, for providers whose terms ask for it on disconnect:
+  `DELETE /v1/users/{id}/connections/{provider}?delete_data=true` disconnects and queues the
+  erasure (202 with a `job_id`), and `DELETE /v1/users/{id}/data/{provider}` does it without a
+  connection, for device providers such as `apple_health` and `health_connect` (409 while the
+  user is still connected). A background job of the `etl` role deletes every record of that
+  user and provider in every `ohs_data` table (children through their parent), the raw files
+  and their rows, failed records, ETL and pull jobs, pull coverage, the sync log, push
+  subscriptions, consent states and the disconnected connection, lifting the TimescaleDB
+  decompression limit for compressed chunks; the user and their other providers stay. It waits
+  for a pull of the provider still running; while it is pending the provider cannot be
+  connected again and its uploads are refused (409). An ETL job that read an erased raw object
+  writes nothing. `GET /v1/deletions/{job_id}` gains `provider` (null for a user deletion), and
+  the new `data.erased` webhook announces the end. Without `delete_data` a disconnect keeps the
+  data, as before. Migration `0020`.
+
 - Recorded connector contracts: `make record PROVIDER=<slug>` records what a real account's API
   answers (or an Apple Health export), anonymized on the contributor's machine, and CI replays
   every committed recording through its connector. See
