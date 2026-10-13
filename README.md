@@ -133,6 +133,7 @@ Provider deletions are honored too.
 | 🔜 | Rate limits on the provider-facing routes ([docs](docs/self-hosting.md#rate-limits)) | | |
 | 🔜 | Images and `checksums.txt` signed with cosign, keyless ([verify](SECURITY.md#verifying-releases)) | | |
 | 🔜 | Online rotation of the encryption key ([docs](docs/key-rotation.md)) | | |
+| 🔜 | Hourly and daily statistics per quantity type, in any time zone, over REST and MCP ([docs](docs/api.md#reading-data)) | | |
 | ✅ | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
 | ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Garmin, Coros |
 
