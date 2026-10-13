@@ -13,7 +13,8 @@ ohs <command> [flags]
 | `ohs up` | Applies pending migrations, then serves. The container entrypoint. |
 | `ohs serve` | Runs the roles in `OHS_ROLES` (`api`, `collect`, `etl`) until `SIGINT` or `SIGTERM`. Needs a migrated database. |
 | `ohs migrate up` | Applies every pending migration. Safe to run on each start. |
-| `ohs migrate version` | Prints the schema version. |
+| `ohs migrate version` | Prints the schema version of the database. |
+| `ohs migrate latest` | Prints the schema version this binary migrates to. Needs no database. |
 | `ohs migrate down --all` | Reverts every migration: **drops all Open Health Sync data**. |
 | `ohs doctor [--quick]` | Checks configuration, database, raw store, public URL and connectors. `--quick` checks the database and raw store only. |
 | `ohs admin tenant create --name <name>` | Creates a tenant and prints its first API key, once. |
@@ -28,7 +29,7 @@ ohs <command> [flags]
 | `ohs help [command]` | Prints help, or the help of one command. |
 
 `up` and `serve` need `OHS_DATABASE_URL` and `OHS_ENCRYPTION_KEY`; `migrate` and `admin` need
-`OHS_DATABASE_URL` only; `mcp` needs `OHS_MCP_KEY` and the instance URL. `doctor` checks the
+`OHS_DATABASE_URL` only (`migrate latest` needs nothing); `mcp` needs `OHS_MCP_KEY` and the instance URL. `doctor` checks the
 same settings, and prints a fresh key when `OHS_ENCRYPTION_KEY` is empty.
 
 **Exit status:** 0 on success, 1 on failure (a failed doctor check included), 2 on a command line

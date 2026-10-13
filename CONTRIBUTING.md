@@ -65,6 +65,22 @@ Read [docs/architecture.md](docs/architecture.md) first. To add a provider, read
   skip this check (CI secrets are not available to them); it runs again after the merge. CI also
   runs a secret scan.
 
+## Contribute a recording of your account
+
+The most useful contribution needs no code. If you have an account with one of the sources (or an
+iPhone with Apple Health), record what its API answers for you:
+
+```sh
+make record PROVIDER=withings                                        # a cloud source
+OHS_RECORD_EXPORT=~/Downloads/export.zip make record PROVIDER=apple_health   # a Health app export
+```
+
+The recorder anonymizes everything in memory on your machine and refuses to write a file if a
+token or an original identifier survives. Commit the result under `test/recorded/testdata/<slug>/`
+and open a pull request: CI replays every committed recording on every change. Steps per source,
+including the redirect address your developer app needs:
+[docs/connectors/recording.md](docs/connectors/recording.md).
+
 ## Commits and pull requests
 
 - Conventional commit messages (`feat(withings): ...`, `fix(etl): ...`, `docs: ...`).

@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test test-js integration contract e2e reliability upgrade-test guard fhir-validate release-check record
+.PHONY: setup build image test test-js integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record
 
 setup:
 	git config core.hooksPath .githooks
@@ -39,6 +39,13 @@ contract:
 e2e:
 	test/e2e/lib_test.sh
 	test/e2e/quickstart.sh
+
+# Backup and restore end to end on the compose stack (project OHS_E2E_PROJECT,
+# default ohs-backup, port OHS_E2E_PORT, default 18082): scripts/backup.sh,
+# destroy the stack with its volumes, scripts/restore.sh, compare. Needs docker,
+# curl, jq and go. See docs/backup-and-restore.md.
+backup-test:
+	test/e2e/backup_restore.sh
 
 # kill -9 crash recovery on the compose stack (project OHS_E2E_PROJECT, default ohs-rel, port
 # OHS_E2E_PORT, default 18081). Takes over 10 minutes: a job cut by the crash

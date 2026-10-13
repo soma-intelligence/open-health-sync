@@ -62,7 +62,7 @@ func run(args []string, out io.Writer) error {
 	}
 }
 
-const migrateUsage = "usage: ohs migrate <up|down --all|version>"
+const migrateUsage = "usage: ohs migrate <up|down --all|version|latest>"
 
 var errDownNeedsAll = usageErr("migrate down reverts every migration and drops all Open Health Sync data " +
 	"(schemas ohs_core, ohs_sync, ohs_data); run `ohs migrate down --all` to confirm")
@@ -88,8 +88,17 @@ func runMigrate(rest []string, out io.Writer) error {
 		return usageErr(migrateUsage)
 	}
 	action := args[0]
-	if action != "up" && action != "down" && action != "version" {
+	if action != "up" && action != "down" && action != "version" && action != "latest" {
 		return usageErr(migrateUsage)
+	}
+	if action == "latest" {
+		// The binary's own migrations: no database needed.
+		v, err := db.LatestVersion()
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "latest schema version %d\n", v)
+		return err
 	}
 	if action == "down" && !*all {
 		return errDownNeedsAll

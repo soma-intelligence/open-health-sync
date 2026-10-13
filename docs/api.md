@@ -141,6 +141,11 @@ Without a `redirect_uri` the user sees a small built-in result page. `redirect_u
 absolute https URL (http is allowed for localhost). The `state` of a consent link is single use
 and expires after 10 minutes.
 
+To skip building this UI, create a connect session with `POST /v1/users/{id}/connect-sessions`
+and send the user to the link it returns: Open Health Sync serves a page that lists the providers
+with the user's status and starts the same consent flow. See
+[hosted connection page](connect-page.md).
+
 `GET /v1/users/{id}/connections` shows each connection's `status` (`active`, `needs_reauth`,
 `disconnected`), `last_sync_at` and `initial_backfill_at`. A connection in `needs_reauth` needs
 the user to go through consent again. `DELETE /v1/users/{id}/connections/{provider}` revokes the
@@ -314,6 +319,7 @@ signature verification and the routes: [webhooks.md](webhooks.md).
 
 | Route | Purpose |
 |---|---|
+| `GET /connect`, `GET /connect/{provider}`, `POST /connect/{provider}` | The [hosted connection page](connect-page.md), for the user's browser |
 | `GET /oauth/{provider}/callback` | OAuth redirect target you register with the provider |
 | `POST /inbound/{provider}` | Provider push notifications, verified with the provider's own scheme |
 | `GET /healthz` | Liveness |

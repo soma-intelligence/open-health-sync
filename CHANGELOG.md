@@ -46,6 +46,12 @@ release may change the API, the configuration or the database schema.
   answers (or an Apple Health export), anonymized on the contributor's machine, and CI replays
   every committed recording through its connector. See
   [docs/connectors/recording.md](docs/connectors/recording.md).
+- `scripts/backup.sh` and `scripts/restore.sh` for the compose stack: one archive with a
+  `pg_dump` of the database (run inside the database container), the raw files and a manifest
+  with versions and checksums; restore handles TimescaleDB's pre and post restore steps and
+  refuses an archive newer than the running release. `ohs migrate latest` prints the schema
+  version a binary migrates to. The full cycle runs in CI (`make backup-test`). See
+  [docs/backup-and-restore.md](docs/backup-and-restore.md).
 - Dexcom connector (`dexcom`, API v3, OAuth 2.0, scheduled pulls): CGM estimated glucose values
   as `blood_glucose`, with trend and out-of-range status. `OHS_DEXCOM_REGION` picks the US, EU,
   Japan or sandbox host. See

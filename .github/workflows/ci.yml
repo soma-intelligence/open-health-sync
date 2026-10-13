@@ -51,6 +51,18 @@ jobs:
       - name: Upgrade from the last release with data in it
         run: make upgrade-test
 
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - uses: docker/setup-buildx-action@v3
+      - name: Backup and restore end to end (compose stack)
+        run: make backup-test
+
   image:
     runs-on: ubuntu-latest
     steps:

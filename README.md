@@ -11,8 +11,8 @@
 
 ### One open API for wearable and health data. On your own server.
 
-Apple Health, Health Connect, Oura, WHOOP, Fitbit, Withings, Dexcom, OMRON and five more in.<br>
-One clean model out, over REST, a read-only MCP server for AI agents, and FHIR R4.<br>
+Apple Health and Withings in today; Oura, WHOOP, Fitbit, Health Connect, Dexcom, OMRON and five more in the next release.<br>
+One clean model out, over REST and a read-only MCP server for AI agents, with FHIR R4 in the next release.<br>
 Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 
 [![CI](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml)
@@ -45,6 +45,8 @@ docker pull ghcr.io/soma-intelligence/open-health-sync:0.0.2
 
 [**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
+<sub>If it saves you one more parser, a <a href="https://github.com/soma-intelligence/open-health-sync/stargazers">⭐ star</a> helps other developers find it. Questions and ideas: <a href="https://github.com/soma-intelligence/open-health-sync/discussions">Discussions</a>.</sub>
+
 <sub><b>v0.0.2, early preview.</b> APIs, configuration and schema may change in any 0.x release.</sub>
 
 </div>
@@ -61,7 +63,8 @@ clinical software.
 
 **🔌 Thirteen sources, one model**<br>
 Every provider maps into the same records, with one unit per quantity (UCUM, LOINC). Heart rate
-is `bpm`, whatever the source called it.
+is `bpm`, whatever the source called it. Two sources are in v0.0.2, eleven more on `main` for the
+next release.
 
 </td>
 <td width="33%" valign="top">
@@ -90,7 +93,8 @@ can only read.
 <td valign="top">
 
 **🏥 Standards out**<br>
-FHIR R4 Observations checked against the official HL7 validator, plus an OpenAPI 3.1 REST API.
+An OpenAPI 3.1 REST API, plus FHIR R4 Observations checked against the official HL7 validator
+(on `main`, next release).
 
 </td>
 <td valign="top">
@@ -115,6 +119,8 @@ Provider deletions are honored too.
 | 🔜 | CSV and Parquet exports ([docs](docs/exports.md)) | 🔜 | Dexcom (CGM), OMRON |
 | 🔜 | Outgoing webhooks ([docs](docs/webhooks.md)) | 🔜 | Health Connect (Android app upload) |
 | 🔜 | Background sync and `/freshness` | 🔜 | Health app export import |
+| 🔜 | Read-only admin console at `/console` ([docs](docs/console.md)) | | |
+| 🔜 | Erase one source's data for a user on disconnect, or for Apple Health and Health Connect | | |
 | 🛠 | Swift, Kotlin, React Native and Flutter SDKs | 🛠 | Garmin, Coros |
 | 🔜 | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR, after the SDKs |
 
@@ -125,11 +131,12 @@ image does not have the 🔜 lines yet. Details per source:
 ## What you can build
 
 - **A health app backend.** Your iOS app uploads HealthKit data, your users connect their
-  Oura, WHOOP or Withings accounts, and your app reads one API instead of thirteen.
+  Oura, WHOOP or Withings accounts, and your app reads one API instead of thirteen (most of
+  them arrive in the next release).
 - **An AI agent over your own data.** Run it at home, connect your devices, and give your desktop
   agent a read-only view of your sleep, workouts and heart rate through MCP.
 - **A study that collects from participants' wearables.** Raw payloads kept for audit, hard
-  deletes for withdrawals, FHIR R4 out for the analysis side.
+  deletes for withdrawals, FHIR R4 out for the analysis side (next release).
 - **A personal data archive.** Load years of history from the Health app export in one command,
   and keep it on a machine you own.
 - **Small tools on your own data.** `ohs admin personal setup` gives you one instance for
@@ -168,7 +175,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 | A crash mid-run | rerun the script and hope | Postgres queue, retries with backoff, parked after 5 attempts |
 | Provider OAuth tokens | a plain column or a `.env` | sealed with AES-256-GCM under `OHS_ENCRYPTION_KEY` |
 | Delete a user | grep across tables and buckets | `DELETE /v1/users/{id}`, then poll `GET /v1/deletions/{job_id}` |
-| Erase one provider's data | the same grep, filtered by hand | `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`, or `DELETE /v1/users/{id}/data/{provider}` for a device |
+| Erase one provider's data | the same grep, filtered by hand | `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`, or `DELETE /v1/users/{id}/data/{provider}` for a device (on `main`, next release) |
 | Let an AI agent read it | build an integration | read-only MCP server, `ohs mcp` for desktop agents |
 
 ## Features
@@ -195,8 +202,10 @@ Open Health Sync is that layer, written once, with the boring parts done properl
   plus jobs still pending, jobs parked after their retries, and lines that were not stored.
 - **Real erasure.** `DELETE /v1/users/{id}` removes the user's raw files and every row, then the
   user. Not a soft flag. When a provider reports that a record was deleted (Oura, WHOOP,
-  Strava), it is deleted here too. `OHS_RETENTION_DAYS` drops raw files and normalized data past
-  an age.
+  Strava), it is deleted here too. On `main` for the next release, disconnecting a source with
+  `?delete_data=true` erases everything that source sent for the user (records, raw files, sync
+  history), and `DELETE /v1/users/{id}/data/{provider}` does the same for Apple Health or Health
+  Connect. `OHS_RETENTION_DAYS` drops raw files and normalized data past an age.
 - **Multi-tenant.** Tenant API keys (`ohs_sk_`) for your server, short-lived scoped user tokens
   (`ohs_ut_`, scopes `upload` and `read`) for one person's app or agent. Keys and tokens are
   stored as SHA-256 hashes.
@@ -254,7 +263,8 @@ Want one sooner? Connectors are self-contained: read
 | REST JSON, described by [api/openapi.yaml](api/openapi.yaml) | ✅ Available |
 | MCP server, read only ([docs/mcp.md](docs/mcp.md)) | ✅ Available |
 | FHIR R4, checked with the official HL7 validator ([docs/fhir.md](docs/fhir.md)) | 🔜 On `main`, next release (Observations: samples, blood pressure, sleep, workouts, daily summaries) |
-| Read routes for ECG recordings and heartbeat (RR) series, which are stored today | 🛠 Planned |
+| RR intervals and HRV (RMSSD, SDNN, pNN50, mean RR and heart rate) per heartbeat series, over REST and MCP ([docs/hrv.md](docs/hrv.md)) | 🔜 On `main`, next release |
+| Read routes for ECG recordings, which are stored today | 🛠 Planned |
 | FHIR R4 Patient and Device resources, bulk export | 🛠 Planned |
 | Open mHealth ([docs/open-mhealth.md](docs/open-mhealth.md)) | 🔜 On `main`, next release |
 | CSV and Parquet exports ([docs/exports.md](docs/exports.md)) | 🔜 On `main`, next release |
@@ -272,15 +282,21 @@ git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-h
 cp .env.example .env
 sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
 docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
+docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
 ```
 
-The last command prints a tenant API key once. Keep it:
+`ohs doctor` prints one `ok` or `fail` line per check (configuration, database, raw store,
+public URL, connectors); run it again whenever you change `.env`. The last command prints a tenant API key once. Keep it:
 
 ```sh
 export OHS=http://localhost:8080
 export KEY=ohs_sk_...    # the key printed above
 ```
+
+The API listens on `127.0.0.1` only, so these steps run on the same machine. A phone app,
+provider webhooks or another computer need it exposed: put a reverse proxy with TLS in front, or
+set `OHS_HTTP_BIND=0.0.0.0` in `.env` for plain http on your network.
 
 Port 8080 taken? Set `OHS_HTTP_PORT` and a matching `OHS_PUBLIC_URL` in `.env` (see
 [self-hosting](docs/self-hosting.md#port-and-a-second-install)).
@@ -312,9 +328,23 @@ curl -s "$OHS/v1/users/$USER_ID/coverage" -H "Authorization: Bearer $KEY"
 curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bearer $KEY"
 ```
 
-**Load your existing history.** On the iPhone, Health app, your picture, *Export All Health
-Data* gives `export.zip`. Copy it to any machine with the `ohs` binary and load it with the
-user's token (`--dry-run` first counts what it would send):
+<a id="install-the-ohs-binary"></a>**Install the `ohs` binary on your machine.** The import below and the [MCP setup](#connect-an-ai-agent-mcp)
+run `ohs` outside the container. Take the archive for your system from the
+[releases page](https://github.com/soma-intelligence/open-health-sync/releases)
+(`ohs_<version>_<os>_<arch>.tar.gz`, `os` is `linux` or `darwin`, `arch` is `amd64` or
+`arm64`); it unpacks to a folder of the same name:
+
+```sh
+tar xzf ohs_*_linux_amd64.tar.gz
+sudo install ohs_*_linux_amd64/ohs /usr/local/bin/ohs
+ohs version
+```
+
+On macOS, clear the quarantine flag first: `xattr -d com.apple.quarantine ohs_*_darwin_*/ohs`.
+
+**Load your existing history** (🔜 next release: `ohs import` is on `main`, not in v0.0.2).
+On the iPhone, Health app, your picture, *Export All Health Data* gives `export.zip`. Load it
+with the user's token (`--dry-run` first counts what it would send):
 
 ```sh
 OHS_TOKEN=$TOKEN ohs import apple-health export.zip --url $OHS
@@ -324,8 +354,6 @@ Records, workouts with their routes and ECGs go through the same upload API, in 
 Running it again uploads nothing twice. Details:
 [importing an export](docs/connectors/apple-health.md#importing-a-health-app-export).
 
-`ohs doctor` checks the configuration at any time:
-`docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor`.
 Data lives in the `pgdata` and `raw` volumes; `docker compose ... down` keeps them.
 
 ## How it works
@@ -396,7 +424,8 @@ curl -s -X POST $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' -d '{"scopes":["read"],"ttl_seconds":2592000}'
 ```
 
-Then add `ohs mcp` (stdio) to your desktop agent's `mcpServers`:
+Then add `ohs mcp` (stdio) to your desktop agent's `mcpServers` (the binary from
+[the install step](#install-the-ohs-binary)):
 
 ```json
 {
@@ -433,8 +462,8 @@ and units):
 - **NutritionLog**: a food or drink entry with its nutrients.
 - **ECGRecording** and **ECGVoltageSample**: the recording's metadata, then the voltage trace.
   Stored, not served yet: the read route is planned.
-- **HeartbeatSample**: one beat-to-beat (RR) interval. Stored, not served yet: the read route is
-  planned.
+- **HeartbeatSample**: one beat-to-beat (RR) interval. Served with HRV derived per series by
+  `/rr-intervals` and `/hrv` on `main`, next release ([docs/hrv.md](docs/hrv.md)).
 - **DailySummary**: totals per local day, from the provider or rolled up from samples.
 - **Observation**: a generic coded fact for the long tail. No connector writes it yet.
 
@@ -449,8 +478,9 @@ and units):
   compatible bucket. See [S3](docs/self-hosting.md#s3-compatible-raw-store).
 - **Release binaries.** Linux and macOS, amd64 and arm64, with `checksums.txt`, on the
   [releases page](https://github.com/soma-intelligence/open-health-sync/releases). Bring your
-  own Postgres with TimescaleDB and run `ohs up` (migrate, then serve). The macOS binaries are
-  not signed yet: clear the quarantine flag with `xattr -d com.apple.quarantine ohs`.
+  own Postgres with TimescaleDB and run `ohs doctor`, then `ohs up` (migrate, then serve). Each
+  archive unpacks to `ohs_<version>_<os>_<arch>/ohs` ([install](#install-the-ohs-binary)). The
+  macOS binaries are not signed yet: clear the quarantine flag with `xattr -d com.apple.quarantine`.
 - **Build from source.** Go 1.26: `make build` gives `bin/ohs`. For compose, add
   `deploy/docker-compose.build.yml`, which needs `docker buildx`; without it, see
   [build from source](docs/self-hosting.md#build-from-source).
@@ -483,6 +513,7 @@ bucket. With compose, those are the `pgdata` and `raw` volumes. Back them up tog
 No software is compliant on its own, and Open Health Sync is not certified, audited or covered
 by a business associate agreement. What it gives you: data stays on infrastructure you choose,
 `DELETE /v1/users/{id}` is a hard delete of raw files and rows (useful for erasure requests),
+erasing one source's data for a user is a single call (next release),
 `OHS_RETENTION_DAYS` enforces a retention period, every query is scoped to a tenant and a user,
 keys and tokens are stored hashed, and provider OAuth tokens are encrypted with AES-256-GCM.
 Health records themselves are not encrypted by `ohs`: use disk or database encryption, TLS in
@@ -550,7 +581,7 @@ software.
 
 v0.0.2 is the latest release. The Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON and
 Health Connect connectors, FHIR R4 and Open mHealth output, CSV and Parquet exports, outgoing webhooks,
-Health app export import, background sync, sample compression, personal mode and the recipes are on `main` and ship in the next release. What
+Health app export import, background sync, sample compression, RR intervals and HRV, per-source erasure, the admin console, personal mode and the recipes are on `main` and ship in the next release. What
 changed: [CHANGELOG.md](CHANGELOG.md). Install notes and the full list of limitations: [release notes](docs/release-notes/v0.0.2.md).
 
 Known limitations:
@@ -580,15 +611,25 @@ SDKs, then health records (EHR) through SMART on FHIR. Requests are welcome as G
   [WHOOP](docs/connectors/whoop.md), [Strava](docs/connectors/strava.md),
   [Polar](docs/connectors/polar.md), [writing your own](docs/writing-a-connector.md).
 - [Background sync](docs/background-sync.md): webhooks, backstop pulls, freshness.
+- [Admin console](docs/console.md): a read-only page for users, connections, freshness and webhook deliveries.
 - [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
+- [RR intervals and HRV](docs/hrv.md): beat-to-beat intervals and the HRV derived from them.
 
 ## Contributing
 
-Issues and pull requests are welcome, and connectors are the easiest way in: each one is
-self-contained. If Open Health Sync saves you from writing one more parser, a ⭐ helps other
-developers find it. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[code of conduct](CODE_OF_CONDUCT.md). To add a provider, start with
-[writing a connector](docs/writing-a-connector.md).
+Issues and pull requests are welcome. Three ways in, from five minutes to a weekend:
+
+- **Own a wearable?** Record your account in about five minutes with `make record PROVIDER=oura`
+  (or any other source). The recorder anonymizes on your machine and CI replays the file on every
+  change: pick a source in [#60](https://github.com/soma-intelligence/open-health-sync/issues/60),
+  and see [recording a connector](docs/connectors/recording.md).
+- **Pick a [good first issue](https://github.com/soma-intelligence/open-health-sync/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)**:
+  docs, a recipe, a CLI command or a deploy template, each scoped to one PR.
+- **Add a provider.** Connectors are self-contained: start with
+  [writing a connector](docs/writing-a-connector.md).
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md) first. Every
+first-time contributor gets a review within 48 hours.
 
 ```sh
 make setup        # git hooks
@@ -596,6 +637,12 @@ make build        # bin/ohs
 make test         # unit tests
 make integration  # needs Docker (testcontainers)
 ```
+
+### Contributors
+
+<a href="https://github.com/soma-intelligence/open-health-sync/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=soma-intelligence/open-health-sync" alt="Contributors to Open Health Sync">
+</a>
 
 ## Security
 
