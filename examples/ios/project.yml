@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# XcodeGen spec. Run `xcodegen generate` in this folder to create OHSExample.xcodeproj
+# (not committed). The app uses the Swift SDK of this repository by path.
+
+name: OHSExample
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  OpenHealthSync:
+    path: ../../sdks/swift
+
+targets:
+  # Not named OHSExample: the SDK package already has an executable target of that name.
+  OHSExampleApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: OHSExample
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.openhealthsync.example
+        PRODUCT_NAME: OHSExampleApp
+        INFOPLIST_FILE: Support/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        CODE_SIGN_ENTITLEMENTS: Support/OHSExample.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    dependencies:
+      - package: OpenHealthSync
+        product: OpenHealthSync
+      - package: OpenHealthSync
+        product: OpenHealthSyncHealthKit
+    # Shared scheme, so `xcodebuild -scheme OHSExampleApp` finds it.
+    scheme: {}

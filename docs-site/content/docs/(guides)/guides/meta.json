@@ -1,4 +1,4 @@
 {
   "title": "Guides",
-  "pages": ["connect-a-provider", "ai-agents", "fhir", "open-mhealth", "exports"]
+  "pages": ["connect-a-provider", "connect-page", "ai-agents", "fhir", "open-mhealth", "exports", "webhooks", "sync-health", "hrv", "menstrual-cycles", "time-tags", "audit-log", "alternatives"]
 }

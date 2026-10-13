@@ -138,18 +138,25 @@ func TestRunServesAndBootstraps(t *testing.T) {
 	res.Body.Close()
 	assert.Equal(t, http.StatusOK, res.StatusCode)
 
-	for _, p := range []string{"/readyz", "/metrics"} {
-		res, err := http.Get("http://" + cfg.Listen + p)
+	get := func(addr, p string) int {
+		t.Helper()
+		res, err := http.Get("http://" + addr + p)
 		require.NoError(t, err)
 		res.Body.Close()
-		assert.Equal(t, http.StatusOK, res.StatusCode, p)
+		return res.StatusCode
 	}
+	assert.Equal(t, http.StatusOK, get(cfg.Listen, "/readyz"))
+	assert.Equal(t, http.StatusForbidden, get(cfg.Listen, "/metrics"), "no metrics token, no scrape")
 	require.NoError(t, stop(), "graceful shutdown")
 
-	// A second start finds the tenant: no new key, nothing logged.
+	// A second start finds the tenant: no new key, nothing logged. It
+	// serves /metrics on an address of its own.
 	cfg.Listen = freeAddr(t)
+	cfg.MetricsListen = freeAddr(t)
 	logs2 := &syncBuffer{}
 	stop2 := start(t, cfg, logs2)
+	assert.Equal(t, http.StatusOK, get(cfg.MetricsListen, "/metrics"))
+	assert.Equal(t, http.StatusNotFound, get(cfg.Listen, "/metrics"))
 	require.NoError(t, stop2())
 	assert.Empty(t, bootstrapKeys(t, logs2.String()))
 	assert.NotContains(t, logs2.String(), keys[0])

@@ -89,8 +89,10 @@ func TestLoadProviderKeys(t *testing.T) {
 	m["OHS_MCP_KEY"] = "k"
 	m["OHS_METRICS"] = "false"
 	m["OHS_BOOTSTRAP_TENANT"] = "acme"
-	m["OHS_HTTP_PORT"] = "8081" // compose only
-	m["OHS_VERSION"] = "0.0.1"  // compose only
+	m["OHS_HTTP_PORT"] = "8081"    // compose only
+	m["OHS_HTTP_BIND"] = "0.0.0.0" // compose only
+	m["OHS_VERSION"] = "0.0.1"     // compose only
+	m["OHS_WEBHOOK_ALLOW_PRIVATE"] = "true"
 	m["OTHER"] = "z"
 	c, err := load(t, m)
 	if err != nil {
@@ -103,8 +105,58 @@ func TestLoadProviderKeys(t *testing.T) {
 	if len(c.Providers) != 1 {
 		t.Fatalf("reserved names leaked as providers: %v", c.Providers)
 	}
-	if c.Listen != ":9" || c.RetentionDays != 30 || c.Metrics || c.BootstrapTenant != "acme" {
+	if c.Listen != ":9" || c.RetentionDays != 30 || c.Metrics || c.BootstrapTenant != "acme" || !c.WebhookAllowPrivate {
 		t.Fatalf("%+v", c)
+	}
+}
+
+func TestLoadWebhookAllowPrivate(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.WebhookAllowPrivate {
+		t.Fatalf("default: %v %v", c.WebhookAllowPrivate, err)
+	}
+	m := base()
+	m["OHS_WEBHOOK_ALLOW_PRIVATE"] = "maybe"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_WEBHOOK_ALLOW_PRIVATE") {
+		t.Fatalf("bad value: %v", err)
+	}
+}
+
+func TestLoadTracing(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.Tracing || c.TracingProtocol != "" {
+		t.Fatalf("off by default: %v %q %v", c.Tracing, c.TracingProtocol, err)
+	}
+	for _, tc := range []struct {
+		env      map[string]string
+		on       bool
+		protocol string
+	}{
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318"}, true, TracingHTTP},
+		{map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces"}, true, TracingHTTP},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"}, true, TracingHTTP},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc"}, true, TracingGRPC},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+			"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc"}, true, TracingGRPC},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_SDK_DISABLED": "TRUE"}, false, ""},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_SDK_DISABLED": "false"}, true, TracingHTTP},
+		{map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": ""}, false, ""},
+		{map[string]string{"OTEL_SERVICE_NAME": "ohs-eu", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc"}, false, ""},
+	} {
+		m := base()
+		for k, v := range tc.env {
+			m[k] = v
+		}
+		c, err := load(t, m)
+		if err != nil || c.Tracing != tc.on || c.TracingProtocol != tc.protocol {
+			t.Fatalf("%v: got %v %q %v", tc.env, c.Tracing, c.TracingProtocol, err)
+		}
+	}
+	m := base()
+	m["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://c:4318"
+	m["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/json"
+	if _, err := load(t, m); !errors.Is(err, ErrTracing) || !strings.Contains(err.Error(), "OTEL_EXPORTER_OTLP_PROTOCOL") {
+		t.Fatalf("http/json: %v", err)
 	}
 }
 
@@ -115,6 +167,26 @@ func TestLoadRetentionDays(t *testing.T) {
 		if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_RETENTION_DAYS") {
 			t.Fatalf("%q: %v", v, err)
 		}
+	}
+}
+
+func TestLoadConsole(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.Console {
+		t.Fatalf("default: %v %v", c.Console, err)
+	}
+	m := base()
+	m["OHS_CONSOLE"] = "true"
+	c, err = load(t, m)
+	if err != nil || !c.Console {
+		t.Fatalf("true: %v %v", c.Console, err)
+	}
+	if len(c.Providers) != 0 {
+		t.Fatalf("OHS_CONSOLE leaked as a provider: %v", c.Providers)
+	}
+	m["OHS_CONSOLE"] = "maybe"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_CONSOLE") {
+		t.Fatalf("bad value: %v", err)
 	}
 }
 
@@ -229,5 +301,30 @@ func TestLoadMultiWordSlug(t *testing.T) {
 	}
 	if _, ok := c.Providers["multi"]["WORD_CLIENT_ID"]; ok {
 		t.Fatalf("multi-word key filed under its first word: %v", c.Providers)
+	}
+}
+
+func TestLoadMetricsToken(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.MetricsToken != "" || c.MetricsListen != "" {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	m := base()
+	m["OHS_METRICS_TOKEN"] = "short"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_METRICS_TOKEN") {
+		t.Fatalf("short token: %v", err)
+	}
+	m["OHS_METRICS_TOKEN"] = "0123456789abcdef"
+	m["OHS_METRICS_LISTEN"] = "127.0.0.1:9464"
+	c, err = load(t, m)
+	if err != nil || c.MetricsToken != "0123456789abcdef" || c.MetricsListen != "127.0.0.1:9464" {
+		t.Fatalf("token and listen: %+v %v", c, err)
+	}
+	if len(c.Providers) != 0 {
+		t.Fatalf("metrics settings read as a provider: %v", c.Providers)
+	}
+	m["OHS_METRICS_LISTEN"] = ":8080"
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_METRICS_LISTEN") {
+		t.Fatalf("same address as OHS_LISTEN: %v", err)
 	}
 }

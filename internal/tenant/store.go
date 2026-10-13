@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 )
 
@@ -202,6 +203,38 @@ func (s *Store) GetActiveUser(ctx context.Context, tenantID, userID uuid.UUID) (
 	return u, nil
 }
 
+// EnsureUser returns the tenant's user with this external ref, creating it
+// when none exists, and whether this call created it. A user with that ref
+// being deleted is ErrConflict: the ref is free again once the deletion ends.
+func (s *Store) EnsureUser(ctx context.Context, tenantID uuid.UUID, externalRef string) (User, bool, error) {
+	if externalRef == "" {
+		return User{}, false, errors.New("tenant: EnsureUser needs an external ref")
+	}
+	find := func() (User, error) {
+		return scanUser(s.pool.QueryRow(ctx,
+			`SELECT id, tenant_id, coalesce(external_ref, ''), status, created_at
+			 FROM ohs_core.end_users WHERE tenant_id = $1 AND external_ref = $2`, tenantID, externalRef))
+	}
+	u, err := find()
+	if errors.Is(err, pgx.ErrNoRows) {
+		u, err = s.CreateUser(ctx, tenantID, externalRef)
+		if err == nil {
+			return u, true, nil
+		}
+		if !errors.Is(err, ErrConflict) {
+			return User{}, false, err
+		}
+		u, err = find() // created by a concurrent call
+	}
+	if err != nil {
+		return User{}, false, fmt.Errorf("tenant: find user: %w", err)
+	}
+	if u.Status != "active" {
+		return User{}, false, ErrConflict
+	}
+	return u, false, nil
+}
+
 // ListUsers pages through a tenant's active users, oldest first. A user being
 // deleted is not listed. The returned cursor is empty on the last page.
 // limit <= 0 means 100; it is capped at 1000.
@@ -349,14 +382,15 @@ func normalizeScopes(in []string) ([]string, error) {
 func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, error) {
 	var (
 		tenantID uuid.UUID
+		keyID    uuid.UUID
 		stale    bool
 	)
 	err := s.pool.QueryRow(ctx,
-		`SELECT tenant_id,
+		`SELECT tenant_id, id,
 		        last_used_at IS NULL OR last_used_at < now() - $2::interval
 		 FROM ohs_core.api_keys WHERE key_hash = $1 AND revoked_at IS NULL`,
 		hash, fmt.Sprintf("%d microseconds", touchEvery.Microseconds()),
-	).Scan(&tenantID, &stale)
+	).Scan(&tenantID, &keyID, &stale)
 	if err == nil {
 		if stale {
 			// Best effort, and at most once a minute per key.
@@ -364,7 +398,7 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 				slog.DebugContext(ctx, "tenant: touch api key", "error", terr)
 			}
 		}
-		return auth.Principal{TenantID: tenantID}, nil
+		return auth.Principal{TenantID: tenantID, KeyID: keyID.String()}, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return auth.Principal{}, fmt.Errorf("tenant: lookup key: %w", err)
@@ -387,7 +421,7 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 	if err != nil {
 		return auth.Principal{}, fmt.Errorf("tenant: lookup token: %w", err)
 	}
-	return auth.Principal{TenantID: tenantID, UserID: &userID, Scopes: scopes}, nil
+	return auth.Principal{TenantID: tenantID, UserID: &userID, Scopes: scopes, KeyID: audit.TokenID(hash)}, nil
 }
 
 // RevokeKey revokes an API key or user token of the tenant by hash. Revoking an

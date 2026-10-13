@@ -25,6 +25,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -37,7 +38,7 @@ const maxStartBody = 64 << 10
 // maxRedirectURI caps the tenant's redirect_uri.
 const maxRedirectURI = 2048
 
-//go:embed page/result.html
+//go:embed page/*.html
 var pageFS embed.FS
 
 var resultPage = template.Must(template.ParseFS(pageFS, "page/result.html"))
@@ -141,32 +142,53 @@ func (h *Handlers) StartConnection() http.Handler {
 			auth.WriteProblem(w, http.StatusBadRequest, "Bad Request", "redirect_uri must be an absolute https URL (http only for localhost)")
 			return
 		}
+		if erasing, err := deletion.Pending(r.Context(), h.d.Pool, tenantID, userID, provider); err != nil {
+			slog.ErrorContext(r.Context(), "collect: look up provider deletion", "tenant_id", tenantID, "user_id", userID, "error", err)
+			writeInternal(w)
+			return
+		} else if erasing {
+			auth.WriteProblem(w, http.StatusConflict, "Conflict",
+				"this user's data from this provider is being deleted; connect again once the deletion job is done")
+			return
+		}
 
-		state, err := newState()
+		authorize, err := h.authorize(r.Context(), tenantID, userID, provider, oc, req.RedirectURI)
 		if err != nil {
-			writeInternal(w)
-			return
-		}
-		authorize, err := oc.AuthorizeURL(state, h.d.CallbackURL(provider))
-		if err != nil {
-			slog.ErrorContext(r.Context(), "collect: authorize url", "provider", provider, "error", safeErr(err))
-			writeInternal(w)
-			return
-		}
-		var redirect *string
-		if req.RedirectURI != "" {
-			redirect = &req.RedirectURI
-		}
-		if _, err := h.d.Pool.Exec(r.Context(), `
-			INSERT INTO ohs_sync.oauth_states (state, tenant_id, user_id, provider, redirect_uri, expires_at)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			hashState(state), tenantID, userID, provider, redirect, h.d.now().Add(StateTTL)); err != nil {
-			slog.ErrorContext(r.Context(), "collect: store oauth state", "tenant_id", tenantID, "user_id", userID, "error", err)
 			writeInternal(w)
 			return
 		}
 		writeJSON(w, http.StatusOK, StartResponse{AuthorizeURL: authorize})
 	})
+}
+
+// authorize mints a single-use state for one user and provider, stores its
+// hash with the redirect (empty: the built-in result page) for StateTTL, and
+// returns the provider's consent URL. Both ways to start a connection go
+// through it: the API (StartConnection) and the hosted page (ConnectStart).
+// Errors are logged here; the caller answers 500.
+func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, provider string, oc connector.OAuthConnector, redirect string) (string, error) {
+	state, err := newState()
+	if err != nil {
+		slog.ErrorContext(ctx, "collect: oauth state", "error", err)
+		return "", err
+	}
+	authorize, err := oc.AuthorizeURL(state, h.d.CallbackURL(provider))
+	if err != nil {
+		slog.ErrorContext(ctx, "collect: authorize url", "provider", provider, "error", safeErr(err))
+		return "", err
+	}
+	var redirectCol *string
+	if redirect != "" {
+		redirectCol = &redirect
+	}
+	if _, err := h.d.Pool.Exec(ctx, `
+		INSERT INTO ohs_sync.oauth_states (state, tenant_id, user_id, provider, redirect_uri, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		hashState(state), tenantID, userID, provider, redirectCol, h.d.now().Add(StateTTL)); err != nil {
+		slog.ErrorContext(ctx, "collect: store oauth state", "tenant_id", tenantID, "user_id", userID, "error", err)
+		return "", err
+	}
+	return authorize, nil
 }
 
 // oauthState is a consumed oauth_states row.
@@ -265,8 +287,9 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	}
 	err = h.d.connect(ctx, st.tenant, st.user, provider, tokens)
 	if errors.Is(err, errInactive) {
-		// The user started being deleted during the exchange: the grant
-		// just issued would otherwise stay valid at the provider.
+		// The user, or their data from this provider, started being
+		// deleted during the exchange: the grant just issued would
+		// otherwise stay valid at the provider.
 		if rv, ok := oc.(connector.Revoker); ok {
 			rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revokeTimeout)
 			if rerr := rv.Revoke(rctx, tokens); rerr != nil {
@@ -298,6 +321,13 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if err := lockActiveUser(ctx, tx, tenantID, userID); err != nil {
 		return err
+	}
+	// A consent completed while the provider's data is being erased would
+	// pull it back: refused like a user being deleted (the grant is revoked).
+	if erasing, err := deletion.Pending(ctx, tx, tenantID, userID, provider); err != nil {
+		return fmt.Errorf("look up provider deletion: %w", err)
+	} else if erasing {
+		return errInactive
 	}
 	// A connection that is active and already backfilled (the user went
 	// through consent again) only gets new tokens.
@@ -332,6 +362,10 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 		tenantID, userID, provider, s.providerUserID, s.access, s.refresh, s.expiresAt, s.scopes, backfillAt); err != nil {
 		return fmt.Errorf("store connection: %w", err)
 	}
+	// Connecting again is what fixes a broken grant.
+	if err := markRestored(ctx, tx, tenantID, userID, provider, now); err != nil {
+		return err
+	}
 	if !backfilled {
 		if err := enqueueBackfill(ctx, tx, tenantID, userID, provider, now); err != nil {
 			return err
@@ -359,7 +393,7 @@ func (h *Handlers) finish(w http.ResponseWriter, r *http.Request, st oauthState,
 		if !ok {
 			code = http.StatusBadRequest
 		}
-		renderResult(w, code, provider, ok)
+		renderResultBack(w, code, provider, ok, h.connectBackLink(r, st))
 		return
 	}
 	u, err := url.Parse(st.redirect)
@@ -375,6 +409,12 @@ func (h *Handlers) finish(w http.ResponseWriter, r *http.Request, st oauthState,
 }
 
 func renderResult(w http.ResponseWriter, code int, provider string, ok bool) {
+	renderResultBack(w, code, provider, ok, "")
+}
+
+// renderResultBack renders the result page; back, when set, is the hosted
+// connection page the user came from, offered as a link.
+func renderResultBack(w http.ResponseWriter, code int, provider string, ok bool, back string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	w.Header().Set("Cache-Control", "no-store")
@@ -383,5 +423,6 @@ func renderResult(w http.ResponseWriter, code int, provider string, ok bool) {
 	_ = resultPage.Execute(w, struct {
 		Connected bool
 		Provider  string
-	}{Connected: ok, Provider: provider})
+		Back      string
+	}{Connected: ok, Provider: providerName(provider), Back: back})
 }

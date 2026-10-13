@@ -14,6 +14,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // Version is reported to clients in the initialize handshake (set by ohs serve).
@@ -25,6 +26,8 @@ type Deps struct {
 	DB read.Querier
 	// Store lists users for list_users.
 	Store *tenant.Store
+	// Webhooks serves list_webhooks; nil leaves the tool out.
+	Webhooks *webhook.Store
 }
 
 // NewHandler returns the Streamable HTTP MCP handler. Mount it behind
@@ -65,14 +68,17 @@ func NewHandler(d Deps) http.Handler {
 }
 
 const instructions = `Open Health Sync: read-only access to health data (quantity samples, ` +
-	`category samples, sleep, workouts, nutrition, daily summaries, sync coverage). ` +
+	`category samples, sleep, workouts, nutrition, daily summaries, RR intervals and the HRV ` +
+	`derived from them, menstrual cycles, sync coverage) and the ` +
+	`time tags that give it context (illness, travel, jet lag...). ` +
 	`With a tenant API key, call list_users first and pass user_id to every other tool; ` +
 	`with a personal user token, omit user_id. Times are RFC 3339 UTC or YYYY-MM-DD; ` +
 	`start is inclusive, end exclusive. Lists return at most limit records (default 100, ` +
 	`max 1000): when truncated is true, call again with cursor set to next_cursor. ` +
 	`For trends over days or weeks start with get_daily (one row per day); raw samples ` +
 	`can number thousands a day, so call get_samples with a narrow start and end. ` +
-	`get_coverage shows which days and metrics hold data at all.`
+	`get_coverage shows which days and metrics hold data at all; get_tags lists the ` +
+	`periods the user marked (an illness, a trip) that can explain unusual data.`
 
 func newServer(d Deps, p auth.Principal, cache *sdk.SchemaCache) *sdk.Server {
 	s := sdk.NewServer(&sdk.Implementation{Name: "open-health-sync", Title: "Open Health Sync", Version: Version},

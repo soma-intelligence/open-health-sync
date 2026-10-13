@@ -50,6 +50,7 @@ func (s *server) omhDataPoints(w http.ResponseWriter, r *http.Request) {
 		readError(w, r, err, "user")
 		return
 	}
+	s.mergePolicy(r, p.TenantID, user, &q)
 	pg, err := read.Observations(r.Context(), s.d.Pool, p.TenantID, user, q, omh.Filter(only))
 	if err != nil {
 		readError(w, r, err, "user")

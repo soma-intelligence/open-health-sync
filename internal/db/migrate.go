@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -67,6 +68,32 @@ func Migrate(url string, direction string) (err error) {
 		return fmt.Errorf("db: migrate %s: %w", direction, err)
 	}
 	return nil
+}
+
+// LatestVersion reports the highest migration version embedded in this
+// binary: the schema version `ohs migrate up` leaves a database at. It needs no
+// database. scripts/restore.sh uses it to refuse a backup taken by a newer
+// release.
+func LatestVersion() (uint, error) {
+	src, err := iofs.New(migrationsFS, "migrations")
+	if err != nil {
+		return 0, fmt.Errorf("db: migration source: %w", err)
+	}
+	defer src.Close()
+	v, err := src.First()
+	if err != nil {
+		return 0, fmt.Errorf("db: first migration: %w", err)
+	}
+	for {
+		next, err := src.Next(v)
+		if errors.Is(err, fs.ErrNotExist) {
+			return v, nil
+		}
+		if err != nil {
+			return 0, fmt.Errorf("db: next migration after %d: %w", v, err)
+		}
+		v = next
+	}
 }
 
 // Version reports the applied migration version. A database with no migration

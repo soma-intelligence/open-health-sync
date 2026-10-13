@@ -152,9 +152,7 @@ func newObservation(user uuid.UUID, id string, p read.Provenance, externalID *st
 	if ext := deref(externalID); ext != "" {
 		o.Identifier = []Identifier{{System: externalIDSystem(p.Provider), Value: ext}}
 	}
-	if d := deref(p.Device); d != "" {
-		o.Device = &Reference{Display: d}
-	}
+	o.Device = deviceRef(user, read.ProvenanceDevice(p))
 	return o
 }
 
@@ -251,11 +249,7 @@ func recordCode(loinc, record, text string) CodeableConcept {
 // R4 bp profile requires.
 func FromBloodPressure(user uuid.UUID, sys, dia read.CodedSample) Observation {
 	o := newObservation(user, PanelIDPrefix+strconv.FormatInt(sys.ID, 10), sys.Provenance, sys.ExternalID)
-	if o.Device == nil {
-		if d := deref(sys.DeviceModel); d != "" {
-			o.Device = &Reference{Display: d}
-		}
-	}
+	o.Device = deviceRef(user, read.SampleDevice(sys.Sample))
 	if ext := deref(dia.ExternalID); ext != "" {
 		o.Identifier = append(o.Identifier, Identifier{System: externalIDSystem(dia.Provider), Value: ext})
 	}

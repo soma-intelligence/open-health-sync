@@ -5,14 +5,17 @@
     "docker-compose",
     "raspberry-pi",
     "s3",
+    "kubernetes",
     "binaries",
     "production",
     "configuration",
     "doctor",
+    "console",
     "cli",
     "upgrading",
     "backup",
     "rotating-secrets",
+    "observability",
     "operating-notes"
   ]
 }

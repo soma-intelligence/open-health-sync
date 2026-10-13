@@ -24,35 +24,111 @@ type Config struct {
 	EncryptionKey                                                       []byte          // decoded, len 32
 	Roles                                                               map[string]bool // "api", "collect", "etl"
 	Metrics                                                             bool
+	// Console serves the read-only admin console at /console (OHS_CONSOLE,
+	// default false).
+	Console bool
+	// MetricsToken (OHS_METRICS_TOKEN) is the bearer secret a scrape of
+	// /metrics presents. MetricsListen (OHS_METRICS_LISTEN) serves /metrics
+	// on an address of its own instead of the API listener.
+	MetricsToken, MetricsListen string
 	// RetentionDays prunes raw files and normalized data older than this
 	// many days; 0 keeps everything.
 	RetentionDays int
+	// AuditRetentionDays prunes audit events older than this many days
+	// (OHS_AUDIT_RETENTION_DAYS, default 365); 0 keeps every event.
+	AuditRetentionDays int
 	// IngestConcurrency bounds the device uploads one api process handles at
 	// once (OHS_INGEST_CONCURRENCY, default 8).
 	IngestConcurrency int
-	Providers         map[string]ProviderKeys // key = lower-case slug
+	// PullsPerProvider caps the pulls of one provider running at once across
+	// every instance (OHS_PULLS_PER_PROVIDER, default 4); BackfillsPerProvider
+	// caps its backfill pulls (OHS_BACKFILLS_PER_PROVIDER, default 2).
+	PullsPerProvider, BackfillsPerProvider int
+	// WebhookAllowPrivate lets webhook endpoints use plain http and reach
+	// private and loopback addresses (OHS_WEBHOOK_ALLOW_PRIVATE, default false).
+	WebhookAllowPrivate bool
+	// Tracing exports OpenTelemetry traces over OTLP: on when
+	// OTEL_EXPORTER_OTLP_ENDPOINT or OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is
+	// set and OTEL_SDK_DISABLED is not true (see TracingFromEnv).
+	Tracing bool
+	// TracingProtocol is the OTLP protocol, TracingHTTP or TracingGRPC.
+	TracingProtocol string
+	Providers       map[string]ProviderKeys // key = lower-case slug
 }
+
+// OTLP protocols, as OTEL_EXPORTER_OTLP_PROTOCOL names them.
+const (
+	TracingHTTP = "http/protobuf"
+	TracingGRPC = "grpc"
+)
+
+// ErrTracing is wrapped by the Load errors about the OTEL_ variables.
+var ErrTracing = errors.New("OpenTelemetry tracing")
+
+// TracingFromEnv reports whether the standard OpenTelemetry variables ask
+// for traces (an OTLP endpoint is set and the SDK is not disabled) and over
+// which protocol: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL, else
+// OTEL_EXPORTER_OTLP_PROTOCOL, else http/protobuf. http/json is not
+// supported: asking for it is an error rather than spans silently lost.
+func TracingFromEnv(env func(string) (string, bool)) (enabled bool, protocol string, err error) {
+	get := func(name string) string {
+		v, _ := env(name)
+		return strings.TrimSpace(v)
+	}
+	if strings.EqualFold(get("OTEL_SDK_DISABLED"), "true") {
+		return false, "", nil
+	}
+	if get("OTEL_EXPORTER_OTLP_ENDPOINT") == "" && get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
+		return false, "", nil
+	}
+	name, proto := "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", get("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")
+	if proto == "" {
+		name, proto = "OTEL_EXPORTER_OTLP_PROTOCOL", get("OTEL_EXPORTER_OTLP_PROTOCOL")
+	}
+	switch proto {
+	case "", TracingHTTP:
+		return true, TracingHTTP, nil
+	case TracingGRPC:
+		return true, TracingGRPC, nil
+	}
+	return false, "", fmt.Errorf("%w: %s=%q is not supported: use http/protobuf (port 4318) or grpc (port 4317)", ErrTracing, name, proto)
+}
+
+// MinMetricsToken is the shortest OHS_METRICS_TOKEN accepted.
+const MinMetricsToken = 16
+
+// DefaultAuditRetentionDays is OHS_AUDIT_RETENTION_DAYS when unset: a year
+// of audit events.
+const DefaultAuditRetentionDays = 365
 
 // DefaultIngestConcurrency is OHS_INGEST_CONCURRENCY when unset.
 const DefaultIngestConcurrency = 8
 
 // reserved are the OHS_ variables (without prefix) that are never provider settings.
 var reserved = map[string]bool{
-	"DATABASE_URL":       true,
-	"ENCRYPTION_KEY":     true,
-	"PUBLIC_URL":         true,
-	"RAW_STORE":          true,
-	"ROLES":              true,
-	"BOOTSTRAP_TENANT":   true,
-	"LISTEN":             true,
-	"LOG_LEVEL":          true,
-	"METRICS":            true,
-	"RETENTION_DAYS":     true,
-	"INGEST_CONCURRENCY": true,
-	"MCP_URL":            true, // client side settings of `ohs mcp`
-	"MCP_KEY":            true,
-	"HTTP_PORT":          true, // read by docker compose only (host port)
-	"VERSION":            true, // read by docker compose only (image tag)
+	"DATABASE_URL":           true,
+	"ENCRYPTION_KEY":         true,
+	"PUBLIC_URL":             true,
+	"RAW_STORE":              true,
+	"ROLES":                  true,
+	"BOOTSTRAP_TENANT":       true,
+	"LISTEN":                 true,
+	"LOG_LEVEL":              true,
+	"METRICS":                true,
+	"CONSOLE":                true,
+	"METRICS_TOKEN":          true,
+	"METRICS_LISTEN":         true,
+	"RETENTION_DAYS":         true,
+	"AUDIT_RETENTION_DAYS":   true,
+	"INGEST_CONCURRENCY":     true,
+	"PULLS_PER_PROVIDER":     true,
+	"BACKFILLS_PER_PROVIDER": true,
+	"WEBHOOK_ALLOW_PRIVATE":  true,
+	"MCP_URL":                true, // client side settings of `ohs mcp`
+	"MCP_KEY":                true,
+	"HTTP_PORT":              true, // read by docker compose only (host port)
+	"HTTP_BIND":              true, // read by docker compose only (host address)
+	"VERSION":                true, // read by docker compose only (image tag)
 }
 
 // ErrEncryptionKey is wrapped by every Load error about OHS_ENCRYPTION_KEY
@@ -152,6 +228,22 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		}
 		c.Metrics = b
 	}
+	c.MetricsToken = get("OHS_METRICS_TOKEN", "")
+	if c.MetricsToken != "" && len(c.MetricsToken) < MinMetricsToken {
+		return Config{}, fmt.Errorf("OHS_METRICS_TOKEN must be at least %d characters (generate one with `openssl rand -hex 32`)", MinMetricsToken)
+	}
+	c.MetricsListen = get("OHS_METRICS_LISTEN", "")
+	if c.MetricsListen != "" && c.MetricsListen == c.Listen {
+		return Config{}, fmt.Errorf("OHS_METRICS_LISTEN %q must differ from OHS_LISTEN", c.MetricsListen)
+	}
+
+	if v := get("OHS_CONSOLE", ""); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("OHS_CONSOLE: %q is not a boolean", v)
+		}
+		c.Console = b
+	}
 
 	if v := get("OHS_RETENTION_DAYS", ""); v != "" {
 		n, err := strconv.Atoi(v)
@@ -161,6 +253,15 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		c.RetentionDays = n
 	}
 
+	c.AuditRetentionDays = DefaultAuditRetentionDays
+	if v := get("OHS_AUDIT_RETENTION_DAYS", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("OHS_AUDIT_RETENTION_DAYS: %q is not a non-negative integer", v)
+		}
+		c.AuditRetentionDays = n
+	}
+
 	c.IngestConcurrency = DefaultIngestConcurrency
 	if v := get("OHS_INGEST_CONCURRENCY", ""); v != "" {
 		n, err := strconv.Atoi(v)
@@ -168,6 +269,32 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_INGEST_CONCURRENCY: %q is not a positive integer", v)
 		}
 		c.IngestConcurrency = n
+	}
+
+	c.PullsPerProvider, c.BackfillsPerProvider = 4, 2
+	for _, x := range []struct {
+		name string
+		dst  *int
+	}{{"OHS_PULLS_PER_PROVIDER", &c.PullsPerProvider}, {"OHS_BACKFILLS_PER_PROVIDER", &c.BackfillsPerProvider}} {
+		if v := get(x.name, ""); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return Config{}, fmt.Errorf("%s: %q is not a positive integer", x.name, v)
+			}
+			*x.dst = n
+		}
+	}
+
+	if v := get("OHS_WEBHOOK_ALLOW_PRIVATE", ""); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("OHS_WEBHOOK_ALLOW_PRIVATE: %q is not a boolean", v)
+		}
+		c.WebhookAllowPrivate = b
+	}
+
+	if c.Tracing, c.TracingProtocol, err = TracingFromEnv(env); err != nil {
+		return Config{}, err
 	}
 
 	for _, kv := range environ {

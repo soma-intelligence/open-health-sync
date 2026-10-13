@@ -19,8 +19,13 @@ make test         # unit tests, no Docker
 make integration  # tests tagged integration, need Docker (testcontainers)
 ```
 
-Other targets: `make e2e` (the quickstart against a real stack) and `make reliability` (crash
-recovery). `make guard` runs the repository checks described below.
+Without Docker, point `OHS_TEST_DATABASE_URL` at a running TimescaleDB server (a user allowed to
+create databases) and the integration tests use it instead of a container.
+
+Other targets: `make e2e` (the quickstart against a real stack), `make reliability` (crash
+recovery) and `make upgrade-test` (the last release, with data in it, migrated to your checkout;
+a change to `internal/db/migrations` should pass it). `make guard` runs the repository checks
+described below.
 
 ## Layout
 
@@ -53,8 +58,8 @@ Read [docs/architecture.md](docs/architecture.md) first. To add a provider, read
 - **No secrets, no health values in logs.** Tokens, keys and measurements never reach a log
   line, an error message or a test fixture. Fixtures use invented values.
 - **Migrations.** Add a numbered pair of `.up.sql` and `.down.sql` files under
-  `internal/db/migrations`. Use hypertables only: no continuous aggregates, no compression
-  policies.
+  `internal/db/migrations`. Use hypertables. No continuous aggregates; compression only
+  as migration 0015 sets it up.
 - **Standard library first.** The router is `http.ServeMux`; a new dependency needs a reason.
 - **Repository checks.** `make guard` scans the tracked files and the branch's commit messages
   for names that must not appear in this repository. The list is kept private by the maintainers
@@ -62,6 +67,22 @@ Read [docs/architecture.md](docs/architecture.md) first. To add a provider, read
   script prints a warning and skips on your machine, and fails in CI. Pull requests from forks
   skip this check (CI secrets are not available to them); it runs again after the merge. CI also
   runs a secret scan.
+
+## Contribute a recording of your account
+
+The most useful contribution needs no code. If you have an account with one of the sources (or an
+iPhone with Apple Health), record what its API answers for you:
+
+```sh
+make record PROVIDER=withings                                        # a cloud source
+OHS_RECORD_EXPORT=~/Downloads/export.zip make record PROVIDER=apple_health   # a Health app export
+```
+
+The recorder anonymizes everything in memory on your machine and refuses to write a file if a
+token or an original identifier survives. Commit the result under `test/recorded/testdata/<slug>/`
+and open a pull request: CI replays every committed recording on every change. Steps per source,
+including the redirect address your developer app needs:
+[docs/connectors/recording.md](docs/connectors/recording.md).
 
 ## Commits and pull requests
 

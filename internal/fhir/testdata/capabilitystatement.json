@@ -1,0 +1,130 @@
+{
+  "resourceType": "CapabilityStatement",
+  "status": "active",
+  "date": "2026-10-13",
+  "kind": "instance",
+  "implementation": {
+    "description": "Open Health Sync, the records of one user",
+    "url": "http://localhost:8080/v1/users/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11/fhir"
+  },
+  "fhirVersion": "4.0.1",
+  "format": [
+    "application/fhir+json"
+  ],
+  "rest": [
+    {
+      "mode": "server",
+      "security": {
+        "description": "A tenant API key as a bearer token: Authorization: Bearer ohs_sk_..."
+      },
+      "resource": [
+        {
+          "type": "Patient",
+          "interaction": [
+            {
+              "code": "read"
+            }
+          ],
+          "operation": [
+            {
+              "name": "everything",
+              "definition": "http://hl7.org/fhir/OperationDefinition/Patient-everything"
+            }
+          ]
+        },
+        {
+          "type": "Observation",
+          "interaction": [
+            {
+              "code": "read"
+            },
+            {
+              "code": "search-type"
+            }
+          ],
+          "searchParam": [
+            {
+              "name": "code",
+              "definition": "http://hl7.org/fhir/SearchParameter/clinical-code",
+              "type": "token",
+              "documentation": "one system|code token: a LOINC code, a quantity type or a record type"
+            },
+            {
+              "name": "category",
+              "definition": "http://hl7.org/fhir/SearchParameter/Observation-category",
+              "type": "token",
+              "documentation": "one observation category code"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "documentation": "one canonical quantity type, for example heart_rate"
+            },
+            {
+              "name": "start",
+              "type": "date",
+              "documentation": "start \u003c= the record's time (RFC 3339 or YYYY-MM-DD)"
+            },
+            {
+              "name": "end",
+              "type": "date",
+              "documentation": "the record's time \u003c end"
+            },
+            {
+              "name": "limit",
+              "type": "number",
+              "documentation": "page size, 1 to 1000 (default 100)"
+            },
+            {
+              "name": "cursor",
+              "type": "string",
+              "documentation": "the cursor of the next link"
+            }
+          ]
+        },
+        {
+          "type": "Device",
+          "interaction": [
+            {
+              "code": "read"
+            },
+            {
+              "code": "search-type"
+            }
+          ],
+          "searchParam": [
+            {
+              "name": "start",
+              "type": "date",
+              "documentation": "start \u003c= the record's time (RFC 3339 or YYYY-MM-DD)"
+            },
+            {
+              "name": "end",
+              "type": "date",
+              "documentation": "the record's time \u003c end"
+            }
+          ]
+        },
+        {
+          "type": "Provenance",
+          "interaction": [
+            {
+              "code": "read"
+            },
+            {
+              "code": "search-type"
+            }
+          ],
+          "searchParam": [
+            {
+              "name": "target",
+              "definition": "http://hl7.org/fhir/SearchParameter/Provenance-target",
+              "type": "reference",
+              "documentation": "required: Observation/{id}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

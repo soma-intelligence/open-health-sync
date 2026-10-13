@@ -64,6 +64,7 @@ func (s *server) exportFile(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err.Error())
 		return
 	}
+	s.mergePolicy(r, p.TenantID, user, &q)
 	write(s, w, r, p.TenantID, user, q, f)
 }
 

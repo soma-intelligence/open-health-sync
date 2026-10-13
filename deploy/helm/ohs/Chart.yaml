@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: v2
+name: ohs
+description: Open Health Sync, a self-hosted health data aggregator, on Kubernetes. Bring your own Postgres with TimescaleDB.
+type: application
+# The chart's own version. appVersion is the image tag it runs by default and
+# follows the default OHS_VERSION of deploy/docker-compose.yml.
+version: 0.1.0
+appVersion: "0.0.2"
+home: https://github.com/soma-intelligence/open-health-sync
+sources:
+  - https://github.com/soma-intelligence/open-health-sync
+keywords:
+  - health
+  - fhir
+  - mcp
+  - timescaledb
+annotations:
+  artifacthub.io/license: AGPL-3.0-only

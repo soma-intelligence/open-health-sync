@@ -4,7 +4,7 @@ description: Health data from devices and apps, in one clean model. Self-hosted,
 icon: House
 ---
 
-import { Bot, Braces, Cloud, Plug, Rocket, Server } from 'lucide-react';
+import { Bot, Braces, Cloud, GraduationCap, Plug, Rocket, Server } from 'lucide-react';
 
 Open Health Sync (`ohs`) is a self-hosted ingestion and normalization layer for health data. It
 pulls from providers, accepts uploads from phones, stores each payload verbatim, maps it to one
@@ -19,6 +19,9 @@ scores, insights and products belong in what you build on top.
   <Card icon={<Rocket />} title="Quickstart" href="/documentation/quickstart">
     Run an instance, upload a heart rate reading and read it back, in under five minutes.
   </Card>
+  <Card icon={<GraduationCap />} title="Learn by building" href="/documentation/learn">
+    Seven short projects on your own data: a sleep report, an HRV trend, an AI assistant, a dashboard.
+  </Card>
   <Card icon={<Server />} title="Self-host it" href="/documentation/self-hosting">
     Docker Compose, a Raspberry Pi 5, an S3 bucket or a single binary.
   </Card>
@@ -32,7 +35,7 @@ scores, insights and products belong in what you build on top.
     A read-only MCP server, with a token that can only read one person's data.
   </Card>
   <Card icon={<Cloud />} title="Hosted platform" href="/documentation/platform">
-    A managed instance for developers who would rather not run one. Coming soon.
+    A managed instance for developers who would rather not run one. Planned.
   </Card>
 </Cards>
 
@@ -73,8 +76,8 @@ iOS app or a Health app export, and [Withings](/documentation/connectors/withing
 [MCP server](/documentation/api-reference/mcp) and a [FHIR R4 export](/documentation/guides/fhir).
 
 <Status is="planned" /> **Next:** more connectors, more standard outputs (Open mHealth, exports,
-webhooks), then client SDKs. The [sources page](/documentation/connectors/sources) tracks each
-one.
+webhooks, [client SDKs](/documentation/sdks)), then health records (EHR) through SMART on FHIR. The
+[sources page](/documentation/connectors/sources) tracks each one.
 
 <Callout title="Early preview">
   Releases are 0.x: the API, the configuration and the schema may change in any of them. Read
@@ -106,7 +109,8 @@ database and raw store. Logs never contain tokens, keys or health values.
   <Accordion title="Why AGPL?">
     So the layer stays open. Anyone can run, study and change it; if you run a modified Open
     Health Sync as a network service, you publish your changes under the same license. The client
-    SDKs will be MIT licensed when they exist, so apps that talk to a server are not affected.
+    SDKs are AGPL-3.0 too. An app that only talks to an unmodified server over its API is not a
+    derivative of it.
   </Accordion>
   <Accordion title="Can I use it commercially?">
     Yes. A company can run it, modified or not, to power its own product. The AGPL only asks that

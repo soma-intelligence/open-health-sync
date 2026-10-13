@@ -23,8 +23,10 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
+	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // Connection statuses (ohs_sync.connections.status).
@@ -214,7 +216,8 @@ const (
 // worker, which checks the connection status.
 func parkPending(ctx context.Context, q execer, tenantID, userID uuid.UUID, provider, reason string) error {
 	_, err := q.Exec(ctx, `
-		UPDATE ohs_sync.pull_jobs SET status = 'parked', claimed_at = NULL, last_error = $4
+		UPDATE ohs_sync.pull_jobs SET status = 'parked', claimed_at = NULL, last_error = $4,
+			outcome = 'inactive', finished_at = now()
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status = 'pending'`,
 		tenantID, userID, provider, reason)
 	if err != nil {
@@ -223,15 +226,28 @@ func parkPending(ctx context.Context, q execer, tenantID, userID uuid.UUID, prov
 	return nil
 }
 
-// markNeedsReauth flags an active connection needs_reauth and parks its
-// pending pull jobs. The scheduler only pulls active connections, so nothing
-// more is enqueued until the user connects again.
-func markNeedsReauth(ctx context.Context, q execer, tenantID, userID uuid.UUID, provider string) error {
-	if _, err := q.Exec(ctx, `
+// markNeedsReauth flags an active connection needs_reauth, broken for reason
+// (BrokenNeedsReauth or BrokenMissingScope), and parks its pending pull jobs.
+// The scheduler only pulls active connections, so nothing more is enqueued
+// until the user connects again.
+func markNeedsReauth(ctx context.Context, q execer, tenantID, userID uuid.UUID, provider, reason string, now time.Time) error {
+	tag, err := q.Exec(ctx, `
 		UPDATE ohs_sync.connections SET status = 'needs_reauth', updated_at = now()
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status = 'active'`,
-		tenantID, userID, provider); err != nil {
+		tenantID, userID, provider)
+	if err != nil {
 		return fmt.Errorf("mark needs_reauth: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		if _, err := webhook.Enqueue(ctx, q, webhook.Event{
+			Tenant: tenantID, User: &userID, Type: webhook.ConnectionNeedsReauth,
+			Data: map[string]any{"provider": provider},
+		}); err != nil {
+			return err
+		}
+		if err := markBroken(ctx, q, tenantID, userID, provider, reason, now, nil); err != nil {
+			return err
+		}
 	}
 	return parkPending(ctx, q, tenantID, userID, provider, reasonNeedsReauth)
 }
@@ -269,6 +285,10 @@ func (h *Handlers) caller(w http.ResponseWriter, r *http.Request) (uuid.UUID, uu
 
 func writeNotFound(w http.ResponseWriter, detail string) {
 	auth.WriteProblem(w, http.StatusNotFound, "Not Found", detail)
+}
+
+func writeBadRequest(w http.ResponseWriter, detail string) {
+	auth.WriteProblem(w, http.StatusBadRequest, "Bad Request", detail)
 }
 
 func writeInternal(w http.ResponseWriter) {
@@ -328,13 +348,32 @@ const finishTimeout = 10 * time.Second
 // connection disconnected, wipes its tokens and parks its pending pull jobs.
 // 204 on success, also for an already disconnected connection; 404 when the
 // user has no connection to that provider.
+//
+// With ?delete_data=true it also queues, in the same transaction, the
+// erasure of everything the user holds from that provider (see package
+// deletion), drops the user's unused consent states for it, and answers 202
+// with the job id instead. Without the parameter (or with false) the data
+// already collected is kept, as before.
 func (h *Handlers) DeleteConnection() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var deleteData bool
+		switch v := r.URL.Query().Get("delete_data"); v {
+		case "", "false":
+		case "true":
+			deleteData = true
+		default:
+			auth.WriteProblem(w, http.StatusBadRequest, "Bad Request", "delete_data must be true or false")
+			return
+		}
 		tenantID, userID, ok := h.caller(w, r)
 		if !ok {
 			return
 		}
 		provider := r.PathValue("provider")
+		if deleteData && !deletion.ValidProvider(provider) {
+			writeNotFound(w, "no connection to this provider")
+			return
+		}
 		ctx := r.Context()
 		// The row stays locked from the read through the revoke to the wipe,
 		// so a refresh or a reconnect cannot interleave.
@@ -375,7 +414,8 @@ func (h *Handlers) DeleteConnection() http.Handler {
 		if _, err := tx.Exec(dctx, `
 			UPDATE ohs_sync.connections SET status = 'disconnected',
 				access_token_enc = NULL, refresh_token_enc = NULL, token_expires_at = NULL,
-				token_type = NULL, updated_at = now()
+				token_type = NULL, broken_reason = NULL, broken_since = NULL,
+				rate_limited_until = NULL, updated_at = now()
 			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 			tenantID, userID, provider); err != nil {
 			slog.ErrorContext(ctx, "collect: disconnect", "error", err)
@@ -387,12 +427,34 @@ func (h *Handlers) DeleteConnection() http.Handler {
 			writeInternal(w)
 			return
 		}
+		var jobID uuid.UUID
+		if deleteData {
+			// A consent link handed out earlier must not reconnect the
+			// provider while (or after) its data is erased.
+			if _, err := tx.Exec(dctx, `DELETE FROM ohs_sync.oauth_states
+				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`, tenantID, userID, provider); err != nil {
+				slog.ErrorContext(ctx, "collect: disconnect", "error", err)
+				writeInternal(w)
+				return
+			}
+			if jobID, err = deletion.QueueProvider(dctx, tx, tenantID, userID, provider); err != nil {
+				slog.ErrorContext(ctx, "collect: queue provider data deletion", "error", err)
+				writeInternal(w)
+				return
+			}
+		}
 		if err := tx.Commit(dctx); err != nil {
 			slog.ErrorContext(ctx, "collect: disconnect commit", "error", err)
 			writeInternal(w)
 			return
 		}
 		slog.InfoContext(ctx, "collect: connection disconnected", "tenant_id", tenantID, "user_id", userID, "provider", provider)
+		if deleteData {
+			slog.InfoContext(ctx, "collect: provider data deletion requested", "tenant_id", tenantID, "user_id", userID,
+				"provider", provider, "job_id", jobID)
+			deletion.WriteAccepted(w, jobID)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

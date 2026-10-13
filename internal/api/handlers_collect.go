@@ -8,8 +8,8 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 )
 
-// mountCollect mounts the provider connection routes, the OAuth callback and
-// the provider notification routes. The callback and the notification routes
+// mountCollect mounts the provider connection routes, the hosted connection
+// page, the OAuth callback and the provider notification routes. The callback and the notification routes
 // face the providers and carry no bearer: the state (callback) or the
 // connector's own verification (notifications) authenticates them. Their
 // query strings hold codes, states and signatures; instrument logs only the
@@ -24,6 +24,15 @@ func (s *server) mountCollect(mux *http.ServeMux) {
 	mux.Handle("GET /v1/users/{id}/freshness", tenantKey(h.Freshness()))
 	mux.Handle("POST /v1/users/{id}/connections/{provider}", tenantKey(h.StartConnection()))
 	mux.Handle("DELETE /v1/users/{id}/connections/{provider}", tenantKey(h.DeleteConnection()))
+	mux.Handle("POST /v1/users/{id}/connections/{provider}/sync", tenantKey(h.SyncNow()))
+	mux.Handle("GET /v1/users/{id}/sync-runs", tenantKey(h.ListSyncRuns()))
+	mux.Handle("GET /v1/users/{id}/sync-runs/{run}", tenantKey(h.GetSyncRun()))
+	mux.Handle("POST /v1/users/{id}/connect-sessions", tenantKey(h.CreateConnectSession()))
+	// The hosted connection page: the session token in the link (query or
+	// form field) is its credential, so no bearer.
+	mux.Handle("GET /connect", h.ConnectPage())
+	mux.Handle("GET /connect/{provider}", h.ConnectPage())
+	mux.Handle("POST /connect/{provider}", h.ConnectStart())
 	mux.Handle("GET /oauth/{provider}/callback", h.OAuthCallback())
 	mux.Handle("POST /inbound/{provider}", h.Inbound())
 	// GET also answers HEAD (ServeMux).

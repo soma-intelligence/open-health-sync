@@ -7,8 +7,120 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Security
+
+- Audit log: every request authenticated with a tenant key or a user token, every
+  `ohs admin` key command and every completed erasure is recorded in
+  `ohs_core.audit_events` (credential, action, user, route pattern, status, request id; never a
+  value, a query string or a secret). Append only, enforced by a database trigger; kept after a
+  user's erasure; pruned after `OHS_AUDIT_RETENTION_DAYS` (default 365). Read it with
+  `GET /v1/audit`. Failed writes count in `ohs_audit_write_failures_total`. See
+  [docs/audit-log.md](docs/audit-log.md).
+- `/metrics` is protected by default. On the API listener a scrape now presents the
+  `OHS_METRICS_TOKEN` bearer token; with no token set, every scrape is refused (403).
+  `OHS_METRICS_LISTEN` (for example `127.0.0.1:9464`) serves it on an address of its own
+  instead. **Breaking for scrapers:** set `OHS_METRICS_TOKEN` and give it to Prometheus
+  (`authorization: { credentials: ... }`), or set `OHS_METRICS_LISTEN`. See
+  [docs/self-hosting.md](docs/self-hosting.md#metrics).
+
 ### Added
 
+- Client SDKs 0.1.0 under [sdks/](sdks), AGPL-3.0-only like the server, not on package registries yet:
+  Kotlin (Android and JVM), Swift (iOS, macOS, Linux; with a HealthKit sync that uploads what
+  changed since the last run), React Native (TypeScript, also Node and browsers) and Flutter
+  (Dart). Each covers every API route with typed models, paging, problem errors, an upload
+  part builder and retried uploads. CI runs their tests and each quickstart example against a
+  live server. Guides: [docs/sdks](docs/sdks/README.md).
+- RR intervals and HRV: `GET /v1/users/{id}/rr-intervals` serves the stored beat-to-beat
+  intervals of heartbeat series, and `GET /v1/users/{id}/hrv` the RMSSD, SDNN, pNN50, mean RR
+  and mean heart rate derived from each series, after implausible and ectopic intervals are set
+  aside. MCP tools `get_rr_intervals` and `get_hrv`. See [docs/hrv.md](docs/hrv.md).
+- Menstrual cycles: `GET /v1/users/{id}/menstrual-cycles` and the MCP tool
+  `get_menstrual_cycles` derive cycles at read time from the stored `menstrual_flow` samples of
+  every provider, so they follow every new sample and deletion: each cycle's start day, its
+  period's flow days (the heaviest flow of each local day, with the providers that recorded it),
+  and its length once the next period is recorded. A gap of up to 2 days without flow stays in
+  one period; intermenstrual bleeding never starts one. Nothing is predicted. Health Connect
+  `MenstruationFlow` and `IntermenstrualBleeding` records are now stored, in the same category
+  types as Apple Health's. See [docs/menstrual-cycles.md](docs/menstrual-cycles.md).
+- Time tags: intervals that give context to a user's data (`illness`, `injury`, `travel`,
+  `jet_lag`, `vaccination`, `medication`, `alcohol`, `other`), with an optional label, note and
+  IANA time zone, and an open end while ongoing. `POST`, `GET`, `PATCH` and `DELETE` under
+  `/v1/users/{id}/tags`; the list keeps the tags that overlap a window. `tag.created`,
+  `tag.updated` and `tag.deleted` webhook events, and the read-only MCP tool `get_tags`. Tags are
+  deleted with their user. See [docs/time-tags.md](docs/time-tags.md).
+- FHIR beyond Observations: `GET /v1/users/{id}/fhir/Patient/{id}` serves the user as a
+  Patient (the tenant's `external_ref` as its identifier), `/fhir/Device` and
+  `/fhir/Device/{id}` the devices the records came from, with stable ids derived from their
+  provenance, and `/fhir/Provenance?target=Observation/{id}` and `/fhir/Provenance/{id}` who
+  produced each Observation (its device as author, the provider as assembler, the provider's
+  record as entity). `/fhir/Patient/{id}/$everything` pages through the Patient, the
+  Observations, their Devices and Provenance in one searchset Bundle, with the Observation
+  search's cursor, and `/fhir/metadata` serves a CapabilityStatement. `Observation.device` is
+  now a reference to the Device, and keeps its `display`. The HL7 validator runs in CI on every
+  change to the mapping (`.github/workflows/fhir-validate.yml`). See [docs/fhir.md](docs/fhir.md).
+- Helm chart in `deploy/helm/ohs` for Kubernetes, against a Postgres with TimescaleDB that you
+  provide: one Deployment running every role (or one per role), a `pre-install`/`pre-upgrade`
+  Job for the migrations, a volume or S3 raw store, a generated encryption key kept across
+  upgrades, and optional Ingress, ServiceMonitor, NetworkPolicy, autoscaler and disruption
+  budget. CI lints and renders it and installs it on kind. See [docs/helm.md](docs/helm.md).
+- OpenTelemetry tracing, off by default: set `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces
+  over OTLP (HTTP/protobuf, or gRPC with `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`). Spans cover API
+  requests (named by route pattern, joining an incoming W3C `traceparent`), pull jobs, ETL
+  jobs, webhook delivery attempts and the database queries made within them; log lines inside a
+  span carry `trace_id` and `span_id`. Spans never record a raw path, a query string, a
+  header, an SQL argument, a secret or a health value. See
+  [docs/observability.md](docs/observability.md).
+- Personal use and recipes: `ohs admin personal setup` readies a one person install (a
+  `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
+  single file Python tools with no dependency that run against it: sleep report, heart rate and
+  HRV trend, source comparison, weekly digest, HTML dashboard, full export, read-only AI token,
+  account connection. Each has a page under [docs/recipes](docs/recipes/README.md), and the
+  quickstart end to end suite runs them all.
+- Erasing one provider's data of one user, for providers whose terms ask for it on disconnect:
+  `DELETE /v1/users/{id}/connections/{provider}?delete_data=true` disconnects and queues the
+  erasure (202 with a `job_id`), and `DELETE /v1/users/{id}/data/{provider}` does it without a
+  connection, for device providers such as `apple_health` and `health_connect` (409 while the
+  user is still connected). A background job of the `etl` role deletes every record of that
+  user and provider in every `ohs_data` table (children through their parent), the raw files
+  and their rows, failed records, ETL and pull jobs, pull coverage, the sync log, push
+  subscriptions, consent states and the disconnected connection, lifting the TimescaleDB
+  decompression limit for compressed chunks; the user and their other providers stay. It waits
+  for a pull of the provider still running; while it is pending the provider cannot be
+  connected again and its uploads are refused (409). An ETL job that read an erased raw object
+  writes nothing. `GET /v1/deletions/{job_id}` gains `provider` (null for a user deletion), and
+  the new `data.erased` webhook announces the end. Without `delete_data` a disconnect keeps the
+  data, as before. Migration `0020`.
+- Learn by building: seven short beginner projects on your own data (first sync, sleep report,
+  HRV trend, an AI assistant over MCP, training against sleep, a dashboard, a webhook that writes
+  a morning line) and a prompt library for people who train. See
+  [docs/learn](docs/learn/README.md).
+- Recorded connector contracts: `make record PROVIDER=<slug>` records what a real account's API
+  answers (or an Apple Health export), anonymized on the contributor's machine, and CI replays
+  every committed recording through its connector. See
+  [docs/connectors/recording.md](docs/connectors/recording.md).
+- `scripts/backup.sh` and `scripts/restore.sh` for the compose stack: one archive with a
+  `pg_dump` of the database (run inside the database container), the raw files and a manifest
+  with versions and checksums; restore handles TimescaleDB's pre and post restore steps and
+  refuses an archive newer than the running release. `ohs migrate latest` prints the schema
+  version a binary migrates to. The full cycle runs in CI (`make backup-test`). See
+  [docs/backup-and-restore.md](docs/backup-and-restore.md).
+- Dexcom connector (`dexcom`, API v3, OAuth 2.0, scheduled pulls): CGM estimated glucose values
+  as `blood_glucose`, with trend and out-of-range status. `OHS_DEXCOM_REGION` picks the US, EU,
+  Japan or sandbox host. See
+  [docs/connectors/dexcom.md](docs/connectors/dexcom.md).
+- OMRON connector (`omron`, OMRON Wellness partner API, OAuth 2.0, scheduled pulls): blood
+  pressure (paired into the FHIR panel), pulse, possible AFib flags, weight and body
+  composition. See
+  [docs/connectors/omron.md](docs/connectors/omron.md).
+- Health Connect connector (`health_connect`) and `POST /v1/ingest/health-connect`: an Android
+  app uploads Health Connect records (steps, heart rate, HRV, SpO2, temperature, blood pressure,
+  glucose, body measurements, sleep, exercise, deletions). See
+  [docs/connectors/health-connect.md](docs/connectors/health-connect.md).
+- FHIR: a glucose sample measured in interstitial fluid (a CGM reading) is coded with LOINC
+  `99504-3` instead of `2339-0`.
+- FreeStyle Libre research notes: Abbott has no public API; readings arrive through Health
+  Connect or Apple Health.
 - Open mHealth output: `GET /v1/users/{id}/omh/data-points` serves heart rate, steps, blood
   pressure pairs, body weight, height, BMI, body fat, body temperature, SpO2, respiratory rate,
   blood glucose, active energy, sleep sessions (`sleep-episode`) and workouts
@@ -20,6 +132,15 @@ release may change the API, the configuration or the database schema.
   sample, sleep session, workout, nutrition log or daily summary of a user in a time window as
   one CSV or Parquet file, with the columns of the REST records (typed, UTC timestamps, JSON
   metadata). See [docs/exports.md](docs/exports.md).
+- Outgoing webhooks ([docs/webhooks.md](docs/webhooks.md)): `POST /v1/webhooks` registers an
+  endpoint for `data.written`, `data.deleted`, `user.deleted` and `connection.needs_reauth`
+  events. Requests are signed per Standard Webhooks (HMAC-SHA256, `whsec_` secrets sealed with
+  `OHS_ENCRYPTION_KEY`), written in the transaction of the change they announce, posted by the
+  `etl` role and retried 8 times over about 28 hours; an endpoint failing for 5 days is
+  disabled. Payloads name the user, provider and days, never a health value. Routes to list,
+  change, delete, test, rotate the secret, list deliveries and retry one; MCP tool
+  `list_webhooks`. Endpoint URLs must be https and public unless
+  `OHS_WEBHOOK_ALLOW_PRIVATE=true`. Migration `0018`.
 - Fitbit connector (`fitbit`) on the Google Health API v4, not the legacy Fitbit Web API: Google
   OAuth with granted-scope handling, paged pulls of 21 data types, webhooks checked with the
   subscriber secret and Google's ECDSA signature, and revoke on disconnect. Google is not
@@ -35,16 +156,28 @@ release may change the API, the configuration or the database schema.
   source (Garmin, Wahoo, Zwift, Coros, Suunto, ...).
 - `connector.StateExchanger`: the OAuth callback hands the state to connectors that need PKCE
   (for a future Garmin connector).
-- None of these four connectors has been verified with a real account yet.
+- Source priorities and a merged view. When several sources recorded the same thing (a ring
+  and a watch the same night, a phone and a watch the same steps, one sample directly and
+  through an aggregator), the reads now list only the best ranked source's record by default,
+  so totals and summaries count nothing twice. Every raw record stays stored, and `view=all`
+  returns all of them as before. The order of sources is resolved per metric (metric, then
+  group, then `*`, then built-in defaults) and set per user with
+  `GET`/`PUT /v1/users/{id}/source-priorities`, stored in `ohs_sync.source_priorities`
+  (migration `0032`). Overlap is judged per kind of metric: any shared time for counts such as
+  steps, 5 minutes for readings such as heart rate, 12 hours for nightly figures, an hour for
+  body measurements, half the shorter session for sleep and workouts. `GET .../daily` merges
+  one summary per day with each figure from its best ranked source and `sources` naming it;
+  the FHIR search leaves out covered records and shows a daily summary's own figures only. The
+  MCP read tools take the same `view`. An optional `fusion.Scorer` (`api.Deps.Scorer`) can rank
+  the sources of metrics a user has not ordered, from a quality measure.
 
 - Oura connector (`oura`, Oura Cloud API v2, OAuth 2.0, scheduled pulls): daily activity,
-  sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. Not yet
-  verified with a real account; see [docs/connectors/oura.md](docs/connectors/oura.md).
+  sleep periods with stages, daily readiness, daily SpO2, heart rate and workouts. See [docs/connectors/oura.md](docs/connectors/oura.md).
 - WHOOP connector (#6): bring your own WHOOP developer app, OAuth connection, scheduled pulls
   of cycles, recoveries, sleeps, workouts and body measurements from the API v2, and signed
-  webhooks for recovery, sleep and workout updates. Not yet verified with a real account.
+  webhooks for recovery, sleep and workout updates.
 - Strava connector (`strava`, API v3, OAuth 2.0, scheduled pulls and webhook events): activities
-  as workouts. Not yet verified with a real account; see
+  as workouts. See
   [docs/connectors/strava.md](docs/connectors/strava.md).
 - `GET /inbound/{provider}` lets a connector answer a provider's subscription challenge
   (Strava's `hub.challenge`), through the optional `connector.ChallengeResponder` interface.
@@ -59,7 +192,7 @@ release may change the API, the configuration or the database schema.
 - Polar connector (AccessLink v3): OAuth connect with user registration, scheduled pulls of
   exercises, sleep with hypnogram, Nightly Recharge, daily activity, continuous heart rate and
   physical info, and AccessLink webhooks with optional signature verification
-  (`OHS_POLAR_WEBHOOK_SECRET`). Not yet verified with a real account.
+  (`OHS_POLAR_WEBHOOK_SECRET`).
 - Provider deletions: `Map` can return `model.Deletion` records (`MapResult.Deletions`). The
   ETL removes the stored sleep sessions, workouts, category samples and nutrition logs of that
   provider record, with their phases, route points, track summaries and derived quantity
@@ -121,6 +254,10 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- The sample, category sample, sleep, workout, daily, FHIR, Open mHealth and export reads
+  default to the merged view (see Added). A client that needs every source's rows passes
+  `view=all`; `GET .../daily` returns one summary per day instead of one per provider and day.
+  The recipes read with `view=all`, since they pick or compare the apps themselves.
 - The backstop pull adapts to notifications: every 6 hours while a connection's provider
   notifications arrive, every hour when none came for 24 hours or the provider sends none
   (before: every 6 hours for all).
@@ -181,6 +318,11 @@ release may change the API, the configuration or the database schema.
   so the lookup is an index range, not a scan.
 - A token refresh that returns no new refresh token keeps the stored one (RFC 6749 section 6);
   this was already the behaviour and is now covered by a test.
+
+### Security
+
+- CI checks the gitleaks release tarball against a pinned sha256 (taken from the release's
+  checksums file) before running it.
 
 ## [0.0.2] - 2026-10-11
 

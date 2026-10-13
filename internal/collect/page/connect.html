@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{if .Problem}}{{.Problem}}{{else}}Connect your health data{{end}}</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f7f7f5; --card: #ffffff; --ink: #1c1c1e; --muted: #6b6b70; --line: #e6e6e3;
+          --ok: #1f7a4d; --warn: #9a5b00; --accent: #1c1c1e; --on-accent: #ffffff; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111113; --card: #1c1c1f; --ink: #f2f2f4; --muted: #a0a0a8; --line: #2c2c31;
+          --ok: #5fd39a; --warn: #f2b45c; --accent: #f2f2f4; --on-accent: #111113; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+         background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { width: 100%; max-width: 440px; background: var(--card); border-radius: 16px; padding: 32px 24px;
+         box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 6%); }
+  header { text-align: center; margin-bottom: 24px; }
+  .logo { display: block; width: 56px; height: 56px; margin: 0 auto 12px; border-radius: 12px; object-fit: contain; }
+  h1 { margin: 0 0 8px; font-size: 20px; }
+  p { margin: 0; color: var(--muted); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  li:first-child { border-top: 0; }
+  .name { font-weight: 600; overflow-wrap: anywhere; }
+  .status { display: block; font-size: 14px; color: var(--muted); }
+  .status.connected { color: var(--ok); }
+  .status.needs_reauth { color: var(--warn); }
+  form { margin: 0; flex: none; }
+  button { font: inherit; font-weight: 600; cursor: pointer; border-radius: 10px; padding: 8px 16px;
+           border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); }
+  button.secondary { background: transparent; color: var(--ink); border-color: var(--line); }
+  footer { margin-top: 24px; font-size: 13px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+{{if .Problem}}
+  <header>
+    <h1>{{.Problem}}</h1>
+    <p>{{.Detail}}</p>
+  </header>
+{{else}}
+  <header>
+    {{if .LogoURL}}<img class="logo" src="{{.LogoURL}}" alt="" width="56" height="56">{{end}}
+    <h1>{{if .AppName}}{{.AppName}} would like to read your health data{{else}}Connect your health data{{end}}</h1>
+    <p>{{if .Single}}Sign in to the source below and allow access.{{else}}Choose a source, sign in there and allow access. You can connect several.{{end}}</p>
+  </header>
+  <ul>
+  {{range .Providers}}
+    <li>
+      <div>
+        <span class="name">{{.Name}}</span>
+        <span class="status {{.Status}}">{{.StatusText}}</span>
+      </div>
+      <form method="post" action="{{.Action}}">
+        <input type="hidden" name="session" value="{{$.Session}}">
+        <button type="submit"{{if eq .Status "connected"}} class="secondary"{{end}}>{{.Button}}</button>
+      </form>
+    </li>
+  {{end}}
+  </ul>
+  <footer>Your sign-in happens on the source's own site. This link expires {{.Expires}}.</footer>
+{{end}}
+</main>
+</body>
+</html>

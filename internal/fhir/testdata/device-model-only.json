@@ -1,0 +1,16 @@
+{
+  "resourceType": "Device",
+  "id": "dev-4cf3bbab090b56cf",
+  "meta": {
+    "source": "https://github.com/soma-intelligence/open-health-sync/fhir/provider/withings"
+  },
+  "deviceName": [
+    {
+      "name": "Invented Meter 1",
+      "type": "model-name"
+    }
+  ],
+  "patient": {
+    "reference": "Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"
+  }
+}

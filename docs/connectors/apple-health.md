@@ -1,6 +1,6 @@
 # Apple Health connector
 
-Slug `apple_health`. A device connector: an iOS app (yours; no SDK ships yet) reads HealthKit
+Slug `apple_health`. A device connector: an iOS app (yours, or one built on the [Swift SDK](../sdks/swift.md#healthkit-sync)) reads HealthKit
 and uploads the data, the server never talks to Apple. It needs no operator keys and is always enabled.
 Without an app, `ohs import apple-health` loads the export the Health app writes, history
 included ([below](#importing-a-health-app-export)).

@@ -21,6 +21,7 @@ type httpMetrics struct {
 
 	ingestInFlight atomic.Int64
 	ingestRejected atomic.Int64
+	auditFailures  atomic.Int64
 }
 
 type routeCode struct {
@@ -94,6 +95,9 @@ func renderMetrics(w io.Writer, m *httpMetrics, etl map[string]int64) {
 	fmt.Fprint(w, "# HELP ohs_ingest_rejected_total Device uploads refused with 503 because the limit was reached.\n")
 	fmt.Fprint(w, "# TYPE ohs_ingest_rejected_total counter\n")
 	fmt.Fprintf(w, "ohs_ingest_rejected_total %d\n", m.ingestRejected.Load())
+	fmt.Fprint(w, "# HELP ohs_audit_write_failures_total Audit events that could not be written.\n")
+	fmt.Fprint(w, "# TYPE ohs_audit_write_failures_total counter\n")
+	fmt.Fprintf(w, "ohs_audit_write_failures_total %d\n", m.auditFailures.Load())
 
 	names := make([]string, 0, len(etl))
 	for n := range etl {

@@ -21,7 +21,10 @@ info:
 
     **FHIR.** `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood
     pressure readings, sleep sessions, workouts and daily summaries as FHIR R4 Observations
-    (`application/fhir+json`); see docs/fhir.md. `GET /v1/users/{id}/omh/data-points` serves
+    (`application/fhir+json`), the user as a Patient, the devices the records came from as
+    Devices, who produced each Observation as its Provenance, and all of them in one paged
+    Bundle with `GET /v1/users/{id}/fhir/Patient/{id}/$everything`; see docs/fhir.md.
+    `GET /v1/users/{id}/omh/data-points` serves
     them as Open mHealth data points; see docs/open-mhealth.md.
 
     **Exports.** `GET /v1/users/{id}/exports/{dataset}` streams every record of one list in a
@@ -35,7 +38,7 @@ info:
     `request_id`, and the server logs carry it too.
 
     **Idempotency.** `Idempotency-Key` (1 to 255 characters) is honoured on
-    `POST /v1/users`: a retry with the same key and the same request within 24 hours gets the first response back, with
+    `POST /v1/users` and `POST /v1/users/{id}/tags`: a retry with the same key and the same request within 24 hours gets the first response back, with
     `Idempotent-Replayed: true`. The same key with another request is a 422; a retry while
     the first call still runs is a 409. Token minting ignores the header (replaying it would
     mean storing the token); device uploads are idempotent by their own headers.
@@ -49,17 +52,42 @@ tags:
   - name: providers
   - name: users
   - name: tokens
+  - name: webhooks
   - name: connections
   - name: read
+  - name: tags
   - name: fhir
   - name: omh
   - name: exports
   - name: ingest
   - name: provider-facing
   - name: mcp
+  - name: audit
   - name: ops
 security:
   - tenantKey: []
+
+webhooks:
+  event:
+    post:
+      tags: [webhooks]
+      summary: An event sent to a registered endpoint
+      description: |
+        Verify `webhook-signature` (`v1,` + base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`
+        keyed by the base64-decoded secret after `whsec_`), refuse a timestamp more than 5
+        minutes off, and deduplicate on `webhook-id`. Answer 2xx within 15 seconds; anything
+        else is retried.
+      parameters:
+        - { name: webhook-id, in: header, required: true, schema: { type: string } }
+        - { name: webhook-timestamp, in: header, required: true, schema: { type: string, description: Unix seconds } }
+        - { name: webhook-signature, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookEvent" }
+      responses:
+        "2XX": { description: Accepted. }
 
 paths:
   /v1/providers:
@@ -185,15 +213,18 @@ paths:
       - name: job_id
         in: path
         required: true
-        description: The `job_id` returned by `DELETE /v1/users/{id}`.
+        description: |
+          The `job_id` returned by `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`
+          or `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`.
         schema: { type: string, format: uuid }
     get:
       tags: [users]
       operationId: getDeletion
-      summary: Status of a user deletion
+      summary: Status of a deletion
       description: |
-        Poll until `status` is `done`: the user's raw files and rows are gone. The job is kept
-        after the user is deleted. Another tenant's job is a 404.
+        Poll until `status` is `done`: the user's raw files and rows are gone (with `provider`
+        set, only those of that provider). The job is kept after the user is deleted. Another
+        tenant's job is a 404.
       responses:
         "200":
           description: The deletion job.
@@ -203,6 +234,267 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/webhooks:
+    post:
+      tags: [webhooks]
+      operationId: createWebhook
+      summary: Register a webhook endpoint
+      description: |
+        The endpoint receives a signed POST for each event of `event_types` (empty or absent:
+        every type). The response carries the signing `secret` (`whsec_...`), shown only here
+        (`Cache-Control: no-store`). The URL must be https and must not point at a private,
+        loopback or link-local address, unless the instance sets `OHS_WEBHOOK_ALLOW_PRIVATE=true`.
+        At most 20 endpoints per tenant. `Idempotency-Key` is ignored here. See docs/webhooks.md.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateWebhookRequest" }
+      responses:
+        "201":
+          description: Registered.
+          headers:
+            Location:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookWithSecret" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+    get:
+      tags: [webhooks]
+      operationId: listWebhooks
+      summary: The tenant's webhook endpoints
+      description: Oldest first, on one page (`next_cursor` is always null).
+      responses:
+        "200":
+          description: The endpoints.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - properties:
+                      data:
+                        items: { $ref: "#/components/schemas/Webhook" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/webhooks/{webhook_id}:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+    get:
+      tags: [webhooks]
+      operationId: getWebhook
+      summary: One webhook endpoint
+      responses:
+        "200":
+          description: The endpoint.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [webhooks]
+      operationId: updateWebhook
+      summary: Change a webhook endpoint
+      description: |
+        Absent fields stay as they are. `enabled: false` disables the endpoint and parks its
+        pending deliveries; `enabled: true` re-activates it (also after an automatic disable)
+        and clears its failure state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateWebhookRequest" }
+      responses:
+        "200":
+          description: The endpoint after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [webhooks]
+      operationId: deleteWebhook
+      summary: Delete a webhook endpoint
+      description: The endpoint and its deliveries are deleted; nothing more is sent to it.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/webhooks/{webhook_id}/rotate-secret:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+    post:
+      tags: [webhooks]
+      operationId: rotateWebhookSecret
+      summary: Replace the signing secret
+      description: |
+        The new secret signs every request from now on, retries of earlier events included.
+        Shown only in this response.
+      responses:
+        "200":
+          description: The new secret.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret]
+                properties:
+                  secret: { type: string, examples: ["whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/webhooks/{webhook_id}/test:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+    post:
+      tags: [webhooks]
+      operationId: testWebhook
+      summary: Send a test event
+      description: |
+        Queues a test event for this endpoint alone, whatever its event types. Without a body (or
+        with `event_type` `webhook.test`) it is the generic `webhook.test` event. With another
+        `event_type` it is a realistic sample of that event, about no real user (`user_id` is the
+        nil UUID, `external_ref` is `sample-user`). Either payload carries `"test": true`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TestWebhookRequest" }
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDelivery" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/webhooks/{webhook_id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+    get:
+      tags: [webhooks]
+      operationId: listWebhookDeliveries
+      summary: The endpoint's deliveries
+      description: |
+        Newest first (unlike the data lists). Finished deliveries are kept 30 days.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, running, done, parked] }
+        - $ref: "#/components/parameters/Cursor"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: A page of deliveries.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - properties:
+                      data:
+                        items: { $ref: "#/components/schemas/WebhookDelivery" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/webhooks/{webhook_id}/deliveries/{delivery_id}:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+      - $ref: "#/components/parameters/DeliveryID"
+    get:
+      tags: [webhooks]
+      operationId: getWebhookDelivery
+      summary: One delivery with its payload and attempts
+      description: |
+        The delivery, the exact JSON body it sends (`payload`) and its attempts, oldest first: status
+        code, error, timing and the first 1 KiB of the receiver's answer. The last 20 attempts
+        are kept.
+      responses:
+        "200":
+          description: The delivery.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDeliveryDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/replay:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+      - $ref: "#/components/parameters/DeliveryID"
+    post:
+      tags: [webhooks]
+      operationId: replayWebhookDelivery
+      summary: Send a finished delivery's event again, as a new delivery
+      description: |
+        Queues a new delivery of a `done` or `parked` delivery's event: same `event_id` (so the same
+        `webhook-id` header, which receivers deduplicate on) and same payload. The new delivery
+        has `replay_of` set and its own attempts; the original keeps its history. One still pending
+        or running is a 409. At most 10 replays of an endpoint wait at once; more is a 429.
+      responses:
+        "202":
+          description: Queued. `Location` is the new delivery.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDelivery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/WebhookID"
+      - $ref: "#/components/parameters/DeliveryID"
+    post:
+      tags: [webhooks]
+      operationId: retryWebhookDelivery
+      summary: Send a finished delivery again
+      description: |
+        A `done` or `parked` delivery is sent again from its first attempt, with its original
+        `webhook-id` and payload. One still pending or running is a 409.
+      responses:
+        "202":
+          description: Queued again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDelivery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/users/{id}/tokens:
     parameters:
@@ -304,7 +596,8 @@ paths:
         Returns the provider's consent URL. Send the user there; after consent the user
         lands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in
         result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
-        `Idempotency-Key` is not honoured here.
+        `Idempotency-Key` is not honoured here. While the user's data from this provider is
+        being deleted the answer is 409: connect again once the deletion job is done.
       requestBody:
         required: false
         content:
@@ -328,13 +621,206 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
     delete:
       tags: [connections]
       operationId: deleteConnection
       summary: Disconnect a provider
-      description: Revokes the provider grant (best effort) and stops pulling. Data already collected is kept.
+      description: |
+        Revokes the provider grant (best effort) and stops pulling. By default the data
+        already collected is kept (204).
+
+        With `delete_data=true` the user's data from this provider is erased too: the
+        disconnect happens at once, then a background job deletes every record, raw file and
+        sync record of this user and provider (the user and their other providers stay). The
+        answer is 202 with the `job_id` to poll at `GET /v1/deletions/{job_id}`; asking again
+        while it runs returns the same job. Until it is done the provider cannot be connected
+        again and its uploads are refused. The `data.erased` webhook announces the end.
+      parameters:
+        - name: delete_data
+          in: query
+          required: false
+          description: true also erases the data the user holds from this provider.
+          schema: { type: boolean, default: false }
       responses:
-        "204": { description: Disconnected. }
+        "202":
+          description: Disconnected, and the erasure of the provider's data accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id: { type: string, format: uuid }
+        "204": { description: Disconnected; the data already collected is kept. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/data/{provider}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    delete:
+      tags: [users]
+      operationId: deleteProviderData
+      summary: Erase a user's data from one provider
+      description: |
+        Erases everything the user holds from one provider without touching any connection:
+        the route for device providers (`apple_health`, `health_connect`), which have no
+        connection, and for a provider already disconnected. A background job deletes every
+        record, raw file and sync record of this user and provider; the user and their other
+        providers stay. The answer is 202 with the `job_id` to poll at
+        `GET /v1/deletions/{job_id}`; asking again while it runs returns the same job. Until
+        it is done, uploads of that provider for the user are refused (409). A provider the
+        user is still connected to is a 409: use
+        `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`. A provider unknown to
+        this build is a 404.
+      responses:
+        "202":
+          description: Erasure accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id: { type: string, format: uuid }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/users/{id}/connect-sessions:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [connections]
+      operationId: createConnectSession
+      summary: Create a link to the hosted connection page
+      description: |
+        Returns a link to a page served by Open Health Sync where the user picks a provider and goes
+        through its consent, so your app needs no connection UI of its own. The token in the link is
+        the page's only credential: send the link to this user only. It serves several providers
+        until `expires_at`. After each consent the user lands on
+        `redirect_uri?status=connected|error&provider=<slug>`, or, without `redirect_uri`, on the
+        built-in result page, which links back to the connection page. See docs/connect-page.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectSessionRequest" }
+      responses:
+        "201":
+          description: The page link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/connections/{provider}/sync:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    post:
+      tags: [connections]
+      operationId: syncConnection
+      summary: Sync a connection now
+      description: |
+        Queues a pull of the connection ahead of routine work and answers with the sync run; follow it
+        at the `Location` header. The window ends now and starts where the connection's data ends
+        (minus an hour of overlap), a day back for a connection that never synced, or at `from`
+        (at most 30 days back). While a manual run of the connection is still queued or running, the
+        answer is 200 with that run and nothing new is queued. 409 when the connection does not sync
+        (`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                from: { type: string, format: date-time }
+      responses:
+        "200":
+          description: A manual run of this connection is already queued or running.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "202":
+          description: Queued.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/users/{id}/sync-runs:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [connections]
+      operationId: listSyncRuns
+      summary: The user's sync history
+      description: |
+        Every pull of the user's connections, newest first: what started it, its window, its status,
+        the raw payloads it stored and the provider's error when it failed. Finished runs are kept
+        30 days.
+      parameters:
+        - name: provider
+          in: query
+          description: Only this provider's runs.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of runs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/SyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/sync-runs/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    get:
+      tags: [connections]
+      operationId: getSyncRun
+      summary: One sync run
+      responses:
+        "200":
+          description: The run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -354,6 +840,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -381,6 +868,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -404,6 +892,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -458,6 +947,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -528,10 +1018,15 @@ paths:
       tags: [read]
       operationId: listDaily
       summary: Daily summaries
-      description: One row per provider and local calendar day. `start` and `end` compare as dates.
+      description: |
+        In the merged view (the default), one summary per local calendar day: each figure
+        comes from the best ranked source that has it, and `sources` names that source per
+        figure; `id`, the provenance and `metadata` are those of the day's best ranked row.
+        With `view=all`, one row per provider and day. `start` and `end` compare as dates.
       parameters:
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -540,6 +1035,157 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DailySummaryPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/rr-intervals:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: listRRIntervals
+      summary: Beat-to-beat (RR) intervals
+      description: |
+        The stored RR intervals of the user's heartbeat series, one per beat, by beat time (beats
+        that share a time by an internal key the cursor carries). `start` and `end` bound the beat
+        time. See docs/hrv.md.
+      parameters:
+        - name: series_id
+          in: query
+          description: Keep one heartbeat series.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by beat time.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RRIntervalPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/hrv:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: listHRV
+      summary: Heart rate variability derived from the RR intervals
+      description: |
+        One record per heartbeat series: the time domain HRV measures (RMSSD, SDNN, pNN50) and the
+        mean RR interval and heart rate, computed from the stored intervals after implausible and
+        ectopic intervals are set aside. Ordered by the series' first beat, then provider and
+        series id. A series is in `[start, end)` when its first beat is, and is always summarized
+        whole. See docs/hrv.md for the rules.
+      parameters:
+        - name: series_id
+          in: query
+          description: Keep one heartbeat series.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by the series' first beat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HRVSeriesPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/menstrual-cycles:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: listMenstrualCycles
+      summary: Menstrual cycles derived from the recorded flow
+      description: |
+        Derived at read time from the `menstrual_flow` category samples, so it always agrees with
+        them, deletions included. A flow day is a local calendar day (the sample's `timezone`
+        metadata, else UTC) with a flow sample whose label is not `none`; a period is a run of
+        flow days with gaps of at most 2 days; a cycle runs from a period's first day to the day
+        before the next period's first day, and the latest cycle is open (`end_date` and
+        `cycle_length_days` null). Intermenstrual bleeding never starts a period. Nothing is
+        predicted. `start` and `end` compare as dates and select cycles by `start_date`. A call
+        reads at most 50000 flow samples: a page can then hold fewer than `limit` cycles and
+        still carry a `next_cursor`. See docs/menstrual-cycles.md.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by start_date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MenstrualCyclePage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/source-priorities:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [read]
+      operationId: getSourcePriorities
+      summary: The order of sources the merged view ranks by
+      description: |
+        The user's own orders, keyed by metric (a quantity type, `sleep` or `workouts`), by
+        group (`activity`, `heart`, `recovery`, `body`, `sleep`, `workouts`) or `*` for every
+        metric, and the built-in orders that apply where the user set none. The most specific
+        order wins: metric, then group, then the user's `*`, then the built-in group order. A
+        source missing from an order ranks after every listed one. See docs/data-model.md.
+      responses:
+        "200":
+          description: The orders.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcePriorities" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [read]
+      operationId: putSourcePriorities
+      summary: Replace the user's orders of sources
+      description: |
+        Replaces every order of the user; `{"priorities": {}}` goes back to the built-in
+        orders. Source names are lowercased. Stored records are never changed: the orders
+        only decide what the merged view shows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priorities]
+              additionalProperties: false
+              properties:
+                priorities: { $ref: "#/components/schemas/SourceOrders" }
+            examples:
+              ring-for-sleep:
+                value: { priorities: { sleep: [oura, whoop], step_count: [apple_health] } }
+      responses:
+        "200":
+          description: The orders now in force.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcePriorities" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -565,6 +1211,7 @@ paths:
           schema: { type: string }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: Coverage report.
@@ -572,6 +1219,131 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Coverage" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/tags:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [tags]
+      operationId: createTimeTag
+      summary: Record a time tag
+      description: |
+        A time tag is an interval that gives context to the user's data: an illness, a trip,
+        jet lag, a vaccination. It is context only: nothing is computed from it. `end_at`
+        absent or null is a tag still ongoing; close it later with PATCH. `start_at` and
+        `end_at` take an RFC 3339 time or a `YYYY-MM-DD` date (midnight UTC). `label` and
+        `note` are free text and are treated as health data: never logged. See
+        docs/time-tags.md.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTimeTagRequest" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location:
+              schema: { type: string }
+              description: /v1/users/{id}/tags/{tag_id}
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TimeTag" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: An idempotent request with this key is in progress.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/IdempotencyMismatch" }
+    get:
+      tags: [tags]
+      operationId: listTimeTags
+      summary: The user's time tags
+      description: |
+        By `start_at`, then id. With `start` and `end`, the tags that overlap the window
+        `[start, end)`: a tag `[start_at, end_at)` is listed when `start_at < end` and
+        `end_at > start`, and an ongoing tag (`end_at` null) when `start_at < end`. A tag that
+        ends exactly at `start`, or starts exactly at `end`, does not overlap. `start` equal to
+        `end` is an empty window.
+      parameters:
+        - name: kind
+          in: query
+          description: Only the tags of this kind. Another value is a 400.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by start_at.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TimeTagPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/tags/{tag_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/TagID"
+    get:
+      tags: [tags]
+      operationId: getTimeTag
+      summary: One time tag
+      responses:
+        "200":
+          description: The tag.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TimeTag" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [tags]
+      operationId: updateTimeTag
+      summary: Change a time tag
+      description: |
+        Absent members stay as they are; null clears `label`, `timezone`, `note` or `end_at`
+        (null `end_at` reopens the tag). `kind` and `start_at` cannot be null, and `source`
+        cannot change. The tag after the change is checked as a whole: `end_at` must stay after
+        `start_at`. A body that changes nothing returns the tag as it is.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTimeTagRequest" }
+      responses:
+        "200":
+          description: The tag after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TimeTag" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+    delete:
+      tags: [tags]
+      operationId: deleteTimeTag
+      summary: Delete a time tag
+      responses:
+        "204": { description: Deleted. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -593,7 +1365,9 @@ paths:
         there is no `next` link on the last page; `total` is left out. A blood pressure pair
         is never split across pages, and its two samples are not listed on their own.
         Vital signs meet the R4 vital signs profiles they claim in `meta.profile`. The
-        mapping (codes, units, categories, provenance and limits) is in docs/fhir.md. The
+        mapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the
+        merged view (the default) a record another source covers better is left out, and a
+        daily summary keeps only the figures it owns (see `view`). The
         filters below combine: a record is listed when it matches all of them. Errors are
         `application/problem+json` like the rest of the API.
       parameters:
@@ -626,6 +1400,7 @@ paths:
           schema: { type: string, examples: [vital-signs] }
         - $ref: "#/components/parameters/Start"
         - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -656,13 +1431,188 @@ paths:
       description: |
         The Observation an entry's `fullUrl` points to. Not the user's, not an id of these
         forms, or not of that shape (`qs-` of a sample that is half of a blood pressure
-        panel, `bp-` of a sample that is not) is a 404.
+        panel, `bp-` of a sample that is not) is a 404. In the merged view (the default) a
+        daily summary carries only the figures no better ranked source of the day holds.
+      parameters:
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: The Observation.
           content:
             application/fhir+json:
               schema: { $ref: "#/components/schemas/FHIRObservation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Patient/{patient_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/FHIRPatientID"
+    get:
+      tags: [fhir]
+      operationId: readFHIRPatient
+      summary: The user as a FHIR R4 Patient
+      description: |
+        The user as a Patient: `id` is the user id, `active` is true, and `identifier` is the
+        tenant's `external_ref` when it set one. No name or birth date (not stored). A
+        `patient_id` other than the user's id, or a user of another tenant, is a 404.
+      responses:
+        "200":
+          description: The Patient.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRPatient" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Patient/{patient_id}/$everything:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/FHIRPatientID"
+    get:
+      tags: [fhir]
+      operationId: everythingFHIRPatient
+      summary: The Patient and all their records, as FHIR R4 resources
+      description: |
+        One page of a `searchset` Bundle: on the first page the Patient, then the page's
+        Observations (`search.mode` `match`, the list and the cursor of the Observation
+        search), then the Devices they reference (each once per page) and the Provenance of
+        each Observation (`include`). Follow the `next` link until there is none: no
+        Observation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/View"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIREverythingBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Device:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: searchFHIRDevices
+      summary: The devices the user's records came from, as FHIR R4 Devices
+      description: |
+        A `searchset` Bundle of the devices named by the provenance of the user's quantity
+        samples, sleep sessions and workouts whose time is in the window, each once, in one
+        page (no `next` link). Unbounded, it reads the provenance of every record of the user:
+        pass `start` and `end` on a large history. `cursor` and `limit` are a 400.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+      responses:
+        "200":
+          description: Every device of the window.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRDeviceBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Device/{device_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: device_id
+        in: path
+        required: true
+        description: The Device id, as an Observation's `device.reference` gives it.
+        schema: { type: string, examples: [dev-4cd59d3e7b09cd28] }
+    get:
+      tags: [fhir]
+      operationId: readFHIRDevice
+      summary: One FHIR R4 Device
+      description: |
+        The Device an Observation references. A device none of the user's records names is a
+        404.
+      responses:
+        "200":
+          description: The Device.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRDevice" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Provenance:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: searchFHIRProvenance
+      summary: The Provenance of one Observation
+      description: |
+        A `searchset` Bundle holding the Provenance of the Observation `target` names, or no
+        entry when the user has no such Observation.
+      parameters:
+        - name: target
+          in: query
+          required: true
+          description: "`Observation/` and an Observation id. One value."
+          schema: { type: string, examples: [Observation/qs-1234] }
+      responses:
+        "200":
+          description: The Provenance, or an empty Bundle.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRProvenanceBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/Provenance/{provenance_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: provenance_id
+        in: path
+        required: true
+        description: "`prov-` and the id of the Observation it is about."
+        schema: { type: string, examples: [prov-qs-1234] }
+    get:
+      tags: [fhir]
+      operationId: readFHIRProvenance
+      summary: One FHIR R4 Provenance
+      description: The Provenance of one Observation; an Observation that does not exist is a 404.
+      responses:
+        "200":
+          description: The Provenance.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRProvenance" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/metadata:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: readFHIRCapabilityStatement
+      summary: The FHIR R4 CapabilityStatement of the user's FHIR base
+      description: What the FHIR routes serve (read only), as a CapabilityStatement.
+      responses:
+        "200":
+          description: The CapabilityStatement.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRCapabilityStatement" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -696,6 +1646,7 @@ paths:
         - $ref: "#/components/parameters/End"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/View"
       responses:
         "200":
           description: One page, by time.
@@ -725,7 +1676,7 @@ paths:
         Every record of one list in `[start, end)`, as one file streamed in a single response
         (`Content-Disposition: attachment`). The columns are the members of the list's JSON
         records, in the same order and with the same names and values: times in UTC, a missing
-        value empty (CSV) or null (Parquet), `metadata` as JSON text. `samples` holds every
+        value empty (CSV) or null (Parquet), `metadata` (and the daily `sources`) as JSON text. `samples` holds every
         quantity type unless `type` names one. The file is not paged: `cursor` and `limit` are
         a 400. A failure once the file has started cuts the connection, so a truncated file
         never looks complete. See docs/exports.md.
@@ -765,7 +1716,9 @@ paths:
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one data type per part.
         Re-sending the same part is safe: the answer is 200 with `duplicate: true`. Other
-        bytes under a (day, batch, part) already stored are a 409. Each instance processes a
+        bytes under a (day, batch, part) already stored are a 409, and so is a part sent while
+        this provider's data is being deleted for the user (nothing is kept; send it again
+        once the deletion job is done). Each instance processes a
         bounded number of uploads at once; above it the answer is 503 with `Retry-After`.
       security:
         - userToken: [upload]
@@ -824,6 +1777,140 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/ingest/health-connect:
+    post:
+      tags: [ingest]
+      operationId: ingestHealthConnect
+      summary: Upload one part of Android Health Connect records
+      description: |
+        One gzip NDJSON part (at most 64 MiB, never truncated), one Health Connect record per
+        line, each a JSON object with a `recordType` (the line format is in
+        docs/connectors/health-connect.md). Same headers, limits and answers as the Apple Health
+        upload.
+        Re-sending the same part is safe: the answer is 200 with `duplicate: true`. Other
+        bytes under a (day, batch, part) already stored are a 409, and so is a part sent while
+        this provider's data is being deleted for the user (nothing is kept; send it again
+        once the deletion job is done). Each instance processes a
+        bounded number of uploads at once; above it the answer is 503 with `Retry-After`.
+      security:
+        - userToken: [upload]
+      parameters:
+        - name: X-OHS-Type
+          in: header
+          required: true
+          description: Health Connect record type of the lines of the part (for example BloodGlucose).
+          schema: { type: string }
+        - name: X-OHS-Day
+          in: header
+          required: true
+          schema: { type: string, format: date }
+        - name: X-OHS-Batch
+          in: header
+          required: true
+          schema: { type: string, maxLength: 128 }
+        - name: X-OHS-Part
+          in: header
+          required: true
+          schema: { type: integer, minimum: 0, maximum: 1000000 }
+      requestBody:
+        required: true
+        content:
+          application/gzip:
+            schema: { type: string, contentEncoding: binary }
+          application/octet-stream:
+            schema: { type: string, contentEncoding: binary }
+      responses:
+        "200":
+          description: Stored (or already stored) and queued for processing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [key, duplicate]
+                properties:
+                  key: { type: string, description: Raw object key. }
+                  duplicate: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "410":
+          description: The user started being deleted while this upload was stored (its token was accepted just before); nothing is kept.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "503":
+          description: Too many uploads in progress on this instance.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Seconds to wait before retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /connect:
+    get:
+      tags: [connections]
+      operationId: connectPage
+      summary: Hosted connection page
+      security: []
+      description: |
+        The page a connect session link opens, for the end user's browser. It shows the app name and
+        logo of the session and one button per allowed provider with the user's connection status
+        (connected, needs reconnecting, not connected). A button posts to `POST /connect/{provider}`.
+        An unknown token is 404 and an expired one 410, as a page that says nothing more.
+      parameters:
+        - $ref: "#/components/parameters/ConnectSessionToken"
+      responses:
+        "200": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
+
+  /connect/{provider}:
+    parameters:
+      - $ref: "#/components/parameters/Provider"
+    get:
+      tags: [connections]
+      operationId: connectProviderPage
+      summary: Hosted connection page for one provider
+      security: []
+      description: The connection page with only this provider's button. 404 when the session does not allow it.
+      parameters:
+        - $ref: "#/components/parameters/ConnectSessionToken"
+      responses:
+        "200": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
+    post:
+      tags: [connections]
+      operationId: connectStart
+      summary: Start consent from the hosted page
+      security: []
+      description: |
+        The form the page posts. Mints a single-use OAuth state exactly like
+        `POST /v1/users/{id}/connections/{provider}`, with the session's `redirect_uri`, and sends the
+        browser to the provider's consent page. The session stays usable until it expires.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [session]
+              properties:
+                session: { type: string, description: The token of the connect session link. }
+      responses:
+        "303":
+          description: To the provider's consent page.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        "400": { $ref: "#/components/responses/ConnectHTML" }
+        "404": { $ref: "#/components/responses/ConnectHTML" }
+        "410": { $ref: "#/components/responses/ConnectHTML" }
 
   /oauth/{provider}/callback:
     parameters:
@@ -919,9 +2006,9 @@ paths:
         tenant key reads every user of the tenant and passes `user_id` to each tool; a user
         token needs the `read` scope and reads only its own user. Tools: `list_users`,
         `list_quantity_types`, `get_samples`, `get_category_samples`, `get_sleep`,
-        `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_coverage`,
-        `list_connections`. Each tool result is JSON text with `records`, `next_cursor` and
-        `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
+        `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_rr_intervals`,
+        `get_hrv`, `get_menstrual_cycles`, `get_tags`, `get_coverage`, `list_connections`. Each
+        tool result is JSON text with `records`, `next_cursor` and `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
         is a tool error inside a 200, as MCP prescribes. See docs/mcp.md.
       requestBody:
         content:
@@ -934,6 +2021,53 @@ paths:
             application/json:
               schema: { type: object }
         "202": { description: Notification accepted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/audit:
+    get:
+      tags: [audit]
+      operationId: listAuditEvents
+      summary: The tenant's audit log, newest first
+      description: |
+        One event per authenticated request (tenant key or user token) and per
+        administrative or system action: who (the credential), what (the action
+        and route), about which user, when, and the status. Never a health value,
+        a secret or a query string. Append only; events older than
+        `OHS_AUDIT_RETENTION_DAYS` (default 365) are pruned.
+      parameters:
+        - name: user_id
+          in: query
+          description: Only events about this end user.
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          description: An exact action (`data.export`), or a prefix ending in a dot (`data.`).
+          schema: { type: string }
+        - name: since
+          in: query
+          description: Events at or after this time (RFC 3339 or YYYY-MM-DD).
+          schema: { type: string }
+        - name: until
+          in: query
+          description: Events before this time (RFC 3339 or YYYY-MM-DD).
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/AuditEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
@@ -991,13 +2125,30 @@ paths:
       tags: [ops]
       operationId: metrics
       summary: Prometheus metrics (absent when OHS_METRICS=false)
-      security: []
+      description: |
+        Instance wide counters, never per-tenant data. On the API listener a
+        scrape presents the `OHS_METRICS_TOKEN` bearer token; with no token
+        configured every scrape is refused with 403. With
+        `OHS_METRICS_LISTEN` set the route moves to that address (404 here),
+        where the token is asked for only when set.
+      security:
+        - metricsToken: []
       responses:
         "200":
           description: Prometheus text exposition format 0.0.4.
           content:
             text/plain:
               schema: { type: string }
+        "401":
+          description: The bearer token is missing or is not `OHS_METRICS_TOKEN`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "403":
+          description: No `OHS_METRICS_TOKEN` is configured, so the API listener serves no metrics.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "404": { $ref: "#/components/responses/NotFound" }
 
 components:
@@ -1010,6 +2161,10 @@ components:
       type: http
       scheme: bearer
       description: User token, `ohs_ut_` + 43 base62 characters, with the scope the route needs.
+    metricsToken:
+      type: http
+      scheme: bearer
+      description: The instance's `OHS_METRICS_TOKEN`, for Prometheus scrapes of `/metrics`.
 
   headers:
     IdempotentReplayed:
@@ -1022,11 +2177,39 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    FHIRPatientID:
+      name: patient_id
+      in: path
+      required: true
+      description: The Patient id, which is the user id; any other value is a 404.
+      schema: { type: string }
+    WebhookID:
+      name: webhook_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DeliveryID:
+      name: delivery_id
+      in: path
+      required: true
+      schema: { type: integer }
+    TagID:
+      name: tag_id
+      in: path
+      required: true
+      description: The `id` of a time tag of this user.
+      schema: { type: string, format: uuid }
     Provider:
       name: provider
       in: path
       required: true
       description: Connector slug, see GET /v1/providers.
+      schema: { type: string }
+    ConnectSessionToken:
+      name: session
+      in: query
+      required: true
+      description: The token of the connect session link.
       schema: { type: string }
     Cursor:
       name: cursor
@@ -1037,6 +2220,16 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+    View:
+      name: view
+      in: query
+      description: |
+        `merged` (the default): when several sources recorded the same thing (a ring and a
+        watch the same night, a phone and a watch the same steps, one sample directly and
+        through an aggregator), only the best ranked source's record is listed, so nothing
+        counts twice. The order of sources is the user's (see source-priorities). `all`:
+        every stored record of every source.
+      schema: { type: string, enum: [merged, all], default: merged }
     Start:
       name: start
       in: query
@@ -1087,6 +2280,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
+    TooManyRequests:
+      description: Too many requests of this kind are queued; wait for them to finish.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
     TooLarge:
       description: The body is too large.
       content:
@@ -1097,6 +2295,14 @@ components:
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
+    ConnectHTML:
+      description: |
+        A page of the hosted connection flow. Sent with `Cache-Control: no-store`,
+        `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and a Content-Security-Policy that
+        allows no script.
+      content:
+        text/html:
+          schema: { type: string }
 
   schemas:
     Problem:
@@ -1120,6 +2326,38 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Null on the last page.
+
+    AuditEvent:
+      type: object
+      required: [id, at, actor, action, user_id, status, detail]
+      properties:
+        id: { type: integer, description: "Increasing; the cursor of the next page." }
+        at: { type: string, format: date-time }
+        actor:
+          type: object
+          required: [type, id]
+          properties:
+            type:
+              type: string
+              enum: [api_key, user_token, admin, system]
+            id:
+              type: string
+              description: |
+                The API key's id, the first 16 hex characters of a user token's SHA-256
+                hash, or the command or worker for admin and system events.
+        action:
+          type: string
+          description: |
+            data.read, data.export, data.write, user.create, user.read, user.delete,
+            user.erased, token.create, connection.read, connection.create,
+            connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
+            config.write, tenant.create, key.create, key.revoke (more may be added).
+        user_id: { type: [string, "null"], format: uuid, description: "The end user the action concerns." }
+        method: { type: string, description: "The HTTP method, absent outside a request." }
+        route: { type: string, description: "The route pattern, absent outside a request." }
+        status: { type: [integer, "null"], description: "The HTTP status, null outside a request." }
+        request_id: { type: string, description: "The X-Request-Id of the request." }
+        detail: { type: object, description: "Identifiers only, such as a job id or a key prefix." }
 
     Provider:
       type: object
@@ -1150,14 +2388,17 @@ components:
 
     DeletionJob:
       type: object
-      required: [job_id, user_id, status, created_at, finished_at]
+      required: [job_id, user_id, provider, status, created_at, finished_at]
       properties:
         job_id: { type: string, format: uuid }
         user_id: { type: string, format: uuid }
+        provider:
+          type: [string, "null"]
+          description: The provider whose data the job erases; null when it deletes the whole user.
         status:
           type: string
           enum: [pending, running, done, failed]
-          description: done once every raw file and row of the user is deleted.
+          description: done once every raw file and row of the user (or of the user and provider) is deleted.
         created_at: { type: string, format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
 
@@ -1188,6 +2429,194 @@ components:
           type: array
           items: { type: string, enum: [upload, connect, read] }
 
+    WebhookEventType:
+      type: string
+      enum: [data.written, data.deleted, data.erased, user.deleted, connection.needs_reauth, connection.broken, connection.restored, tag.created, tag.updated, tag.deleted]
+      description: |
+        `data.written`: a sync wrote new or changed records. `data.deleted`: records the
+        provider deleted were removed. `data.erased`: everything a user held from one provider
+        was erased on your request. `user.deleted`: a user and all their data were erased.
+        `connection.needs_reauth`: a provider refused the user's grant; the user must connect again.
+        `connection.broken`: a connection stopped syncing; `reason` says why and `action` what fixes
+        it (`reconnect`: send the user through the connect flow; `wait`: it resumes by itself).
+        `connection.restored`: a broken connection synced again.
+        `tag.created`, `tag.updated`, `tag.deleted`: a time tag of the user was created, changed
+        or deleted through the API.
+
+    CreateWebhookRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: { type: string, format: uri, maxLength: 2048, examples: ["https://app.example.com/hooks/health"] }
+        description: { type: string, maxLength: 255 }
+        event_types:
+          type: array
+          items: { $ref: "#/components/schemas/WebhookEventType" }
+          description: Empty or absent means every type, including types added later.
+
+    UpdateWebhookRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        url: { type: string, format: uri, maxLength: 2048 }
+        description: { type: string, maxLength: 255 }
+        event_types:
+          type: array
+          items: { $ref: "#/components/schemas/WebhookEventType" }
+        enabled: { type: boolean }
+
+    Webhook:
+      type: object
+      required: [id, url, description, event_types, status, disabled_reason, failing_since, last_success_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string }
+        description: { type: string }
+        event_types:
+          type: array
+          items: { $ref: "#/components/schemas/WebhookEventType" }
+        status:
+          type: string
+          enum: [active, disabled]
+          description: |
+            An endpoint that has accepted nothing for 5 days is disabled when one more delivery
+            runs out of attempts.
+        disabled_reason: { type: [string, "null"] }
+        failing_since:
+          type: [string, "null"]
+          format: date-time
+          description: Start of the current run of failed attempts; null after a success.
+        last_success_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WebhookWithSecret:
+      allOf:
+        - $ref: "#/components/schemas/Webhook"
+        - type: object
+          required: [secret]
+          properties:
+            secret:
+              type: string
+              description: whsec_ signing secret. Shown only once.
+              examples: ["whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"]
+
+    WebhookDelivery:
+      type: object
+      required: [id, event_id, event_type, status, attempts, last_status_code, last_error, next_attempt_at, created_at, delivered_at, replay_of]
+      properties:
+        id: { type: integer }
+        event_id: { type: string, format: uuid, description: "The webhook-id header and the payload's id." }
+        event_type: { type: string }
+        status:
+          type: string
+          enum: [pending, running, done, parked]
+          description: parked after 8 failed attempts (about 28 hours), or when the endpoint was disabled.
+        attempts: { type: integer }
+        last_status_code: { type: [integer, "null"] }
+        last_error: { type: [string, "null"] }
+        next_attempt_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        delivered_at: { type: [string, "null"], format: date-time }
+        replay_of:
+          type: [integer, "null"]
+          description: The delivery this one replays (same event and payload); null for an original.
+
+    WebhookAttempt:
+      type: object
+      required: [id, attempt, started_at, duration_ms, status_code, error, response_body_excerpt]
+      properties:
+        id: { type: integer }
+        attempt:
+          type: integer
+          minimum: 1
+          description: Counts the delivery's attempts from 1, across retries.
+        started_at: { type: string, format: date-time }
+        duration_ms: { type: integer, minimum: 0 }
+        status_code: { type: [integer, "null"], description: "Null when no HTTP answer came (timeout, refused connection)." }
+        error: { type: [string, "null"], description: Null on a success. }
+        response_body_excerpt:
+          type: [string, "null"]
+          maxLength: 1024
+          description: |
+            The first 1 KiB of the receiver's answer, printable UTF-8 only (other bytes become `?`).
+            Null when the answer had no body.
+
+    WebhookDeliveryDetail:
+      allOf:
+        - $ref: "#/components/schemas/WebhookDelivery"
+        - type: object
+          required: [payload, attempt_history]
+          properties:
+            payload:
+              $ref: "#/components/schemas/WebhookEvent"
+              description: The exact JSON body sent, on every attempt.
+            attempt_history:
+              type: array
+              description: The last 20 attempts, oldest first.
+              items: { $ref: "#/components/schemas/WebhookAttempt" }
+
+    TestWebhookRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        event_type:
+          description: The event to send a sample of. Absent means `webhook.test`.
+          oneOf:
+            - $ref: "#/components/schemas/WebhookEventType"
+            - { type: string, const: webhook.test }
+
+    WebhookEvent:
+      type: object
+      description: |
+        The body of every delivery. It names what changed, never a health value: read the data
+        with the API. Signed per Standard Webhooks (headers webhook-id, webhook-timestamp,
+        webhook-signature).
+      required: [id, type, timestamp, data]
+      properties:
+        id: { type: string, format: uuid }
+        type:
+          oneOf:
+            - $ref: "#/components/schemas/WebhookEventType"
+            - { type: string, const: webhook.test }
+        timestamp: { type: string, format: date-time }
+        test:
+          type: boolean
+          const: true
+          description: Present on events sent by the test route only. Such an event describes nothing that happened.
+        data:
+          type: object
+          properties:
+            user_id: { type: string, format: uuid }
+            external_ref: { type: [string, "null"] }
+            provider: { type: string }
+            records:
+              type: object
+              additionalProperties: { type: integer }
+              description: data.written. Rows written or updated per table.
+            types:
+              type: array
+              items: { type: string }
+              description: data.written. The metrics the sync held.
+            first_day: { type: string, format: date, description: "data.written. First data day." }
+            last_day: { type: string, format: date, description: "data.written. Last data day." }
+            records_deleted: { type: integer, description: data.deleted. }
+            job_id: { type: string, format: uuid, description: "data.erased. The deletion job that finished." }
+            tag_id: { type: string, format: uuid, description: "tag.created, tag.updated and tag.deleted." }
+            reason:
+              type: string
+              enum: [needs_reauth, missing_scope, failing, rate_limited]
+              description: connection.broken.
+            action: { type: string, enum: [reconnect, wait], description: connection.broken. }
+            retry_at: { type: string, format: date-time, description: "connection.broken, rate_limited. When pulls resume." }
+            last_error: { type: string, description: "connection.broken, failing. The provider error, made safe to show." }
+            consecutive_failures: { type: integer, description: "connection.broken, failing." }
+            previous_reason: { type: string, description: connection.restored. }
+            broken_since: { type: string, format: date-time, description: connection.restored. }
+            broken_seconds: { type: integer, description: connection.restored. }
+            endpoint_id: { type: string, format: uuid, description: webhook.test. }
+
     Connection:
       type: object
       required: [provider, status, created_at]
@@ -1201,6 +2630,74 @@ components:
         initial_backfill_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        health: { $ref: "#/components/schemas/ConnectionHealth" }
+
+    ConnectionHealth:
+      type: object
+      description: |
+        Whether the connection syncs, and if not why and what fixes it. `reason` is `needs_reauth`
+        (the provider refused the grant: token expired or revoked), `missing_scope` (the grant lacks a
+        permission the data needs), `failing` (the last 3 pulls failed) or `rate_limited` (the provider
+        asked to wait an hour or more, until `retry_at`). `action` is `reconnect` (send the user
+        through the connect flow again) or `wait` (it resumes by itself).
+      required: [healthy, reason, action, since, retry_at]
+      properties:
+        healthy: { type: boolean }
+        reason: { type: [string, "null"], enum: [needs_reauth, missing_scope, failing, rate_limited, null] }
+        action: { type: [string, "null"], enum: [reconnect, wait, null] }
+        since: { type: [string, "null"], format: date-time }
+        retry_at: { type: [string, "null"], format: date-time }
+
+    SyncRun:
+      type: object
+      description: |
+        One pull of one connection. `status` is `queued`, `running`, `retrying` (the last attempt
+        failed, see `error`; the next is at `next_attempt_at`), `rate_limited` (the provider asked to
+        wait until `next_attempt_at`), `succeeded`, `failed` (attempts spent, or the grant was refused)
+        or `cancelled` (the connection was disconnected). `objects_stored` counts the raw provider
+        payloads stored; the records written from them are announced by `data.written` webhooks.
+      required: [id, provider, trigger, status, data_type, window_start, window_end, attempts, objects_stored,
+        error, created_at, started_at, finished_at, next_attempt_at]
+      properties:
+        id: { type: integer, format: int64 }
+        provider: { type: string }
+        trigger: { type: string, enum: [backfill, scheduled, notification, manual] }
+        status: { type: string, enum: [queued, running, retrying, rate_limited, succeeded, failed, cancelled] }
+        data_type: { type: [string, "null"], description: Set when a notification named the one data type to pull. }
+        window_start: { type: string, format: date-time }
+        window_end: { type: string, format: date-time }
+        attempts: { type: integer, description: Failed attempts so far. }
+        objects_stored: { type: [integer, "null"] }
+        error: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        next_attempt_at: { type: [string, "null"], format: date-time }
+
+    ConnectSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        redirect_uri:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Where the user lands after each consent. Absolute https URL (http only for localhost).
+        providers:
+          type: array
+          maxItems: 64
+          items: { type: string }
+          description: Provider slugs the page offers, in this order. Each must be an OAuth provider enabled on this instance. Default, every one.
+        app_name: { type: string, maxLength: 80, description: Shown as the page title. }
+        logo_url: { type: string, format: uri, maxLength: 2048, description: An https image shown above the title. }
+        ttl_seconds: { type: integer, minimum: 60, maximum: 3600, default: 1800 }
+
+    ConnectSession:
+      type: object
+      required: [url, expires_at]
+      properties:
+        url: { type: string, format: uri, description: "`<OHS_PUBLIC_URL>/connect?session=<token>`" }
+        expires_at: { type: string, format: date-time }
 
     SourceFreshness:
       type: object
@@ -1220,6 +2717,7 @@ components:
         last_attempt_at: { type: [string, "null"], format: date-time }
         last_error: { type: [string, "null"] }
         consecutive_failures: { type: integer }
+        health: { $ref: "#/components/schemas/ConnectionHealth" }
 
     Provenance:
       type: object
@@ -1275,6 +2773,34 @@ components:
             source_name: { type: [string, "null"] }
             external_id: { type: [string, "null"] }
             metadata: { $ref: "#/components/schemas/Metadata" }
+
+    RRInterval:
+      type: object
+      required: [timestamp, rr_ms, series_id, provider, ingested_at]
+      properties:
+        timestamp: { type: string, format: date-time, description: The beat that ends the interval. }
+        rr_ms: { type: number, description: "The interval from the previous beat, in milliseconds." }
+        series_id: { type: string }
+        provider: { type: string }
+        ingested_at: { type: string, format: date-time }
+
+    HRVSeries:
+      type: object
+      required: [series_id, provider, start_date, end_date, intervals, accepted_intervals, successive_pairs,
+        mean_rr_ms, mean_heart_rate_bpm, sdnn_ms, rmssd_ms, pnn50_percent]
+      properties:
+        series_id: { type: string }
+        provider: { type: string }
+        start_date: { type: string, format: date-time, description: The series' first beat. }
+        end_date: { type: string, format: date-time, description: The series' last beat. }
+        intervals: { type: integer, description: Stored intervals of the series. }
+        accepted_intervals: { type: integer, description: Intervals kept after the plausibility and ectopic checks. }
+        successive_pairs: { type: integer, description: Pairs of accepted intervals of consecutive beats. }
+        mean_rr_ms: { type: [number, "null"], description: Null when no interval is accepted. }
+        mean_heart_rate_bpm: { type: [number, "null"] }
+        sdnn_ms: { type: [number, "null"], description: Null below 10 successive pairs. }
+        rmssd_ms: { type: [number, "null"], description: Null below 10 successive pairs. }
+        pnn50_percent: { type: [number, "null"], description: Null below 10 successive pairs. }
 
     SleepSession:
       allOf:
@@ -1392,6 +2918,69 @@ components:
             resting_hr: { type: [number, "null"] }
             hrv_avg_ms: { type: [number, "null"] }
             metadata: { $ref: "#/components/schemas/Metadata" }
+            sources:
+              type: object
+              additionalProperties: { type: string }
+              description: |
+                Merged view only: the source of each figure, keyed by the figure's name
+                (for example `{"step_count": "apple_health", "readiness_score": "oura"}`).
+
+    SourceOrders:
+      type: object
+      description: Orders of source slugs, best first, keyed by metric, group or `*`.
+      additionalProperties:
+        type: array
+        minItems: 1
+        maxItems: 50
+        items: { type: string }
+
+    SourcePriorities:
+      type: object
+      required: [priorities, defaults]
+      properties:
+        priorities: { $ref: "#/components/schemas/SourceOrders" }
+        defaults: { $ref: "#/components/schemas/SourceOrders" }
+
+    MenstrualFlowDay:
+      type: object
+      required: [date, flow, providers]
+      properties:
+        date: { type: string, format: date, description: The user's local calendar day. }
+        flow:
+          type: string
+          enum: [unspecified, light, medium, heavy]
+          description: The heaviest flow recorded that day.
+        providers:
+          type: array
+          items: { type: string }
+          description: The providers that recorded flow that day, sorted.
+
+    MenstrualCycle:
+      type: object
+      required: [start_date, period_end_date, period_length_days, end_date, cycle_length_days, providers, flow_days]
+      properties:
+        start_date: { type: string, format: date, description: The first day of the period. }
+        period_end_date: { type: string, format: date, description: The period's last flow day. }
+        period_length_days:
+          type: integer
+          minimum: 1
+          description: Days from start_date to period_end_date, both included (gap days count).
+        end_date:
+          type: [string, "null"]
+          format: date
+          description: The day before the next period starts; null while the cycle is open.
+        cycle_length_days:
+          type: [integer, "null"]
+          minimum: 1
+          description: Days from start_date to the next period's first day; null while open.
+        providers:
+          type: array
+          items: { type: string }
+          description: The providers that recorded the period's flow days, sorted.
+        flow_days:
+          type: array
+          items: { $ref: "#/components/schemas/MenstrualFlowDay" }
+          description: The period's flow days in order; a gap day without flow is absent.
 
     Coverage:
       type: object
@@ -1436,6 +3025,16 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/CategorySample" } }
+    RRIntervalPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/RRInterval" } }
+    HRVSeriesPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/HRVSeries" } }
     SleepSessionPage:
       allOf:
         - $ref: "#/components/schemas/PageBase"
@@ -1467,6 +3066,94 @@ components:
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/DailySummary" } }
 
+    MenstrualCyclePage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/MenstrualCycle" } }
+
+    TimeTagKind:
+      type: string
+      enum: [illness, injury, travel, jet_lag, vaccination, medication, alcohol, other]
+      description: The controlled vocabulary of time tags; see docs/time-tags.md.
+
+    TimeTagTime:
+      oneOf:
+        - { type: string, format: date-time }
+        - { type: string, format: date }
+
+    TimeTag:
+      type: object
+      required: [id, kind, label, start_at, end_at, timezone, note, source, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/TimeTagKind" }
+        label: { type: [string, "null"], maxLength: 100 }
+        start_at: { type: string, format: date-time }
+        end_at:
+          type: [string, "null"]
+          format: date-time
+          description: Exclusive end; null while the tag is ongoing.
+        timezone:
+          type: [string, "null"]
+          description: An IANA time zone, for example the destination zone of a trip.
+          examples: [Asia/Tokyo]
+        note: { type: [string, "null"], maxLength: 2000 }
+        source:
+          type: string
+          description: Who recorded the tag; `user` unless the creator named itself.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateTimeTagRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, start_at]
+      properties:
+        kind: { $ref: "#/components/schemas/TimeTagKind" }
+        label:
+          type: [string, "null"]
+          maxLength: 100
+          description: A short free text. Empty or null is none.
+        start_at: { $ref: "#/components/schemas/TimeTagTime" }
+        end_at:
+          description: After `start_at`. Absent or null for a tag still ongoing.
+          oneOf:
+            - $ref: "#/components/schemas/TimeTagTime"
+            - { type: "null" }
+        timezone:
+          type: [string, "null"]
+          maxLength: 64
+          description: An IANA time zone name. Empty or null is none.
+        note:
+          type: [string, "null"]
+          maxLength: 2000
+          description: Free text, treated as health data. Empty or null is none.
+        source:
+          type: string
+          pattern: "^[A-Za-z0-9._:-]{1,64}$"
+          description: Who records the tag, for example your app's name. Absent means `user`.
+
+    UpdateTimeTagRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        kind: { $ref: "#/components/schemas/TimeTagKind" }
+        label: { type: [string, "null"], maxLength: 100 }
+        start_at: { $ref: "#/components/schemas/TimeTagTime" }
+        end_at:
+          oneOf:
+            - $ref: "#/components/schemas/TimeTagTime"
+            - { type: "null" }
+        timezone: { type: [string, "null"], maxLength: 64 }
+        note: { type: [string, "null"], maxLength: 2000 }
+
+    TimeTagPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/TimeTag" } }
+
     FHIRCoding:
       type: object
       properties:
@@ -1485,7 +3172,223 @@ components:
       type: object
       properties:
         reference: { type: string, examples: ["Patient/3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11"] }
+        identifier: { $ref: "#/components/schemas/FHIRIdentifier" }
         display: { type: string }
+    FHIRIdentifier:
+      type: object
+      properties:
+        system: { type: string, format: uri }
+        value: { type: string }
+    FHIRMeta:
+      type: object
+      properties:
+        source:
+          type: string
+          format: uri
+          description: The provider the record came through.
+        profile:
+          type: array
+          items: { type: string, format: uri }
+        tag:
+          type: array
+          description: The vendor that produced the record, when known.
+          items: { $ref: "#/components/schemas/FHIRCoding" }
+    FHIRPatient:
+      type: object
+      description: The user as a FHIR R4 Patient (docs/fhir.md).
+      required: [resourceType, id, active]
+      properties:
+        resourceType: { type: string, const: Patient }
+        id: { type: string, format: uuid }
+        identifier:
+          type: array
+          description: The tenant's external_ref, when it set one.
+          items: { $ref: "#/components/schemas/FHIRIdentifier" }
+        active: { type: boolean, const: true }
+    FHIRDevice:
+      type: object
+      description: A device the user's records came from, as a FHIR R4 Device (docs/fhir.md).
+      required: [resourceType, id]
+      properties:
+        resourceType: { type: string, const: Device }
+        id: { type: string, pattern: "^dev-[0-9a-f]{16}$", examples: [dev-4cd59d3e7b09cd28] }
+        meta: { $ref: "#/components/schemas/FHIRMeta" }
+        identifier:
+          type: array
+          description: The provider's device id (provenance `device`), when known.
+          items: { $ref: "#/components/schemas/FHIRIdentifier" }
+        deviceName:
+          type: array
+          description: The device model (`device_model`), when known.
+          items:
+            type: object
+            required: [name, type]
+            properties:
+              name: { type: string }
+              type: { type: string, const: model-name }
+        modelNumber: { type: string, description: "The product type (`product_type`), when known." }
+        patient: { $ref: "#/components/schemas/FHIRReference" }
+    FHIRProvenance:
+      type: object
+      description: Who and what produced one Observation, as a FHIR R4 Provenance (docs/fhir.md).
+      required: [resourceType, id, target, recorded, agent]
+      properties:
+        resourceType: { type: string, const: Provenance }
+        id: { type: string, pattern: "^prov-[A-Za-z0-9\\-\\.]{1,59}$", examples: [prov-qs-1234] }
+        target:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/FHIRReference" }
+        recorded: { type: string, format: date-time, description: When the record was ingested. }
+        agent:
+          type: array
+          minItems: 1
+          description: The Device (`author`) when the record names one, then the provider (`assembler`).
+          items:
+            type: object
+            required: [who]
+            properties:
+              type: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+              who: { $ref: "#/components/schemas/FHIRReference" }
+        entity:
+          type: array
+          description: The provider's own record (each external id), when it has one.
+          items:
+            type: object
+            required: [role, what]
+            properties:
+              role: { type: string, const: derivation }
+              what: { $ref: "#/components/schemas/FHIRReference" }
+    FHIRCapabilityStatement:
+      type: object
+      description: What the FHIR routes serve, as a FHIR R4 CapabilityStatement.
+      required: [resourceType, status, date, kind, fhirVersion, format, rest]
+      properties:
+        resourceType: { type: string, const: CapabilityStatement }
+        status: { type: string, const: active }
+        date: { type: string }
+        kind: { type: string, const: instance }
+        implementation:
+          type: object
+          properties:
+            description: { type: string }
+            url: { type: string, format: uri }
+        fhirVersion: { type: string, const: 4.0.1 }
+        format: { type: array, items: { type: string } }
+        rest:
+          type: array
+          items:
+            type: object
+            properties:
+              mode: { type: string, const: server }
+              security:
+                type: object
+                properties:
+                  description: { type: string }
+              resource:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type: { type: string }
+                    interaction:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          code: { type: string }
+                    searchParam:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name: { type: string }
+                          definition: { type: string, format: uri }
+                          type: { type: string }
+                          documentation: { type: string }
+                    operation:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name: { type: string }
+                          definition: { type: string, format: uri }
+    FHIRBundleLink:
+      type: object
+      required: [relation, url]
+      properties:
+        relation: { type: string, enum: [self, next] }
+        url: { type: string, format: uri }
+    FHIRDeviceBundle:
+      type: object
+      description: A FHIR R4 searchset Bundle of Devices, one page.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link: { type: array, items: { $ref: "#/components/schemas/FHIRBundleLink" } }
+        entry:
+          type: array
+          description: Absent when there is none.
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource: { $ref: "#/components/schemas/FHIRDevice" }
+              search:
+                type: object
+                properties:
+                  mode: { type: string, const: match }
+    FHIRProvenanceBundle:
+      type: object
+      description: A FHIR R4 searchset Bundle of Provenance.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link: { type: array, items: { $ref: "#/components/schemas/FHIRBundleLink" } }
+        entry:
+          type: array
+          description: Absent when there is none.
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource: { $ref: "#/components/schemas/FHIRProvenance" }
+              search:
+                type: object
+                properties:
+                  mode: { type: string, const: match }
+    FHIREverythingBundle:
+      type: object
+      description: |
+        One page of a Patient's $everything: a FHIR R4 searchset Bundle of the Patient (first
+        page), Observations, Devices and Provenance.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link: { type: array, items: { $ref: "#/components/schemas/FHIRBundleLink" } }
+        entry:
+          type: array
+          description: Absent on an empty page after the first.
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource:
+                oneOf:
+                  - $ref: "#/components/schemas/FHIRPatient"
+                  - $ref: "#/components/schemas/FHIRObservation"
+                  - $ref: "#/components/schemas/FHIRDevice"
+                  - $ref: "#/components/schemas/FHIRProvenance"
+              search:
+                type: object
+                properties:
+                  mode: { type: string, enum: [match, include] }
     OMHDataPoint:
       type: object
       description: |

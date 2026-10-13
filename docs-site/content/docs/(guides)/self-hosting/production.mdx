@@ -24,11 +24,13 @@ ohs.example.org {
 </Step>
 <Step>
 
-### Hide or turn off /metrics
+### Give /metrics a token
 
-`/metrics` is unauthenticated and global to the instance. It exposes counters, not per-tenant
-data, but anyone who reaches it can read it. Block it at the proxy, as above, or set
-`OHS_METRICS=false`.
+`/metrics` exposes instance wide counters, not per-tenant data, and refuses every scrape until
+you open it. Set `OHS_METRICS_TOKEN` (`openssl rand -hex 32`) and give the same token to
+Prometheus as a bearer credential, or set `OHS_METRICS_LISTEN=127.0.0.1:9464` to serve it on a
+private address instead. `OHS_METRICS=false` turns it off. [Observability](/documentation/self-hosting/observability) lists the
+metrics and shows how to send OpenTelemetry traces to a collector.
 
 </Step>
 <Step>

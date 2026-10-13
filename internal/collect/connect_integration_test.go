@@ -106,6 +106,9 @@ func newConnEnvWrapped(t *testing.T, cfg collect.SchedulerConfig, wrap func(fake
 	e.mux.Handle("GET /v1/users/{id}/connections", tk(h.ListConnections()))
 	e.mux.Handle("GET /v1/users/{id}/freshness", tk(h.Freshness()))
 	e.mux.Handle("DELETE /v1/users/{id}/connections/{provider}", tk(h.DeleteConnection()))
+	e.mux.Handle("POST /v1/users/{id}/connections/{provider}/sync", tk(h.SyncNow()))
+	e.mux.Handle("GET /v1/users/{id}/sync-runs", tk(h.ListSyncRuns()))
+	e.mux.Handle("GET /v1/users/{id}/sync-runs/{run}", tk(h.GetSyncRun()))
 	e.mux.Handle("GET /oauth/{provider}/callback", h.OAuthCallback())
 	e.mux.Handle("POST /inbound/{provider}", h.Inbound())
 	e.mux.Handle("GET /inbound/{provider}", h.InboundProbe())
@@ -543,11 +546,24 @@ func TestRefreshNeedsReauth(t *testing.T) {
 
 func TestFetchNeedsReauth(t *testing.T) {
 	e := newConnEnv(t)
+	_, err := e.pool.Exec(context.Background(), `INSERT INTO ohs_core.webhook_endpoints (tenant_id, url, event_types, secret_sealed)
+		VALUES ($1, 'https://example.com/hook', '{connection.needs_reauth}', '\x00')`, e.tenantA)
+	require.NoError(t, err)
 	e.connect(t, e.keyA, e.userA, "pu-1")
 	e.fake.fetchMode.Store("revoked")
 	e.drain(t)
 	assert.Equal(t, collect.StatusNeedsReauth, e.connStatus(t, e.userA))
 	assert.Equal(t, 5, e.jobs(t, e.userA, "parked"))
+
+	// The tenant's endpoint is told once, though five jobs met the refusal.
+	var events int
+	var provider, user string
+	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT count(*), min(payload #>> '{data,provider}'),
+		min(payload #>> '{data,user_id}') FROM ohs_core.webhook_deliveries
+		WHERE tenant_id = $1 AND event_type = 'connection.needs_reauth'`, e.tenantA).Scan(&events, &provider, &user))
+	assert.Equal(t, 1, events)
+	assert.Equal(t, fakeSlug, provider)
+	assert.Equal(t, e.userA.String(), user)
 }
 
 func TestRateLimitDefers(t *testing.T) {

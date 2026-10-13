@@ -17,6 +17,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
 // Freshness states of a source.
@@ -68,6 +69,8 @@ type SourceFreshness struct {
 	LastAttemptAt       *time.Time `json:"last_attempt_at"`
 	LastError           *string    `json:"last_error"`
 	ConsecutiveFailures int        `json:"consecutive_failures"`
+	// Health says whether the source syncs, and if not why and what fixes it.
+	Health read.ConnectionHealth `json:"health"`
 }
 
 // FreshnessList is the Freshness response.
@@ -84,6 +87,9 @@ type freshRow struct {
 	lastAttempt         *time.Time
 	lastError           *string
 	failures            int
+	brokenReason        *string
+	brokenSince         *time.Time
+	rateLimitedUntil    *time.Time
 }
 
 // oauthFreshness derives the view of a connection at now. push says whether
@@ -97,6 +103,7 @@ func oauthFreshness(r freshRow, push bool, now time.Time) SourceFreshness {
 		LastEventAt: utcPtr(r.lastEvent), LastAttemptAt: utcPtr(r.lastAttempt),
 		LastError: r.lastError, ConsecutiveFailures: r.failures,
 		PushHealthy: healthy, PullEverySeconds: int64(every / time.Second),
+		Health: read.HealthOf(r.brokenReason, r.brokenSince, r.rateLimitedUntil, now),
 	}
 	if r.syncedThrough != nil {
 		lag := int64(now.Sub(*r.syncedThrough) / time.Second)
@@ -140,7 +147,7 @@ func deviceFreshness(provider string, lastUpload time.Time, now time.Time) Sourc
 	}
 	return SourceFreshness{
 		Provider: provider, Kind: KindDevice, Status: StatusActive, State: state,
-		SyncedThrough: &at, LastSyncAt: &at, LagSeconds: &lag,
+		SyncedThrough: &at, LastSyncAt: &at, LagSeconds: &lag, Health: read.ConnectionHealth{Healthy: true},
 	}
 }
 
@@ -198,7 +205,7 @@ func (d Deps) Freshness(ctx context.Context, tenantID, userID uuid.UUID) (Freshn
 	}
 	rows, err := d.Pool.Query(ctx, `
 		SELECT provider, status, synced_through, last_sync_at, last_event_at, last_attempt_at,
-			last_error, consecutive_failures
+			last_error, consecutive_failures, broken_reason, broken_since, rate_limited_until
 		FROM ohs_sync.connections WHERE tenant_id = $1 AND user_id = $2 ORDER BY provider`, tenantID, userID)
 	if err != nil {
 		return FreshnessList{}, fmt.Errorf("freshness: connections: %w", err)
@@ -206,7 +213,7 @@ func (d Deps) Freshness(ctx context.Context, tenantID, userID uuid.UUID) (Freshn
 	conns, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (freshRow, error) {
 		var x freshRow
 		err := r.Scan(&x.provider, &x.status, &x.syncedThrough, &x.lastSync, &x.lastEvent,
-			&x.lastAttempt, &x.lastError, &x.failures)
+			&x.lastAttempt, &x.lastError, &x.failures, &x.brokenReason, &x.brokenSince, &x.rateLimitedUntil)
 		return x, err
 	})
 	if err != nil {
@@ -283,6 +290,9 @@ type ProviderSync struct {
 	// PushSilent counts connections of a notifying provider whose
 	// notifications did not arrive within PushSilence.
 	PushSilent int64
+	// PausedSeconds is how long pulls of the provider stay paused after a
+	// rate limit (0 when they run).
+	PausedSeconds int64
 }
 
 // SyncMetrics aggregates the freshness of every active connection per
@@ -325,6 +335,18 @@ func (h *Handlers) SyncMetrics(ctx context.Context) ([]ProviderSync, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sync metrics: %w", err)
 	}
+	paused, err := queue.NewPull(d.Pool).PausedProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sync metrics: %w", err)
+	}
+	for provider, until := range paused {
+		p, ok := by[provider]
+		if !ok {
+			p = &ProviderSync{Provider: provider, States: map[string]int64{}}
+			by[provider] = p
+		}
+		p.PausedSeconds = max(int64(until.Sub(now)/time.Second), 1)
+	}
 	out := make([]ProviderSync, 0, len(by))
 	for _, p := range by {
 		out = append(out, *p)
@@ -348,6 +370,11 @@ func WriteSyncMetrics(w io.Writer, ps []ProviderSync) {
 	fmt.Fprint(w, "# TYPE ohs_sync_max_lag_seconds gauge\n")
 	for _, p := range ps {
 		fmt.Fprintf(w, "ohs_sync_max_lag_seconds{provider=%q} %d\n", p.Provider, p.MaxLagSeconds)
+	}
+	fmt.Fprint(w, "# HELP ohs_sync_provider_paused_seconds Seconds until pulls of a provider resume after a rate limit (0: running).\n")
+	fmt.Fprint(w, "# TYPE ohs_sync_provider_paused_seconds gauge\n")
+	for _, p := range ps {
+		fmt.Fprintf(w, "ohs_sync_provider_paused_seconds{provider=%q} %d\n", p.Provider, p.PausedSeconds)
 	}
 	fmt.Fprint(w, "# HELP ohs_sync_push_silent_connections Connections whose provider notifications stopped arriving.\n")
 	fmt.Fprint(w, "# TYPE ohs_sync_push_silent_connections gauge\n")
