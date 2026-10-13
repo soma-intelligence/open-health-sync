@@ -52,6 +52,11 @@ release may change the API, the configuration or the database schema.
   search's cursor, and `/fhir/metadata` serves a CapabilityStatement. `Observation.device` is
   now a reference to the Device, and keeps its `display`. The HL7 validator runs in CI on every
   change to the mapping (`.github/workflows/fhir-validate.yml`). See [docs/fhir.md](docs/fhir.md).
+- Helm chart in `deploy/helm/ohs` for Kubernetes, against a Postgres with TimescaleDB that you
+  provide: one Deployment running every role (or one per role), a `pre-install`/`pre-upgrade`
+  Job for the migrations, a volume or S3 raw store, a generated encryption key kept across
+  upgrades, and optional Ingress, ServiceMonitor, NetworkPolicy, autoscaler and disruption
+  budget. CI lints and renders it and installs it on kind. See [docs/helm.md](docs/helm.md).
 - Personal use and recipes: `ohs admin personal setup` readies a one person install (a
   `personal` tenant, a user, a new API key) and prints it as an env file. `recipes/` holds eight
   single file Python tools with no dependency that run against it: sleep report, heart rate and

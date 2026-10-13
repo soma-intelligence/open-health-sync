@@ -5,6 +5,7 @@
     "docker-compose",
     "raspberry-pi",
     "s3",
+    "kubernetes",
     "binaries",
     "production",
     "configuration",

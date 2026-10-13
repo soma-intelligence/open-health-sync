@@ -1,5 +1,9 @@
 # Self-hosting Open Health Sync
 
+This page covers Docker Compose. To run it on Kubernetes, use the Helm chart in
+`deploy/helm/ohs`: see [Kubernetes with Helm](helm.md). The configuration, backup and operating
+notes below apply to both; the commands are written for compose.
+
 ## Quick start
 
 Needs Docker Compose v2.24 or later, and `openssl`. Run every command from the repository
@@ -213,6 +217,9 @@ with `ohs up` (or run `ohs migrate up` before `ohs serve`). Several processes on
 version everywhere. If a migration fails, `ohs migrate version` shows `(dirty)` and `ohs up`
 refuses to serve: restore the backup and report the error rather than editing the schema by
 hand.
+
+With the Helm chart, see [Upgrading](helm.md#upgrading) there: a Job applies the migrations
+before the new pods start.
 
 ### What the upgrade test checks
 

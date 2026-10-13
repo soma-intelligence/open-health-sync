@@ -1,0 +1,28 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{- $p := .Values.rawStore.persistence }}
+{{- if and (eq .Values.rawStore.type "file") $p.enabled (not $p.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ohs.claimName" . }}
+  labels:
+    {{- include "ohs.labels" . | nindent 4 }}
+  {{- if or $p.keep $p.annotations }}
+  annotations:
+    {{- if $p.keep }}
+    helm.sh/resource-policy: keep
+    {{- end }}
+    {{- with $p.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ $p.accessMode }}
+  {{- with $p.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $p.size }}
+{{- end }}

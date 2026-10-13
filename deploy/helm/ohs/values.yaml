@@ -1,0 +1,241 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Default values of the ohs chart. The chart runs Open Health Sync against a
+# Postgres with TimescaleDB that you provide: set database.url (or
+# existingSecret) and config.publicURL, the rest has working defaults.
+# docs/helm.md describes every value.
+
+image:
+  repository: ghcr.io/soma-intelligence/open-health-sync
+  # Defaults to the chart's appVersion. There is no `latest` tag while the
+  # version is 0.x: pin one.
+  tag: ""
+  # sha256:..., wins over tag when set.
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Postgres 17 with the TimescaleDB extension. The migrations run
+# `CREATE EXTENSION IF NOT EXISTS timescaledb`, so the user needs the right to
+# create it, or create it beforehand as a superuser.
+database:
+  # postgres://user:password@host:5432/ohs?sslmode=require&pool_max_conns=20
+  # Stored in the Secret the chart creates. Ignored when existingSecret is set.
+  url: ""
+
+# Name of an existing Secret to use instead of the one the chart creates. It
+# must hold OHS_DATABASE_URL and OHS_ENCRYPTION_KEY; every key becomes an
+# environment variable, so put provider keys (OHS_<PROVIDER>_CLIENT_ID,
+# _CLIENT_SECRET) and S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+# there too.
+existingSecret: ""
+
+# 32 random bytes, base64 (`openssl rand -base64 32`). Seals the OAuth tokens
+# stored in the database: keep it for the life of the instance. Left empty, the
+# chart generates one on first install and reuses it on every upgrade. Ignored
+# when existingSecret is set.
+encryptionKey: ""
+
+# More keys for the Secret the chart creates, for example provider keys:
+#   OHS_WITHINGS_CLIENT_ID: "..."
+#   OHS_WITHINGS_CLIENT_SECRET: "..."
+# Ignored when existingSecret is set.
+secretEnv: {}
+
+# Non-secret settings, written to a ConfigMap as OHS_* variables.
+config:
+  # Public base URL of the instance, used for OAuth callbacks and notification
+  # URLs. Use the https address of your ingress.
+  publicURL: http://localhost:8080
+  # debug, info, warn or error. Logs are JSON on stderr.
+  logLevel: info
+  # Serve Prometheus metrics on /metrics (unauthenticated, instance wide).
+  metrics: true
+  # Delete raw files and normalized data older than this many days; 0 keeps
+  # everything.
+  retentionDays: 0
+  # Device uploads one api process handles at once; more answer 503.
+  ingestConcurrency: 8
+  # Let webhook endpoints use plain http and private addresses (releases
+  # after 0.0.2).
+  webhookAllowPrivate: false
+  # Creates this tenant at first start and logs its API key once.
+  bootstrapTenant: ""
+  # Any other non-secret variable, as NAME: value.
+  extra: {}
+
+# Where raw payloads are kept.
+rawStore:
+  # file: a volume mounted at /var/lib/ohs/raw. s3: an S3 compatible bucket
+  # that supports conditional writes (If-None-Match).
+  type: file
+  s3:
+    # s3://bucket?region=eu-west-3, plus endpoint= and path_style=true for a
+    # service other than AWS S3.
+    url: ""
+    # Written to the Secret the chart creates as AWS_ACCESS_KEY_ID and
+    # AWS_SECRET_ACCESS_KEY. With existingSecret, put them there instead.
+    accessKeyId: ""
+    secretAccessKey: ""
+  # The volume of the file store.
+  persistence:
+    # false mounts an emptyDir: raw payloads are lost with the pod.
+    enabled: true
+    # Use this PersistentVolumeClaim instead of creating one.
+    existingClaim: ""
+    # Empty uses the cluster's default StorageClass.
+    storageClass: ""
+    # ReadWriteOnce limits the instance to one pod (see replicaCount). Use
+    # ReadWriteMany, or the s3 store, to run more.
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    annotations: {}
+    # Keep the claim (and the raw payloads) when the release is uninstalled.
+    keep: true
+
+# One process runs the three roles (api, collect, etl), like the compose file.
+# More than one replica needs a raw store every pod can reach: s3, or a
+# ReadWriteMany volume.
+replicaCount: 1
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    # An upload holds up to 64 MiB of body plus decompression buffers, times
+    # config.ingestConcurrency.
+    memory: 1Gi
+
+# Run each role as its own Deployment instead, so they scale apart. Needs a
+# raw store every pod can reach (s3, or a ReadWriteMany volume). Only the api
+# role serves HTTP. Each process opens its own database pool: keep the sum of
+# their pool_max_conns under the server's max_connections.
+splitRoles:
+  enabled: false
+  api:
+    replicaCount: 2
+    resources: {}
+  collect:
+    replicaCount: 1
+    resources: {}
+  etl:
+    replicaCount: 1
+    resources: {}
+
+# Schema migrations: a Job runs `ohs migrate up` before every install and
+# upgrade, before the new pods start. Disabled, run it yourself first.
+migrations:
+  enabled: true
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  resources: {}
+
+# Extra environment for the ohs containers, as Kubernetes EnvVar entries.
+env: []
+# Extra sources of environment, as Kubernetes EnvFromSource entries.
+extraEnvFrom: []
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# The HTTP probes of the pods that run the api role.
+startupProbe:
+  httpGet: { path: /healthz, port: http }
+  periodSeconds: 2
+  failureThreshold: 60
+livenessProbe:
+  httpGet: { path: /healthz, port: http }
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 6
+readinessProbe:
+  httpGet: { path: /readyz, port: http }
+  periodSeconds: 5
+  timeoutSeconds: 4
+  failureThreshold: 3
+
+# On SIGTERM ohs gives work in flight 25 s, plus a 3 s margin.
+terminationGracePeriodSeconds: 35
+
+# An existing ServiceAccount for the pods. The pods do not call the
+# Kubernetes API, so no token is mounted.
+serviceAccountName: ""
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+
+# Optional resources, all off by default.
+
+ingress:
+  enabled: false
+  className: ""
+  # Uploads carry up to 64 MiB of body: raise your controller's limit, for
+  # example nginx.ingress.kubernetes.io/proxy-body-size: 64m.
+  annotations: {}
+  hosts:
+    - host: ohs.example.org
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: ohs-tls
+  #    hosts: [ohs.example.org]
+
+# Needs the Prometheus Operator CRDs, and config.metrics.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+# Restricts the pods' traffic. Ingress: port 8080 only, from the peers below.
+# Egress: DNS, the database, and HTTPS (providers, S3, webhooks).
+networkPolicy:
+  enabled: false
+  # NetworkPolicyPeer entries allowed to reach port 8080. Empty allows any
+  # source (still on port 8080 only).
+  ingressFrom: []
+  # Port and peers of the database. Empty peers allow any destination on that
+  # port.
+  databasePort: 5432
+  databaseTo: []
+  # HTTPS (443) to any address, for provider APIs, S3 and webhooks.
+  allowHTTPS: true
+  # More NetworkPolicyEgressRule entries, for example an S3 endpoint on
+  # another port.
+  extraEgress: []
+
+# Scales the pods that serve HTTP on CPU. Needs a raw store every pod can
+# reach (s3, or a ReadWriteMany volume).
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

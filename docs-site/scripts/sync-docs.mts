@@ -125,6 +125,13 @@ const sources: Record<string, Target[]> = {
       description: "The database, the raw store and the encryption key, taken and restored together.",
     },
   ],
+  "docs/helm.md": [
+    {
+      page: "(guides)/self-hosting/kubernetes",
+      title: "Kubernetes with Helm",
+      description: "The Helm chart: an external Postgres, the migration Job, the raw store, values, upgrades.",
+    },
+  ],
   "docs/fhir.md": [
     {
       page: "(guides)/guides/fhir",
@@ -246,6 +253,7 @@ const icons: Record<string, string> = {
   "(guides)/connectors/sources": "List",
   "(guides)/connectors/recording": "Disc",
   "(guides)/connectors/apple-health": "Smartphone",
+  "(guides)/self-hosting/kubernetes": "Ship",
   "(guides)/self-hosting/doctor": "Stethoscope",
   "(guides)/self-hosting/configuration": "Settings",
   "(guides)/self-hosting/upgrading": "CircleArrowUp",

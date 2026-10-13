@@ -76,6 +76,82 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
 
+  helm:
+    # The chart in deploy/helm/ohs: lint, render, schema check, then a real
+    # install on kind against an in-cluster TimescaleDB, with the image built
+    # from this checkout.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Lint
+        run: |
+          helm lint --strict deploy/helm/ohs
+          helm lint --strict deploy/helm/ohs --set database.url=postgres://ohs:ohs@db:5432/ohs
+          helm lint --strict deploy/helm/ohs -f deploy/helm/ci/all-optional.yaml
+      - name: Render with the default values
+        run: |
+          # Without a database the render must stop and say what to set.
+          if helm template ohs deploy/helm/ohs > /dev/null 2> err.txt; then
+            echo "the chart rendered without database.url"; exit 1
+          fi
+          grep -q "set database.url" err.txt
+          helm template ohs deploy/helm/ohs --set database.url=postgres://ohs:ohs@db:5432/ohs > default.yaml
+      - name: Render every optional template
+        run: |
+          helm template ohs deploy/helm/ohs -f deploy/helm/ci/all-optional.yaml > all-optional.yaml
+          for kind in Ingress ServiceMonitor NetworkPolicy HorizontalPodAutoscaler PodDisruptionBudget; do
+            grep -qx "kind: $kind" all-optional.yaml || { echo "all-optional.yaml has no $kind"; exit 1; }
+          done
+          test "$(grep -cx 'kind: Deployment' all-optional.yaml)" -eq 3
+      - name: Check the manifests against the Kubernetes schemas
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          ./kubeconform -strict -summary -kubernetes-version 1.31.0 -skip ServiceMonitor default.yaml all-optional.yaml
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: ohs
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the image and load it into kind
+        run: |
+          docker buildx build --load -f deploy/Dockerfile -t ohs:ci .
+          kind load docker-image ohs:ci --name ohs
+      - name: Start Postgres with TimescaleDB
+        run: |
+          kubectl apply -f deploy/helm/ci/postgres.yaml
+          kubectl rollout status deploy/postgres --timeout=300s
+      - name: Install the chart
+        run: helm install ohs deploy/helm/ohs -f deploy/helm/ci/kind.yaml --wait --timeout 5m
+      - name: The pod is Ready and answers /healthz
+        run: |
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/instance=ohs,app.kubernetes.io/component=server --timeout=120s
+          kubectl port-forward svc/ohs 18080:8080 > port-forward.log 2>&1 &
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18080/healthz
+          curl -fsS http://127.0.0.1:18080/readyz
+          kubectl exec deploy/ohs -- /ohs doctor --quick
+          helm test ohs --logs
+      - name: Upgrade runs the migrations again and keeps the encryption key
+        run: |
+          before=$(kubectl get secret ohs-secret -o jsonpath='{.data.OHS_ENCRYPTION_KEY}')
+          helm upgrade ohs deploy/helm/ohs -f deploy/helm/ci/kind.yaml --set config.logLevel=debug --wait --timeout 5m
+          after=$(kubectl get secret ohs-secret -o jsonpath='{.data.OHS_ENCRYPTION_KEY}')
+          test -n "$before"
+          test "$before" = "$after" || { echo "the upgrade changed OHS_ENCRYPTION_KEY"; exit 1; }
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/instance=ohs,app.kubernetes.io/component=server --timeout=120s
+          helm test ohs --logs
+      - name: Cluster state on failure
+        if: failure()
+        run: |
+          kubectl get all,pvc,secret,configmap,job -o wide || true
+          kubectl describe pods || true
+          kubectl logs -l app.kubernetes.io/instance=ohs --all-containers --prefix --tail=200 || true
+          kubectl logs deploy/postgres --tail=100 || true
+          kubectl get events --sort-by=.lastTimestamp || true
+
   guard:
     # Fork pull requests get no secrets and the guard fails closed without
     # its list, so it runs on pushes and same-repository pull requests only.
