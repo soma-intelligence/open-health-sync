@@ -136,6 +136,25 @@ checklist see [hardening.md](hardening.md); to report a problem see
   their tokens, idempotency records, unsent webhook deliveries and the user row
   (`internal/deletion/`). It survives restarts and retries with backoff.
 
+### Accountability, consent and portability
+
+- **Who did what.** Every request authenticated with a tenant key or a user token writes one
+  event to `ohs_core.audit_events`, whatever its outcome, with the credential, the user it
+  touched, the action and the status; `ohs admin` commands and erasures are recorded too. A
+  database trigger refuses `UPDATE`, `DELETE` and `TRUNCATE` except for the retention job
+  (`OHS_AUDIT_RETENTION_DAYS`). Tenants read it with `GET /v1/audit` (`internal/audit/`,
+  [audit-log.md](audit-log.md)).
+- **Data collected beyond consent.** A user's consent is kept per source and per data category.
+  The ETL drops the records of a category not granted before anything is written, and a
+  revocation queues a purge of what was already stored. `OHS_CONSENT_REQUIRED=true` stores
+  nothing from a source with no consent recorded. Every change is kept with the key that made it
+  and announced by the `consent.granted` and `consent.revoked` webhooks (`internal/consent/`,
+  [consent.md](consent.md)).
+- **Portability.** `GET /v1/users/{id}/archive` streams everything held about one user as one
+  zip file, never a token or a sealed value; a failure after the first byte aborts the
+  connection so a truncated archive never looks complete (`internal/api/handlers_archive.go`,
+  [exports.md](exports.md#complete-user-archive-data-portability)).
+
 ## Known limitations and residual risks
 
 - **Health data is not encrypted by the application.** Records in Postgres and payloads in the
@@ -172,8 +191,6 @@ checklist see [hardening.md](hardening.md); to report a problem see
 - **Transport security is external.** `ohs` serves plain HTTP; TLS terminates at a reverse
   proxy. The bundled compose file connects to Postgres with `sslmode=disable` on the compose
   network.
-- **Audit trail.** Tenant and admin actions are not recorded in an append-only log today; logs
-  are the only record.
 
 ## Out of scope
 
@@ -188,8 +205,5 @@ checklist see [hardening.md](hardening.md); to report a problem see
 These are in progress and not in a release yet; check the [changelog](../CHANGELOG.md) for what
 has shipped:
 
-- an append-only audit log of tenant actions (`GET /v1/audit`);
-- per user, per source consent by data category;
 - encryption key rotation (`OHS_PREVIOUS_ENCRYPTION_KEYS`, `ohs admin rekey`);
-- a per user export archive (`GET /v1/users/{id}/archive`);
 - rate limits on the provider-facing routes (`OHS_RATE_LIMIT_*`, `OHS_TRUSTED_PROXIES`).
