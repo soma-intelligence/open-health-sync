@@ -4,9 +4,9 @@ Slug `whoop`. Users connect their own WHOOP account over OAuth; Open Health Sync
 data from the WHOOP API v2 on a schedule and when WHOOP sends a webhook. You register your own
 WHOOP developer application: nothing is shared between instances.
 
-Status: available. The connector follows the
-published API documentation (v2) and is tested against a fake of the API that answers in the
-documented shapes; [Testing](#testing) says how to check it against your own account.
+Status: available. The connector follows the published API documentation (v2) and is tested
+against a fake of the API that answers in the documented shapes; [Testing](#testing) says how
+to check it against your own account.
 
 ## 1. Get your keys
 
@@ -213,7 +213,7 @@ it (`https://api.prod.whoop.com/developer/doc/openapi.json`) and run:
 OHS_WHOOP_OPENAPI=/path/to/openapi.json go test -run TestContract ./connectors/whoop/
 ```
 
-A smoke test reads a few days of a real account, checks every record against the schemas and
+A smoke test reads a few days of your own account, checks every record against the schemas and
 maps it. It needs the `live` build tag and an access token (for example one stored by an
 instance you run, or one from WHOOP's OAuth flow); it never refreshes or revokes it, and logs
 only counts and field names:

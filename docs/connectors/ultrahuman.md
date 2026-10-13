@@ -5,12 +5,11 @@ Ultrahuman **Partnership API**; Open Health Sync then pulls their Ring AIR metri
 glucose, when they wear one) once per day of the pull window. You bring your own Partnership API
 client: nothing is shared between instances.
 
-Status: **available.** Access is not self-serve: Ultrahuman
-issues the client ID and secret through partner onboarding, after reviewing an application. The
-endpoints and OAuth parameters below come from Ultrahuman's developer documentation; the shape of
-the metrics answer comes from published third-party integrations and is **(unverified)** until
-someone checks it against a real account. Points marked **(unverified)** are the ones to check
-first.
+Status: **available.** Access is not self-serve: Ultrahuman issues the client ID and secret
+through partner onboarding, after reviewing an application. The endpoints and OAuth parameters
+below come from Ultrahuman's developer documentation; the shape of the metrics answer comes from
+published third-party integrations **(to confirm)**. Points marked **(to confirm)** are the ones
+to check first.
 
 ## 1. Get your keys
 
@@ -20,10 +19,10 @@ first.
 2. Ask for **Partnership API** access. Ultrahuman describes the API in
    [Accessing the Ultrahuman Partnership API](https://www.ultrahuman.com/blog/accessing-the-ultrahuman-partnership-api/):
    approved apps receive a client ID and a client secret through "partner onboarding". How to
-   request it is not documented publicly **(unverified)**: the dashboard, the Developers section
+   request it is not documented publicly **(to confirm)**: the dashboard, the Developers section
    of [ultrahuman.com/partners](https://www.ultrahuman.com/partners/), or `support@ultrahuman.com`.
    Third parties report a review of one to two weeks, asking for the use case, the user base and
-   how the data is used **(unverified)**. Read the API agreement linked from the developer docs
+   how the data is used **(to confirm)**. Read the API agreement linked from the developer docs
    before applying.
 3. Register the **redirect URI** printed by `ohs doctor`, which is
    `<OHS_PUBLIC_URL>/oauth/ultrahuman/callback`. Ultrahuman requires an exact match, including
@@ -83,11 +82,11 @@ consent, Open Health Sync trades the code for tokens at
 `https://partner.ultrahuman.com/api/partners/oauth/token` (client ID and secret in the form, as
 documented), then calls `GET /api/partners/v1/user_data/user_info` for the user id. The
 `user_info` field names are not published: the connector reads `id` or `user_id`, at the top
-level or under `data` **(unverified)**. A failed lookup does not fail the connect; nothing in a
+level or under `data` **(to confirm)**. A failed lookup does not fail the connect; nothing in a
 pull needs the id.
 
 Tokens: the documentation's examples show `expires_in` of about one day (86399 s), while its
-prose and the blog say about a week **(unverified which)**; the connector uses `expires_in`
+prose and the blog say about a week **(to confirm which)**; the connector uses `expires_in`
 either way. A refresh (`grant_type=refresh_token`) returns a new refresh token, which replaces
 the old one. A refused grant (`invalid_grant`, or HTTP 401 at the token endpoint) marks the
 connection `needs_reauth`; refused client credentials (`invalid_client`, `unauthorized_client`)
@@ -108,28 +107,28 @@ backfilled over the last 30 days in 7 day windows (about 30 calls in all). Since
 sends no notifications, the connection is then pulled every hour; each regular pull covers the
 dates since the previous one, usually one or two calls (today's date is asked again until it is
 over, and its figures are replaced). How far back Ultrahuman serves data is not documented
-**(unverified)**.
+**(to confirm)**.
 
-No webhooks are documented, so the connector is **pull only** **(unverified that none exist)**.
+No webhooks are documented, so the connector is **pull only** **(to confirm that none exist)**.
 
 ### Mapping
 
 The answer is read as `{"data":{"metric_data":[{"type":..., "object":{...}}, ...]}}`, each
 object carrying `day_start_timestamp` (the user's local midnight, Unix seconds) and either a
-`values` series of `{value, timestamp}` or a single `value` **(unverified: the shape published by
+`values` series of `{value, timestamp}` or a single `value` **(to confirm: the shape published by
 third-party integrations, not by Ultrahuman)**.
 
 | Ultrahuman type | Canonical record | Unit | Notes |
 |---|---|---|---|
 | `hr` | `heart_rate` samples | bpm | one per reading; zero readings skipped |
-| `hrv` | `hrv_rmssd` samples | ms | Ultrahuman states its sleep HRV is RMSSD ([HRV study](https://www.ultrahuman.com/science/studies/ultrahuman-ring-hrv-accuracy/)); that the daytime `hrv` series is RMSSD too comes from third parties **(unverified)** |
+| `hrv` | `hrv_rmssd` samples | ms | Ultrahuman states its sleep HRV is RMSSD ([HRV study](https://www.ultrahuman.com/science/studies/ultrahuman-ring-hrv-accuracy/)); that the daytime `hrv` series is RMSSD too comes from third parties **(to confirm)** |
 | `temp` | `skin_temperature` samples | celsius | absolute skin temperature (`°C`); a Fahrenheit unit is converted; values outside 20 to 45 °C dropped |
-| `steps` `values` | `step_count_intraday` samples | count | per-reading counts, zeros skipped; whether they are increments per interval is **(unverified)** |
+| `steps` `values` | `step_count_intraday` samples | count | per-reading counts, zeros skipped; whether they are increments per interval is **(to confirm)** |
 | `steps` `total` | `step_count`, one per local day | count | replaced while the day is still running |
 | `sleep_rhr` `value`, else `night_rhr` `avg` | `resting_heart_rate`, one per local day | bpm | |
 | `temperature_deviation` `value` | `body_temperature_deviation`, one per local day | celsius | deviation from the user's baseline |
 | `vo2_max` `value` | `vo2_max`, one per local day | mL/kg/min | |
-| `glucose` `values` | `blood_glucose` samples | mg/dL | M1 CGM, about one reading every 5 minutes. mmol/L readings are converted (× 18.0182); without a `unit` the value is read as mg/dL, the unit Ultrahuman's field list gives, and flagged `unit_assumed`. The glucose entry's exact shape is **(unverified)** |
+| `glucose` `values` | `blood_glucose` samples | mg/dL | M1 CGM, about one reading every 5 minutes. mmol/L readings are converted (× 18.0182); without a `unit` the value is read as mg/dL, the unit Ultrahuman's field list gives, and flagged `unit_assumed`. The glucose entry's exact shape is **(to confirm)** |
 | `Sleep` | one `SleepSession` per date, with phases | | `bedtime_start`/`bedtime_end`; deep, light, REM and awake seconds from `sleep_stages`; total sleep from `quick_metrics` `total_sleep` (else deep + light + REM); average HRV from `avg_sleep_hrv`; resting HR; average SpO2 from `spo2`; phases from `sleep_graph` intervals (`deep_sleep`, `light_sleep`, `rem_sleep`, `awake`; other kinds dropped) |
 
 **Raw only** (stored in the raw line, no canonical record, because no canonical name exists):
@@ -150,7 +149,7 @@ all replaceable: pulling a day again replaces its figures instead of duplicating
 
 ## 6. Rate limits and errors
 
-Ultrahuman publishes no rate limits **(unverified)**. On HTTP 429 the pull stops and the
+Ultrahuman publishes no rate limits **(to confirm)**. On HTTP 429 the pull stops and the
 scheduler waits for `Retry-After` (or its default back-off) without counting a failure; the days
 already stored stay stored. HTTP 401 or 403 on a data call makes the scheduler refresh the token
 once and retry; a second refusal marks the connection `needs_reauth`. 404 or 204 for a date means
@@ -184,7 +183,7 @@ calls Ultrahuman.
 go test ./connectors/ultrahuman/...
 ```
 
-To verify with a real account (needs an approved Partnership API client):
+To check it against your own account (needs an approved Partnership API client):
 
 1. Connect a Ring AIR user and run a pull; check that each date stored under `daily_metrics`
    holds `data.metric_data`, and compare the entries with the table above.
@@ -204,6 +203,5 @@ To verify with a real account (needs an approved Partnership API client):
   [personal API](https://vision.ultrahuman.com/developer-docs) (daily_metrics, field list and units).
 - Ultrahuman, [Ring HRV accuracy study](https://www.ultrahuman.com/science/studies/ultrahuman-ring-hrv-accuracy/)
   (sleep HRV is RMSSD).
-- Third party: [Open Wearables, Ultrahuman integration](https://openwearables.io/docs/providers/ultrahuman-api-integration)
-  and its [blog](https://openwearables.io/blog/ultrahuman-api-ring-data-cgm-recovery-metrics)
-  (answer shape, glucose units by region, HRV as RMSSD, rotating refresh tokens).
+- Third party: the published documentation of another open-source project's Ultrahuman
+  integration (answer shape, glucose units by region, HRV as RMSSD, rotating refresh tokens).

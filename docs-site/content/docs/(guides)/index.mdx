@@ -32,7 +32,7 @@ scores, insights and products belong in what you build on top.
     A read-only MCP server, with a token that can only read one person's data.
   </Card>
   <Card icon={<Cloud />} title="Hosted platform" href="/documentation/platform">
-    A managed instance for developers who would rather not run one. Coming soon.
+    A managed instance for developers who would rather not run one. Planned.
   </Card>
 </Cards>
 
@@ -106,7 +106,8 @@ database and raw store. Logs never contain tokens, keys or health values.
   <Accordion title="Why AGPL?">
     So the layer stays open. Anyone can run, study and change it; if you run a modified Open
     Health Sync as a network service, you publish your changes under the same license. The client
-    SDKs will be MIT licensed when they exist, so apps that talk to a server are not affected.
+    SDKs are AGPL-3.0 too. An app that only talks to an unmodified server over its API is not a
+    derivative of it.
   </Accordion>
   <Accordion title="Can I use it commercially?">
     Yes. A company can run it, modified or not, to power its own product. The AGPL only asks that

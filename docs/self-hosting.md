@@ -13,7 +13,7 @@ docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
 ```
 
-Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `POSTGRES_PASSWORD`, `S3_*`)
+Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `OHS_HTTP_BIND`, `POSTGRES_PASSWORD`, `S3_*`)
 from the shell or `--env-file`, so keep `--env-file .env` on every `docker compose` command.
 The containers read `.env` themselves either way.
 
@@ -29,7 +29,9 @@ healthcheck is `ohs doctor --quick` (database and raw store).
 
 ### Port, and a second install
 
-The API is published on host port 8080. Set `OHS_HTTP_PORT` in `.env` to use another one, and
+The API is published on host port 8080 of `127.0.0.1`, so only this machine reaches it: other
+machines go through a reverse proxy with TLS (see below), or set `OHS_HTTP_BIND=0.0.0.0` in
+`.env` to publish plain http on every interface. Set `OHS_HTTP_PORT` in `.env` to use another port, and
 set `OHS_PUBLIC_URL` to match: `ohs doctor` cannot tell when they disagree, and OAuth callbacks
 use `OHS_PUBLIC_URL`.
 
