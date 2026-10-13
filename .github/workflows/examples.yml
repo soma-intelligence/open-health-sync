@@ -188,6 +188,9 @@ jobs:
       # No Docker on macOS runners: the server runs natively, on PostgreSQL with TimescaleDB.
       - name: PostgreSQL 17 with TimescaleDB
         run: |
+          # Homebrew loads formulae from a third-party tap only once it is trusted.
+          brew tap timescale/tap
+          brew trust timescale/tap
           brew install postgresql@17 timescale/tap/timescaledb xcodegen
           export PGDATA="$RUNNER_TEMP/pgdata"
           pg="$(brew --prefix postgresql@17)/bin"
