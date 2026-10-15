@@ -177,7 +177,12 @@ func (m *mapper) mapFoodCorrelation(record map[string]any, userID string) (*mode
 		}
 
 		unit, _ := objMap["unit"].(string)
-		value, _ = ConvertValue(value, unit)
+		value, canonicalUnit := ConvertValue(value, unit)
+		// Scaled like a single dietary record; a unit that does not convert
+		// drops this nutrient, never the rest of the meal.
+		if value, ok = scaleToDestination(nutrientName, value, canonicalUnit); !ok {
+			continue
+		}
 
 		// Set the appropriate nutrient field
 		if setter, ok := coreNutrientFields[nutrientName]; ok {

@@ -32,6 +32,11 @@ var ErrNoExportXML = errors.New("no export.xml in the archive: is this an Apple 
 
 // Open opens an export.zip or an export.xml.
 func Open(name string) (*Export, error) {
+	// Checked first: reading a folder as a zip fails with the system's own
+	// "is a directory", which says nothing about what to pass instead.
+	if st, err := os.Stat(name); err == nil && st.IsDir() {
+		return nil, fmt.Errorf("%s is a folder: pass export.zip or export.xml", name)
+	}
 	zr, err := zip.OpenReader(name)
 	if err == nil {
 		e := &Export{zr: zr, files: map[string]*zip.File{}}
@@ -57,13 +62,6 @@ func Open(name string) (*Export, error) {
 	}
 	if !errors.Is(err, zip.ErrFormat) {
 		return nil, err
-	}
-	st, err := os.Stat(name)
-	if err != nil {
-		return nil, err
-	}
-	if st.IsDir() {
-		return nil, fmt.Errorf("%s is a folder: pass export.zip or export.xml", name)
 	}
 	return &Export{xmlPath: name, root: filepath.Dir(name)}, nil
 }

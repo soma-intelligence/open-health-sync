@@ -146,17 +146,19 @@ func (c *Connector) fetchWorkouts(ctx context.Context, token string, from, to ti
 			if err != nil {
 				return nil, fmt.Errorf("page %d: %w", page+1, err)
 			}
+			// Raw fields: a start or an id of an unexpected JSON type must not
+			// fail the page.
 			var head struct {
-				WorkoutKey string      `json:"workoutKey"`
-				WorkoutID  json.Number `json:"workoutId"`
-				StartTime  json.Number `json:"startTime"`
+				WorkoutKey json.RawMessage `json:"workoutKey"`
+				WorkoutID  json.RawMessage `json:"workoutId"`
+				StartTime  json.RawMessage `json:"startTime"`
 			}
 			if err := json.Unmarshal(line, &head); err != nil {
 				return nil, fmt.Errorf("page %d: workout is not an object: %w", page+1, err)
 			}
-			id := head.WorkoutKey
+			id := scalar(head.WorkoutKey)
 			if id == "" {
-				id = head.WorkoutID.String()
+				id = scalar(head.WorkoutID)
 			}
 			if id != "" {
 				if seen[id] {
@@ -165,7 +167,7 @@ func (c *Connector) fetchWorkouts(ctx context.Context, token string, from, to ti
 				seen[id] = true
 			}
 			day := utcDay(from)
-			if ms, err := head.StartTime.Int64(); err == nil && ms > 0 {
+			if ms, err := strconv.ParseInt(scalar(head.StartTime), 10, 64); err == nil && ms > 0 {
 				day = utcDay(time.UnixMilli(ms))
 			}
 			// An unreadable start keeps the line (raw first): Map reports it.
@@ -178,6 +180,19 @@ func (c *Connector) fetchWorkouts(ctx context.Context, token string, from, to ti
 	slog.Warn("suunto: paging truncated at max pages, more data available",
 		"provider", Slug, "endpoint", workoutsPath, "pages", maxPages)
 	return out, nil
+}
+
+// scalar is a JSON string's text or a number's literal; "" for anything else.
+func scalar(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var n json.Number
+	if json.Unmarshal(raw, &n) == nil {
+		return n.String()
+	}
+	return ""
 }
 
 // workoutItems reads a workout list answer: {"error": null, "payload": [...]}

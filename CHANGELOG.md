@@ -110,6 +110,16 @@ release may change the API, the configuration or the database schema.
 
 ### Fixed
 
+- Apple Health food entries (a meal with several nutrients) now store each nutrient in its
+  column's unit, as single dietary records already did: protein, fat, carbohydrates, sugar and
+  fiber in grams, sodium in milligrams. A nutrient sent in kilograms was stored 1,000 times
+  (grams) or 1,000,000 times (milligrams) too low; one whose unit is not a mass is now dropped
+  instead of stored as is.
+- `ohs import` given a folder says to pass export.zip or export.xml, instead of the system's
+  "is a directory".
+- Suunto: a workout whose `startTime` or `workoutId` has an unexpected JSON type (a string
+  where a number was expected) no longer drops its whole page of workouts; that workout is
+  kept and reported by the mapper like any unreadable start.
 - Disconnecting or deleting a user now revokes the Oura access token (`GET /oauth/revoke`),
   like WHOOP, Strava and Polar.
 - A provider deletion notice (Oura, WHOOP, Strava) now updates the connection's
