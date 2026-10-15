@@ -136,6 +136,10 @@ Provider deletions are honored too.
 | 🔜 | Hourly and daily statistics per quantity type, in any time zone, over REST and MCP ([docs](docs/api.md#reading-data)) | | |
 | 🔜 | First-run setup in the browser with a one-shot token, rate limited, so app stores need no terminal step ([docs](docs/setup.md)) | | |
 | 🔜 | Xiaomi: Mi Fitness data import, and Health Connect attribution for Xiaomi, Amazfit and RingConn ([guide](docs/connectors/xiaomi.md)) | | |
+| 🔜 | Activity files: FIT, GPX and TCX, and the exports of Garmin, COROS, Wahoo, Suunto, Zwift and Strava, with `ohs import files` ([guide](docs/connectors/activity-files.md)) | | |
+| 🔜 | ECG recordings over REST, FHIR (waveform as SampledData), MCP and exports ([docs](docs/api.md#ecg-recordings)) | | |
+| 🔜 | Self reports: a person's own ratings (feeling, mood, stress, energy, sleep quality and more) next to their synced data ([docs](docs/self-reports.md)) | | |
+| 🔜 | Share links (SMART Health Links): an encrypted FHIR bundle for a doctor or coach, with expiry, passcode and a built-in viewer ([docs](docs/share-links.md)) | | |
 | ✅ | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
 | ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Garmin, Coros |
 
@@ -271,6 +275,7 @@ Integration paths, vendor programs and tracking issues for each:
 | Dexcom | ✅ Available | CGM glucose: OAuth, scheduled pulls ([guide](docs/connectors/dexcom.md)) |
 | OMRON | ✅ Available | blood pressure and weight: partner API, OAuth, scheduled pulls ([guide](docs/connectors/omron.md)) |
 | Xiaomi | 🔜 Next release | `ohs import mi-fitness` loads the Mi Fitness data copy (full history); ongoing data through Health Connect or Apple Health ([guide](docs/connectors/xiaomi.md)) |
+| Activity files | 🔜 Next release | `ohs import files` loads FIT, GPX and TCX files, and Garmin, COROS, Wahoo, Suunto, Zwift and Strava exports ([guide](docs/connectors/activity-files.md)) |
 | FreeStyle Libre | No public API | through Health Connect or Apple Health ([notes](docs/connectors/freestyle-libre.md)) |
 | Coros | 🛠 Planned | cloud API, OAuth |
 | Zepp / Amazfit, RingConn | 🔜 Next release, via Health Connect | their apps write to Health Connect on Android; records keep their own source (`zepp`, `ringconn`) ([details](docs/connectors/README.md)) |
@@ -677,6 +682,8 @@ Health Connect reading in the Kotlin SDK, then health records (EHR) through SMAR
 - [RR intervals and HRV](docs/hrv.md): beat-to-beat intervals and the HRV derived from them.
 - [Menstrual cycles](docs/menstrual-cycles.md): cycles derived from recorded flow, without predictions.
 - [Time tags](docs/time-tags.md): intervals such as an illness or a trip that give context to the data.
+- [Self reports](docs/self-reports.md): a person's own ratings stored next to their synced data (next release).
+- [Share links](docs/share-links.md): SMART Health Links with a built-in viewer (next release).
 
 ## Contributing
 
