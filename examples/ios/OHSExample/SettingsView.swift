@@ -15,6 +15,7 @@ struct SettingsView: View {
             Form {
                 Section {
                     TextField(AppModel.defaultServerURL, text: $serverURL)
+                        .accessibilityIdentifier("serverURL")
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -26,6 +27,7 @@ struct SettingsView: View {
 
                 Section {
                     SecureField(model.hasToken ? "Saved. Paste a new one to replace it" : "ohs_ut_...", text: $token)
+                        .accessibilityIdentifier("userToken")
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     if model.hasToken {

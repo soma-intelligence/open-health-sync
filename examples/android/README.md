@@ -70,6 +70,21 @@ curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bear
 
 The sample has `"source_name": "Android example"`.
 
+## End-to-end test
+
+`app/src/androidTest` holds an instrumented test that goes through the app as a user would: it
+fills Settings, enters a heart rate, taps Upload and waits for "stored".
+[`test/e2e/apps.sh android`](../../test/e2e/apps.sh) runs it on the running emulator against a
+server built from this checkout (Docker), then reads the sample back with the tenant key:
+
+```sh
+test/e2e/apps.sh android    # from the repository root, with an emulator running
+```
+
+To use a server you already run, set `OHS_URL` (for example `http://127.0.0.1:8080`) and
+`OHS_KEY` (its tenant key). Without the script, `./gradlew connectedDebugAndroidTest` skips the
+test: it needs the `ohsServerUrl`, `ohsToken` and `ohsBpm` instrumentation arguments.
+
 ## Health Connect
 
 Reading Health Connect is planned for the Kotlin SDK. When it lands, this app will use it in

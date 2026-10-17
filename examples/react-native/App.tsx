@@ -154,6 +154,8 @@ export default function App() {
         <Text style={styles.label}>Server URL</Text>
         <TextInput
           style={styles.input}
+          testID="server-url"
+          accessibilityLabel="Server URL"
           value={url}
           onChangeText={setUrl}
           autoCapitalize="none"
@@ -163,6 +165,8 @@ export default function App() {
         <Text style={styles.label}>User token (upload scope)</Text>
         <TextInput
           style={styles.input}
+          testID="user-token"
+          accessibilityLabel="User token"
           value={tokenInput}
           onChangeText={setTokenInput}
           placeholder={hasToken ? "Saved. Paste a new one to replace it." : "ohs_ut_..."}
@@ -171,17 +175,29 @@ export default function App() {
           secureTextEntry
         />
         <View style={styles.row}>
-          <Button title="Save" onPress={save} />
-          {hasToken ? <Button title="Forget token" onPress={forgetToken} /> : null}
+          <Button title="Save" testID="save" onPress={save} />
+          {hasToken ? <Button title="Forget token" testID="forget-token" onPress={forgetToken} /> : null}
         </View>
 
         <Text style={styles.h2}>Upload</Text>
         <Text style={styles.label}>Heart rate (beats per minute)</Text>
-        <TextInput style={styles.input} value={bpm} onChangeText={setBpm} keyboardType="number-pad" />
+        <TextInput
+          style={styles.input}
+          testID="heart-rate"
+          accessibilityLabel="Heart rate in beats per minute"
+          value={bpm}
+          onChangeText={setBpm}
+          keyboardType="number-pad"
+        />
         <View style={styles.row}>
-          <Button title="Upload" onPress={upload} disabled={busy || !hasToken} />
+          <Button title="Upload" testID="upload" onPress={upload} disabled={busy || !hasToken} />
           {lastParts ? (
-            <Button title="Send again" onPress={() => void send(lastParts)} disabled={busy || !hasToken} />
+            <Button
+              title="Send again"
+              testID="send-again"
+              onPress={() => void send(lastParts)}
+              disabled={busy || !hasToken}
+            />
           ) : null}
         </View>
         {busy ? <ActivityIndicator style={styles.spacer} /> : null}

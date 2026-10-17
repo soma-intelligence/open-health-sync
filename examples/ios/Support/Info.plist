@@ -37,7 +37,7 @@
 	<key>NSHealthShareUsageDescription</key>
 	<string>OHS Example reads the Health data you pick and uploads it to your Open Health Sync server.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>OHS Example does not write to Health. iOS asks for this sentence anyway.</string>
+	<string>OHS Example writes to Health only while its UI test runs, to add test readings.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

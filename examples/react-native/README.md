@@ -98,6 +98,23 @@ npx tsc --noEmit
 npx expo export --platform android --output-dir dist-check
 ```
 
+## End-to-end test
+
+[`e2e/upload.yaml`](e2e/upload.yaml) is a [Maestro](https://maestro.mobile.dev) flow: on a fresh
+install it saves the URL and a token, uploads one heart rate, then sends the same part again and
+expects "Duplicate (already stored)". [`test/e2e/apps.sh react-native`](../../test/e2e/apps.sh)
+makes a debug build (`npx expo prebuild`, then Gradle), starts Metro, runs the flow on the running
+Android emulator against a server built from this checkout (Docker), and reads the sample back
+with the tenant key:
+
+```sh
+test/e2e/apps.sh react-native    # from the repository root, with an emulator running
+```
+
+It needs Node, the Android SDK, JDK 17 and the `maestro` CLI. To use a server you already run, set
+`OHS_URL` and `OHS_KEY` (its tenant key). The app ids are `org.openhealthsync.example.reactnative`,
+so this app and the native examples can sit on the same device.
+
 ## Limits
 
 - One reading per upload, typed by hand. No background sync, no history.

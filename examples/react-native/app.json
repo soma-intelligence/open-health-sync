@@ -6,10 +6,10 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
-      "bundleIdentifier": "org.openhealthsync.example"
+      "bundleIdentifier": "org.openhealthsync.example.reactnative"
     },
     "android": {
-      "package": "org.openhealthsync.example"
+      "package": "org.openhealthsync.example.reactnative"
     }
   }
 }

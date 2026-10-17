@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Maestro flow: the app on a fresh install against a live server. It saves the URL and an
+# upload token, uploads one heart rate, then sends the same part again and expects the server
+# to answer duplicate. test/e2e/apps.sh passes OHS_URL, OHS_TOKEN and OHS_BPM with -e and
+# reads the sample back with the tenant key afterwards.
+appId: org.openhealthsync.example.reactnative
+---
+- launchApp:
+    clearState: true
+# A debug build loads its JavaScript from Metro on first launch.
+- extendedWaitUntil:
+    visible: "Open Health Sync example"
+    timeout: 180000
+- tapOn:
+    id: "server-url"
+- eraseText: 80
+- inputText: ${OHS_URL}
+- tapOn:
+    id: "user-token"
+- inputText: ${OHS_TOKEN}
+- hideKeyboard
+- tapOn:
+    id: "save"
+- assertVisible:
+    id: "forget-token"
+- tapOn:
+    id: "heart-rate"
+- eraseText: 10
+- inputText: ${OHS_BPM}
+- hideKeyboard
+- tapOn:
+    id: "upload"
+- extendedWaitUntil:
+    visible: "Stored"
+    timeout: 60000
+- assertNotVisible: "Upload failed"
+- tapOn:
+    id: "send-again"
+- extendedWaitUntil:
+    visible: "Duplicate \\(already stored\\)"
+    timeout: 60000
+- assertNotVisible: "Upload failed"
