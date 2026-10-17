@@ -157,6 +157,48 @@ class CreatedAPIKey(TypedDict):
     key: str
 
 
+class AdminTenant(TypedDict):
+    id: str
+    name: str
+    # True for an instance admin tenant, whose keys reach the /v1/admin routes.
+    admin: bool
+    created_at: str
+    # The tenant's keys that are not revoked.
+    active_keys: int
+
+
+class CreatedAdminTenant(TypedDict):
+    id: str
+    name: str
+    # True for an instance admin tenant, whose keys reach the /v1/admin routes.
+    admin: bool
+    created_at: str
+    # The tenant's keys that are not revoked.
+    active_keys: int
+    # The tenant's first key, with its secret, returned this once.
+    key: CreatedAPIKey
+
+
+class CreateAdminTenantRequest(TypedDict):
+    # Surrounding spaces are trimmed; what is left must be 1 to 100 characters, none of them a
+    # control character.
+    name: str
+
+
+class DemoUserRequest(TypedDict, total=False):
+    # The user to fill, created when the tenant has none with this reference.
+    external_ref: str
+    # Days of data, ending yesterday.
+    days: int
+
+
+class DemoUser(TypedDict):
+    user: User
+    days: int
+    # Rows this call stored; 0 when every day was already there.
+    rows_written: int
+
+
 class Pipeline(TypedDict):
     generated_at: str
     users: PipelineUser
@@ -2014,6 +2056,7 @@ __all__ = [
     "AdminProviderKey",
     "AdminProviderPatch",
     "AdminProviderUrl",
+    "AdminTenant",
     "AuditEvent",
     "AuditEventActor",
     "CategorySample",
@@ -2028,12 +2071,14 @@ __all__ = [
     "ConsentSource",
     "Coverage",
     "CoverageDay",
+    "CreateAdminTenantRequest",
     "CreateSelfReportsRequest",
     "CreateShareRequest",
     "CreateTimeTagRequest",
     "CreateUserRequest",
     "CreateWebhookRequest",
     "CreatedAPIKey",
+    "CreatedAdminTenant",
     "CreatedShare",
     "DailySummary",
     "DailySummaryPage",
@@ -2041,6 +2086,8 @@ __all__ = [
     "DeleteProviderDataResponse",
     "DeleteUserResponse",
     "DeletionJob",
+    "DemoUser",
+    "DemoUserRequest",
     "ECGRecording",
     "ECGRecordingDetail",
     "ECGRecordingPage",

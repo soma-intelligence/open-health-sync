@@ -605,6 +605,20 @@ curl -s -X PATCH $OHS/v1/admin/providers/oura -H "Authorization: Bearer $KEY" \
   -d '{"keys":{"CLIENT_ID":"...","CLIENT_SECRET":"..."},"enabled":true}'
 ```
 
+An instance that serves several teams manages their tenants with the same admin keys, as
+`ohs admin tenant` and `ohs admin key` do from a shell. Shapes, examples and the audit trail:
+[admin-api.md](admin-api.md).
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/admin/tenants` | Every tenant (`id`, `name`, `admin`, `created_at`, `active_keys`), oldest first, paged with `cursor` and `limit` |
+| `POST /v1/admin/tenants` | `{"name": "..."}`: a tenant (never an admin) and its first key, whose full `key` is in the 201 answer only (`Cache-Control: no-store`) |
+| `GET /v1/admin/tenants/{tenant_id}` | One tenant |
+| `GET /v1/admin/tenants/{tenant_id}/pipeline` | The tenant's `GET /v1/pipeline` answer |
+| `GET`, `POST /v1/admin/tenants/{tenant_id}/keys` | The tenant's keys; create one, its full `key` in the 201 answer only |
+| `DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}` | Revoke one of its keys; 409 for the key making the call |
+| `POST /v1/admin/tenants/{tenant_id}/demo-user` | `{"external_ref": "demo-user", "days": 30}`, both optional: a user of the tenant filled with [synthetic data](demo.md), 201 when created, 200 when it existed |
+
 ## MCP
 
 `POST /mcp` speaks the Model Context Protocol for AI agents, read only. See [mcp.md](mcp.md).

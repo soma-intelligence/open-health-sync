@@ -107,6 +107,50 @@ export interface CreatedAPIKey {
   key: string;
 }
 
+export interface AdminTenant {
+  id: string;
+  name: string;
+  /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
+  admin: boolean;
+  created_at: string;
+  /** The tenant's keys that are not revoked. */
+  active_keys: number;
+}
+
+export interface CreatedAdminTenant {
+  id: string;
+  name: string;
+  /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
+  admin: boolean;
+  created_at: string;
+  /** The tenant's keys that are not revoked. */
+  active_keys: number;
+  /** The tenant's first key, with its secret, returned this once. */
+  key: CreatedAPIKey;
+}
+
+export interface CreateAdminTenantRequest {
+  /**
+   * Surrounding spaces are trimmed; what is left must be 1 to 100 characters, none of them a
+   * control character.
+   */
+  name: string;
+}
+
+export interface DemoUserRequest {
+  /** The user to fill, created when the tenant has none with this reference. */
+  external_ref?: string;
+  /** Days of data, ending yesterday. */
+  days?: number;
+}
+
+export interface DemoUser {
+  user: User;
+  days: number;
+  /** Rows this call stored; 0 when every day was already there. */
+  rows_written: number;
+}
+
 export interface Pipeline {
   generated_at: string;
   users: PipelineUser;

@@ -30,7 +30,10 @@ const (
 	APIKey ActorType = "api_key"
 	// UserToken is a user token; the actor id is TokenID of its hash.
 	UserToken ActorType = "user_token"
-	// Admin is the `ohs admin` command line, run by the instance operator.
+	// Admin is the instance operator acting on a tenant: the `ohs admin`
+	// command line (actor id "ohs admin"), or a key of an instance admin
+	// tenant through /v1/admin/tenants (actor id "api_key:" and the key's
+	// id), recorded on the tenant it changed.
 	Admin ActorType = "admin"
 	// System is the instance itself (the deletion worker, for example).
 	System ActorType = "system"
@@ -147,6 +150,14 @@ func Classify(method, pattern string) string {
 		return DataWrite
 	case path == "/v1/audit":
 		return AuditRead
+	case path == "/v1/admin/tenants" && method == "POST":
+		return TenantCreate
+	case path == "/v1/admin/tenants/{tenant_id}/keys" && method == "POST":
+		return KeyCreate
+	case path == "/v1/admin/tenants/{tenant_id}/keys/{key_id}" && method == "DELETE":
+		return KeyRevoke
+	case path == "/v1/admin/tenants/{tenant_id}/demo-user":
+		return DataWrite // synthetic data for one of the tenant's users
 	case strings.HasPrefix(path, "/v1/keys"):
 		switch method {
 		case "POST":

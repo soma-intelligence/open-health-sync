@@ -31,6 +31,14 @@ release may change the API, the configuration or the database schema.
 - `GET /v1/tenant` (the tenant of the key), `GET /v1/keys`, `POST /v1/keys` and
   `DELETE /v1/keys/{key_id}`: a tenant manages its own API keys over the API, as
   `ohs admin key` does from a shell. A key cannot revoke itself (409).
+- Tenants managed over HTTP, for an instance that serves several teams: with an instance admin
+  key, `GET` and `POST /v1/admin/tenants` list (paged) and create tenants (never an admin; the
+  first key's secret is in the 201 answer only), `GET /v1/admin/tenants/{tenant_id}` and
+  `.../pipeline` read one, `GET`, `POST .../keys` and `DELETE .../keys/{key_id}` manage its
+  keys, and `POST .../demo-user` fills one of its users with up to 90 days of synthetic data, the
+  code path of `ohs seed --demo` now shared by both. Each change is also recorded in the audit
+  log of the tenant it changed (actor `admin`, the admin key's id, the key prefix, never the
+  key), in the same transaction for tenants and keys. See [docs/admin-api.md](docs/admin-api.md).
 - `GET /v1/pipeline` (the tenant's pipeline counts in one answer), `GET /v1/pipeline/sync-runs`
   (sync runs across users, with `status` and `provider` filters), `GET /v1/pipeline/etl-jobs`
   (parked, pending or running processing jobs), and `POST /v1/pipeline/etl-jobs/{job_id}/retry`

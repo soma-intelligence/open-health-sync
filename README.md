@@ -147,6 +147,7 @@ Provider deletions are honored too.
 | 🔜 | ECG recordings over REST, FHIR (waveform as SampledData), MCP and exports ([docs](docs/api.md#ecg-recordings)) | | |
 | 🔜 | Self reports: a person's own ratings (feeling, mood, stress, energy, sleep quality and more) next to their synced data ([docs](docs/self-reports.md)) | | |
 | 🔜 | Share links (SMART Health Links): an encrypted FHIR bundle for a doctor or coach, with expiry, passcode and a built-in viewer ([docs](docs/share-links.md)) | | |
+| 🔜 | Tenants and their API keys managed over HTTP with an instance admin key, for one instance serving several teams ([docs](docs/admin-api.md)) | | |
 | ✅ | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
 | ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Garmin, Coros |
 
@@ -703,6 +704,7 @@ Health Connect reading in the Kotlin SDK, then health records (EHR) through SMAR
 - [Backup and restore](docs/backup-and-restore.md): one archive with the database and raw store, and how to put it back.
 - [Connect page](docs/connect-page.md): a hosted page where your users connect their sources, then return to your app.
 - [Admin console](docs/console.md): run the pipeline from the browser: providers and their keys, users and connections, sync and processing jobs, webhooks, API keys and the audit log.
+- [Admin API](docs/admin-api.md): run one instance for several teams: create tenants, manage their keys and fill a demo user over HTTP (next release).
 - [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
 - [RR intervals and HRV](docs/hrv.md): beat-to-beat intervals and the HRV derived from them.
 - [Menstrual cycles](docs/menstrual-cycles.md): cycles derived from recorded flow, without predictions.

@@ -81,6 +81,14 @@ The key of the `demo` tenant is printed on the first run only. To get another on
 ohs admin key create --tenant <tenant id>
 ```
 
+## From the admin API
+
+An instance admin key does the same over HTTP for any tenant, without a shell on the server:
+`POST /v1/admin/tenants/{tenant_id}/demo-user` with `{"external_ref": "demo-user", "days": 30}`
+(both optional, `days` at most 90) writes the same data through the same code, for the seed's
+default person, and answers the user with `rows_written`. See
+[admin-api.md](admin-api.md#demo-user).
+
 ## Things to try
 
 With `OHS_URL`, `OHS_API_KEY` and `USER_ID` set from the output:

@@ -119,6 +119,14 @@ const sources: Record<string, Target[]> = {
         "Run the pipeline from a browser: providers and their keys, users, jobs, webhooks, API keys and the audit log.",
     },
   ],
+  "docs/admin-api.md": [
+    {
+      page: "(guides)/self-hosting/admin-api",
+      title: "Admin API: tenants and their keys",
+      description:
+        "Run one instance for several teams: create tenants, manage their keys and fill a demo user over HTTP.",
+    },
+  ],
   "docs/setup.md": [
     {
       page: "(guides)/self-hosting/setup",
@@ -364,6 +372,7 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/operating-notes": "NotebookPen",
   "(guides)/self-hosting/console": "LayoutDashboard",
   "(guides)/self-hosting/setup": "KeyRound",
+  "(guides)/self-hosting/admin-api": "Building2",
   "(guides)/self-hosting/observability": "Telescope",
   "(guides)/self-hosting/hardening": "Lock",
   "(guides)/guides/fhir": "HeartPulse",

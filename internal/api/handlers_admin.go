@@ -57,15 +57,16 @@ type adminProviderPatch struct {
 	Enabled *bool              `json:"enabled"`
 }
 
-// mountAdmin serves the instance settings to a key of the instance admin
-// tenant. Provider keys are instance wide: every tenant's users connect
-// through the same provider applications.
+// mountAdmin serves the instance settings and the tenants to a key of the
+// instance admin tenant. Provider keys are instance wide: every tenant's
+// users connect through the same provider applications.
 func (s *server) mountAdmin(mux *http.ServeMux) {
-	if s.d.Providers == nil {
-		return
-	}
 	admin := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, auth.Middleware(s.lookup, auth.TenantAdmin)(h))
+	}
+	s.mountAdminTenants(admin)
+	if s.d.Providers == nil {
+		return
 	}
 	admin("GET /v1/admin/providers", s.listAdminProviders)
 	admin("GET /v1/admin/providers/{provider}", s.getAdminProvider)

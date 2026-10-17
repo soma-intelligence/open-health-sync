@@ -3189,6 +3189,212 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/admin/tenants:
+    get:
+      tags: [admin]
+      operationId: listAdminTenants
+      summary: Every tenant of the instance, oldest first (instance admin)
+      description: |
+        Only a key of an instance admin tenant may call the `/v1/admin/tenants` routes (403
+        otherwise). Each tenant with its count of active keys, paged like the users. See
+        docs/admin-api.md.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of tenants.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/AdminTenant" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      operationId: createAdminTenant
+      summary: Create a tenant and its first API key (instance admin)
+      description: |
+        A new tenant, never an instance admin (making one stays `ohs admin tenant`, run on the
+        server), with its first key, as `ohs admin tenant create` makes. The whole key is in this
+        answer only. `Idempotency-Key` is not honoured: a replay would mean storing the key.
+        Recorded as `tenant.create` in the caller's audit log and in the new tenant's.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAdminTenantRequest" }
+      responses:
+        "201":
+          description: "The tenant, with its first key and the key's secret. Sent with `Cache-Control: no-store`."
+          headers:
+            Location:
+              schema: { type: string }
+              description: /v1/admin/tenants/{tenant_id}
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedAdminTenant" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+
+  /v1/admin/tenants/{tenant_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: getAdminTenant
+      summary: One tenant (instance admin)
+      responses:
+        "200":
+          description: The tenant.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminTenant" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/pipeline:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: getAdminTenantPipeline
+      summary: A tenant's pipeline, stage by stage (instance admin)
+      description: The answer the tenant's own key gets from GET /v1/pipeline.
+      responses:
+        "200":
+          description: The pipeline.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pipeline" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/keys:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantKeys
+      summary: A tenant's API keys (instance admin)
+      description: |
+        Every key of the tenant, revoked ones included, oldest first. `current` is true only for the
+        key making the call, so only in a listing of the caller's own tenant.
+      responses:
+        "200":
+          description: The keys.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/APIKey" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [admin]
+      operationId: createAdminTenantKey
+      summary: Create an API key for a tenant (instance admin)
+      description: |
+        As `ohs admin key create --tenant` makes. The whole key is in this answer only;
+        `Idempotency-Key` is not honoured. Recorded as `key.create` in the caller's audit log and in
+        the tenant's.
+      requestBody:
+        required: false
+        description: Empty, or an empty object.
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "201":
+          description: "The key, with its secret. Sent with `Cache-Control: no-store`."
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedAPIKey" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/keys/{key_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - name: key_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [admin]
+      operationId: revokeAdminTenantKey
+      summary: Revoke a tenant's API key (instance admin)
+      description: |
+        Every call with the key is refused from now on. Revoking a revoked key changes nothing. The
+        key making the call cannot be revoked (409). A key of another tenant is a 404. Recorded as
+        `key.revoke` in the caller's audit log and in the tenant's.
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/admin/tenants/{tenant_id}/demo-user:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    post:
+      tags: [admin]
+      operationId: createAdminTenantDemoUser
+      summary: Fill a user of a tenant with synthetic data (instance admin)
+      description: |
+        What `ohs seed --demo --tenant` does: the tenant's user with `external_ref` is reused, or
+        created, and `days` days of made-up data from six sources, ending yesterday, are written for
+        it. Every record is marked `{"synthetic": true}`. Running it again adds nothing for the days
+        already there. Takes a few seconds for 90 days. Recorded as `data.write` in the caller's
+        audit log and in the tenant's. See docs/demo.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DemoUserRequest" }
+      responses:
+        "200":
+          description: The user existed; the days it lacked were written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DemoUser" }
+        "201":
+          description: The user was created and filled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DemoUser" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The user with this external_ref is being deleted.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/audit:
     get:
       tags: [audit]
@@ -3444,6 +3650,12 @@ components:
       required: true
       description: Connector slug, see GET /v1/providers.
       schema: { type: string, examples: [withings] }
+    TenantID:
+      name: tenant_id
+      in: path
+      required: true
+      description: The `id` of a tenant; any other value is a 404.
+      schema: { type: string, format: uuid }
     ConnectSessionToken:
       name: session
       in: query
@@ -3693,6 +3905,67 @@ components:
           required: [key]
           properties:
             key: { type: string, description: "The whole key, returned this once." }
+
+    AdminTenant:
+      type: object
+      required: [id, name, admin, created_at, active_keys]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        admin:
+          type: boolean
+          description: True for an instance admin tenant, whose keys reach the /v1/admin routes.
+        created_at: { type: string, format: date-time }
+        active_keys: { type: integer, description: "The tenant's keys that are not revoked." }
+
+    CreatedAdminTenant:
+      allOf:
+        - $ref: "#/components/schemas/AdminTenant"
+        - type: object
+          required: [key]
+          properties:
+            key:
+              $ref: "#/components/schemas/CreatedAPIKey"
+              description: The tenant's first key, with its secret, returned this once.
+
+    CreateAdminTenantRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: |
+            Surrounding spaces are trimmed; what is left must be 1 to 100 characters, none of them a
+            control character.
+
+    DemoUserRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        external_ref:
+          type: string
+          minLength: 1
+          maxLength: 255
+          default: demo-user
+          description: The user to fill, created when the tenant has none with this reference.
+        days:
+          type: integer
+          minimum: 1
+          maximum: 90
+          default: 30
+          description: Days of data, ending yesterday.
+
+    DemoUser:
+      type: object
+      required: [user, days, rows_written]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        days: { type: integer }
+        rows_written:
+          type: integer
+          description: Rows this call stored; 0 when every day was already there.
 
     Pipeline:
       type: object

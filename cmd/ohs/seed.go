@@ -94,34 +94,25 @@ func runSeed(rest []string, out io.Writer) error {
 			return err
 		}
 		tenantID, key = t.ID, k
-	}
-	user, _, err := store.EnsureUser(ctx, tenantID, o.externalRef)
-	if errors.Is(err, tenant.ErrNotFound) {
+	} else if _, err := store.GetTenant(ctx, tenantID); errors.Is(err, tenant.ErrNotFound) {
 		return fmt.Errorf("no tenant with id %s", tenantID)
-	}
-	if errors.Is(err, tenant.ErrConflict) {
-		return fmt.Errorf("the user with external_ref %q is being deleted: pass another --external-ref", o.externalRef)
-	}
-	if err != nil {
+	} else if err != nil {
 		return err
 	}
 
-	batches, err := demo.Generate(demo.Options{Days: o.days, Seed: o.seed})
-	if err != nil {
+	fmt.Fprintf(out, "writing %d days of synthetic data for user %q (tenant %s)\n", o.days, o.externalRef, tenantID)
+	res, err := demo.Seed(ctx, store, tenantID, demo.SeedOptions{Days: o.days, Seed: o.seed, ExternalRef: o.externalRef,
+		Written: func(provider string, c etl.Counts) { fmt.Fprintf(out, "  %-13s %s\n", provider, formatCounts(c)) }})
+	switch {
+	case errors.Is(err, tenant.ErrNotFound):
+		return fmt.Errorf("no tenant with id %s", tenantID)
+	case errors.Is(err, tenant.ErrConflict), errors.Is(err, etl.ErrUserNotActive):
+		return fmt.Errorf("the user with external_ref %q is being deleted: pass another --external-ref", o.externalRef)
+	case err != nil:
 		return err
 	}
-	fmt.Fprintf(out, "writing %d days of synthetic data for user %s (tenant %s)\n", o.days, user.ID, tenantID)
-	written, skipped := 0, 0
-	for _, b := range batches {
-		c, err := etl.WriteSynthetic(ctx, pool, tenantID, user.ID, b.Provider, b.Records)
-		if err != nil {
-			return fmt.Errorf("%s: %w", b.Provider, err)
-		}
-		written, skipped = written+c.TotalWritten(), skipped+c.TotalSkipped()
-		fmt.Fprintf(out, "  %-13s %s\n", b.Provider, formatCounts(c))
-	}
-	fmt.Fprintf(out, "%d rows written, %d already there\n", written, skipped)
-	return printSeedSummary(out, tenantID, user.ID, key)
+	fmt.Fprintf(out, "%d rows written, %d already there\n", res.Written, res.Skipped)
+	return printSeedSummary(out, tenantID, res.User.ID, key)
 }
 
 // formatCounts lists the rows written per table, in table order.

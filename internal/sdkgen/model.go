@@ -34,6 +34,15 @@ var skipped = map[string]string{
 	"getAdminProvider":    "the instance admin sets providers up in the console, see docs/console.md",
 	"updateAdminProvider": "the instance admin sets providers up in the console, see docs/console.md",
 	"forgetAdminProvider": "the instance admin sets providers up in the console, see docs/console.md",
+
+	"listAdminTenants":          "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"createAdminTenant":         "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"getAdminTenant":            "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"getAdminTenantPipeline":    "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"listAdminTenantKeys":       "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"createAdminTenantKey":      "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"revokeAdminTenantKey":      "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"createAdminTenantDemoUser": "the instance operator's tooling manages tenants, see docs/admin-api.md",
 }
 
 // API is the part of the OpenAPI document the emitters need, in document

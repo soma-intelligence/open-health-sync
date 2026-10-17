@@ -6,8 +6,9 @@
 // but made up, deterministic for a seed, and spread over six providers that
 // overlap the way real ones do (two straps both report heart rate, two
 // sources report sleep, steps and weight). Generate has no I/O: it returns
-// canonical records per provider, which the caller writes through the ETL
-// writer (etl.WriteSynthetic). Every record that has metadata carries
+// canonical records per provider. Seed writes them for one user of a tenant
+// through the ETL writer (etl.WriteSynthetic), for `ohs seed --demo` and for
+// the admin API's demo user alike. Every record that has metadata carries
 // {"synthetic": true}.
 package demo
 

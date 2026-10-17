@@ -100,7 +100,7 @@ func (s *Store) CreateTenant(ctx context.Context, name string) (Tenant, string, 
 		return Tenant{}, "", fmt.Errorf("tenant: begin: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	t, full, err := insertTenant(ctx, tx, name)
+	t, full, _, err := insertTenant(ctx, tx, name)
 	if err != nil {
 		return Tenant{}, "", err
 	}
@@ -108,6 +108,30 @@ func (s *Store) CreateTenant(ctx context.Context, name string) (Tenant, string, 
 		return Tenant{}, "", err
 	}
 	return t, full, nil
+}
+
+// CreateTenantAudited is CreateTenant that also describes the first key and
+// records ev in the audit log in the same transaction, for the new tenant and
+// with the key's id and prefix added to its detail: a failed audit write
+// leaves no tenant behind. The new tenant is an instance admin only when it
+// is the instance's first.
+func (s *Store) CreateTenantAudited(ctx context.Context, name string, ev audit.Event) (Tenant, string, APIKey, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Tenant{}, "", APIKey{}, fmt.Errorf("tenant: begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	t, full, k, err := insertTenant(ctx, tx, name)
+	if err != nil {
+		return Tenant{}, "", APIKey{}, err
+	}
+	if err := audit.Record(ctx, tx, keyEvent(ev, t.ID, k)); err != nil {
+		return Tenant{}, "", APIKey{}, err
+	}
+	if err := commit(ctx, tx); err != nil {
+		return Tenant{}, "", APIKey{}, err
+	}
+	return t, full, k, nil
 }
 
 // EnsureTenant returns the oldest tenant named name, creating it with a first
@@ -134,7 +158,7 @@ func (s *Store) EnsureTenant(ctx context.Context, name string) (Tenant, string, 
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Tenant{}, "", fmt.Errorf("tenant: find tenant: %w", err)
 	}
-	t, full, err := insertTenant(ctx, tx, name)
+	t, full, _, err := insertTenant(ctx, tx, name)
 	if err != nil {
 		return Tenant{}, "", err
 	}
@@ -173,7 +197,7 @@ func (s *Store) CreateFirstTenant(ctx context.Context, name string, ev *audit.Ev
 	if exists {
 		return Tenant{}, "", ErrSetupDone
 	}
-	t, full, err := insertTenant(ctx, tx, name)
+	t, full, _, err := insertTenant(ctx, tx, name)
 	if err != nil {
 		return Tenant{}, "", err
 	}
@@ -236,31 +260,33 @@ func lockTenantCreation(ctx context.Context, tx pgx.Tx) error {
 	return nil
 }
 
-// insertTenant creates a tenant and its first API key. The first tenant of
-// the instance is its admin: creations are serialized by the tenant creation
-// lock, so exactly one tenant is ever created first.
-func insertTenant(ctx context.Context, tx pgx.Tx, name string) (Tenant, string, error) {
+// insertTenant creates a tenant and its first API key, and describes the
+// key. The first tenant of the instance is its admin: creations are
+// serialized by the tenant creation lock, so exactly one tenant is ever
+// created first.
+func insertTenant(ctx context.Context, tx pgx.Tx, name string) (Tenant, string, APIKey, error) {
 	if err := lockTenantCreation(ctx, tx); err != nil {
-		return Tenant{}, "", err
+		return Tenant{}, "", APIKey{}, err
 	}
 	full, hash, err := auth.NewSecret(auth.PrefixSecretKey)
 	if err != nil {
-		return Tenant{}, "", err
+		return Tenant{}, "", APIKey{}, err
 	}
 	var t Tenant
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO ohs_core.tenants (name, admin) VALUES ($1, NOT EXISTS (SELECT 1 FROM ohs_core.tenants))
 		 RETURNING id, name, created_at, admin`, name,
 	).Scan(&t.ID, &t.Name, &t.CreatedAt, &t.Admin); err != nil {
-		return Tenant{}, "", fmt.Errorf("tenant: insert tenant: %w", err)
+		return Tenant{}, "", APIKey{}, fmt.Errorf("tenant: insert tenant: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash) VALUES ($1, $2, $3)`,
-		t.ID, full[:keyPrefixLen], hash,
-	); err != nil {
-		return Tenant{}, "", fmt.Errorf("tenant: insert key: %w", err)
+	k := APIKey{Prefix: full[:keyPrefixLen]}
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash) VALUES ($1, $2, $3) RETURNING id, created_at`,
+		t.ID, k.Prefix, hash,
+	).Scan(&k.ID, &k.CreatedAt); err != nil {
+		return Tenant{}, "", APIKey{}, fmt.Errorf("tenant: insert key: %w", err)
 	}
-	return t, full, nil
+	return t, full, k, nil
 }
 
 // CreateUser adds an end user. An empty externalRef is stored as NULL, so

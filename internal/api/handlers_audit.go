@@ -21,7 +21,7 @@ const auditTimeout = 2 * time.Second
 
 // auditPathValues are the path values an audit event keeps in its detail:
 // identifiers, never a value read or written.
-var auditPathValues = []string{"provider", "key_id", "job_id"}
+var auditPathValues = []string{"tenant_id", "provider", "key_id", "job_id"}
 
 func (s *server) mountAudit(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/audit", s.listAudit)

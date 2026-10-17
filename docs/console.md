@@ -53,6 +53,10 @@ every tenant's users connect through the same provider apps. Changing them takes
 
 A key of a tenant that is not an admin sees the providers enabled on the instance, read only.
 
+Admin keys also manage the instance's tenants over HTTP: create one per team, create and revoke
+its keys, read its pipeline, fill a demo user. The console itself stays on the tenant of the key
+signed in; see [admin-api.md](admin-api.md) for those routes.
+
 ## Pages
 
 **Overview.** The pipeline as five stages, each with its headline count and a state:

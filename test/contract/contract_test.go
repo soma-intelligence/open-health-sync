@@ -218,6 +218,44 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	assert.Equal(t, 200, r.status, "%s", r.body)
 	assert.Equal(t, 200, c.json("DELETE", "/v1/admin/providers/dexcom", admin, "").status)
 
+	// Tenants and their keys, for the instance admin's own tooling.
+	assert.Equal(t, 403, c.json("GET", "/v1/admin/tenants", key, "").status)
+	assert.Equal(t, 400, c.json("POST", "/v1/admin/tenants", admin, `{"name":" "}`).status)
+	r = c.json("POST", "/v1/admin/tenants", admin, `{"name":"contract team"}`)
+	require.Equal(t, 201, r.status, "%s", r.body)
+	var team struct {
+		ID  string `json:"id"`
+		Key struct {
+			ID  string `json:"id"`
+			Key string `json:"key"`
+		} `json:"key"`
+	}
+	r.json(t, &team)
+	teamPath := "/v1/admin/tenants/" + team.ID
+	assert.Equal(t, 200, c.json("GET", "/v1/admin/tenants?limit=2", admin, "").status)
+	assert.Equal(t, 400, c.json("GET", "/v1/admin/tenants?cursor=%25%25", admin, "").status)
+	assert.Equal(t, 200, c.json("GET", teamPath, admin, "").status)
+	assert.Equal(t, 404, c.json("GET", "/v1/admin/tenants/00000000-0000-4000-8000-000000000000", admin, "").status)
+	assert.Equal(t, 200, c.json("GET", teamPath+"/pipeline", admin, "").status)
+	assert.Equal(t, 200, c.json("GET", teamPath+"/keys", admin, "").status)
+	r = c.json("POST", teamPath+"/keys", admin, "")
+	require.Equal(t, 201, r.status, "%s", r.body)
+	var teamKey struct{ ID string }
+	r.json(t, &teamKey)
+	assert.Equal(t, 204, c.json("DELETE", teamPath+"/keys/"+teamKey.ID, admin, "").status)
+	assert.Equal(t, 404, c.json("DELETE", teamPath+"/keys/not-a-key", admin, "").status)
+	var adminTenant struct {
+		ID  string `json:"id"`
+		Key struct{ ID string }
+	}
+	c.json("GET", "/v1/tenant", admin, "").json(t, &adminTenant)
+	assert.Equal(t, 409, c.json("DELETE", "/v1/admin/tenants/"+adminTenant.ID+"/keys/"+adminTenant.Key.ID, admin, "").status)
+	r = c.json("POST", teamPath+"/demo-user", admin, `{"days":2}`)
+	require.Equal(t, 201, r.status, "%s", r.body)
+	assert.Equal(t, 200, c.json("POST", teamPath+"/demo-user", admin, `{"days":2,"external_ref":"demo-user"}`).status)
+	assert.Equal(t, 400, c.json("POST", teamPath+"/demo-user", admin, `{"days":91}`).status)
+	assert.Equal(t, 200, c.json("GET", "/v1/tenant", team.Key.Key, "").status)
+
 	// User and token.
 	r = c.json("POST", "/v1/users", key, `{"external_ref":"contract-user"}`)
 	require.Equal(t, 201, r.status, "%s", r.body)
