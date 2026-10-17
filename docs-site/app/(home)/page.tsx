@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { asset } from "@/lib/asset";
-import { latestVersion, repoUrl } from "@/lib/shared";
+import { latestVersion, repoUrl, waitlistUrl } from "@/lib/shared";
 
 // The README's "Sources and outputs" table, in short.
 const available = [
@@ -129,12 +129,19 @@ export default function HomePage() {
       <section className="mt-16 flex flex-col items-center gap-2 rounded-2xl border border-dashed p-8 text-center">
         <h2 className="text-lg font-medium">Rather not run it yourself?</h2>
         <p className="max-w-xl text-sm text-fd-muted-foreground">
-          A hosted Open Health Sync is in preparation, with the same API.{" "}
+          The hosted Open Health Sync is in private beta, with the same API and nothing to run.{" "}
+          <a
+            href={`${waitlistUrl}?utm_source=docs&utm_medium=docs&utm_campaign=home`}
+            className="font-medium text-fd-primary underline-offset-4 hover:underline"
+          >
+            Join the waitlist
+          </a>{" "}
+          or{" "}
           <Link
             href="/documentation/platform"
             className="font-medium text-fd-primary underline-offset-4 hover:underline"
           >
-            Read what is planned
+            read what the beta gives you
           </Link>
           .
         </p>
