@@ -21,6 +21,7 @@ Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 ![amd64 and arm64](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-555)
 [![Go version](https://img.shields.io/github/go-mod/go-version/soma-intelligence/open-health-sync?color=555)](go.mod)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-555)](LICENSE)
+[![Hosted beta: join the waitlist](https://img.shields.io/badge/hosted_beta-join_the_waitlist-0e9f8e)](https://openhealthsync.vercel.app/waitlist?utm_source=github&utm_medium=readme&utm_campaign=badge)
 
 <p>
 <a href="docs/connectors/apple-health.md"><img alt="Apple Health: available" src="https://img.shields.io/badge/Apple_Health-available-0e9f8e?style=flat-square"></a>
@@ -43,7 +44,10 @@ Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 docker pull ghcr.io/soma-intelligence/open-health-sync:0.1.0
 ```
 
-[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
+**Rather not run a server?** The hosted beta is the same API with nothing to operate: a key in a minute, demo data on the first call.<br>
+[**Join the developer waitlist →**](https://openhealthsync.vercel.app/waitlist?utm_source=github&utm_medium=readme&utm_campaign=hero)
+
+[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Hosted beta](#hosted-beta) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
 <sub>If it saves you one more parser, a <a href="https://github.com/soma-intelligence/open-health-sync/stargazers">⭐ star</a> helps other developers find it. Questions and ideas: <a href="https://github.com/soma-intelligence/open-health-sync/discussions">Discussions</a>.</sub>
 
@@ -61,8 +65,8 @@ docker pull ghcr.io/soma-intelligence/open-health-sync:0.1.0
 Open Health Sync (`ohs`) is a self-hosted ingestion and normalization layer for health data. It
 pulls from providers, accepts uploads from phones, stores each payload verbatim, maps it to one
 canonical model with one set of units, and serves it over a REST API and a read-only MCP server.
-It is not a dashboard, a coaching app or a hosted service, and it is not a medical device or
-clinical software.
+It is not a dashboard or a coaching app, and it is not a medical device or clinical software.
+Run it yourself, or let us run it for you in the [hosted beta](#hosted-beta).
 
 <table>
 <tr>
@@ -111,6 +115,28 @@ Provider deletions are honored too.
 </td>
 </tr>
 </table>
+
+## Hosted beta
+
+The same server, run for you. The hosted beta is Open Health Sync without a Postgres, a raw
+store or workers to operate: you sign in, create a key and read data on your first call.
+
+- **A key in a minute.** Create a project and get its API key. During the beta: three projects
+  per account, five keys per project.
+- **Data on the first call.** One click adds a synthetic user with 30 days from six sources, so
+  your first request already returns sleep, heart rate and steps.
+- **Every output.** REST with the OpenAPI file, FHIR R4, Open mHealth, CSV and Parquet, signed
+  webhooks and the read-only MCP server, as documented here.
+- **A quickstart with your values.** curl, TypeScript and Python filled in with your instance's
+  address, plus the [example apps](examples) and an AI agent over MCP.
+- **Nothing to migrate.** It runs this open source server. Code written for it moves to your own
+  instance with a new base URL and key, and back.
+
+It is free during the beta and opens by invitation, in small groups. For now it takes test data
+only: demo and synthetic users, no real people's health data. Self-hosting stays first class,
+and the server stays free under the AGPL.
+
+<p><a href="https://openhealthsync.vercel.app/waitlist?utm_source=github&utm_medium=readme&utm_campaign=section"><b>Join the developer waitlist →</b></a> &nbsp;Only an email is required.</p>
 
 ## Roadmap at a glance
 
@@ -565,10 +591,11 @@ and units):
 <details>
 <summary><b>Who sees my data?</b></summary>
 
-Only whoever runs the instance. Open Health Sync is self-hosted software, not a service: there
-is no account to create with us, no analytics and no call home. The server talks to the
-providers you enable (the ones whose keys you set) and to your own database and raw store.
-Logs never contain tokens, keys or health values.
+Only whoever runs the instance. Self-hosted, there is no account to create with us, no
+analytics and no call home. The server talks to the providers you enable (the ones whose keys
+you set) and to your own database and raw store. Logs never contain tokens, keys or health
+values. On the [hosted beta](#hosted-beta) we run the instance, which is why it takes test data
+only for now.
 
 </details>
 
@@ -605,7 +632,17 @@ other rule depends on how you run it.
 
 Nothing. The server is free and open source. You pay for wherever you run it, which can be a
 Raspberry Pi 5 with 4 GB. Each cloud provider (Withings, Oura, WHOOP, Fitbit and the others) needs your
-own developer application, registered with the vendor.
+own developer application, registered with the vendor. The hosted beta is free while it is a
+beta.
+
+</details>
+
+<details>
+<summary><b>Is there a hosted version?</b></summary>
+
+Yes, in private beta: the same API, run for you, free during the beta and for test data only for
+now. Developers join by invitation, in small groups.
+[Join the waitlist](https://openhealthsync.vercel.app/waitlist?utm_source=github&utm_medium=readme&utm_campaign=faq); the [hosted beta](#hosted-beta) section says what it gives you.
 
 </details>
 
@@ -673,6 +710,8 @@ Known limitations:
 - FHIR R4 has no bulk export (`$export`) yet.
 - The client SDKs are 0.1.0 and not on package registries yet; install them from this
   repository. Reading Health Connect from the Kotlin SDK is planned.
+
+The hosted beta is open by invitation ([waitlist](https://openhealthsync.vercel.app/waitlist?utm_source=github&utm_medium=readme&utm_campaign=status)).
 
 Next: more connectors, standard outputs (more FHIR R4 resources), then
 Health Connect reading in the Kotlin SDK, then health records (EHR) through SMART on FHIR. Requests are welcome as GitHub issues, including the connector request form.

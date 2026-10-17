@@ -9,6 +9,9 @@ export const docsContentRoute = "/llms.mdx/docs";
 export const repoUrl = "https://github.com/soma-intelligence/open-health-sync";
 const branch = "main";
 
+/** The hosted beta's waitlist, on the project's short address. */
+export const waitlistUrl = "https://openhealthsync.vercel.app/waitlist";
+
 /** The current release, read from deploy/docker-compose.yml by next.config.mjs. */
 export const latestVersion = process.env.NEXT_PUBLIC_OHS_VERSION ?? "";
 
