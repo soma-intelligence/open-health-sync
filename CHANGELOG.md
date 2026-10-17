@@ -47,6 +47,13 @@ release may change the API, the configuration or the database schema.
   queued one ends `cancelled` without reaching the provider. Connections and data are kept. The
   switch is audited as `tenant.provider` on both tenants and applies in every process within 30
   seconds; migration 0041 adds `ohs_core.tenant_providers`.
+- An instance admin reads one tenant's data: `GET /v1/admin/tenants/{tenant_id}/users`,
+  `.../users/{id}` and `.../users/{id}/daily`, `/samples`, `/samples/stats`, `/sleep`,
+  `/workouts`, `/nutrition`, `/coverage`, `/connections` and `/freshness` answer what the
+  tenant's own key gets from the route of the same name, through the same handlers. Read only.
+  Each read is recorded on the tenant read (actor `admin`, the user read, `admin_tenant_id`) as
+  well as on the admin's tenant (without the user); a read of the admin's own tenant is recorded
+  once.
 - `GET /v1/pipeline` (the tenant's pipeline counts in one answer), `GET /v1/pipeline/sync-runs`
   (sync runs across users, with `status` and `provider` filters), `GET /v1/pipeline/etl-jobs`
   (parked, pending or running processing jobs), and `POST /v1/pipeline/etl-jobs/{job_id}/retry`

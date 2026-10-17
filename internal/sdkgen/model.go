@@ -45,6 +45,18 @@ var skipped = map[string]string{
 	"createAdminTenantDemoUser": "the instance operator's tooling manages tenants, see docs/admin-api.md",
 	"listAdminTenantProviders":  "the instance operator's tooling manages tenants, see docs/admin-api.md",
 	"updateAdminTenantProvider": "the instance operator's tooling manages tenants, see docs/admin-api.md",
+
+	"listAdminTenantUsers":       "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"getAdminTenantUser":         "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"listAdminTenantDaily":       "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"listAdminTenantSamples":     "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"getAdminTenantSampleStats":  "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"listAdminTenantSleep":       "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"listAdminTenantWorkouts":    "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"listAdminTenantNutrition":   "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"getAdminTenantCoverage":     "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"listAdminTenantConnections": "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
+	"getAdminTenantFreshness":    "the instance operator's tooling reads one tenant's data, see docs/admin-api.md",
 }
 
 // API is the part of the OpenAPI document the emitters need, in document

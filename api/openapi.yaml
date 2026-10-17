@@ -3458,6 +3458,369 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/admin/tenants/{tenant_id}/users:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantUsers
+      summary: List the tenant's end users, oldest first (instance admin, one tenant)
+      description: |
+        `GET /v1/users` (`listUsers`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of users.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: getAdminTenantUser
+      summary: Get one end user (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}` (`getUser`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/daily:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantDaily
+      summary: Daily summaries (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/daily` (`listDaily`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DailySummaryPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/samples:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantSamples
+      summary: Quantity samples of one type (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/samples` (`listSamples`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: type
+          in: query
+          required: true
+          description: Canonical quantity type, for example heart_rate or step_count. A name outside the quantity type catalog is a 400 (unless this user has samples of it).
+          schema: { type: string, examples: [heart_rate] }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by start_date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SamplePage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/samples/stats:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: getAdminTenantSampleStats
+      summary: Statistics of one quantity type per hour or per local day (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/samples/stats` (`sampleStats`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: type
+          in: query
+          required: true
+          description: Canonical quantity type, as for listSamples.
+          schema: { type: string }
+        - name: interval
+          in: query
+          description: Width of the intervals.
+          schema: { type: string, enum: [hour, day], default: day }
+        - name: tz
+          in: query
+          description: IANA time zone of the intervals; a day runs from local midnight to local midnight.
+          schema: { type: string, default: UTC, example: Europe/Paris }
+        - name: start
+          in: query
+          required: true
+          description: Inclusive lower bound, RFC 3339 or YYYY-MM-DD (midnight in tz). Widened to a whole interval.
+          schema:
+            oneOf:
+              - { type: string, format: date-time }
+              - { type: string, format: date }
+        - name: end
+          in: query
+          required: true
+          description: Exclusive upper bound, RFC 3339 or YYYY-MM-DD (midnight in tz). Widened to a whole interval; at most 10000 intervals after start.
+          schema:
+            oneOf:
+              - { type: string, format: date-time }
+              - { type: string, format: date }
+        - name: provider
+          in: query
+          description: Keep one provider.
+          schema: { type: string }
+        - $ref: "#/components/parameters/View"
+      responses:
+        "200":
+          description: The intervals that hold samples, by start, provider, source and unit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SampleStats" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/sleep:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantSleep
+      summary: Sleep sessions (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/sleep` (`listSleep`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by bedtime_start.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SleepSessionPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/workouts:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantWorkouts
+      summary: Workouts (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/workouts` (`listWorkouts`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: type
+          in: query
+          description: Canonical activity type (running, cycling...); all when absent.
+          schema: { type: string, examples: [running] }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by start_date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkoutPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/nutrition:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantNutrition
+      summary: Nutrition logs (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/nutrition` (`listNutrition`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by start_date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NutritionLogPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/coverage:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: getAdminTenantCoverage
+      summary: What has landed, per provider and day, and what is still processing (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/coverage` (`getCoverage`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: provider
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/View"
+      responses:
+        "200":
+          description: Coverage report.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Coverage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/connections:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantConnections
+      summary: The user's provider connections (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/connections` (`listConnections`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: Connections, one per provider.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Connection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/freshness:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: getAdminTenantFreshness
+      summary: How up to date each of the user's sources is (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/freshness` (`getFreshness`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Read only. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: Freshness of every source.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [as_of, data]
+                properties:
+                  as_of: { type: string, format: date-time }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SourceFreshness" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/audit:
     get:
       tags: [audit]

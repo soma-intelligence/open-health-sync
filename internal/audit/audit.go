@@ -146,6 +146,12 @@ func Classify(method, pattern string) string {
 		path = pattern
 	}
 	const userPrefix = "/v1/users/{id}"
+	// An instance admin reading one tenant's users and their data: the
+	// action of the tenant route it stands for.
+	if rest, ok := strings.CutPrefix(path, "/v1/admin/tenants/{tenant_id}/users"); ok &&
+		(rest == "" || strings.HasPrefix(rest, "/")) {
+		return Classify(method, "/v1/users"+rest)
+	}
 	switch {
 	case path == "/mcp":
 		return DataRead // the MCP server is read only

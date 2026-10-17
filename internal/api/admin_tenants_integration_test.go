@@ -62,6 +62,10 @@ func TestAdminTenantsNeedAnAdminKey(t *testing.T) {
 		{"POST", "/v1/admin/tenants/" + b + "/demo-user", `{"days":1}`},
 		{"GET", "/v1/admin/tenants/" + b + "/providers", ""},
 		{"PATCH", "/v1/admin/tenants/" + b + "/providers/apple_health", `{"enabled":false}`},
+		{"GET", "/v1/admin/tenants/" + b + "/users", ""},
+		{"GET", "/v1/admin/tenants/" + b + "/users/" + u.String(), ""},
+		{"GET", "/v1/admin/tenants/" + b + "/users/" + u.String() + "/daily", ""},
+		{"GET", "/v1/admin/tenants/" + b + "/users/" + u.String() + "/coverage", ""},
 	} {
 		var body any
 		if c.body != "" {
