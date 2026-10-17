@@ -20,6 +20,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
+	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 func newReadsEnv(t *testing.T) *env {
@@ -28,6 +29,7 @@ func newReadsEnv(t *testing.T) *env {
 	require.NoError(t, err)
 	return newEnv(t, func(d *api.Deps) {
 		d.Collect = collect.NewHandlers(collect.Deps{Pool: d.Pool, Box: box, Tenants: d.Store, Lookup: d.Providers.Lookup})
+		d.Webhooks = webhook.NewStore(d.Pool, box)
 	})
 }
 
@@ -97,8 +99,8 @@ func TestAdminTenantReads(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, r.code, id)
 		assert.Contains(t, string(r.body), "tenant not found")
 	}
-	r = e.do("POST", base+"/users", e.keyA, `{}`)
-	assert.Equal(t, http.StatusMethodNotAllowed, r.code, "read only: %s", r.body)
+	r = e.do("DELETE", base+"/users/"+uid+"/daily", e.keyA, nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, r.code, "the methods of the tenant route: %s", r.body)
 }
 
 // Each read is recorded on the tenant read, naming the admin and the user,
@@ -213,4 +215,139 @@ func statusOf(ev audit.Entry) string {
 		return "-"
 	}
 	return strconv.Itoa(*ev.Status)
+}
+
+// An admin key changes a tenant through the tenant routes' handlers: a user
+// created, a webhook managed, the pipeline retried, the user deleted. Each
+// lands on that tenant, as with its own key, and its log names the admin.
+func TestAdminTenantWrites(t *testing.T) {
+	e := newReadsEnv(t)
+	var a tenantInfo
+	e.do("GET", "/v1/tenant", e.keyA, nil).json(t, &a)
+	blue := e.newTenant("Team Blue")
+	base := "/v1/admin/tenants/" + blue.ID.String()
+
+	// A user, created for the tenant: Location is the admin route.
+	r := e.do("POST", base+"/users", e.keyA, `{"external_ref":"ada"}`, "X-Request-Id", "req-write-1")
+	require.Equal(t, http.StatusCreated, r.code, string(r.body))
+	var u userJSON
+	r.json(t, &u)
+	uid := u.ID.String()
+	assert.Equal(t, base+"/users/"+uid, r.header.Get("Location"))
+	assert.Equal(t, http.StatusOK, e.do("GET", "/v1/users/"+uid, blue.Key.Key, nil).code, "the tenant's user")
+	assert.Equal(t, http.StatusNotFound, e.do("GET", "/v1/users/"+uid, e.keyA, nil).code, "not the admin's")
+	assert.Equal(t, http.StatusConflict, e.do("POST", base+"/users", e.keyA, `{"external_ref":"ada"}`).code)
+
+	// A webhook, managed end to end.
+	r = e.do("POST", base+"/webhooks", e.keyA, map[string]any{"url": "https://app.example.com/hooks"})
+	require.Equal(t, http.StatusCreated, r.code, string(r.body))
+	var hook webhookJSON
+	r.json(t, &hook)
+	assert.NotEmpty(t, hook.Secret)
+	hookPath := "/webhooks/" + hook.ID.String()
+	assert.Equal(t, base+hookPath, r.header.Get("Location"))
+	var own page[webhookJSON]
+	e.do("GET", "/v1/webhooks", blue.Key.Key, nil).json(t, &own)
+	require.Len(t, own.Data, 1)
+	assert.Equal(t, hook.ID, own.Data[0].ID)
+	r = e.do("PATCH", base+hookPath, e.keyA, map[string]any{"description": "portal"})
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	assert.Equal(t, http.StatusOK, e.do("POST", base+hookPath+"/rotate-secret", e.keyA, nil).code)
+	r = e.do("POST", base+hookPath+"/test", e.keyA, nil)
+	require.Equal(t, http.StatusAccepted, r.code, string(r.body))
+	var sent deliveryJSON
+	r.json(t, &sent)
+	replay := hookPath + "/deliveries/" + strconv.FormatInt(sent.ID, 10) + "/replay"
+	r = e.do("POST", base+replay, e.keyA, nil)
+	assert.Equal(t, http.StatusConflict, r.code, "not sent yet, as for the tenant: %s", r.body)
+	assert.Equal(t, r.code, e.do("POST", "/v1"+replay, blue.Key.Key, nil).code)
+	for _, p := range []string{"/webhooks", hookPath, hookPath + "/deliveries"} {
+		mine := e.do("GET", "/v1"+p, blue.Key.Key, nil)
+		admin := e.do("GET", base+p, e.keyA, nil)
+		require.Equal(t, http.StatusOK, admin.code, "%s: %s", p, admin.body)
+		assert.JSONEq(t, string(mine.body), string(admin.body), p)
+	}
+
+	// The pipeline and the log: the tenant's own answers.
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/pipeline/sync-runs"}, {"GET", "/pipeline/etl-jobs"}, {"POST", "/pipeline/etl-jobs/retry"},
+		{"POST", "/pipeline/etl-jobs/" + uuid.NewString() + "/retry"}, {"GET", "/users/" + uid + "/sync-runs"},
+	} {
+		mine := e.do(c.method, "/v1"+c.path, blue.Key.Key, `{}`)
+		admin := e.do(c.method, base+c.path, e.keyA, `{}`)
+		assert.Equal(t, mine.code, admin.code, "%s %s: %s", c.method, c.path, admin.body)
+	}
+	r = e.do("GET", base+"/audit?limit=100", e.keyA, nil)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	var log auditPage
+	r.json(t, &log)
+	assert.NotEmpty(t, log.Data)
+
+	// Disconnecting a provider the user never connected: the tenant's answer.
+	mine := e.do("DELETE", "/v1/users/"+uid+"/connections/oura", blue.Key.Key, nil)
+	admin := e.do("DELETE", base+"/users/"+uid+"/connections/oura", e.keyA, nil)
+	assert.Equal(t, mine.code, admin.code, string(admin.body))
+
+	assert.Equal(t, http.StatusNoContent, e.do("DELETE", base+hookPath, e.keyA, nil).code)
+	own = page[webhookJSON]{}
+	e.do("GET", "/v1/webhooks", blue.Key.Key, nil).json(t, &own)
+	assert.Empty(t, own.Data)
+
+	// The user, deleted: the job is read back through the admin route too.
+	r = e.do("DELETE", base+"/users/"+uid, e.keyA, nil, "X-Request-Id", "req-delete-1")
+	require.Equal(t, http.StatusAccepted, r.code, string(r.body))
+	var job struct {
+		JobID  uuid.UUID `json:"job_id"`
+		Status string    `json:"status"`
+	}
+	r.json(t, &job)
+	r = e.do("GET", base+"/deletions/"+job.JobID.String(), e.keyA, nil)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	assert.JSONEq(t, string(e.do("GET", "/v1/deletions/"+job.JobID.String(), blue.Key.Key, nil).body), string(r.body))
+	assert.Equal(t, http.StatusNotFound, e.do("GET", "/v1/deletions/"+job.JobID.String(), e.keyA, nil).code)
+
+	// Only an admin key, for a tenant that exists.
+	for _, key := range []string{blue.Key.Key, e.keyB} {
+		assert.Equal(t, http.StatusForbidden, e.do("POST", base+"/users", key, `{"external_ref":"x"}`).code)
+		assert.Equal(t, http.StatusForbidden, e.do("POST", base+"/webhooks", key, map[string]any{"url": "https://app.example.com/x"}).code)
+	}
+	r = e.do("POST", "/v1/admin/tenants/"+uuid.NewString()+"/users", e.keyA, `{"external_ref":"x"}`)
+	assert.Equal(t, http.StatusNotFound, r.code)
+	assert.Contains(t, string(r.body), "tenant not found")
+
+	// The tenant's log names the admin for each change, with the user.
+	var target auditPage
+	e.do("GET", "/v1/audit?limit=100", blue.Key.Key, nil).json(t, &target)
+	adminActor := audit.Actor{Type: audit.Admin, ID: "api_key:" + a.Key.ID.String()}
+	byRequest := map[string]audit.Entry{}
+	actions := map[string]bool{}
+	for _, ev := range target.Data {
+		if ev.Actor != adminActor {
+			continue
+		}
+		byRequest[ev.RequestID] = ev
+		actions[ev.Action] = true
+		assert.Equal(t, e.tenantA.String(), ev.Detail["admin_tenant_id"], "%+v", ev)
+	}
+	created := byRequest["req-write-1"]
+	assert.Equal(t, audit.UserCreate, created.Action)
+	assert.Equal(t, "POST /v1/admin/tenants/{tenant_id}/users", created.Route)
+	deleted := byRequest["req-delete-1"]
+	assert.Equal(t, audit.UserDelete, deleted.Action)
+	require.NotNil(t, deleted.UserID)
+	assert.Equal(t, u.ID, *deleted.UserID)
+	for _, want := range []string{audit.UserCreate, audit.UserDelete, audit.WebhookWrite, audit.WebhookRead,
+		audit.AuditRead, audit.ConnectionDelete} {
+		assert.True(t, actions[want], "%s in %v", want, actions)
+	}
+
+	// The admin's own log: the changes, never the other tenant's user.
+	var mineLog auditPage
+	e.do("GET", "/v1/audit?limit=100", e.keyA, nil).json(t, &mineLog)
+	for _, ev := range mineLog.Data {
+		if strings.HasPrefix(ev.Route, "DELETE /v1/admin/tenants/{tenant_id}/users/{id}") {
+			assert.Nil(t, ev.UserID, "%+v", ev)
+			assert.Equal(t, blue.ID.String(), ev.Detail["tenant_id"])
+		}
+	}
 }

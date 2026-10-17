@@ -41,8 +41,7 @@ revoke the old one). A key cannot revoke itself, so the tooling cannot lock itse
 | `POST /v1/admin/tenants/{tenant_id}/demo-user` | 201 or 200, a user of the tenant filled with [synthetic data](demo.md) |
 | `GET /v1/admin/tenants/{tenant_id}/providers` | `{"data": [provider, ...]}`, every provider of the instance with the tenant's switch |
 | `PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}` | The provider, turned off or back on for the tenant: body `{"enabled": false}` |
-| `GET /v1/admin/tenants/{tenant_id}/users` and `.../users/{id}` | The tenant's users, one user: the answers of `GET /v1/users` and `GET /v1/users/{id}` |
-| `GET /v1/admin/tenants/{tenant_id}/users/{id}/{data}` | One user's data, `{data}` one of `daily`, `samples`, `samples/stats`, `sleep`, `workouts`, `nutrition`, `coverage`, `connections`, `freshness`: the answer of `GET /v1/users/{id}/{data}` |
+| `/v1/admin/tenants/{tenant_id}/users...`, `/webhooks...`, `/pipeline/...`, `/deletions/{job_id}`, `/audit` | The tenant's own API, run with the admin key: the answer of the tenant route of the same name, listed in [Run a tenant's API](#run-a-tenants-api) |
 
 A tenant is:
 
@@ -160,7 +159,7 @@ day adds the new days. 30 days take about a second, 90 days a few seconds. A use
 
 The team reads the data with its own key, like any user's: `GET /v1/users/{id}/daily`,
 `/sleep`, FHIR, exports. The admin key does not see it on those routes (404), since the user is
-not in the admin's tenant; it reads it through [the admin read routes](#read-a-tenants-data).
+not in the admin's tenant; it reads it through [the admin tenant routes](#run-a-tenants-api).
 
 ## Providers per tenant
 
@@ -215,38 +214,48 @@ Nothing is deleted: the connections stay, with their tokens, and the data stored
 Turned back on, the next scheduled pull reaches back to the connection's last successful sync,
 up to 7 days, like after an outage.
 
-## Read a tenant's data
+## Run a tenant's API
 
-Support, or a portal that shows a team what it collected, reads a tenant's users and their data
+Support, or a portal that runs a team's projects behind its own sign in, uses a tenant's API
 with the admin key, without asking the team for its own:
 
 ```sh
 curl -s "$OHS/v1/admin/tenants/$TENANT/users" -H "Authorization: Bearer $ADMIN_KEY"
 curl -s "$OHS/v1/admin/tenants/$TENANT/users/$USER_ID/daily?start=2026-10-01" -H "Authorization: Bearer $ADMIN_KEY"
-curl -s "$OHS/v1/admin/tenants/$TENANT/users/$USER_ID/coverage" -H "Authorization: Bearer $ADMIN_KEY"
+curl -s -X POST "$OHS/v1/admin/tenants/$TENANT/webhooks" -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' -d '{"url":"https://app.example.com/hooks"}'
 ```
 
 Each route is the tenant route after `/v1/admin/tenants/{tenant_id}`, served by the same code:
-the same query parameters (`start`, `end`, `view`, `type`, `cursor`, `limit` and the others),
-the same answer, the same errors, as the tenant's own key would get. They read only: there is
-no admin route that writes a user's data. An unknown tenant is a 404 (`tenant not found`), a user
-of another tenant a 404 (`user not found`), the admin's own users included.
+the same body and query parameters (`start`, `end`, `view`, `type`, `cursor`, `limit` and the
+others), the same answer, the same errors, as the tenant's own key would get. A `Location` in
+the answer points at the admin route (`/v1/admin/tenants/{tenant_id}/webhooks/{id}`).
+`Idempotency-Key` works on `POST .../users` as on `POST /v1/users`. An unknown tenant is a 404
+(`tenant not found`), a user of another tenant a 404 (`user not found`), the admin's own users
+included. It gives the admin key nothing it could not do already, since it can mint a key for
+any tenant: it spares minting one, and the tenant's log names the admin.
 
-| Route | Same as |
+| Routes after `/v1/admin/tenants/{tenant_id}` | Same as |
 |---|---|
-| `GET .../users`, `GET .../users/{id}` | [Users](api.md#users) |
-| `GET .../users/{id}/daily`, `/samples`, `/samples/stats`, `/sleep`, `/workouts`, `/nutrition`, `/coverage` | [Reading data](api.md#reading-data) |
-| `GET .../users/{id}/connections`, `/freshness` | [Connection health](sync-health.md#connection-health) |
+| `GET /users`, `POST /users`, `GET /users/{id}`, `DELETE /users/{id}`, `GET /deletions/{job_id}` | [Users](api.md#users) |
+| `GET /users/{id}/daily`, `/samples`, `/samples/stats`, `/sleep`, `/workouts`, `/nutrition`, `/coverage` | [Reading data](api.md#reading-data) |
+| `GET /users/{id}/connections`, `/freshness`, `/sync-runs`, `/sync-runs/{run}`; `POST /users/{id}/connect-sessions`, `/connections/{provider}/sync`; `DELETE /users/{id}/connections/{provider}` | [Connecting a provider](api.md#connecting-a-provider), [the connection page](connect-page.md), [sync history](sync-health.md) |
+| `/webhooks` and every route under it: create, list, read, change, delete, `rotate-secret`, `test`, deliveries, `retry`, `replay` | [Webhooks](webhooks.md) |
+| `GET /pipeline/sync-runs`, `/pipeline/etl-jobs`; `POST /pipeline/etl-jobs/retry`, `/pipeline/etl-jobs/{job_id}/retry` | [Running the instance](api.md#running-the-instance) |
+| `GET /audit` | The tenant's [audit log](audit-log.md) |
 
-Each read is recorded twice, like a change (see [Audit](#audit)). On the admin's tenant, like
-any request: the action of the tenant route (`user.read`, `data.read`, `connection.read`), the
-`tenant_id` in `detail`, never the user, who is not one of the admin's. On the tenant read:
-actor type `admin`, actor id `api_key:` and the admin key's id, the same action, the user of the
-path in `user_id` and the admin's tenant in `detail` (`admin_tenant_id`), so the team sees in its
-own log who read which user's data, and when. A read of the admin's own tenant through these
-routes is recorded once, on that tenant, with the user: a second event there would count every
-read twice in one log. A read the tenant route refuses (400, 404 for a user) is recorded with its
-status; one for an unknown tenant is recorded on the admin's tenant only.
+`GET /v1/admin/tenants/{tenant_id}/pipeline` is the [pipeline](#pipeline) above.
+
+Each request is recorded twice, like a change (see [Audit](#audit)). On the admin's tenant, like
+any request: the action of the tenant route (`user.create`, `data.read`, `webhook.write`,
+`connection.sync` and the others), the `tenant_id` in `detail`, never the user, who is not one
+of the admin's. On the tenant served: actor type `admin`, actor id `api_key:` and the admin
+key's id, the same action, the user of the path in `user_id` and the admin's tenant in `detail`
+(`admin_tenant_id`, with `provider` or `job_id` when the path names one), so the team sees in
+its own log who read or changed what, and when. A request on the admin's own tenant through
+these routes is recorded once, on that tenant, with the user: a second event there would count
+every request twice in one log. A request the tenant route refuses (400, 404 for a user, 409) is
+recorded with its status; one for an unknown tenant is recorded on the admin's tenant only.
 
 ## Retries
 
@@ -260,8 +269,8 @@ route can be repeated as it is.
 Each request is recorded in the admin tenant's [audit log](audit-log.md), like any request:
 `tenant.create`, `key.create`, `key.revoke`, `data.write` (the demo user) and `tenant.provider`
 for the changes, `config.read` for the reads of tenants, keys, pipelines and providers, the
-action of the tenant route for the [reads of a tenant's data](#read-a-tenants-data), with the
-`tenant_id` of the path in `detail`.
+action of the tenant route for the [tenant routes](#run-a-tenants-api), with the `tenant_id` of
+the path in `detail`.
 
 The tenant that was changed gets an event of its own, so its log tells the whole story: actor
 type `admin`, actor id `api_key:` followed by the admin key's id, the action above, and in
@@ -269,7 +278,7 @@ type `admin`, actor id `api_key:` followed by the admin key's id, the action abo
 the key), for the demo user its `user_id`, `days`, `persona`, `rows_written` and
 `user_created`, for a provider switch its `provider` and `enabled`. A tenant, key or switch
 change and its event are written together: if the event cannot be written, nothing changes. A
-read of the tenant's data gets an event too, with the user read.
+request through the tenant routes gets an event too, with the user of the path.
 
 ## Not here
 
@@ -278,6 +287,7 @@ read of the tenant's data gets an event too, with the user read.
 - The [admin console](console.md) still shows the tenant of the key signed in.
 - The server SDKs leave these routes out, as they do the provider settings; their types
   (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`, `AdminTenantProvider`) are generated. The
-  read routes answer the types of the tenant routes.
-- Reading through the admin key the routes not listed above (FHIR, Open mHealth, exports, the
-  archive, sync runs, consents): use a key of the tenant, made with `POST .../keys`.
+  tenant routes answer the types of the routes of the same name.
+- The tenant routes not listed above (FHIR, Open mHealth, exports, the archive, consents,
+  shares, tags, tokens, uploads, the tenant's keys): use a key of the tenant, made with
+  `POST .../keys`.

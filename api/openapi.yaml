@@ -3490,6 +3490,46 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [admin]
+      operationId: createAdminTenantUser
+      summary: Create an end user (instance admin, one tenant)
+      description: |
+        `POST /v1/users` (`createUser`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        description: An empty body creates a user without an external reference.
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUserRequest" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location:
+              schema: { type: string }
+              description: /v1/admin/tenants/{tenant_id}/users/{id}
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: A user with this external_ref exists, or an idempotent request with this key is in progress.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/IdempotencyMismatch" }
 
   /v1/admin/tenants/{tenant_id}/users/{id}:
     parameters:
@@ -3510,6 +3550,29 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [admin]
+      operationId: deleteAdminTenantUser
+      summary: Hard-delete an end user (instance admin, one tenant)
+      description: |
+        `DELETE /v1/users/{id}` (`deleteUser`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "202":
+          description: Deletion accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id: { type: string, format: uuid }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -3817,6 +3880,712 @@ paths:
                   data:
                     type: array
                     items: { $ref: "#/components/schemas/SourceFreshness" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/deletions/{job_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - name: job_id
+        in: path
+        required: true
+        description: |
+          The `job_id` returned by `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`
+          or `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`.
+        schema: { type: string, format: uuid }
+    get:
+      tags: [admin]
+      operationId: getAdminTenantDeletion
+      summary: Status of a deletion (instance admin, one tenant)
+      description: |
+        `GET /v1/deletions/{job_id}` (`getDeletion`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The deletion job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/sync-runs:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantSyncRuns
+      summary: The user's sync history (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/sync-runs` (`listSyncRuns`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: provider
+          in: query
+          description: Only this provider's runs.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of runs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/SyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/sync-runs/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    get:
+      tags: [admin]
+      operationId: getAdminTenantSyncRun
+      summary: One sync run (instance admin, one tenant)
+      description: |
+        `GET /v1/users/{id}/sync-runs/{run_id}` (`getSyncRun`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/connect-sessions:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [admin]
+      operationId: createAdminTenantConnectSession
+      summary: Create a link to the hosted connection page (instance admin, one tenant)
+      description: |
+        `POST /v1/users/{id}/connect-sessions` (`createConnectSession`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectSessionRequest" }
+      responses:
+        "201":
+          description: The page link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}/sync:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    post:
+      tags: [admin]
+      operationId: syncAdminTenantConnection
+      summary: Sync a connection now (instance admin, one tenant)
+      description: |
+        `POST /v1/users/{id}/connections/{provider}/sync` (`syncConnection`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                from: { type: string, format: date-time }
+      responses:
+        "200":
+          description: A manual run of this connection is already queued or running.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "202":
+          description: Queued.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    delete:
+      tags: [admin]
+      operationId: deleteAdminTenantConnection
+      summary: Disconnect a provider (instance admin, one tenant)
+      description: |
+        `DELETE /v1/users/{id}/connections/{provider}` (`deleteConnection`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: delete_data
+          in: query
+          required: false
+          description: true also erases the data the user holds from this provider.
+          schema: { type: boolean, default: false }
+      responses:
+        "202":
+          description: Disconnected, and the erasure of the provider's data accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id: { type: string, format: uuid }
+        "204": { description: Disconnected; the data already collected is kept. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/webhooks:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantWebhooks
+      summary: The tenant's webhook endpoints (instance admin, one tenant)
+      description: |
+        `GET /v1/webhooks` (`listWebhooks`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The endpoints.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - properties:
+                      data:
+                        items: { $ref: "#/components/schemas/Webhook" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [admin]
+      operationId: createAdminTenantWebhook
+      summary: Register a webhook endpoint (instance admin, one tenant)
+      description: |
+        `POST /v1/webhooks` (`createWebhook`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateWebhookRequest" }
+      responses:
+        "201":
+          description: Registered.
+          headers:
+            Location:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookWithSecret" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+
+  /v1/admin/tenants/{tenant_id}/webhooks/{webhook_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/WebhookID"
+    get:
+      tags: [admin]
+      operationId: getAdminTenantWebhook
+      summary: One webhook endpoint (instance admin, one tenant)
+      description: |
+        `GET /v1/webhooks/{webhook_id}` (`getWebhook`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The endpoint.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [admin]
+      operationId: updateAdminTenantWebhook
+      summary: Change a webhook endpoint (instance admin, one tenant)
+      description: |
+        `PATCH /v1/webhooks/{webhook_id}` (`updateWebhook`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateWebhookRequest" }
+      responses:
+        "200":
+          description: The endpoint after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [admin]
+      operationId: deleteAdminTenantWebhook
+      summary: Delete a webhook endpoint (instance admin, one tenant)
+      description: |
+        `DELETE /v1/webhooks/{webhook_id}` (`deleteWebhook`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/webhooks/{webhook_id}/rotate-secret:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/WebhookID"
+    post:
+      tags: [admin]
+      operationId: rotateAdminTenantWebhookSecret
+      summary: Replace the signing secret (instance admin, one tenant)
+      description: |
+        `POST /v1/webhooks/{webhook_id}/rotate-secret` (`rotateWebhookSecret`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The new secret.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret]
+                properties:
+                  secret: { type: string, examples: ["whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/webhooks/{webhook_id}/test:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/WebhookID"
+    post:
+      tags: [admin]
+      operationId: testAdminTenantWebhook
+      summary: Send a test event (instance admin, one tenant)
+      description: |
+        `POST /v1/webhooks/{webhook_id}/test` (`testWebhook`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TestWebhookRequest" }
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDelivery" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/webhooks/{webhook_id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/WebhookID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantWebhookDeliveries
+      summary: The endpoint's deliveries (instance admin, one tenant)
+      description: |
+        `GET /v1/webhooks/{webhook_id}/deliveries` (`listWebhookDeliveries`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, running, done, parked] }
+        - $ref: "#/components/parameters/Cursor"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: A page of deliveries.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - properties:
+                      data:
+                        items: { $ref: "#/components/schemas/WebhookDelivery" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/webhooks/{webhook_id}/deliveries/{delivery_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/WebhookID"
+      - $ref: "#/components/parameters/DeliveryID"
+    get:
+      tags: [admin]
+      operationId: getAdminTenantWebhookDelivery
+      summary: One delivery with its payload and attempts (instance admin, one tenant)
+      description: |
+        `GET /v1/webhooks/{webhook_id}/deliveries/{delivery_id}` (`getWebhookDelivery`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The delivery.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDeliveryDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/webhooks/{webhook_id}/deliveries/{delivery_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/WebhookID"
+      - $ref: "#/components/parameters/DeliveryID"
+    post:
+      tags: [admin]
+      operationId: retryAdminTenantWebhookDelivery
+      summary: Send a finished delivery again (instance admin, one tenant)
+      description: |
+        `POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/retry` (`retryWebhookDelivery`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "202":
+          description: Queued again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDelivery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/admin/tenants/{tenant_id}/webhooks/{webhook_id}/deliveries/{delivery_id}/replay:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/WebhookID"
+      - $ref: "#/components/parameters/DeliveryID"
+    post:
+      tags: [admin]
+      operationId: replayAdminTenantWebhookDelivery
+      summary: Send a finished delivery's event again, as a new delivery (instance admin, one tenant)
+      description: |
+        `POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/replay` (`replayWebhookDelivery`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "202":
+          description: Queued. `Location` is the new delivery.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookDelivery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /v1/admin/tenants/{tenant_id}/pipeline/sync-runs:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantPipelineSyncRuns
+      summary: Sync runs of every user of the tenant (instance admin, one tenant)
+      description: |
+        `GET /v1/pipeline/sync-runs` (`listTenantSyncRuns`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [queued, running, retrying, rate_limited, succeeded, failed, cancelled] }
+        - name: provider
+          in: query
+          description: Only this provider's runs.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of runs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/TenantSyncRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/pipeline/etl-jobs:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantETLJobs
+      summary: Processing jobs of the tenant (instance admin, one tenant)
+      description: |
+        `GET /v1/pipeline/etl-jobs` (`listETLJobs`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [parked, pending, running], default: parked }
+        - name: provider
+          in: query
+          description: Only this provider's jobs.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of jobs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/ETLJob" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/pipeline/etl-jobs/retry:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    post:
+      tags: [admin]
+      operationId: retryAdminTenantParkedETLJobs
+      summary: Retry every parked processing job (instance admin, one tenant)
+      description: |
+        `POST /v1/pipeline/etl-jobs/retry` (`retryParkedETLJobs`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                provider: { type: string, description: Only this provider's parked jobs. }
+      responses:
+        "200":
+          description: How many jobs were queued again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [retried]
+                properties:
+                  retried: { type: integer, format: int64 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/pipeline/etl-jobs/{job_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - name: job_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [admin]
+      operationId: retryAdminTenantETLJob
+      summary: Retry one parked processing job (instance admin, one tenant)
+      description: |
+        `POST /v1/pipeline/etl-jobs/{job_id}/retry` (`retryETLJob`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The job, pending again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ETLJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/admin/tenants/{tenant_id}/audit:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantAuditEvents
+      summary: The tenant's audit log, newest first (instance admin, one tenant)
+      description: |
+        `GET /v1/audit` (`listAuditEvents`) for the tenant of `tenant_id`, read with an
+        instance admin key: the same parameters and the same answer as the tenant's own key
+        gets. Recorded in the caller's audit log and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      parameters:
+        - name: user_id
+          in: query
+          description: Only events about this end user.
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          description: An exact action (`data.export`), or a prefix ending in a dot (`data.`).
+          schema: { type: string }
+        - name: since
+          in: query
+          description: Events at or after this time (RFC 3339 or YYYY-MM-DD).
+          schema: { type: string }
+        - name: until
+          in: query
+          description: Events before this time (RFC 3339 or YYYY-MM-DD).
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/AuditEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }

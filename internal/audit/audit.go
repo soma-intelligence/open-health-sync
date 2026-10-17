@@ -138,6 +138,10 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 	return nil
 }
 
+// adminTenantAreas are the tenant route areas an instance admin also reaches
+// under /v1/admin/tenants/{tenant_id} (the API's admin tenant routes).
+var adminTenantAreas = []string{"users", "deletions", "pipeline", "webhooks", "audit"}
+
 // Classify names the action of an authenticated API request from its method
 // and matched route pattern ("GET /v1/users/{id}/samples").
 func Classify(method, pattern string) string {
@@ -146,11 +150,14 @@ func Classify(method, pattern string) string {
 		path = pattern
 	}
 	const userPrefix = "/v1/users/{id}"
-	// An instance admin reading one tenant's users and their data: the
-	// action of the tenant route it stands for.
-	if rest, ok := strings.CutPrefix(path, "/v1/admin/tenants/{tenant_id}/users"); ok &&
-		(rest == "" || strings.HasPrefix(rest, "/")) {
-		return Classify(method, "/v1/users"+rest)
+	// An instance admin running one tenant's API: the action of the tenant
+	// route it stands for.
+	if rest, ok := strings.CutPrefix(path, "/v1/admin/tenants/{tenant_id}/"); ok {
+		for _, area := range adminTenantAreas {
+			if rest == area || strings.HasPrefix(rest, area+"/") {
+				return Classify(method, "/v1/"+rest)
+			}
+		}
 	}
 	switch {
 	case path == "/mcp":

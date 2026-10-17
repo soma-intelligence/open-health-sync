@@ -47,13 +47,17 @@ release may change the API, the configuration or the database schema.
   queued one ends `cancelled` without reaching the provider. Connections and data are kept. The
   switch is audited as `tenant.provider` on both tenants and applies in every process within 30
   seconds; migration 0041 adds `ohs_core.tenant_providers`.
-- An instance admin reads one tenant's data: `GET /v1/admin/tenants/{tenant_id}/users`,
-  `.../users/{id}` and `.../users/{id}/daily`, `/samples`, `/samples/stats`, `/sleep`,
-  `/workouts`, `/nutrition`, `/coverage`, `/connections` and `/freshness` answer what the
-  tenant's own key gets from the route of the same name, through the same handlers. Read only.
-  Each read is recorded on the tenant read (actor `admin`, the user read, `admin_tenant_id`) as
-  well as on the admin's tenant (without the user); a read of the admin's own tenant is recorded
-  once.
+- An instance admin runs one tenant's API with its own key: under
+  `/v1/admin/tenants/{tenant_id}`, the tenant's users (list, create, read, delete, deletion
+  jobs), their data (`daily`, `samples`, `samples/stats`, `sleep`, `workouts`, `nutrition`,
+  `coverage`), their connections (`connections`, `freshness`, `sync-runs`, connection links,
+  sync now, disconnect), its webhooks and deliveries, its sync runs and processing jobs (with
+  retries) and its audit log answer what the tenant's own key gets from the route of the same
+  name, through the same handlers. A `Location` points at the admin route. Each request is
+  recorded on the tenant served (actor `admin`, the user of the path, `admin_tenant_id`) as well
+  as on the admin's tenant (without the user); a request on the admin's own tenant is recorded
+  once. A portal can run a team's projects behind its own sign in, with no tenant key in a
+  browser.
 - Demo personas: `ohs seed --demo --persona` and `"persona"` on
   `POST /v1/admin/tenants/{tenant_id}/demo-user` pick `mix` (the default, unchanged), `runner`
   (polar, whoop, apple_health: resting heart rate about 46, HRV about 78, VO2 max about 56, runs
