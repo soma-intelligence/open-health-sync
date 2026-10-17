@@ -690,7 +690,8 @@ Health Connect reading in the Kotlin SDK, then health records (EHR) through SMAR
   [React Native](docs/sdks/react-native.md), [Flutter](docs/sdks/flutter.md).
 - [Server SDKs](docs/server-sdks.md): TypeScript and Python clients for your backend, and a
   [Postman collection](docs/api-collections.md) (next release).
-- [Example apps](examples/README.md): iOS (HealthKit), Android and React Native, built on the SDKs.
+- [Example apps](examples/README.md): iOS (HealthKit), Android and React Native, built on the SDKs,
+  and a Next.js web app that goes from the first user to webhooks with the server SDK.
 - [Desktop bridge](docs/bridge.md): `ohs-bridge` sends what Bluetooth health devices and
   USB-mounted watches record, from a computer or a Raspberry Pi (next release).
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.

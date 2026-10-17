@@ -59,3 +59,25 @@ jobs:
           npm install --no-audit --no-fund
           npx tsc --noEmit
           npx expo export --platform android --output-dir dist-check
+
+  web:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Build the server SDK (the app links it by path)
+        working-directory: sdks/server/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Install, type check, test and build
+        working-directory: examples/web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+          npm run build

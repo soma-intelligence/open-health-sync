@@ -192,6 +192,13 @@ release may change the API, the configuration or the database schema.
   carbohydrates 9059-7, fat 9066-2, water 8999-5). In the Observation search, read by id,
   Provenance, `$everything` and the user archive. See
   [docs/fhir.md](docs/fhir.md#nutrition-logs).
+- Web example: a Next.js app (`examples/web`) built on the TypeScript server SDK that goes from
+  the first user to webhooks in four pages: create and list users; get data in through the
+  hosted connection page or an upload of 14 days of synthetic steps, resting heart rate and
+  sleep with an upload-only user token; read it back as daily summaries, samples, sleep, FHIR R4
+  and Open mHealth; and a webhook receiver that verifies with `verifyWebhook` and lists the last
+  20 events. The tenant key stays on the server. CI type checks, tests and builds it. See
+  [examples/web](examples/web/README.md).
 
 ### Changed
 
