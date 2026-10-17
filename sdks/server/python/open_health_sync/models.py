@@ -354,6 +354,26 @@ class AdminProviderPatch(TypedDict, total=False):
     enabled: bool
 
 
+class AdminTenantProvider(TypedDict):
+    slug: str
+    name: str
+    kinds: List[Literal["oauth", "push", "device"]]
+    # The provider's status on the instance, as `GET /v1/admin/providers` gives it.
+    instance_status: Literal["active", "off", "not_configured", "error", "built_in"]
+    # The tenant's switch, true unless an instance admin turned it off.
+    enabled: bool
+    # True when the tenant's users can use the provider now: the instance runs it (`active`
+    # or `built_in`) and `enabled` is true.
+    available: bool
+    # The last change of the switch, null when it was never set.
+    updated_at: Optional[str]
+
+
+class AdminTenantProviderPatch(TypedDict):
+    # false turns the provider off for the tenant, true turns it back on.
+    enabled: bool
+
+
 class _AuditEventRequired(TypedDict):
     # Increasing; the cursor of the next page.
     id: int
@@ -362,8 +382,8 @@ class _AuditEventRequired(TypedDict):
     # data.read, data.export, data.write, user.create, user.read, user.delete,
     # user.erased, token.create, connection.read, connection.create,
     # connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-    # config.write, tenant.create, key.create, key.revoke, share.create, share.read,
-    # share.revoke, share.access (more may be added).
+    # config.write, tenant.create, tenant.provider, key.create, key.revoke, share.create,
+    # share.read, share.revoke, share.access (more may be added).
     action: str
     # The end user the action concerns.
     user_id: Optional[str]
@@ -2057,6 +2077,8 @@ __all__ = [
     "AdminProviderPatch",
     "AdminProviderUrl",
     "AdminTenant",
+    "AdminTenantProvider",
+    "AdminTenantProviderPatch",
     "AuditEvent",
     "AuditEventActor",
     "CategorySample",

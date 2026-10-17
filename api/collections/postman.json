@@ -124,7 +124,7 @@
           "name": "Connectors enabled on this instance",
           "request": {
             "method": "GET",
-            "description": "Connectors enabled on this instance.\n\n`GET /v1/providers`",
+            "description": "Connectors enabled on this instance.\n\n`GET /v1/providers`\n\nThe connectors enabled on this instance, less those an instance admin turned off for the\ncaller's tenant.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/providers",
@@ -775,7 +775,7 @@
           "name": "Start connecting a provider",
           "request": {
             "method": "POST",
-            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done.",
+            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done. 403 when an\ninstance admin turned the provider off for the tenant.",
             "header": [
               {
                 "key": "Content-Type",
@@ -901,7 +901,7 @@
           "name": "Sync a connection now",
           "request": {
             "method": "POST",
-            "description": "Sync a connection now.\n\n`POST /v1/users/{id}/connections/{provider}/sync`\n\nQueues a pull of the connection ahead of routine work and answers with the sync run; follow it\nat the `Location` header. The window ends now and starts where the connection's data ends\n(minus an hour of overlap), a day back for a connection that never synced, or at `from`\n(at most 30 days back). While a manual run of the connection is still queued or running, the\nanswer is 200 with that run and nothing new is queued. 409 when the connection does not sync\n(`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.",
+            "description": "Sync a connection now.\n\n`POST /v1/users/{id}/connections/{provider}/sync`\n\nQueues a pull of the connection ahead of routine work and answers with the sync run; follow it\nat the `Location` header. The window ends now and starts where the connection's data ends\n(minus an hour of overlap), a day back for a connection that never synced, or at `from`\n(at most 30 days back). While a manual run of the connection is still queued or running, the\nanswer is 200 with that run and nothing new is queued. 409 when the connection does not sync\n(`needs_reauth`, `disconnected`: connect the user again), its provider is not enabled here,\nor an instance admin turned the provider off for the tenant.",
             "header": [
               {
                 "key": "Content-Type",

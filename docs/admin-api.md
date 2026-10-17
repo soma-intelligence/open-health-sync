@@ -5,7 +5,7 @@ data, connections, webhooks, the audit log and API keys belong to one tenant and
 sees them. `ohs admin tenant create` makes a tenant from a shell on the server. The routes below
 do the same over HTTP, so your own tooling (a script, an internal portal where a team signs up,
 an infrastructure pipeline) can create a tenant per team, hand out and revoke its keys, watch its
-pipeline and give it a demo user, without the database credentials.
+pipeline, choose its providers and give it a demo user, without the database credentials.
 
 > **Next release.** These routes are on `main` and ship in the next release.
 
@@ -38,6 +38,8 @@ revoke the old one). A key cannot revoke itself, so the tooling cannot lock itse
 | `POST /v1/admin/tenants/{tenant_id}/keys` | 201, a new key for the tenant |
 | `DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}` | 204, the key is revoked |
 | `POST /v1/admin/tenants/{tenant_id}/demo-user` | 201 or 200, a user of the tenant filled with [synthetic data](demo.md) |
+| `GET /v1/admin/tenants/{tenant_id}/providers` | `{"data": [provider, ...]}`, every provider of the instance with the tenant's switch |
+| `PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}` | The provider, turned off or back on for the tenant: body `{"enabled": false}` |
 
 A tenant is:
 
@@ -148,6 +150,59 @@ The team reads the data with its own key, like any user's: `GET /v1/users/{id}/d
 `/sleep`, FHIR, exports. The admin key does not see it (404), since the user is not in the
 admin's tenant.
 
+## Providers per tenant
+
+The instance runs a provider for every tenant: its keys are the instance's, set in the
+[provider settings](console.md). An admin can narrow that, tenant by tenant: a team that has
+not signed the provider's terms, a study that collects from one wearable only.
+
+```sh
+curl -s "$OHS/v1/admin/tenants/$TENANT/providers" -H "Authorization: Bearer $ADMIN_KEY"
+curl -s -X PATCH "$OHS/v1/admin/tenants/$TENANT/providers/oura" -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'
+```
+
+```json
+{
+  "slug": "oura",
+  "name": "Oura",
+  "kinds": ["oauth"],
+  "instance_status": "active",
+  "enabled": false,
+  "available": false,
+  "updated_at": "2026-10-17T09:30:02.481190Z"
+}
+```
+
+The list holds every provider the instance knows, in the order of `GET /v1/admin/providers`.
+`instance_status` is the provider's status there (`active`, `off`, `not_configured`, `error`,
+`built_in`). `enabled` is the tenant's switch: true unless an admin turned it off, the default
+for every tenant and every provider, new ones included. `available` is true when the tenant's
+users can use the provider now: the instance runs it (`active` or `built_in`) and the switch is
+on. `updated_at` is the last change of the switch, null when it was never set.
+
+`PATCH` takes `{"enabled": true}` or `{"enabled": false}`, nothing else (400 otherwise), and
+answers the provider as listed. It can be set for a provider the instance does not run yet, so
+the tenant does not get it when it is turned on. An unknown tenant or provider is a 404. The
+change applies at once on the instance that answered and within 30 seconds on the others.
+
+While a provider is off for a tenant:
+
+- `GET /v1/providers` leaves it out, for the tenant's keys and user tokens, and the
+  [hosted connect page](connect-page.md) does not offer it.
+- Starting a connection, a connect session that names it, the connect page's button and the
+  OAuth callback of a consent already started answer 403, `detail` saying the provider is turned
+  off for this tenant. A callback with a `redirect_uri` goes back with `status=error`. The code is
+  never exchanged.
+- Sync now answers 409, and the scheduler plans no pull. A pull already queued ends `cancelled`
+  without reaching the provider; it is not a failure of the connection and is not retried.
+  Provider notifications are still answered, and dropped for the tenant.
+- Uploads (`/v1/ingest/...`) and self reports answer 403, before anything is stored.
+
+Nothing is deleted: the connections stay, with their tokens, and the data stored stays readable.
+Turned back on, the next scheduled pull reaches back to the connection's last successful sync,
+up to 7 days, like after an outage.
+
 ## Retries
 
 `POST /v1/admin/tenants` and `POST .../keys` do not honour `Idempotency-Key`, like `POST /v1/keys`
@@ -158,15 +213,15 @@ route can be repeated as it is.
 ## Audit
 
 Each request is recorded in the admin tenant's [audit log](audit-log.md), like any request:
-`tenant.create`, `key.create`, `key.revoke` and `data.write` (the demo user) for the changes,
-`config.read` for the reads, with the `tenant_id` of the path in `detail`.
+`tenant.create`, `key.create`, `key.revoke`, `data.write` (the demo user) and `tenant.provider`
+for the changes, `config.read` for the reads, with the `tenant_id` of the path in `detail`.
 
 The tenant that was changed gets an event of its own, so its log tells the whole story: actor
 type `admin`, actor id `api_key:` followed by the admin key's id, the action above, and in
 `detail` the admin's tenant (`admin_tenant_id`) with the key's `key_id` and `key_prefix` (never
-the key), or for the demo user its `user_id`, `days`, `rows_written` and `user_created`. A
-tenant or key change and its event are written together: if the event cannot be written,
-nothing changes.
+the key), for the demo user its `user_id`, `days`, `rows_written` and `user_created`, for a
+provider switch its `provider` and `enabled`. A tenant, key or switch change and its event are
+written together: if the event cannot be written, nothing changes.
 
 ## Not here
 
@@ -174,4 +229,4 @@ nothing changes.
 - Making a tenant an instance admin, or clearing the mark: `ohs admin tenant admin`.
 - The [admin console](console.md) still shows the tenant of the key signed in.
 - The server SDKs leave these routes out, as they do the provider settings; their types
-  (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`) are generated.
+  (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`, `AdminTenantProvider`) are generated.

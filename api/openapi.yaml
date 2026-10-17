@@ -107,6 +107,9 @@ paths:
       tags: [providers]
       operationId: listProviders
       summary: Connectors enabled on this instance
+      description: |
+        The connectors enabled on this instance, less those an instance admin turned off for the
+        caller's tenant.
       responses:
         "200":
           description: Enabled connectors, by slug.
@@ -609,7 +612,8 @@ paths:
         lands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in
         result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
         `Idempotency-Key` is not honoured here. While the user's data from this provider is
-        being deleted the answer is 409: connect again once the deletion job is done.
+        being deleted the answer is 409: connect again once the deletion job is done. 403 when an
+        instance admin turned the provider off for the tenant.
       requestBody:
         required: false
         content:
@@ -873,7 +877,8 @@ paths:
         (minus an hour of overlap), a day back for a connection that never synced, or at `from`
         (at most 30 days back). While a manual run of the connection is still queued or running, the
         answer is 200 with that run and nothing new is queued. 409 when the connection does not sync
-        (`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.
+        (`needs_reauth`, `disconnected`: connect the user again), its provider is not enabled here,
+        or an instance admin turned the provider off for the tenant.
       requestBody:
         required: false
         content:
@@ -3395,6 +3400,64 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /v1/admin/tenants/{tenant_id}/providers:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+    get:
+      tags: [admin]
+      operationId: listAdminTenantProviders
+      summary: The providers of one tenant, each with its switch (instance admin)
+      description: |
+        Every provider the instance knows, in the order of `GET /v1/admin/providers`, with the
+        tenant's switch: on unless an instance admin turned it off. Recorded as `config.read`.
+        See docs/admin-api.md.
+      responses:
+        "200":
+          description: The providers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/AdminTenantProvider" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/providers/{provider}:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/Provider"
+    patch:
+      tags: [admin]
+      operationId: updateAdminTenantProvider
+      summary: Turn a provider off, or back on, for one tenant (instance admin)
+      description: |
+        While a provider is off for a tenant, `GET /v1/providers` and the connect page leave it
+        out for the tenant, starting a connection, the OAuth callback, uploads and self reports
+        answer 403, sync now answers 409, no pull is planned and a queued one ends `cancelled`
+        without reaching the provider. Connections and data are kept. The switch applies at once
+        in the process that answers and within 30 seconds in the others. Recorded as
+        `tenant.provider` in the caller's audit log and in the tenant's, together with the change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminTenantProviderPatch" }
+      responses:
+        "200":
+          description: The provider for the tenant after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminTenantProvider" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/audit:
     get:
       tags: [audit]
@@ -4120,6 +4183,41 @@ components:
           additionalProperties: { type: [string, "null"] }
         enabled: { type: boolean }
 
+    AdminTenantProvider:
+      type: object
+      required: [slug, name, kinds, instance_status, enabled, available, updated_at]
+      properties:
+        slug: { type: string, examples: [oura] }
+        name: { type: string, examples: [Oura] }
+        kinds:
+          type: array
+          items: { type: string, enum: [oauth, push, device] }
+        instance_status:
+          type: string
+          enum: [active, off, not_configured, error, built_in]
+          description: The provider's status on the instance, as `GET /v1/admin/providers` gives it.
+        enabled:
+          type: boolean
+          description: The tenant's switch, true unless an instance admin turned it off.
+        available:
+          type: boolean
+          description: |
+            True when the tenant's users can use the provider now: the instance runs it (`active`
+            or `built_in`) and `enabled` is true.
+        updated_at:
+          type: [string, "null"]
+          format: date-time
+          description: The last change of the switch, null when it was never set.
+
+    AdminTenantProviderPatch:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+          description: false turns the provider off for the tenant, true turns it back on.
+
     AuditEvent:
       type: object
       required: [id, at, actor, action, user_id, status, detail]
@@ -4145,8 +4243,8 @@ components:
             data.read, data.export, data.write, user.create, user.read, user.delete,
             user.erased, token.create, connection.read, connection.create,
             connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-            config.write, tenant.create, key.create, key.revoke, share.create, share.read,
-            share.revoke, share.access (more may be added).
+            config.write, tenant.create, tenant.provider, key.create, key.revoke, share.create,
+            share.read, share.revoke, share.access (more may be added).
         user_id: { type: [string, "null"], format: uuid, description: "The end user the action concerns." }
         method: { type: string, description: "The HTTP method, absent outside a request." }
         route: { type: string, description: "The route pattern, absent outside a request." }

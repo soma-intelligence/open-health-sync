@@ -343,8 +343,8 @@ func regularWindow(slotEnd time.Time, every time.Duration, lastSync *time.Time) 
 // provider's notifications arrive, hourly slots otherwise (see pullEvery).
 // Each active connection gets one job whose window ends at the latest slot
 // boundary, once. A connection whose provider is not available on this
-// instance is skipped. Only one instance schedules at a time (advisory lock);
-// the others return 0.
+// instance, or is turned off for its tenant, is skipped. Only one instance
+// schedules at a time (advisory lock); the others return 0.
 func (s *Scheduler) Schedule(ctx context.Context) (int, error) {
 	tx, err := s.d.Pool.Begin(ctx)
 	if err != nil {
@@ -426,10 +426,18 @@ func (s *Scheduler) pushSlugs(slugs []string) []string {
 	return out
 }
 
+// providerOn is the condition, on a connection c, that its provider is not
+// turned off for its tenant. It reads the table rather than Deps.Allowed so
+// it filters before the LIMIT: connections that cannot be pulled must not
+// fill the batch and starve the others.
+const providerOn = `NOT EXISTS (SELECT 1 FROM ohs_core.tenant_providers tp
+		WHERE tp.tenant_id = c.tenant_id AND tp.provider = c.provider AND NOT tp.enabled)`
+
 // scheduleConnections enqueues the backfills and the regular pulls due now.
-// Only active connections of active users are considered. The user rows are
-// held FOR SHARE until tx ends, so a deletion cannot start between the check
-// and the inserts (and then miss the jobs written here).
+// Only active connections of active users are considered, and only those
+// whose provider is on for their tenant. The user rows are held FOR SHARE
+// until tx ends, so a deletion cannot start between the check and the
+// inserts (and then miss the jobs written here).
 func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time.Time, slugs []string) (int, error) {
 	type key struct {
 		tenant, user uuid.UUID
@@ -460,6 +468,7 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 		SELECT c.tenant_id, c.user_id, c.provider, c.last_sync_at FROM ohs_sync.connections c
 		JOIN ohs_core.end_users u ON u.tenant_id = c.tenant_id AND u.id = c.user_id AND u.status = 'active'
 		WHERE c.status = 'active' AND c.initial_backfill_at IS NULL AND c.provider = ANY($1)
+		  AND `+providerOn+`
 		ORDER BY c.created_at, c.tenant_id, c.user_id, c.provider
 		LIMIT $2
 		FOR SHARE OF u`, slugs, s.cfg.Batch)
@@ -494,7 +503,7 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 			       CASE WHEN h.healthy THEN $4::double precision ELSE $10::double precision END AS span
 			FROM (SELECT coalesce(c.provider = ANY($7) AND c.last_event_at > $8, false) AS healthy) h
 		) s
-		WHERE c.status = 'active' AND c.provider = ANY($3)
+		WHERE c.status = 'active' AND c.provider = ANY($3) AND `+providerOn+`
 		  AND c.initial_backfill_at IS NOT NULL AND c.initial_backfill_at < s.slot_end
 		  AND NOT EXISTS (
 			SELECT 1 FROM ohs_sync.pull_jobs j
@@ -603,6 +612,11 @@ func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
 	oc, ok := s.d.oauth(job.Provider)
 	if !ok {
 		return 0, fmt.Errorf("provider %q is not available on this instance", job.Provider)
+	}
+	// Queued before the provider was turned off for the tenant: nothing is
+	// fetched, and the job is cancelled rather than failed (settle).
+	if !s.d.allowed(job.TenantID, job.Provider) {
+		return 0, ErrProviderOff
 	}
 	conn, err := s.d.connection(ctx, oc, job.TenantID, job.UserID, job.Provider)
 	if err != nil {
@@ -724,6 +738,12 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 	case errors.Is(cause, errInactive):
 		outcome = outcomeInactive
 		err = parkJob(ctx, s.d.Pool, job, reasonInactive, queue.OutcomeInactive)
+	case errors.Is(cause, ErrProviderOff):
+		// Cancelled like the job of a stopped connection: not a failure,
+		// never retried. The regular pulls catch up once it is back on.
+		outcome = outcomeInactive
+		log.InfoContext(ctx, "collect: provider turned off for the tenant, pull cancelled")
+		err = parkJob(ctx, s.d.Pool, job, reasonProviderOff, queue.OutcomeInactive)
 	default:
 		outcome = outcomeFailed
 		msg := safeErr(cause)
@@ -857,12 +877,14 @@ func parkJob(ctx context.Context, q execer, job queue.PullJob, reason, outcome s
 	return nil
 }
 
-// logSync writes the pull's sync_log row. Rate limits and stopped
-// connections are not errors of the pull and are not logged there.
+// logSync writes the pull's sync_log row. Rate limits, stopped connections
+// and providers turned off for the tenant are not errors of the pull and are
+// not logged there.
 func (s *Scheduler) logSync(ctx context.Context, log *slog.Logger, job queue.PullJob, stored int, took time.Duration, cause error) {
 	status, msg := "completed", (*string)(nil)
 	if cause != nil {
-		if _, limited := connector.AsRateLimit(cause); limited || errors.Is(cause, errInactive) {
+		if _, limited := connector.AsRateLimit(cause); limited || errors.Is(cause, errInactive) ||
+			errors.Is(cause, ErrProviderOff) {
 			return
 		}
 		status = "error"

@@ -59,6 +59,13 @@ type UploadDeps struct {
 	Raw  rawstore.Store
 	// Device validates the body and names the provider (its slug).
 	Device connector.DeviceConnector
+	// Allowed reports whether a tenant may upload to the provider, as
+	// Deps.Allowed does. Nil allows every tenant.
+	Allowed func(tenant uuid.UUID, slug string) bool
+}
+
+func (d UploadDeps) allowed(tenantID uuid.UUID, slug string) bool {
+	return d.Allowed == nil || d.Allowed(tenantID, slug)
 }
 
 // UploadResponse is the 200 body.
@@ -69,7 +76,8 @@ type UploadResponse struct {
 
 // NewUploadHandler returns the device upload handler. It expects to run behind
 // auth.Middleware with auth.UserUpload, which puts the user's Principal on the
-// context. One request stores one part:
+// context. An upload to a provider turned off for the user's tenant is
+// refused first (403). One request stores one part:
 //
 //  1. headers are validated (400 naming the header);
 //  2. the body is read up to MaxUploadBytes (413 above);
@@ -113,6 +121,10 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok || p.UserID == nil {
 		// Only reachable when mounted without the middleware.
 		auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "a user token with the upload scope is required")
+		return
+	}
+	if !h.d.allowed(p.TenantID, h.provider) {
+		writeProviderOff(w)
 		return
 	}
 	req, msg := parseHeaders(r.Header)
@@ -200,12 +212,16 @@ var (
 // connector checks every line, the bytes go to the raw store, and the
 // raw_objects row and its ETL job are inserted in one transaction. The same
 // bytes sent again are a duplicate. A part the connector refuses is an
-// error naming the line (the caller should have checked its input first).
+// error naming the line (the caller should have checked its input first). A
+// provider turned off for the tenant is ErrProviderOff, nothing stored.
 func StorePart(ctx context.Context, d UploadDeps, p Part) (UploadResponse, error) {
 	if d.Pool == nil || d.Raw == nil || d.Device == nil {
 		return UploadResponse{}, errors.New("collect: StorePart needs Pool, Raw and Device")
 	}
 	h := &uploadHandler{d: d, provider: d.Device.Slug()}
+	if !d.allowed(p.Tenant, h.provider) {
+		return UploadResponse{}, ErrProviderOff
+	}
 	q := uploadReq{tenant: p.Tenant, user: p.User, dataType: p.Type, day: p.Day, batch: p.Batch, part: p.Part}
 	if !safeSegment(q.dataType) || !safeSegment(q.batch) || q.part < 0 || q.part > maxPart {
 		return UploadResponse{}, errors.New("collect: StorePart: invalid type, batch or part")

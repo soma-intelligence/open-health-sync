@@ -32,6 +32,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 )
 
 // connEnv is a database, a raw store, the fake provider in a private
@@ -46,6 +47,8 @@ type connEnv struct {
 	mux   *http.ServeMux
 	sched *collect.Scheduler
 	clock atomic.Pointer[time.Time]
+	// switches are the providers turned off per tenant, read by deps.Allowed.
+	switches *tenantproviders.Set
 
 	tenantA, tenantB uuid.UUID
 	keyA, keyB       string
@@ -88,9 +91,11 @@ func newConnEnvWrapped(t *testing.T, cfg collect.SchedulerConfig, wrap func(fake
 	ua, err := e.store.CreateUser(ctx, ta.ID, "a-1")
 	require.NoError(t, err)
 	e.tenantA, e.tenantB, e.keyA, e.keyB, e.userA = ta.ID, tb.ID, keyA, keyB, ua.ID
+	e.switches = tenantproviders.New(ctx, tenantproviders.NewPG(pool))
 
 	e.deps = collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: e.store, Lookup: reg.Get,
+		Allowed:   e.switches.Allowed,
 		PublicURL: "https://ohs.example.test",
 		Now: func() time.Time {
 			if p := e.clock.Load(); p != nil {

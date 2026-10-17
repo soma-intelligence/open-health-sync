@@ -39,6 +39,14 @@ release may change the API, the configuration or the database schema.
   code path of `ohs seed --demo` now shared by both. Each change is also recorded in the audit
   log of the tenant it changed (actor `admin`, the admin key's id, the key prefix, never the
   key), in the same transaction for tenants and keys. See [docs/admin-api.md](docs/admin-api.md).
+- Providers per tenant: an instance admin turns a provider off, or back on, for one tenant with
+  `PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}` (`{"enabled": false}`), and lists the
+  switches with `GET /v1/admin/tenants/{tenant_id}/providers`. On by default. While off, the
+  tenant's `GET /v1/providers` and connect page leave the provider out, starting a connection,
+  the OAuth callback and uploads answer 403, sync now answers 409, no pull is planned and a
+  queued one ends `cancelled` without reaching the provider. Connections and data are kept. The
+  switch is audited as `tenant.provider` on both tenants and applies in every process within 30
+  seconds; migration 0041 adds `ohs_core.tenant_providers`.
 - `GET /v1/pipeline` (the tenant's pipeline counts in one answer), `GET /v1/pipeline/sync-runs`
   (sync runs across users, with `status` and `provider` filters), `GET /v1/pipeline/etl-jobs`
   (parked, pending or running processing jobs), and `POST /v1/pipeline/etl-jobs/{job_id}/retry`

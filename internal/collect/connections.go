@@ -55,6 +55,10 @@ type Deps struct {
 	// schedules these). Nil means: the providers found in the connections
 	// table that Lookup resolves.
 	Slugs []string
+	// Allowed reports whether a tenant may use a provider the instance
+	// runs: false when an instance admin turned it off for that tenant
+	// (tenantproviders.Set.Allowed). Nil allows every provider.
+	Allowed func(tenant uuid.UUID, slug string) bool
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -79,6 +83,21 @@ func (d Deps) oauth(slug string) (connector.OAuthConnector, bool) {
 		return nil, false
 	}
 	return connector.AsOAuth(c)
+}
+
+// ProviderOffDetail is the problem detail of a request refused because the
+// provider is turned off for the caller's tenant.
+const ProviderOffDetail = "this provider is turned off for this tenant: an instance admin can turn it back on"
+
+// ErrProviderOff refuses work for a provider turned off for the tenant.
+var ErrProviderOff = errors.New("collect: the provider is turned off for this tenant")
+
+// allowed reports whether the tenant may use the provider (Deps.Allowed).
+// Every route and job that knows its tenant asks here, after lookup or
+// oauth: a provider the instance does not run is unknown (404), one it runs
+// but turned off for the tenant is refused (ErrProviderOff).
+func (d Deps) allowed(tenantID uuid.UUID, slug string) bool {
+	return d.Allowed == nil || d.Allowed(tenantID, slug)
 }
 
 func (d Deps) check(what string) {
@@ -209,6 +228,7 @@ const (
 	reasonNeedsReauth  = "connection needs reauthorization"
 	reasonDisconnected = "connection disconnected"
 	reasonInactive     = "connection is not active"
+	reasonProviderOff  = "provider turned off for this tenant"
 )
 
 // parkPending stops the pending pull jobs of one connection: they are parked
@@ -285,6 +305,11 @@ func (h *Handlers) caller(w http.ResponseWriter, r *http.Request) (uuid.UUID, uu
 
 func writeNotFound(w http.ResponseWriter, detail string) {
 	auth.WriteProblem(w, http.StatusNotFound, "Not Found", detail)
+}
+
+// writeProviderOff answers 403: the provider is turned off for the tenant.
+func writeProviderOff(w http.ResponseWriter) {
+	auth.WriteProblem(w, http.StatusForbidden, "Forbidden", ProviderOffDetail)
 }
 
 func writeBadRequest(w http.ResponseWriter, detail string) {

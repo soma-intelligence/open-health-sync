@@ -189,7 +189,7 @@ func inboundOwners(ctx context.Context, q interface {
 // connection as having heard from its provider (touchInbound). The batch name
 // carries the arrival time, so two notifications never share a key; the same
 // bytes delivered twice are stored once (storeRaw skips registered bytes). A
-// user being deleted is skipped.
+// user being deleted, or a tenant that turned the provider off, is skipped.
 func (h *Handlers) storeInbound(ctx context.Context, provider string, events []connector.InboundEvent) error {
 	now := h.d.now().UTC()
 	for i, ev := range events {
@@ -201,6 +201,9 @@ func (h *Handlers) storeInbound(ctx context.Context, provider string, events []c
 			return err
 		}
 		for _, o := range owners {
+			if !h.d.allowed(o.tenant, provider) {
+				continue
+			}
 			_, err := storeRaw(ctx, h.d, rawTarget{
 				tenant: o.tenant, user: o.user, provider: provider, dataType: ev.DataType,
 				day: now, batch: fmt.Sprintf("inbound-%d", now.UnixMicro()), part: i,
@@ -221,9 +224,10 @@ func (h *Handlers) storeInbound(ctx context.Context, provider string, events []c
 	return nil
 }
 
-// enqueueInbound queues a pull per notified connection of an active user. The
-// user rows are held FOR SHARE until the transaction ends, so a deletion
-// cannot start between the check and the inserts.
+// enqueueInbound queues a pull per notified connection of an active user,
+// unless the provider is turned off for the user's tenant. The user rows are
+// held FOR SHARE until the transaction ends, so a deletion cannot start
+// between the check and the inserts.
 func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events []connector.InboundEvent) error {
 	if len(events) == 0 {
 		return nil
@@ -248,6 +252,9 @@ func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events [
 			dataType = ev.DataType
 		}
 		for _, o := range owners {
+			if !h.d.allowed(o.tenant, provider) {
+				continue
+			}
 			if err := coalescePull(ctx, tx, queue.PullJob{
 				TenantID: o.tenant, UserID: o.user, Provider: provider, From: from, To: to,
 				DataType: dataType, Inbound: true,

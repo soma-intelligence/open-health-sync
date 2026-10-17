@@ -87,10 +87,10 @@ func (d Deps) ConnectURL(token string) string {
 	return d.publicBase() + "/connect?session=" + url.QueryEscape(token)
 }
 
-// oauthSlugs are the OAuth providers enabled on this instance: Deps.Slugs
-// (every registered connector when nil) that Lookup resolves to an OAuth
-// connector.
-func (d Deps) oauthSlugs() []string {
+// oauthSlugs are the OAuth providers a tenant can connect on this instance:
+// Deps.Slugs (every registered connector when nil) that Lookup resolves to an
+// OAuth connector, less those turned off for the tenant.
+func (d Deps) oauthSlugs(tenantID uuid.UUID) []string {
 	cands := d.Slugs
 	if cands == nil {
 		for _, c := range connector.All() {
@@ -99,7 +99,7 @@ func (d Deps) oauthSlugs() []string {
 	}
 	var out []string
 	for _, s := range cands {
-		if _, ok := d.oauth(s); ok && !slices.Contains(out, s) {
+		if _, ok := d.oauth(s); ok && d.allowed(tenantID, s) && !slices.Contains(out, s) {
 			out = append(out, s)
 		}
 	}
@@ -115,58 +115,64 @@ func validLogo(s string) bool {
 	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil
 }
 
-// newConnectSession checks a request and returns the session it describes
-// (without tenant and user), or the problem detail of a 400.
-func (d Deps) newConnectSession(req ConnectSessionRequest, now time.Time) (connectSession, string) {
+// newConnectSession checks a request of the tenant and returns the session
+// it describes (without tenant and user), or the status and problem detail
+// of the refusal: 403 for a provider turned off for the tenant, 400
+// otherwise. The status is 0 when the request is accepted.
+func (d Deps) newConnectSession(tenantID uuid.UUID, req ConnectSessionRequest, now time.Time) (connectSession, int, string) {
 	var s connectSession
+	bad := func(detail string) (connectSession, int, string) { return s, http.StatusBadRequest, detail }
 	if req.RedirectURI != "" && !validRedirect(req.RedirectURI) {
-		return s, "redirect_uri must be an absolute https URL (http only for localhost)"
+		return bad("redirect_uri must be an absolute https URL (http only for localhost)")
 	}
 	s.redirect = req.RedirectURI
 
 	s.appName = strings.TrimSpace(req.AppName)
 	if utf8.RuneCountInString(s.appName) > maxAppName || !utf8.ValidString(s.appName) {
-		return s, fmt.Sprintf("app_name must be at most %d characters", maxAppName)
+		return bad(fmt.Sprintf("app_name must be at most %d characters", maxAppName))
 	}
 	if strings.ContainsFunc(s.appName, unicode.IsControl) {
-		return s, "app_name must not contain control characters"
+		return bad("app_name must not contain control characters")
 	}
 
 	if req.LogoURL != "" && !validLogo(req.LogoURL) {
-		return s, fmt.Sprintf("logo_url must be an absolute https URL of at most %d characters", maxLogoURL)
+		return bad(fmt.Sprintf("logo_url must be an absolute https URL of at most %d characters", maxLogoURL))
 	}
 	s.logoURL = req.LogoURL
 
 	ttl := DefaultConnectSessionTTL
 	if req.TTLSeconds != nil {
 		if *req.TTLSeconds < minConnectTTLSeconds || *req.TTLSeconds > maxConnectTTLSeconds {
-			return s, fmt.Sprintf("ttl_seconds must be between %d and %d", minConnectTTLSeconds, maxConnectTTLSeconds)
+			return bad(fmt.Sprintf("ttl_seconds must be between %d and %d", minConnectTTLSeconds, maxConnectTTLSeconds))
 		}
 		ttl = time.Duration(*req.TTLSeconds) * time.Second
 	}
 	s.expiresAt = now.Add(ttl).UTC().Truncate(time.Second)
 
 	if len(req.Providers) > maxConnectProviders {
-		return s, fmt.Sprintf("providers lists at most %d providers", maxConnectProviders)
+		return bad(fmt.Sprintf("providers lists at most %d providers", maxConnectProviders))
 	}
 	for _, p := range req.Providers {
 		if _, ok := d.oauth(p); !ok {
 			if len(p) > 64 {
 				p = p[:64]
 			}
-			return s, fmt.Sprintf("providers: %q is not an OAuth provider enabled on this instance", strings.ToValidUTF8(p, "?"))
+			return bad(fmt.Sprintf("providers: %q is not an OAuth provider enabled on this instance", strings.ToValidUTF8(p, "?")))
+		}
+		if !d.allowed(tenantID, p) {
+			return s, http.StatusForbidden, fmt.Sprintf("providers: %q: %s", p, ProviderOffDetail)
 		}
 		if !slices.Contains(s.providers, p) {
 			s.providers = append(s.providers, p)
 		}
 	}
 	if len(s.providers) == 0 {
-		s.providers = d.oauthSlugs()
+		s.providers = d.oauthSlugs(tenantID)
 	}
 	if len(s.providers) == 0 {
-		return s, "no OAuth provider is enabled on this instance"
+		return bad("no OAuth provider is enabled on this instance for this tenant")
 	}
-	return s, ""
+	return s, 0, ""
 }
 
 // CreateConnectSession serves POST /v1/users/{id}/connect-sessions. Mount
@@ -194,9 +200,9 @@ func (h *Handlers) CreateConnectSession() http.Handler {
 				return
 			}
 		}
-		sess, problem := h.d.newConnectSession(req, h.d.now())
-		if problem != "" {
-			auth.WriteProblem(w, http.StatusBadRequest, "Bad Request", problem)
+		sess, code, problem := h.d.newConnectSession(tenantID, req, h.d.now())
+		if code != 0 {
+			auth.WriteProblem(w, code, http.StatusText(code), problem)
 			return
 		}
 		token, err := newState()
@@ -291,16 +297,38 @@ func (h *Handlers) session(w http.ResponseWriter, r *http.Request, token string)
 	return s, true
 }
 
-// allowed returns the session's providers still enabled as OAuth providers,
-// or only provider when it is one of them (ok false when it is not).
-func (h *Handlers) allowed(s connectSession, provider string) ([]string, bool) {
-	var out []string
+// sessionProviders returns the session's providers still enabled as OAuth
+// providers and not turned off for its tenant, or only provider when it is
+// one of them. found is false when provider is not one of them; off tells
+// that it is, but turned off for the tenant.
+func (h *Handlers) sessionProviders(s connectSession, provider string) (slugs []string, found, off bool) {
 	for _, p := range s.providers {
-		if _, ok := h.d.oauth(p); ok && (provider == "" || p == provider) {
-			out = append(out, p)
+		if provider != "" && p != provider {
+			continue
 		}
+		if _, ok := h.d.oauth(p); !ok {
+			continue
+		}
+		if !h.d.allowed(s.tenant, p) {
+			off = off || p == provider
+			continue
+		}
+		slugs = append(slugs, p)
 	}
-	return out, provider == "" || len(out) == 1
+	return slugs, provider == "" || len(slugs) == 1, off
+}
+
+// renderSourceRefused renders the page of a provider the session cannot
+// connect: turned off for the tenant (403), or not one of the session's
+// (404).
+func renderSourceRefused(w http.ResponseWriter, off bool) {
+	if off {
+		renderConnectProblem(w, http.StatusForbidden, "This source is turned off",
+			"This app has turned it off. Go back to the app and pick another source.")
+		return
+	}
+	renderConnectProblem(w, http.StatusNotFound, "This source is not available",
+		"Go back to the app and open the connection page again.")
 }
 
 // providerView is one provider row of the page.
@@ -338,10 +366,9 @@ func (h *Handlers) ConnectPage() http.Handler {
 		if !ok {
 			return
 		}
-		slugs, ok := h.allowed(s, provider)
-		if !ok {
-			renderConnectProblem(w, http.StatusNotFound, "This source is not available",
-				"Go back to the app and open the connection page again.")
+		slugs, found, off := h.sessionProviders(s, provider)
+		if !found {
+			renderSourceRefused(w, off)
 			return
 		}
 		status, err := h.connectionStatuses(r.Context(), s.tenant, s.user, slugs)
@@ -403,9 +430,8 @@ func (h *Handlers) ConnectStart() http.Handler {
 		if !ok {
 			return
 		}
-		if _, ok := h.allowed(s, provider); !ok {
-			renderConnectProblem(w, http.StatusNotFound, "This source is not available",
-				"Go back to the app and open the connection page again.")
+		if _, found, off := h.sessionProviders(s, provider); !found {
+			renderSourceRefused(w, off)
 			return
 		}
 		oc, _ := h.d.oauth(provider)

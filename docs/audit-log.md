@@ -11,7 +11,7 @@ articles 30 and 32 and comparable health data rules expect one).
 |---|---|
 | Every API request authenticated with a tenant key or a user token | One event, whatever the outcome (a 404 on another tenant's user is recorded too) |
 | `ohs admin tenant create`, `tenant admin`, `key create`, `key revoke` | `tenant.create`, `tenant.admin` (with `admin` true or false in `detail`), `key.create`, `key.revoke`, actor `admin` |
-| A change an instance admin key makes to a tenant through the [admin API](admin-api.md) | On the tenant it changed, besides the request's own event on the admin's tenant: `tenant.create`, `key.create` and `key.revoke` with `admin_tenant_id`, `key_id` and `key_prefix` in `detail`; `data.write` for the demo user, with its `user_id` and `admin_tenant_id`, `synthetic`, `days`, `rows_written` and `user_created` in `detail`. Actor `admin` |
+| A change an instance admin key makes to a tenant through the [admin API](admin-api.md) | On the tenant it changed, besides the request's own event on the admin's tenant: `tenant.create`, `key.create` and `key.revoke` with `admin_tenant_id`, `key_id` and `key_prefix` in `detail`; `data.write` for the demo user, with its `user_id` and `admin_tenant_id`, `synthetic`, `days`, `rows_written` and `user_created` in `detail`; `tenant.provider` for a provider turned off or on, with `admin_tenant_id`, `provider` and `enabled` in `detail`. Actor `admin` |
 | The [first-run setup](setup.md) (`POST /v1/setup`) | `tenant.create`, actor `system` with id `setup`, the key prefix in `detail` |
 | The deletion worker | `user.erased` when a user's data is gone, with the job id, actor `system` |
 | A [share link](share-links.md) opened by its reader | `share.access` for each manifest request on a known link and each file download, actor `share_link`, the outcome in `detail` |
@@ -53,8 +53,9 @@ dates or provider codes), a token, a key or an IP address.
 | `share.access` | A manifest request or a file download on a share link; `detail` holds `share_id` and `outcome` (`served`, `wrong_passcode`, `inactive`, `file`). Never the reader's name |
 | `tenant.create` | Creating a tenant through the admin API (`POST /v1/admin/tenants`) |
 | `key.create`, `key.revoke` | Creating and revoking an API key (`POST /v1/keys`, `DELETE /v1/keys/{key_id}`, and for another tenant `POST /v1/admin/tenants/{tenant_id}/keys`, `DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}`); listing keys is `config.read` |
+| `tenant.provider` | Turning a provider off or back on for one tenant (`PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}`); `detail` holds `provider` and, on the tenant changed, `enabled` |
 | `audit.read` | Reading this log |
-| `config.read`, `config.write` | Anything else: the provider list, the tenant, the pipeline and retrying processing jobs (`/v1/pipeline`), the provider settings (`/v1/admin/providers`), reading tenants, their keys and pipelines (`/v1/admin/tenants`) |
+| `config.read`, `config.write` | Anything else: the provider list, the tenant, the pipeline and retrying processing jobs (`/v1/pipeline`), the provider settings (`/v1/admin/providers`), reading tenants, their keys, pipelines and providers (`/v1/admin/tenants`) |
 
 New actions may be added; treat an unknown one as `config.read` or `config.write` by its method.
 

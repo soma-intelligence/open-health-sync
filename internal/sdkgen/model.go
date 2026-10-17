@@ -43,6 +43,8 @@ var skipped = map[string]string{
 	"createAdminTenantKey":      "the instance operator's tooling manages tenants, see docs/admin-api.md",
 	"revokeAdminTenantKey":      "the instance operator's tooling manages tenants, see docs/admin-api.md",
 	"createAdminTenantDemoUser": "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"listAdminTenantProviders":  "the instance operator's tooling manages tenants, see docs/admin-api.md",
+	"updateAdminTenantProvider": "the instance operator's tooling manages tenants, see docs/admin-api.md",
 }
 
 // API is the part of the OpenAPI document the emitters need, in document

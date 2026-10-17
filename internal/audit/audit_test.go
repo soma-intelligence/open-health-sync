@@ -56,6 +56,8 @@ func TestClassify(t *testing.T) {
 		{"POST", "POST /v1/admin/tenants/{tenant_id}/keys", KeyCreate},
 		{"DELETE", "DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}", KeyRevoke},
 		{"POST", "POST /v1/admin/tenants/{tenant_id}/demo-user", DataWrite},
+		{"GET", "GET /v1/admin/tenants/{tenant_id}/providers", ConfigRead},
+		{"PATCH", "PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}", TenantProvider},
 		{"GET", "", ConfigRead},
 		{"POST", "", ConfigWrite},
 	} {

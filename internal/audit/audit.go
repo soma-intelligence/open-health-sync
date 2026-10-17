@@ -74,6 +74,9 @@ const (
 	// ShareAccess is a manifest request on a known share link, or a file
 	// download; detail has the share id and the outcome.
 	ShareAccess = "share.access"
+	// TenantProvider is a provider turned off or back on for one tenant by
+	// an instance admin; detail has the provider and enabled.
+	TenantProvider = "tenant.provider"
 )
 
 // Event is one entry to record.
@@ -158,6 +161,8 @@ func Classify(method, pattern string) string {
 		return KeyRevoke
 	case path == "/v1/admin/tenants/{tenant_id}/demo-user":
 		return DataWrite // synthetic data for one of the tenant's users
+	case path == "/v1/admin/tenants/{tenant_id}/providers/{provider}" && method == "PATCH":
+		return TenantProvider
 	case strings.HasPrefix(path, "/v1/keys"):
 		switch method {
 		case "POST":

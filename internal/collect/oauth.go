@@ -126,6 +126,10 @@ func (h *Handlers) StartConnection() http.Handler {
 			writeNotFound(w, "this provider is not available on this instance")
 			return
 		}
+		if !h.d.allowed(tenantID, provider) {
+			writeProviderOff(w)
+			return
+		}
 		var req StartRequest
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxStartBody))
 		if err != nil {
@@ -245,11 +249,15 @@ func (h *Handlers) OAuthCallback() http.Handler {
 		log := slog.With("tenant_id", st.tenant, "user_id", st.user, "provider", provider)
 		if err := h.complete(ctx, provider, st, q); err != nil {
 			log.WarnContext(ctx, "collect: connection failed", "error", safeErr(err))
-			h.finish(w, r, st, provider, false)
+			code := http.StatusBadRequest
+			if errors.Is(err, ErrProviderOff) {
+				code = http.StatusForbidden
+			}
+			h.finish(w, r, st, provider, false, code)
 			return
 		}
 		log.InfoContext(ctx, "collect: connection established")
-		h.finish(w, r, st, provider, true)
+		h.finish(w, r, st, provider, true, http.StatusOK)
 	})
 }
 
@@ -275,6 +283,11 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	oc, ok := h.d.oauth(provider)
 	if !ok {
 		return errors.New("provider not available")
+	}
+	// Turned off for the tenant since the state was minted: the code is
+	// not exchanged, so no grant is issued and nothing is stored.
+	if !h.d.allowed(st.tenant, provider) {
+		return ErrProviderOff
 	}
 	var tokens connector.Tokens
 	if se, ok := oc.(connector.StateExchanger); ok {
@@ -382,17 +395,14 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	return nil
 }
 
-// finish sends the user to the tenant's redirect_uri, or renders the page.
-func (h *Handlers) finish(w http.ResponseWriter, r *http.Request, st oauthState, provider string, ok bool) {
+// finish sends the user to the tenant's redirect_uri, or renders the page
+// with code.
+func (h *Handlers) finish(w http.ResponseWriter, r *http.Request, st oauthState, provider string, ok bool, code int) {
 	status := "error"
 	if ok {
 		status = "connected"
 	}
 	if st.redirect == "" {
-		code := http.StatusOK
-		if !ok {
-			code = http.StatusBadRequest
-		}
 		renderResultBack(w, code, provider, ok, h.connectBackLink(r, st))
 		return
 	}

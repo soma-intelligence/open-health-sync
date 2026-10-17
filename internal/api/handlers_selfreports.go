@@ -97,8 +97,12 @@ func (s *server) createSelfReports(w http.ResponseWriter, r *http.Request) {
 		internalError(w, r, "api: self reports: part", err)
 		return
 	}
-	resp, err := collect.StorePart(r.Context(), collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: s.d.SelfReport}, part)
+	resp, err := collect.StorePart(r.Context(), collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: s.d.SelfReport,
+		Allowed: s.providerAllowed}, part)
 	switch {
+	case errors.Is(err, collect.ErrProviderOff):
+		problem(w, http.StatusForbidden, collect.ProviderOffDetail)
+		return
 	case errors.Is(err, collect.ErrUserGone):
 		notFound(w, "user")
 		return

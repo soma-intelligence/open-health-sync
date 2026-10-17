@@ -94,6 +94,7 @@ func (s *server) mountAdminTenants(admin func(string, http.HandlerFunc)) {
 	admin("POST /v1/admin/tenants/{tenant_id}/keys", s.createAdminTenantKey)
 	admin("DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}", s.revokeAdminTenantKey)
 	admin("POST /v1/admin/tenants/{tenant_id}/demo-user", s.createDemoUser)
+	s.mountAdminTenantProviders(admin)
 }
 
 // pathTenantID parses {tenant_id}. A malformed id is a tenant that does not

@@ -305,6 +305,28 @@ export interface AdminProviderPatch {
   enabled?: boolean;
 }
 
+export interface AdminTenantProvider {
+  slug: string;
+  name: string;
+  kinds: ("oauth" | "push" | "device")[];
+  /** The provider's status on the instance, as `GET /v1/admin/providers` gives it. */
+  instance_status: "active" | "off" | "not_configured" | "error" | "built_in";
+  /** The tenant's switch, true unless an instance admin turned it off. */
+  enabled: boolean;
+  /**
+   * True when the tenant's users can use the provider now: the instance runs it (`active`
+   * or `built_in`) and `enabled` is true.
+   */
+  available: boolean;
+  /** The last change of the switch, null when it was never set. */
+  updated_at: string | null;
+}
+
+export interface AdminTenantProviderPatch {
+  /** false turns the provider off for the tenant, true turns it back on. */
+  enabled: boolean;
+}
+
 export interface AuditEvent {
   /** Increasing; the cursor of the next page. */
   id: number;
@@ -314,8 +336,8 @@ export interface AuditEvent {
    * data.read, data.export, data.write, user.create, user.read, user.delete,
    * user.erased, token.create, connection.read, connection.create,
    * connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-   * config.write, tenant.create, key.create, key.revoke, share.create, share.read,
-   * share.revoke, share.access (more may be added).
+   * config.write, tenant.create, tenant.provider, key.create, key.revoke, share.create,
+   * share.read, share.revoke, share.access (more may be added).
    */
   action: string;
   /** The end user the action concerns. */
