@@ -20,7 +20,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
-const seedUsage = "usage: ohs seed --demo [--tenant <id>] [--days 90] [--external-ref demo-user] [--seed N]"
+const seedUsage = "usage: ohs seed --demo [--persona mix] [--tenant <id>] [--days 90] [--external-ref demo-user] [--seed N]"
 
 // demoTenantName is the tenant ohs seed --demo uses when no --tenant is given.
 const demoTenantName = "demo"
@@ -31,6 +31,7 @@ type seedOptions struct {
 	days        int
 	externalRef string
 	seed        int64
+	persona     string
 }
 
 // parseSeedArgs reads the seed flags. --demo is required: the command writes
@@ -41,8 +42,9 @@ func parseSeedArgs(args []string) (seedOptions, error) {
 	demoFlag := fs.Bool("demo", false, "write synthetic demo data")
 	tenantFlag := fs.String("tenant", "", "tenant id")
 	days := fs.Int("days", demo.DefaultDays, "days of data")
-	ref := fs.String("external-ref", "demo-user", "external_ref of the demo user")
-	seed := fs.Int64("seed", 1, "random seed")
+	ref := fs.String("external-ref", "", "external_ref of the demo user (default demo-user, demo-<persona>)")
+	seed := fs.Int64("seed", 0, "random seed (default the persona's)")
+	personaFlag := fs.String("persona", demo.PersonaMix, "kind of person: "+demo.PersonaNames())
 	if err := fs.Parse(args); err != nil {
 		return seedOptions{}, usageErr(fmt.Sprintf("%v (%s)", err, seedUsage))
 	}
@@ -52,7 +54,19 @@ func parseSeedArgs(args []string) (seedOptions, error) {
 	if !*demoFlag {
 		return seedOptions{}, usageErr("ohs seed writes synthetic data; pass --demo to confirm (" + seedUsage + ")")
 	}
-	o := seedOptions{days: *days, externalRef: strings.TrimSpace(*ref), seed: *seed}
+	persona, ok := demo.LookupPersona(*personaFlag)
+	if !ok || *personaFlag == "" {
+		return seedOptions{}, usageErr(fmt.Sprintf("--persona %q is not one of %s", *personaFlag, demo.PersonaNames()))
+	}
+	o := seedOptions{days: *days, externalRef: demo.DefaultExternalRef(persona.Name), seed: persona.Seed, persona: persona.Name}
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "external-ref":
+			o.externalRef = strings.TrimSpace(*ref)
+		case "seed":
+			o.seed = *seed
+		}
+	})
 	if o.days < 1 || o.days > demo.MaxDays {
 		return seedOptions{}, usageErr(fmt.Sprintf("--days must be between 1 and %d", demo.MaxDays))
 	}
@@ -100,9 +114,11 @@ func runSeed(rest []string, out io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintf(out, "writing %d days of synthetic data for user %q (tenant %s)\n", o.days, o.externalRef, tenantID)
-	res, err := demo.Seed(ctx, store, tenantID, demo.SeedOptions{Days: o.days, Seed: o.seed, ExternalRef: o.externalRef,
-		Written: func(provider string, c etl.Counts) { fmt.Fprintf(out, "  %-13s %s\n", provider, formatCounts(c)) }})
+	fmt.Fprintf(out, "writing %d days of synthetic data (%s) for user %q (tenant %s)\n", o.days, o.persona, o.externalRef, tenantID)
+	res, err := demo.Seed(ctx, store, tenantID, demo.SeedOptions{Days: o.days, Seed: o.seed, Persona: o.persona,
+		ExternalRef: o.externalRef, Written: func(provider string, c etl.Counts) {
+			fmt.Fprintf(out, "  %-13s %s\n", provider, formatCounts(c))
+		}})
 	switch {
 	case errors.Is(err, tenant.ErrNotFound):
 		return fmt.Errorf("no tenant with id %s", tenantID)

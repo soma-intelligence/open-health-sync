@@ -138,10 +138,19 @@ export interface CreateAdminTenantRequest {
 }
 
 export interface DemoUserRequest {
-  /** The user to fill, created when the tenant has none with this reference. */
+  /**
+   * The user to fill, created when the tenant has none with this reference. By default
+   * `demo-user` for `mix` and `demo-<persona>` for the others, so each persona fills its own.
+   */
   external_ref?: string;
   /** Days of data, ending yesterday. */
   days?: number;
+  /**
+   * The kind of person: `mix` (one person seen through six sources), `runner` (polar, whoop,
+   * apple_health), `sleep` (a short, irregular sleeper: oura, apple_health) or `weight`
+   * (someone watching their weight: withings, fitbit). See docs/demo.md.
+   */
+  persona?: "mix" | "runner" | "sleep" | "weight";
 }
 
 export interface DemoUser {
@@ -149,6 +158,8 @@ export interface DemoUser {
   days: number;
   /** Rows this call stored; 0 when every day was already there. */
   rows_written: number;
+  /** The persona written. */
+  persona: "mix" | "runner" | "sleep" | "weight";
 }
 
 export interface Pipeline {

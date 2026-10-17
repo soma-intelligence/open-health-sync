@@ -14,9 +14,11 @@ import (
 
 // SeedOptions selects what Seed writes.
 type SeedOptions struct {
-	// Days and Seed are those of Options.
-	Days int
-	Seed int64
+	// Days, Seed and Persona are those of Options. Callers pass the
+	// persona's own seed (PersonaInfo.Seed) unless asked for another.
+	Days    int
+	Seed    int64
+	Persona string
 	// ExternalRef names the user: the tenant's user with this ref, created
 	// when the tenant has none.
 	ExternalRef string
@@ -43,7 +45,7 @@ type SeedResult struct {
 // during the write.
 func Seed(ctx context.Context, store *tenant.Store, tenantID uuid.UUID, o SeedOptions) (SeedResult, error) {
 	// Generated first: options Generate refuses create no user.
-	batches, err := Generate(Options{Days: o.Days, Seed: o.Seed})
+	batches, err := Generate(Options{Days: o.Days, Seed: o.Seed, Persona: o.Persona})
 	if err != nil {
 		return SeedResult{}, err
 	}

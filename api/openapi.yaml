@@ -3370,10 +3370,10 @@ paths:
       summary: Fill a user of a tenant with synthetic data (instance admin)
       description: |
         What `ohs seed --demo --tenant` does: the tenant's user with `external_ref` is reused, or
-        created, and `days` days of made-up data from six sources, ending yesterday, are written for
-        it. Every record is marked `{"synthetic": true}`. Running it again adds nothing for the days
-        already there. Takes a few seconds for 90 days. Recorded as `data.write` in the caller's
-        audit log and in the tenant's. See docs/demo.md.
+        created, and `days` days of made-up data from the persona's sources (six for `mix`), ending
+        yesterday, are written for it. Every record is marked `{"synthetic": true}`. Running it again
+        adds nothing for the days already there. Takes a few seconds for 90 days. Recorded as
+        `data.write` in the caller's audit log and in the tenant's. See docs/demo.md.
       requestBody:
         required: false
         content:
@@ -4374,24 +4374,37 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          default: demo-user
-          description: The user to fill, created when the tenant has none with this reference.
+          description: |
+            The user to fill, created when the tenant has none with this reference. By default
+            `demo-user` for `mix` and `demo-<persona>` for the others, so each persona fills its own.
         days:
           type: integer
           minimum: 1
           maximum: 90
           default: 30
           description: Days of data, ending yesterday.
+        persona:
+          type: string
+          enum: [mix, runner, sleep, weight]
+          default: mix
+          description: |
+            The kind of person: `mix` (one person seen through six sources), `runner` (polar, whoop,
+            apple_health), `sleep` (a short, irregular sleeper: oura, apple_health) or `weight`
+            (someone watching their weight: withings, fitbit). See docs/demo.md.
 
     DemoUser:
       type: object
-      required: [user, days, rows_written]
+      required: [user, days, rows_written, persona]
       properties:
         user: { $ref: "#/components/schemas/User" }
         days: { type: integer }
         rows_written:
           type: integer
           description: Rows this call stored; 0 when every day was already there.
+        persona:
+          type: string
+          enum: [mix, runner, sleep, weight]
+          description: The persona written.
 
     Pipeline:
       type: object

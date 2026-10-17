@@ -54,6 +54,14 @@ release may change the API, the configuration or the database schema.
   Each read is recorded on the tenant read (actor `admin`, the user read, `admin_tenant_id`) as
   well as on the admin's tenant (without the user); a read of the admin's own tenant is recorded
   once.
+- Demo personas: `ohs seed --demo --persona` and `"persona"` on
+  `POST /v1/admin/tenants/{tenant_id}/demo-user` pick `mix` (the default, unchanged), `runner`
+  (polar, whoop, apple_health: resting heart rate about 46, HRV about 78, VO2 max about 56, runs
+  on most days), `sleep` (oura, apple_health: about 6.2 h a night with late, irregular
+  bedtimes) or `weight` (withings, fitbit: about 92 kg with a slow yearly drift). Each is its
+  own person with its own seed and, by default, its own user (`demo-runner`, `demo-sleep`,
+  `demo-weight`); the answer and the audit event name the persona. See
+  [docs/demo.md](docs/demo.md#personas).
 - `GET /v1/pipeline` (the tenant's pipeline counts in one answer), `GET /v1/pipeline/sync-runs`
   (sync runs across users, with `status` and `provider` filters), `GET /v1/pipeline/etl-jobs`
   (parked, pending or running processing jobs), and `POST /v1/pipeline/etl-jobs/{job_id}/retry`

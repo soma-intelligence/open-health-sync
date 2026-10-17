@@ -186,10 +186,15 @@ class CreateAdminTenantRequest(TypedDict):
 
 
 class DemoUserRequest(TypedDict, total=False):
-    # The user to fill, created when the tenant has none with this reference.
+    # The user to fill, created when the tenant has none with this reference. By default
+    # `demo-user` for `mix` and `demo-<persona>` for the others, so each persona fills its own.
     external_ref: str
     # Days of data, ending yesterday.
     days: int
+    # The kind of person: `mix` (one person seen through six sources), `runner` (polar, whoop,
+    # apple_health), `sleep` (a short, irregular sleeper: oura, apple_health) or `weight`
+    # (someone watching their weight: withings, fitbit). See docs/demo.md.
+    persona: Literal["mix", "runner", "sleep", "weight"]
 
 
 class DemoUser(TypedDict):
@@ -197,6 +202,8 @@ class DemoUser(TypedDict):
     days: int
     # Rows this call stored; 0 when every day was already there.
     rows_written: int
+    # The persona written.
+    persona: Literal["mix", "runner", "sleep", "weight"]
 
 
 class Pipeline(TypedDict):

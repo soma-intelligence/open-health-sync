@@ -134,15 +134,24 @@ curl -s -X POST "$OHS/v1/admin/tenants/$TENANT/demo-user" -H "Authorization: Bea
 {
   "user": { "id": "2b9e...", "external_ref": "demo-user", "status": "active", "created_at": "..." },
   "days": 30,
-  "rows_written": 14923
+  "rows_written": 14923,
+  "persona": "mix"
 }
 ```
 
 What `ohs seed --demo --tenant <id>` does, through the same code: the tenant's user with this
-`external_ref` is reused, or created, then filled with `days` days of made-up data from six
-sources, ending yesterday. Every record carries `{"synthetic": true}`; [demo.md](demo.md) says
-what is written. Both members are optional: `external_ref` is 1 to 255 bytes (default
-`demo-user`), `days` 1 to 90 (default 30). `user` is the object `POST /v1/users` answers.
+`external_ref` is reused, or created, then filled with `days` days of made-up data, ending
+yesterday. Every record carries `{"synthetic": true}`; [demo.md](demo.md) says what is written.
+Every member is optional:
+
+- `persona` is the kind of person: `mix` (the default, one person seen through six sources),
+  `runner`, `sleep` or `weight`, each with its own sources and figures
+  ([demo.md](demo.md#personas)). Any other value is a 400 that lists them.
+- `external_ref` is 1 to 255 bytes. By default `demo-user` for `mix` and `demo-<persona>` for
+  the others (`demo-runner`), so each persona fills a user of its own.
+- `days` is 1 to 90 (default 30).
+
+`user` is the object `POST /v1/users` answers, `persona` the persona written.
 
 The answer is 201 when the user was created, 200 when it existed. `rows_written` counts the rows
 this call stored: running it again adds nothing for the days already there (0), and on a later
@@ -257,10 +266,10 @@ action of the tenant route for the [reads of a tenant's data](#read-a-tenants-da
 The tenant that was changed gets an event of its own, so its log tells the whole story: actor
 type `admin`, actor id `api_key:` followed by the admin key's id, the action above, and in
 `detail` the admin's tenant (`admin_tenant_id`) with the key's `key_id` and `key_prefix` (never
-the key), for the demo user its `user_id`, `days`, `rows_written` and `user_created`, for a
-provider switch its `provider` and `enabled`. A tenant, key or switch change and its event are
-written together: if the event cannot be written, nothing changes. A read of the tenant's data
-gets an event too, with the user read.
+the key), for the demo user its `user_id`, `days`, `persona`, `rows_written` and
+`user_created`, for a provider switch its `provider` and `enabled`. A tenant, key or switch
+change and its event are written together: if the event cannot be written, nothing changes. A
+read of the tenant's data gets an event too, with the user read.
 
 ## Not here
 
