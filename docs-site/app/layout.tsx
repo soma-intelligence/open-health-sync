@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: { default: "Open Health Sync", template: "%s · Open Health Sync" },
   description:
-    "Self-hosted ingestion and normalization for health data: one canonical model, a REST API and a read-only MCP server.",
+    "Open source, self-hosted health data aggregator and API: data from wearables and health apps in one model, over REST, FHIR R4, Open mHealth and a read-only MCP server.",
 };
 
 // What the software is, in schema.org terms, so search engines and AI assistants can describe it
@@ -24,7 +24,7 @@ const softwareJsonLd = {
   "@type": "SoftwareApplication",
   name: appName,
   description:
-    "Self-hosted health data aggregator: pulls data from wearables and health apps, normalizes it to one model, and serves it as REST, FHIR R4, Open mHealth, CSV, Parquet and a read-only MCP server.",
+    "Open source, self-hosted health data aggregator: pulls data from wearables and health apps, normalizes it to one model, and serves it as REST, FHIR R4, Open mHealth, CSV, Parquet and a read-only MCP server.",
   applicationCategory: "HealthApplication",
   operatingSystem: "Linux, macOS, Docker",
   url: absoluteUrl("") || undefined,
