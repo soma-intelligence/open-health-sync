@@ -169,6 +169,17 @@ release may change the API, the configuration or the database schema.
   `ohs_rate_limited_total`). See [docs/setup.md](docs/setup.md).
 - A reproducible ingestion benchmark against Open Wearables: `bench/openwearables/` and
   [the method and results](docs/benchmarks/open-wearables.md).
+- Garmin connector (Health API), slug `garmin`. Users connect their Garmin Connect account over
+  OAuth 2.0 with PKCE (the code verifier is derived from the OAuth state, so nothing is stored
+  per consent). Pulls dailies, 15 minute epochs, sleeps with stages, activities, body
+  composition, HRV (as `hrv_rmssd`), pulse ox, respiration, VO2 max, blood pressure and skin
+  temperature, in 24 hour upload windows paced at about 100 requests a minute; stress and Body
+  Battery are stored raw. Garmin's ping and push notifications arrive at `/inbound/garmin`: a
+  ping queues a pull of that type's upload window, a push stores its items as received.
+  Optional `OHS_GARMIN_INBOUND_TOKEN`: a secret the notification URLs carry, refused when
+  missing. Disconnecting or deleting a user deletes the Garmin registration. Garmin issues keys
+  to approved businesses only, and every instance brings its own. See
+  [docs/connectors/garmin.md](docs/connectors/garmin.md).
 - Xiaomi: `ohs import mi-fitness <folder|copy.zip>` loads the copy of Mi Fitness data that
   Xiaomi sends from its account privacy center (heart rate, resting heart rate, SpO2, steps,
   distance, active energy, weight, body fat, VO2 max, sleep with stages, workouts) through the new

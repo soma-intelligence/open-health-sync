@@ -1,0 +1,30 @@
+[
+  {
+    "userId": "a1b2c3d4-0000-4000-8000-000000000001",
+    "summaryId": "x1a2b3c-69a3f620-384-1",
+    "activityType": "WALKING",
+    "startTimeInSeconds": 1772359200,
+    "startTimeOffsetInSeconds": 3600,
+    "durationInSeconds": 900,
+    "activeTimeInSeconds": 600,
+    "steps": 500,
+    "distanceInMeters": 400,
+    "activeKilocalories": 25,
+    "met": 3.5,
+    "intensity": "ACTIVE"
+  },
+  {
+    "userId": "a1b2c3d4-0000-4000-8000-000000000001",
+    "summaryId": "x1a2b3c-69a3f620-384-0",
+    "activityType": "SEDENTARY",
+    "startTimeInSeconds": 1772359200,
+    "startTimeOffsetInSeconds": 3600,
+    "durationInSeconds": 900,
+    "activeTimeInSeconds": 300,
+    "steps": 20,
+    "distanceInMeters": 10,
+    "activeKilocalories": 2,
+    "met": 1.0,
+    "intensity": "SEDENTARY"
+  }
+]
