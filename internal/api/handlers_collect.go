@@ -56,6 +56,10 @@ func (s *server) mountCollect(mux *http.ServeMux) {
 		return ""
 	}
 	mux.Handle("GET /oauth/{provider}/callback", s.rateLimit(groupOAuthCallback, callback, nil, h.OAuthCallback()))
+	// The sign-in page of the providers without a consent page (Eight
+	// Sleep) shares the callback's limit: each post tries a password.
+	mux.Handle("GET /oauth/{provider}/signin", s.rateLimit(groupOAuthCallback, callback, nil, h.SignInPage()))
+	mux.Handle("POST /oauth/{provider}/signin", s.rateLimit(groupOAuthCallback, callback, nil, h.SignIn()))
 	mux.Handle("POST /inbound/{provider}", s.rateLimit(groupInbound, inbound, provider, h.Inbound()))
 	// GET also answers HEAD (ServeMux).
 	mux.Handle("GET /inbound/{provider}", s.rateLimit(groupInbound, inbound, provider, h.InboundProbe()))

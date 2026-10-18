@@ -609,7 +609,10 @@ class OpenHealthSync:
         result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
         `Idempotency-Key` is not honoured here. While the user's data from this provider is
         being deleted the answer is 409: connect again once the deletion job is done. 403 when an
-        instance admin turned the provider off for the tenant.
+        instance admin turned the provider off for the tenant. For a provider without a consent
+        page for other apps (Eight Sleep) the URL is this server's own sign-in page,
+        `/oauth/{provider}/signin`, which asks for the account email and password; it ends the
+        same way.
         """
         return self._request(
             "POST",

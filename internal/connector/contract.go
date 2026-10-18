@@ -6,6 +6,7 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -123,6 +124,29 @@ type NotifiedFetcher interface {
 type StateExchanger interface {
 	ExchangeState(ctx context.Context, code, state, redirect string) (Tokens, error)
 }
+
+// PasswordConnector is optionally implemented by an OAuthConnector whose
+// provider has no consent page for third parties, such as Eight Sleep: the
+// user types the account email and password into the sign-in page this
+// server serves, and SignIn trades them for Tokens. The core then stores the
+// connection exactly as after an OAuth callback. When a connector implements
+// it, the core sends the user to its own sign-in page instead of
+// AuthorizeURL, and never calls Exchange.
+//
+// What the connector needs to sign in again later (usually the credentials
+// themselves, when the provider issues no refresh token) goes in
+// Tokens.Refresh, which the core seals like any refresh token; Refresh then
+// signs in again with it.
+type PasswordConnector interface {
+	SignIn(ctx context.Context, username, password string) (Tokens, error)
+}
+
+// ErrBadCredentials is returned by PasswordConnector.SignIn when the provider
+// refuses the email and password. The sign-in page asks the user again.
+var ErrBadCredentials = errors.New("connector: the provider refused the email or password")
+
+// AsPassword reports whether c signs users in with their provider password.
+func AsPassword(c Connector) (PasswordConnector, bool) { p, ok := c.(PasswordConnector); return p, ok }
 
 // AsOAuth reports whether c can be pulled from with OAuth.
 func AsOAuth(c Connector) (OAuthConnector, bool) { o, ok := c.(OAuthConnector); return o, ok }

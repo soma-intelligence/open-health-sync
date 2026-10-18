@@ -613,7 +613,10 @@ paths:
         result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
         `Idempotency-Key` is not honoured here. While the user's data from this provider is
         being deleted the answer is 409: connect again once the deletion job is done. 403 when an
-        instance admin turned the provider off for the tenant.
+        instance admin turned the provider off for the tenant. For a provider without a consent
+        page for other apps (Eight Sleep) the URL is this server's own sign-in page,
+        `/oauth/{provider}/signin`, which asks for the account email and password; it ends the
+        same way.
       requestBody:
         required: false
         content:
@@ -2638,6 +2641,92 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
         "429": { $ref: "#/components/responses/RateLimited" }
+
+  /oauth/{provider}/signin:
+    parameters:
+      - $ref: "#/components/parameters/Provider"
+    get:
+      tags: [provider-facing]
+      operationId: signInPage
+      summary: Sign-in page of a provider without a consent page
+      security: []
+      description: |
+        The `authorize_url` of a provider that has no consent page for other apps (Eight Sleep).
+        An HTML form asking for the email and password of the user's account at the provider.
+        404 for any other provider.
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The sign-in form.
+          content:
+            text/html:
+              schema: { type: string }
+        "302":
+          description: Expired state; back to the tenant's redirect_uri with status=error.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        "400":
+          description: Unknown or used state.
+          content:
+            text/html:
+              schema: { type: string }
+        "404":
+          description: Not a provider that signs in with a password.
+          content:
+            text/html:
+              schema: { type: string }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    post:
+      tags: [provider-facing]
+      operationId: signIn
+      summary: Sign in to a provider without a consent page
+      security: []
+      description: |
+        Posted by the sign-in form. The password is sent to the provider only, never logged, and
+        kept sealed under `OHS_ENCRYPTION_KEY` with the connection, so the server can sign in
+        again when the provider's token expires. A refused password renders the form again
+        (401) and keeps the state; success ends like the OAuth callback.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [state, email, password]
+              properties:
+                state: { type: string }
+                email: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "302":
+          description: Back to the tenant's redirect_uri with status (connected or error) and provider.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        "200":
+          description: Built-in result page, when the connect call gave no redirect_uri.
+          content:
+            text/html:
+              schema: { type: string }
+        "400":
+          description: Missing field, or unknown or used state.
+          content:
+            text/html:
+              schema: { type: string }
+        "401":
+          description: The provider refused the email or password; the form again.
+          content:
+            text/html:
+              schema: { type: string }
+        "429":
+          description: The provider, or this server's rate limit, refused the attempt for now.
+          content:
+            text/html:
+              schema: { type: string }
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /inbound/{provider}:
     parameters:

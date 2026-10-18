@@ -289,7 +289,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 
 ### Sources and outputs
 
-Thirteen sources are in v0.1.0. Garmin, Xiaomi, and Amazfit and RingConn through Health Connect, are on `main` for the next release.
+Thirteen sources are in v0.1.0. Garmin, Eight Sleep, Xiaomi, and Amazfit and RingConn through Health Connect, are on `main` for the next release.
 Every other one is planned: on the roadmap, not built yet.
 Integration paths, vendor programs and tracking issues for each:
 [docs/connectors](docs/connectors/README.md).
@@ -318,7 +318,7 @@ Integration paths, vendor programs and tracking issues for each:
 | Zepp / Amazfit, RingConn | 🔜 Next release, via Health Connect | their apps write to Health Connect on Android; records keep their own source (`zepp`, `ringconn`) ([details](docs/connectors/README.md)) |
 | Samsung Health | 🛠 Planned, via Health Connect | its app writes to Health Connect on Android |
 | Google Fit | Deprecated by Google | use Health Connect |
-| Eight Sleep | No public API | nothing official to build on |
+| Eight Sleep | 🔜 Next release | no public API: the sign-in the Eight Sleep app uses, scheduled pulls of sleep stages, heart rate, HRV, breathing and bed temperature ([guide](docs/connectors/eight-sleep.md)) |
 
 Want one sooner? Connectors are self-contained: read
 [writing a connector](docs/writing-a-connector.md) and pick a
