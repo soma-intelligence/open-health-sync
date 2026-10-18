@@ -13,7 +13,8 @@
 
 Apple Health, Withings, Oura, WHOOP, Fitbit, Health Connect, Dexcom, OMRON and five more.<br>
 One clean model out, over REST, FHIR R4 and a read-only MCP server for AI agents.<br>
-Free, one Go binary plus Postgres, runs on a Raspberry Pi.
+Free, one Go binary plus Postgres, runs on a Raspberry Pi.<br>
+An open source, self-hosted alternative to hosted wearable APIs such as Terra.
 
 [![CI](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/soma-intelligence/open-health-sync?color=0e9f8e)](https://github.com/soma-intelligence/open-health-sync/releases)
@@ -47,7 +48,7 @@ docker pull ghcr.io/soma-intelligence/open-health-sync:0.1.0
 **Rather not run a server?** The hosted beta is the same API with nothing to operate: a key in a minute, demo data on the first call.<br>
 [**Join the developer waitlist →**](https://openhealthsync.vercel.app/waitlist?utm_source=github&utm_medium=readme&utm_campaign=hero)
 
-[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Hosted beta](#hosted-beta) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
+[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Hosted beta](#hosted-beta) &nbsp;&middot;&nbsp; [Compare](docs/compare/README.md) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
 <sub>If it saves you one more parser, a <a href="https://github.com/soma-intelligence/open-health-sync/stargazers">⭐ star</a> helps other developers find it. Questions and ideas: <a href="https://github.com/soma-intelligence/open-health-sync/discussions">Discussions</a>.</sub>
 
@@ -643,6 +644,20 @@ beta.
 Yes, in private beta: the same API, run for you, free during the beta and for test data only for
 now. Developers join by invitation, in small groups.
 [Join the waitlist](https://openhealthsync.vercel.app/waitlist?utm_source=github&utm_medium=readme&utm_campaign=faq); the [hosted beta](#hosted-beta) section says what it gives you.
+
+</details>
+
+<details>
+<summary><b>How does it compare to Terra or Open Wearables?</b></summary>
+
+Terra is a hosted API: it advertises 500+ integrations, Garmin included, starts at $399 a month
+billed annually, and your users' data passes through its cloud. Open Wearables is open source (MIT) and
+self-hosted like Open Health Sync, with a dashboard and a larger community. Open Health Sync is
+free and puts standards first: FHIR R4 and Open mHealth output checked against the official
+validators, every raw payload kept, and one Go binary that runs on a Raspberry Pi. Side by side,
+including when the others fit better: [Terra API alternative](docs/compare/terra.md),
+[Open Health Sync vs Open Wearables](docs/compare/open-wearables.md),
+[all the options](docs/compare/README.md).
 
 </details>
 
