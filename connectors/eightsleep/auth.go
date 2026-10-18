@@ -31,8 +31,6 @@ import (
 const credentialPrefix = "ohs-eight-sleep-v1:"
 
 var (
-	// errNotConfigured reports a sign-in before the client keys were set.
-	errNotConfigured = errors.New("eight_sleep: client id and secret are not configured")
 	// ErrNoConsentPage is returned by AuthorizeURL and Exchange: Eight Sleep
 	// has no consent page for third parties. The core sends the user to its
 	// own sign-in page and calls SignIn instead.
@@ -101,9 +99,6 @@ func (c *Connector) Refresh(ctx context.Context, t connector.Tokens) (connector.
 
 func (c *Connector) signIn(ctx context.Context, k credentials) (connector.Tokens, error) {
 	id, secret := c.clientCredentials()
-	if id == "" || secret == "" {
-		return connector.Tokens{}, errNotConfigured
-	}
 	body, err := json.Marshal(map[string]string{
 		"client_id":     id,
 		"client_secret": secret,

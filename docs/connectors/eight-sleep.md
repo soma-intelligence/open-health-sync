@@ -38,24 +38,29 @@ Sync gets a token, never a password. Eight Sleep offers no such sign-in for othe
 - Accounts that sign in to Eight Sleep with Google or Apple and have no password cannot connect
   **(to confirm)**: set a password in the Eight Sleep app first.
 
-## 1. Get the client keys
+## 1. Client keys
 
 The sign-in needs a client id and secret. Eight Sleep issues none to third parties: they are the
 Eight Sleep app's own, and the community libraries above publish the values the app uses
 (`KNOWN_CLIENT_ID` and `KNOWN_CLIENT_SECRET` in the fork's `pyEight/constants.py`). Open Health
-Sync does not ship them; you set them as operator keys. If Eight Sleep changes them, sign-ins fail
-until you update the keys.
+Sync builds those values in as defaults (`DefaultClientID` and `DefaultClientSecret` in
+`connectors/eightsleep/connector.go`), so the connector works with no keys. They belong to Eight
+Sleep's app, not to this project: if Eight Sleep changes them, sign-ins fail until the defaults
+are updated or you set the new values yourself.
 
 ## 2. Configure the instance
+
+Nothing to set beyond `OHS_ENCRYPTION_KEY`, which any pulled source needs. The connector is listed
+(`GET /v1/providers`) by default; turn it off in the [console](../console.md) if you do not want
+to offer it. To override the built-in keys, set both:
 
 ```sh
 OHS_EIGHT_SLEEP_CLIENT_ID=...
 OHS_EIGHT_SLEEP_CLIENT_SECRET=...
 ```
 
-You can also enter them in the [console](../console.md). `OHS_ENCRYPTION_KEY` must be set, as for
-any pulled source. The connector is listed (`GET /v1/providers`) once both keys are set. There is
-no callback URL to register: the sign-in page lives on your instance, under `OHS_PUBLIC_URL`.
+Setting only one leaves the connector off. There is no callback URL to register: the sign-in page
+lives on your instance, under `OHS_PUBLIC_URL`.
 
 ## 3. Connect a user
 

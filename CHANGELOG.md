@@ -156,8 +156,9 @@ release may change the API, the configuration or the database schema.
   [the method and results](docs/benchmarks/open-wearables.md).
 - Eight Sleep connector, slug `eight_sleep`. Eight Sleep has no public API: the connector signs
   in the way the Eight Sleep app does (a password grant with the app's client id and secret,
-  `OHS_EIGHT_SLEEP_CLIENT_ID` and `OHS_EIGHT_SLEEP_CLIENT_SECRET`) and pulls the nightly trends,
-  following the open source pyEight library. Sleep sessions with stages and sleep score,
+  built in from the values pyEight publishes, overridable with `OHS_EIGHT_SLEEP_CLIENT_ID` and
+  `OHS_EIGHT_SLEEP_CLIENT_SECRET`) and pulls the nightly trends, following the open source
+  pyEight library. It is on by default; turn it off in the console. Sleep sessions with stages and sleep score,
   `heart_rate`, `hrv_rmssd` and `respiratory_rate` samples, and bed and room temperature in the
   session metadata. See [docs/connectors/eight-sleep.md](docs/connectors/eight-sleep.md).
 - Sign-in page for providers without OAuth. A connector can implement

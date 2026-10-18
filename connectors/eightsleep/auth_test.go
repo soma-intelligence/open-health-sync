@@ -68,9 +68,12 @@ func TestSignInStatuses(t *testing.T) {
 	}
 }
 
-func TestSignInNotConfigured(t *testing.T) {
-	_, err := New(Options{}).SignIn(context.Background(), "a@example.org", "x")
-	require.ErrorIs(t, err, errNotConfigured)
+func TestSignInDefaultKeys(t *testing.T) {
+	f := eightsleepfake.New(t)
+	f.ClientID, f.ClientSecret = DefaultClientID, DefaultClientSecret
+	_, err := newConnector(f, func(o *Options) { o.ClientID, o.ClientSecret = "", "" }).
+		SignIn(context.Background(), eightsleepfake.Email, eightsleepfake.Password)
+	require.NoError(t, err)
 }
 
 func TestRefreshSignsInAgain(t *testing.T) {
@@ -115,14 +118,24 @@ func TestNoConsentPage(t *testing.T) {
 
 func TestKeys(t *testing.T) {
 	c := New(Options{})
-	assert.Equal(t, []string{KeyClientID, KeyClientSecret}, c.RequiredKeys())
+	assert.Empty(t, c.RequiredKeys())
+	assert.Equal(t, []string{KeyClientID, KeyClientSecret}, c.OptionalKeys())
+	id, secret := c.clientCredentials()
+	assert.Equal(t, DefaultClientID, id, "no keys: the published defaults")
+	assert.Equal(t, DefaultClientSecret, secret)
+
+	assert.True(t, c.Enabled(nil))
 	assert.False(t, c.Enabled(connector.Config{KeyClientID: "x"}))
+	assert.False(t, c.Enabled(connector.Config{KeyClientSecret: "y"}))
 	assert.True(t, c.Enabled(connector.Config{KeyClientID: "x", KeyClientSecret: "y"}))
 	require.Error(t, c.Configure(connector.Config{KeyClientID: "x"}))
 	require.NoError(t, c.Configure(connector.Config{KeyClientID: "x", KeyClientSecret: "y"}))
-	id, secret := c.clientCredentials()
+	id, secret = c.clientCredentials()
 	assert.Equal(t, "x", id)
 	assert.Equal(t, "y", secret)
+	require.NoError(t, c.Configure(connector.Config{}))
+	id, _ = c.clientCredentials()
+	assert.Equal(t, DefaultClientID, id, "keys removed: back to the defaults")
 	assert.False(t, connector.SecretKey(KeyClientID))
 	assert.True(t, connector.SecretKey(KeyClientSecret))
 }
