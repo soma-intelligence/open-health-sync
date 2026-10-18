@@ -179,7 +179,13 @@ func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, pr
 		slog.ErrorContext(ctx, "collect: oauth state", "error", err)
 		return "", err
 	}
-	authorize, err := oc.AuthorizeURL(state, h.d.CallbackURL(provider))
+	var authorize string
+	if _, ok := connector.AsPassword(oc); ok {
+		// No consent page at the provider: the user signs in on ours.
+		authorize = h.d.SignInURL(provider, state)
+	} else {
+		authorize, err = oc.AuthorizeURL(state, h.d.CallbackURL(provider))
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "collect: authorize url", "provider", provider, "error", safeErr(err))
 		return "", err
@@ -279,23 +285,9 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	if code == "" {
 		return errors.New("callback without code")
 	}
-	u, err := h.d.Tenants.GetUser(ctx, st.tenant, st.user)
-	if errors.Is(err, tenant.ErrNotFound) || (err == nil && u.Status != "active") {
-		return errors.New("user no longer exists")
-	}
+	oc, err := h.ready(ctx, provider, st)
 	if err != nil {
 		return err
-	}
-	// The application the consent was given to: a tenant's keys removed or
-	// replaced since are gone, and their code is not traded with others.
-	oc, ok := h.d.withKeys(st.tenant, provider, st.keys)
-	if !ok {
-		return errors.New("provider not available, or the keys the consent was started with are gone")
-	}
-	// Turned off for the tenant since the state was minted: the code is
-	// not exchanged, so no grant is issued and nothing is stored.
-	if !h.d.allowed(st.tenant, provider) {
-		return ErrProviderOff
 	}
 	var tokens connector.Tokens
 	if se, ok := oc.(connector.StateExchanger); ok {
@@ -306,7 +298,39 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	if err != nil {
 		return fmt.Errorf("exchange: %w", err)
 	}
-	err = h.d.connect(ctx, st.tenant, st.user, provider, st.keys, tokens)
+	return h.store(ctx, provider, st, oc, tokens)
+}
+
+// ready checks that the user of a state can still connect provider: the user
+// is active, the connector available and the provider allowed for the
+// tenant. It returns the connector to finish with.
+func (h *Handlers) ready(ctx context.Context, provider string, st oauthState) (connector.OAuthConnector, error) {
+	u, err := h.d.Tenants.GetUser(ctx, st.tenant, st.user)
+	if errors.Is(err, tenant.ErrNotFound) || (err == nil && u.Status != "active") {
+		return nil, errors.New("user no longer exists")
+	}
+	if err != nil {
+		return nil, err
+	}
+	// The application the consent or sign-in was started with: a tenant's
+	// keys removed or replaced since are gone, and nothing is traded with
+	// others.
+	oc, ok := h.d.withKeys(st.tenant, provider, st.keys)
+	if !ok {
+		return nil, errors.New("provider not available, or the keys the connection was started with are gone")
+	}
+	// Turned off for the tenant since the state was minted: nothing is
+	// exchanged, so no grant is issued and nothing is stored.
+	if !h.d.allowed(st.tenant, provider) {
+		return nil, ErrProviderOff
+	}
+	return oc, nil
+}
+
+// store saves the tokens a consent or a sign-in just issued as the user's
+// connection.
+func (h *Handlers) store(ctx context.Context, provider string, st oauthState, oc connector.OAuthConnector, tokens connector.Tokens) error {
+	err := h.d.connect(ctx, st.tenant, st.user, provider, st.keys, tokens)
 	if errors.Is(err, errInactive) {
 		// The user, or their data from this provider, started being
 		// deleted during the exchange: the grant just issued would

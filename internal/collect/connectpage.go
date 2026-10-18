@@ -352,6 +352,9 @@ type connectView struct {
 	ExpiresMinutes  int // the minutes left, at least 1, for the page's large figure
 	Providers       []providerView
 	Connected       int // providers the user has an active connection to
+	// PasswordSources names the listed providers the user signs in to on
+	// this server's page (connector.PasswordConnector), for the trust line.
+	PasswordSources string
 }
 
 // ConnectPage serves GET /connect?session=T and GET /connect/{provider}?session=T,
@@ -382,6 +385,7 @@ func (h *Handlers) ConnectPage() http.Handler {
 			AppName: s.appName, LogoURL: s.logoURL, Session: token, Single: provider != "",
 			Expires: expiresIn(s.expiresAt.Sub(h.d.now())), ExpiresMinutes: minutesLeft(s.expiresAt.Sub(h.d.now())),
 		}
+		var passwords []string
 		for _, p := range slugs {
 			pv := providerView{Slug: p, Name: providerName(p), Detail: providerDetails[p]}
 			if r, _ := utf8.DecodeRuneInString(pv.Name); r != utf8.RuneError {
@@ -404,7 +408,13 @@ func (h *Handlers) ConnectPage() http.Handler {
 				pv.Status, pv.StatusText, pv.Button = "not_connected", "Not connected", "Connect"
 			}
 			v.Providers = append(v.Providers, pv)
+			if oc, ok := h.d.capableOAuth(p); ok {
+				if _, pw := connector.AsPassword(oc); pw {
+					passwords = append(passwords, pv.Name)
+				}
+			}
 		}
+		v.PasswordSources = joinNames(passwords)
 		setPageHeaders(w, h.pageCSP(s.tenant, slugs))
 		w.WriteHeader(http.StatusOK)
 		if err := connectPage.Execute(w, v); err != nil {
@@ -571,6 +581,7 @@ var providerNames = map[string]string{
 	"apple_health":   "Apple Health",
 	"bluetooth":      "Bluetooth devices",
 	"dexcom":         "Dexcom",
+	"eight_sleep":    "Eight Sleep",
 	"fitbit":         "Fitbit",
 	"garmin":         "Garmin",
 	"health_connect": "Health Connect",
@@ -595,6 +606,7 @@ func ProviderName(slug string) string { return providerName(slug) }
 // the data its connector reads.
 var providerDetails = map[string]string{
 	"dexcom":        "Continuous glucose readings",
+	"eight_sleep":   "Sleep stages, heart rate, HRV, breathing and bed temperature",
 	"fitbit":        "Sleep, activity, workouts and heart rate",
 	"garmin":        "Daily activity, sleep, heart rate, HRV and workouts",
 	"intervals_icu": "Workouts, HRV, sleep score and weight",
@@ -606,6 +618,17 @@ var providerDetails = map[string]string{
 	"ultrahuman":    "Sleep, heart rate, HRV, steps and temperature",
 	"whoop":         "Recovery, sleep, strain and workouts",
 	"withings":      "Weight, body composition, blood pressure and sleep",
+}
+
+// joinNames lists names in prose: "A", "A and B", "A, B and C".
+func joinNames(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 // providerName is how the pages name a provider: its display name when

@@ -45,7 +45,7 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/open-wearable
 
 - **You need lab tests as well as wearable data.** Junction runs a lab testing API with a lab
   network, at-home kits and phlebotomy. Open Health Sync has no lab offering.
-- **You need Garmin today**, or sources beyond the 13 here, such as Peloton, Zwift, Eight Sleep
+- **You need Garmin today**, or sources beyond the 13 here, such as Peloton, Zwift
   or Abbott LibreView, under one contract.
 - **You do not want to run a server**, or to register a developer app with each vendor.
 - **You need your vendor's attestations**: SOC 2 Type 2, ISO 27001 and a BAA, on Enterprise.

@@ -108,7 +108,9 @@ func (s *server) toAdminProvider(st providerset.State) adminProviderJSON {
 		}
 	}
 	links := collect.Deps{PublicURL: s.d.PublicURL}
-	if _, ok := connector.AsOAuth(c); ok {
+	// A provider whose users sign in on this server (Eight Sleep) has no
+	// callback to register.
+	if oc, ok := connector.AsOAuth(c); ok && !isPassword(oc) {
 		u := links.CallbackURL(st.Slug)
 		out.URLs.Redirect = &u
 	}
@@ -193,3 +195,6 @@ func providerErr(w http.ResponseWriter, r *http.Request, err error) bool {
 	}
 	return false
 }
+
+// isPassword reports whether c signs users in with their provider password.
+func isPassword(c connector.Connector) bool { _, ok := connector.AsPassword(c); return ok }

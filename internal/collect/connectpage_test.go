@@ -299,3 +299,28 @@ func TestResultPageBackLink(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "href=")
 	assert.Contains(t, rec.Body.String(), "You can close this window.")
 }
+
+func TestConnectPageNamesPasswordSources(t *testing.T) {
+	var b strings.Builder
+	require.NoError(t, connectPage.Execute(&b, connectView{
+		Session: "tok", Expires: "in 30 minutes",
+		Providers: []providerView{
+			{Slug: "eight_sleep", Name: "Eight Sleep", Status: "not_connected", StatusText: "Not connected", Button: "Connect", Action: "connect/eight_sleep"},
+		},
+		PasswordSources: "Eight Sleep",
+	}))
+	out := b.String()
+	assert.Contains(t, out, "For Eight Sleep, this server asks for the password itself")
+	assert.Contains(t, out, "The app never sees your password")
+
+	b.Reset()
+	require.NoError(t, connectPage.Execute(&b, connectView{Session: "tok", Expires: "in 30 minutes"}))
+	assert.NotContains(t, b.String(), "asks for the password itself")
+}
+
+func TestJoinNames(t *testing.T) {
+	assert.Equal(t, "", joinNames(nil))
+	assert.Equal(t, "A", joinNames([]string{"A"}))
+	assert.Equal(t, "A and B", joinNames([]string{"A", "B"}))
+	assert.Equal(t, "A, B and C", joinNames([]string{"A", "B", "C"}))
+}

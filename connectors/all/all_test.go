@@ -38,6 +38,11 @@ func TestEveryOAuthConnectorTakesTenantKeys(t *testing.T) {
 			keys[f] = "tenant-" + f
 		}
 		require.NoError(t, fresh.(connector.Configurable).Configure(keys), c.Slug())
+		if _, pw := connector.AsPassword(c); pw {
+			// No consent page to name the application: the user signs in
+			// on ours, with the instance it was configured into.
+			continue
+		}
 		url, err := fresh.(connector.OAuthConnector).AuthorizeURL("state", "https://ohs.example.test/oauth/cb")
 		require.NoError(t, err, c.Slug())
 		assert.Contains(t, url, "tenant-CLIENT_ID", "%s: the consent page names the tenant's application", c.Slug())

@@ -169,6 +169,18 @@ release may change the API, the configuration or the database schema.
   `ohs_rate_limited_total`). See [docs/setup.md](docs/setup.md).
 - A reproducible ingestion benchmark against Open Wearables: `bench/openwearables/` and
   [the method and results](docs/benchmarks/open-wearables.md).
+- Eight Sleep connector, slug `eight_sleep`. Eight Sleep has no public API: the connector signs
+  in the way the Eight Sleep app does (a password grant with the app's client id and secret,
+  `OHS_EIGHT_SLEEP_CLIENT_ID` and `OHS_EIGHT_SLEEP_CLIENT_SECRET`) and pulls the nightly trends,
+  following the open source pyEight library. Sleep sessions with stages and sleep score,
+  `heart_rate`, `hrv_rmssd` and `respiratory_rate` samples, and bed and room temperature in the
+  session metadata. See [docs/connectors/eight-sleep.md](docs/connectors/eight-sleep.md).
+- Sign-in page for providers without OAuth. A connector can implement
+  `connector.PasswordConnector`; starting a connection to it returns this server's own page,
+  `/oauth/{provider}/signin`, which asks for the account email and password and ends like the
+  OAuth callback. The password goes to the connector only, is never logged, and is kept sealed
+  under `OHS_ENCRYPTION_KEY` with the connection so the server can sign in again. The hosted
+  connection page says which sources ask for a password.
 - Garmin connector (Health API), slug `garmin`. Users connect their Garmin Connect account over
   OAuth 2.0 with PKCE (the code verifier is derived from the OAuth state, so nothing is stored
   per consent). Pulls dailies, 15 minute epochs, sleeps with stages, activities, body

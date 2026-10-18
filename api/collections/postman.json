@@ -775,7 +775,7 @@
           "name": "Start connecting a provider",
           "request": {
             "method": "POST",
-            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done. 403 when an\ninstance admin turned the provider off for the tenant.",
+            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done. 403 when an\ninstance admin turned the provider off for the tenant. For a provider without a consent\npage for other apps (Eight Sleep) the URL is this server's own sign-in page,\n`/oauth/{provider}/signin`, which asks for the account email and password; it ends the\nsame way.",
             "header": [
               {
                 "key": "Content-Type",

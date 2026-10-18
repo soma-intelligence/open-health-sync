@@ -23,6 +23,8 @@ var skipped = map[string]string{
 	"connectPage":         "the end user's browser opens the connect link",
 	"connectProviderPage": "the end user's browser opens the connect link",
 	"connectStart":        "the connect page's form posts here",
+	"signInPage":          "the end user's browser opens it, for a provider without OAuth",
+	"signIn":              "the sign-in page's form posts here",
 
 	"shareManifest":          "a share link's reader asks for the file here, see docs/share-links.md",
 	"shareManifestPreflight": "the reader's browser sends it before a manifest request",
