@@ -82,6 +82,7 @@ type Options struct {
 type Connector struct {
 	mu   sync.RWMutex
 	keys connector.Config
+	opts Options // what New was given, for NewInstance
 
 	authURL, tokenURL, apiBase string
 	httpc                      *http.Client
@@ -107,6 +108,7 @@ var (
 // New returns a Garmin connector.
 func New(o Options) *Connector {
 	c := &Connector{
+		opts:       o,
 		authURL:    o.AuthURL,
 		tokenURL:   o.TokenURL,
 		apiBase:    o.APIBase,
@@ -195,6 +197,16 @@ func (c *Connector) Configure(cfg connector.Config) error {
 		KeyInboundToken: cfg[KeyInboundToken],
 	}
 	return nil
+}
+
+// NewInstance returns a connector like c without keys, sharing its HTTP
+// client, for a tenant's own keys (connector.Instancer).
+func (c *Connector) NewInstance() connector.Connector {
+	o := c.opts
+	o.HTTPClient = c.httpc
+	n := New(o)
+	n.keys = nil
+	return n
 }
 
 // credentials returns the configured client id and secret.
