@@ -110,20 +110,18 @@ func createSecretFile(path, value string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return false, err
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	err = tmp.Chmod(0o600)
+	if err == nil {
+		_, err = tmp.WriteString(value + "\n")
 	}
-	if _, err := tmp.WriteString(value + "\n"); err != nil {
-		tmp.Close()
-		return false, err
+	if err == nil {
+		err = tmp.Sync()
 	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return false, err
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
 	}
-	if err := tmp.Close(); err != nil {
+	if err != nil {
 		return false, err
 	}
 	if err := os.Link(tmp.Name(), path); err != nil {
