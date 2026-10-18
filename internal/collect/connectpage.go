@@ -571,6 +571,7 @@ var providerNames = map[string]string{
 	"bluetooth":      "Bluetooth devices",
 	"dexcom":         "Dexcom",
 	"fitbit":         "Fitbit",
+	"garmin":         "Garmin",
 	"health_connect": "Health Connect",
 	"intervals_icu":  "intervals.icu",
 	"omron":          "OMRON",
@@ -594,6 +595,7 @@ func ProviderName(slug string) string { return providerName(slug) }
 var providerDetails = map[string]string{
 	"dexcom":        "Continuous glucose readings",
 	"fitbit":        "Sleep, activity, workouts and heart rate",
+	"garmin":        "Daily activity, sleep, heart rate, HRV and workouts",
 	"intervals_icu": "Workouts, HRV, sleep score and weight",
 	"omron":         "Blood pressure, heart rate and weight",
 	"oura":          "Sleep, readiness, activity and heart rate",

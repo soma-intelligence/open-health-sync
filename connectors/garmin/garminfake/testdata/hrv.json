@@ -1,0 +1,16 @@
+[
+  {
+    "userId": "a1b2c3d4-0000-4000-8000-000000000001",
+    "summaryId": "x1a2b3c-69a4cbe8",
+    "calendarDate": "2026-03-02",
+    "startTimeInSeconds": 1772404200,
+    "startTimeOffsetInSeconds": 3600,
+    "durationInSeconds": 28800,
+    "lastNightAvg": 42,
+    "lastNight5MinHigh": 61,
+    "hrvValues": {
+      "300": 40,
+      "600": 44
+    }
+  }
+]
