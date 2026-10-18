@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { absoluteUrl } from "@/lib/asset";
+import { docsRoute } from "@/lib/shared";
 import { source } from "@/lib/source";
 
 export const dynamic = "force-static";
@@ -8,7 +9,8 @@ export const dynamic = "force-static";
 // reference without following links from the home page.
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
-    { url: absoluteUrl(""), changeFrequency: "weekly", priority: 1 },
+    // The home page, when this build has one: at the root, the guides' first page takes its place.
+    ...(docsRoute ? [{ url: absoluteUrl(""), changeFrequency: "weekly" as const, priority: 1 }] : []),
     ...source.getPages().map((page) => ({
       url: absoluteUrl(page.url),
       changeFrequency: "weekly" as const,

@@ -12,15 +12,15 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ComponentProps } from "react";
 import { APIPage } from "@/components/api-page";
-import { getMDXComponents } from "@/components/mdx";
+import { docsLink, getMDXComponents } from "@/components/mdx";
 import { asset } from "@/lib/asset";
 import { openapi } from "@/lib/openapi";
 import { getPageEditUrl, getPageImageUrl, getPageMarkdownUrl } from "@/lib/shared";
 import { source } from "@/lib/source";
 
-export default async function Page(props: PageProps<"/documentation/[[...slug]]">) {
-  const params = await props.params;
-  const page = source.getPage(params.slug);
+/** A guide or reference page, shared by the route under /documentation and the one at the root. */
+export async function DocsRoutePage({ slug }: { slug?: string[] }) {
+  const page = source.getPage(slug);
   if (!page) notFound();
 
   const MDX = page.data.body;
@@ -39,7 +39,7 @@ export default async function Page(props: PageProps<"/documentation/[[...slug]]"
       <DocsBody>
         <MDX
           components={getMDXComponents({
-            a: createRelativeLink(source, page),
+            a: docsLink(createRelativeLink(source, page)),
             OpenAPIPage: (p: ComponentProps<typeof APIPage>) =>
               preloaded ? <APIPage {...p} preloaded={preloaded} /> : null,
           })}
@@ -50,13 +50,12 @@ export default async function Page(props: PageProps<"/documentation/[[...slug]]"
   );
 }
 
-export async function generateStaticParams() {
+export function docsStaticParams() {
   return source.generateParams();
 }
 
-export async function generateMetadata(props: PageProps<"/documentation/[[...slug]]">): Promise<Metadata> {
-  const params = await props.params;
-  const page = source.getPage(params.slug);
+export function docsMetadata(slug?: string[]): Metadata {
+  const page = source.getPage(slug);
   if (!page) notFound();
 
   return {

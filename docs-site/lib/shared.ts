@@ -1,7 +1,19 @@
 import { createGetUrl } from "fumadocs-core/source";
 
 export const appName = "Open Health Sync";
-export const docsRoute = "/documentation";
+/** Where the guides start inside the site: "" when they are at its root (next.config.mjs). */
+export const docsRoute = process.env.NEXT_PUBLIC_DOCS_ROUTE ?? "/documentation";
+
+/**
+ * A link written as /documentation/... in a page, moved to where the guides are served. Pages
+ * synced from docs/ and the hand-written ones link that way.
+ */
+export function docsHref(href: string): string {
+  const m = /^\/documentation(?=[/#?]|$)/.exec(href);
+  if (!m) return href;
+  const out = docsRoute + href.slice(m[0].length);
+  return out.startsWith("/") ? out : `/${out}`;
+}
 export const docsImageRoute = "/og/docs";
 export const docsContentRoute = "/llms.mdx/docs";
 

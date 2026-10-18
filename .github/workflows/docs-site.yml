@@ -36,3 +36,9 @@ jobs:
           name: docs-site
           path: docs-site/out
           retention-days: 14
+      # The second layout (docs-site/README.md, "Deploying"): guides at the root, under /docs.
+      - name: Build with the guides at the root
+        env:
+          DOCS_AT_ROOT: "true"
+          NEXT_PUBLIC_BASE_PATH: /docs
+        run: npm run build && npm run check:links

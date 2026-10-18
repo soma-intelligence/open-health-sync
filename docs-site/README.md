@@ -62,6 +62,13 @@ shows its own page at `/open-health-sync` itself, in place of this site's home p
 - Environment: `NEXT_PUBLIC_BASE_PATH=/open-health-sync`, and `NEXT_PUBLIC_SITE_URL` set to the
   forwarding site's address.
 
+A second layout serves the guides at the root of the site, for a domain whose own site shows the
+project page at `/` and forwards `/docs` here. Build with `DOCS_AT_ROOT=true` and
+`NEXT_PUBLIC_BASE_PATH=/docs`: the guides are then at `/docs/quickstart` and so on, this site's
+home page is left out, and assets, search, `llms.txt`, preview images and the sitemap all live
+under `/docs`. Links written as `/documentation/...` in pages are moved to `/docs/...` when they
+render, so the same pages work in both layouts. CI builds both.
+
 Every page names its address on the forwarding site as canonical, so search engines index that
 one and not the Vercel address. Pages have no trailing slash, like most sites that forward: with
 one, each side would redirect to the other's form and loop.
