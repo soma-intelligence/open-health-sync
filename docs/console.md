@@ -99,6 +99,12 @@ identifier for them; never put a name or an email in it.
 Actions: create a [connection link](connect-page.md) to send the user, sync a connection now,
 disconnect it (optionally erasing its data), and delete the user. The data card shows a preview
 of recent records and downloads FHIR, Open mHealth, CSV per dataset and the user's archive.
+The health card draws the user's last 30 or 90 days as charts once you press Show charts: sleep
+with its stages, resting heart rate, heart rate variability (RMSSD, else SDNN), daily steps and
+active energy, workouts on a timeline, and weight and body fat when the user has some. It reads
+the documented routes with your key (daily summaries, sleep, workouts, and `samples/stats` by day
+in the zone the records carry), so each read is in the audit log; it works in read-only mode.
+Each chart has a table view, and a pointer or the arrow keys read each day.
 
 **Jobs.** Sync runs that failed, across the tenant's users, newest first, and processing jobs that
 spent their attempts (parked). Retry one parked job, or all of them.
