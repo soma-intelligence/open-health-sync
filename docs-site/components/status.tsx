@@ -7,7 +7,7 @@ const styles = {
   beta: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
 } as const;
 
-const labels = { available: "Available", planned: "Planned", soon: "Coming soon", beta: "Private beta" } as const;
+const labels = { available: "Available", planned: "Planned", soon: "Coming soon", beta: "Free beta" } as const;
 
 /** A small pill saying whether something ships today. */
 export function Status({ is, children }: { is: keyof typeof styles; children?: React.ReactNode }) {
