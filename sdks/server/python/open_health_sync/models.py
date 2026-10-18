@@ -369,11 +369,68 @@ class AdminTenantProvider(TypedDict):
     instance_status: Literal["active", "off", "not_configured", "error", "built_in"]
     # The tenant's switch, true unless an instance admin turned it off.
     enabled: bool
-    # True when the tenant's users can use the provider now: the instance runs it (`active`
-    # or `built_in`) and `enabled` is true.
+    # True while the tenant has keys of its own for the provider
+    # (`/v1/admin/tenants/{tenant_id}/providers/{provider}/keys`).
+    own_keys: bool
+    # True when the tenant's users can use the provider now: `enabled` is true and either the
+    # tenant's own keys run, or the tenant has none and the instance runs the provider
+    # (`active` or `built_in`).
     available: bool
     # The last change of the switch, null when it was never set.
     updated_at: Optional[str]
+
+
+class _AdminTenantProviderKeysRequired(TypedDict):
+    provider: str
+    # True while the tenant has keys of its own for the provider.
+    set: bool
+    # `active`: the tenant's new connections use these keys. `error`: they do not run (they no
+    # longer open with the configured encryption keys, or the provider refused them, see
+    # `error`); the tenant cannot connect the provider until they are set again or removed.
+    # `not_set`: the tenant uses the instance's keys.
+    status: Literal["active", "error", "not_set"]
+    error: Optional[str]
+    # The first and last four characters of `CLIENT_ID`, never all of it.
+    client_id: Optional[str]
+    # Every key the provider takes. No value is ever served.
+    keys: List[AdminTenantProviderKeysKey]
+    # The addresses to register in the tenant's application at the provider: the instance's,
+    # the same for every tenant.
+    urls: AdminTenantProviderKeysUrl
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    # The id of the admin key that saved the keys.
+    updated_by: Optional[str]
+
+
+class AdminTenantProviderKeys(_AdminTenantProviderKeysRequired, total=False):
+    # Only in the answers of PUT and DELETE: how many connections of the tenant the change
+    # set `needs_reauth`.
+    reauth_required: int
+
+
+class AdminTenantProviderKeysKey(TypedDict):
+    name: str
+    required: bool
+    secret: bool
+    set: bool
+
+
+class AdminTenantProviderKeysUrl(TypedDict):
+    """The addresses to register in the tenant's application at the provider: the instance's,
+    the same for every tenant.
+    """
+
+    # The OAuth redirect URI.
+    redirect: Optional[str]
+    # Where the provider posts notifications, for a push provider.
+    inbound: Optional[str]
+
+
+class AdminTenantProviderKeysPut(TypedDict):
+    # Every key of the tenant's application by name, such as `CLIENT_ID` and
+    # `CLIENT_SECRET`; the provider's `keys` lists them. Replaces the previous ones whole.
+    keys: Dict[str, str]
 
 
 class AdminTenantProviderPatch(TypedDict):
@@ -389,7 +446,8 @@ class _AuditEventRequired(TypedDict):
     # data.read, data.export, data.write, user.create, user.read, user.delete,
     # user.erased, token.create, connection.read, connection.create,
     # connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-    # config.write, tenant.create, tenant.provider, key.create, key.revoke, share.create,
+    # config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
+    # key.revoke, share.create,
     # share.read, share.revoke, share.access (more may be added).
     action: str
     # The end user the action concerns.
@@ -2085,6 +2143,10 @@ __all__ = [
     "AdminProviderUrl",
     "AdminTenant",
     "AdminTenantProvider",
+    "AdminTenantProviderKeys",
+    "AdminTenantProviderKeysKey",
+    "AdminTenantProviderKeysPut",
+    "AdminTenantProviderKeysUrl",
     "AdminTenantProviderPatch",
     "AuditEvent",
     "AuditEventActor",

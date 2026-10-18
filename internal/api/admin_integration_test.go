@@ -21,10 +21,12 @@ import (
 	"github.com/soma-intelligence/open-health-sync/connectors/dexcom"
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
+	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 )
 
 type tenantInfo struct {
@@ -353,6 +355,10 @@ func adminEnv(t *testing.T, env map[string]config.ProviderKeys) (*env, *crypto.B
 		})
 		require.NoError(t, err)
 		d.Providers = set
+		d.TenantKeys = tenantkeys.New(context.Background(), tenantkeys.Options{
+			Connectors: []connector.Connector{applehealth.New(), dexcom.New(dexcom.Options{})},
+			Store:      tenantkeys.NewPG(d.Pool, box, collect.RetireTenantKeys),
+		})
 	})
 	return e, box
 }

@@ -94,6 +94,7 @@ func (s *server) mountAdminTenants(admin func(string, http.HandlerFunc)) {
 	admin("DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}", s.revokeAdminTenantKey)
 	admin("POST /v1/admin/tenants/{tenant_id}/demo-user", s.createDemoUser)
 	s.mountAdminTenantProviders(admin)
+	s.mountAdminTenantProviderKeys(admin)
 	s.mountAdminTenantRoutes(admin)
 }
 

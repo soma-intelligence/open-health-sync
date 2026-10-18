@@ -67,6 +67,16 @@ type Configurable interface {
 	Configure(cfg Config) error
 }
 
+// Instancer is optionally implemented by a Configurable connector that can
+// run with more than one set of keys at once: a tenant's own OAuth
+// application next to the instance's. NewInstance returns a new connector of
+// the same provider, with the same endpoints and HTTP client and no keys; the
+// caller hands it its keys with Configure. Only the providers implementing it
+// take tenant keys.
+type Instancer interface {
+	NewInstance() Connector
+}
+
 // publicKeys are the operator keys whose values are not secrets: the console
 // shows them back. Every other key is write only.
 var publicKeys = map[string]bool{

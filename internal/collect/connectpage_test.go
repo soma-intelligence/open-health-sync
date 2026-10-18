@@ -253,7 +253,7 @@ func TestConnectPageTemplateWithoutAppName(t *testing.T) {
 
 func TestPageCSPAllowsConsentOrigins(t *testing.T) {
 	h := &Handlers{d: pageDeps()}
-	csp := h.pageCSP([]string{"withings", "oura", "withings"})
+	csp := h.pageCSP(uuid.New(), []string{"withings", "oura", "withings"})
 	assert.Contains(t, csp, "form-action 'self' https://auth.withings.example.test https://auth.oura.example.test;")
 	assert.Contains(t, csp, "img-src https:")
 	assert.NotContains(t, csp, "script-src")

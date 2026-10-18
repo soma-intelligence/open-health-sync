@@ -47,6 +47,21 @@ release may change the API, the configuration or the database schema.
   queued one ends `cancelled` without reaching the provider. Connections and data are kept. The
   switch is audited as `tenant.provider` on both tenants and applies in every process within 30
   seconds; migration 0041 adds `ohs_core.tenant_providers`.
+- A tenant brings its own provider keys: with an instance admin key,
+  `PUT /v1/admin/tenants/{tenant_id}/providers/{provider}/keys` sets the tenant's own OAuth
+  application for a provider (`GET` shows how they stand, never a value; `DELETE` removes them).
+  The tenant's new connections then go through its application, whose name its users see on the
+  consent screen, while every other tenant keeps the instance's keys; a provider the instance has
+  no keys for becomes available to that tenant only. The callback URL stays the instance's. A
+  connection keeps the keys it was made with for its refreshes, pulls, notifications (each
+  application's signature reaches only its own connections) and revocation. Removing the keys,
+  or replacing them with another client id, sets the connections made with them `needs_reauth`
+  with a `connection.needs_reauth` webhook event; rotating only a secret keeps them. Keys are
+  checked by the connector before they are stored, sealed with `OHS_ENCRYPTION_KEY`, covered by
+  `ohs admin rekey` and `ohs doctor`, audited as `tenant.provider_keys` on both tenants and
+  applied in every process within 30 seconds. `GET /v1/admin/tenants/{tenant_id}/providers`
+  gains `own_keys`. Migration 0042 adds `ohs_core.tenant_provider_keys` and a `tenant_keys_id`
+  column to connections and OAuth states. See [docs/admin-api.md](docs/admin-api.md#a-tenants-own-provider-keys).
 - An instance admin runs one tenant's API with its own key: under
   `/v1/admin/tenants/{tenant_id}`, the tenant's users (list, create, read, delete, deletion
   jobs), their data (`daily`, `samples`, `samples/stats`, `sleep`, `workouts`, `nutrition`,

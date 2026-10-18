@@ -121,7 +121,7 @@ func (h *Handlers) StartConnection() http.Handler {
 			return
 		}
 		provider := r.PathValue("provider")
-		oc, ok := h.d.oauth(provider)
+		oc, keys, ok := h.d.forTenant(tenantID, provider)
 		if !ok {
 			writeNotFound(w, "this provider is not available on this instance")
 			return
@@ -156,7 +156,7 @@ func (h *Handlers) StartConnection() http.Handler {
 			return
 		}
 
-		authorize, err := h.authorize(r.Context(), tenantID, userID, provider, oc, req.RedirectURI)
+		authorize, err := h.authorize(r.Context(), tenantID, userID, provider, oc, keys, req.RedirectURI)
 		if err != nil {
 			writeInternal(w)
 			return
@@ -169,8 +169,11 @@ func (h *Handlers) StartConnection() http.Handler {
 // hash with the redirect (empty: the built-in result page) for StateTTL, and
 // returns the provider's consent URL. Both ways to start a connection go
 // through it: the API (StartConnection) and the hosted page (ConnectStart).
+// keys is the id of the tenant keys oc runs (nil for the instance's), kept
+// with the state so the callback trades the code with the same application.
 // Errors are logged here; the caller answers 500.
-func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, provider string, oc connector.OAuthConnector, redirect string) (string, error) {
+func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, provider string, oc connector.OAuthConnector,
+	keys *uuid.UUID, redirect string) (string, error) {
 	state, err := newState()
 	if err != nil {
 		slog.ErrorContext(ctx, "collect: oauth state", "error", err)
@@ -186,9 +189,9 @@ func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, pr
 		redirectCol = &redirect
 	}
 	if _, err := h.d.Pool.Exec(ctx, `
-		INSERT INTO ohs_sync.oauth_states (state, tenant_id, user_id, provider, redirect_uri, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
-		hashState(state), tenantID, userID, provider, redirectCol, h.d.now().Add(StateTTL)); err != nil {
+		INSERT INTO ohs_sync.oauth_states (state, tenant_id, user_id, provider, redirect_uri, expires_at, tenant_keys_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		hashState(state), tenantID, userID, provider, redirectCol, h.d.now().Add(StateTTL), keys); err != nil {
 		slog.ErrorContext(ctx, "collect: store oauth state", "tenant_id", tenantID, "user_id", userID, "error", err)
 		return "", err
 	}
@@ -200,6 +203,9 @@ type oauthState struct {
 	tenant, user uuid.UUID
 	redirect     string
 	expiresAt    time.Time
+	// keys is the id of the tenant keys the consent was started with, nil
+	// for the instance's.
+	keys *uuid.UUID
 }
 
 // takeState consumes a state: it is deleted whatever happens next, so it can
@@ -208,8 +214,8 @@ func (h *Handlers) takeState(ctx context.Context, provider, state string) (oauth
 	var s oauthState
 	err := h.d.Pool.QueryRow(ctx, `
 		DELETE FROM ohs_sync.oauth_states WHERE state = $1 AND provider = $2
-		RETURNING tenant_id, user_id, coalesce(redirect_uri, ''), expires_at`,
-		hashState(state), provider).Scan(&s.tenant, &s.user, &s.redirect, &s.expiresAt)
+		RETURNING tenant_id, user_id, coalesce(redirect_uri, ''), expires_at, tenant_keys_id`,
+		hashState(state), provider).Scan(&s.tenant, &s.user, &s.redirect, &s.expiresAt, &s.keys)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, false, nil
 	}
@@ -280,9 +286,11 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	if err != nil {
 		return err
 	}
-	oc, ok := h.d.oauth(provider)
+	// The application the consent was given to: a tenant's keys removed or
+	// replaced since are gone, and their code is not traded with others.
+	oc, ok := h.d.withKeys(st.tenant, provider, st.keys)
 	if !ok {
-		return errors.New("provider not available")
+		return errors.New("provider not available, or the keys the consent was started with are gone")
 	}
 	// Turned off for the tenant since the state was minted: the code is
 	// not exchanged, so no grant is issued and nothing is stored.
@@ -298,7 +306,7 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	if err != nil {
 		return fmt.Errorf("exchange: %w", err)
 	}
-	err = h.d.connect(ctx, st.tenant, st.user, provider, tokens)
+	err = h.d.connect(ctx, st.tenant, st.user, provider, st.keys, tokens)
 	if errors.Is(err, errInactive) {
 		// The user, or their data from this provider, started being
 		// deleted during the exchange: the grant just issued would
@@ -319,10 +327,11 @@ func (h *Handlers) complete(ctx context.Context, provider string, st oauthState,
 	return err
 }
 
-// connect stores the sealed tokens as an active connection, enqueues the 30
-// day backfill and, for a provider that pushes notifications, a pending
+// connect stores the sealed tokens as an active connection made with keys
+// (the tenant keys' id, nil for the instance's), enqueues the 30 day
+// backfill and, for a provider that pushes notifications, a pending
 // subscription row, in one transaction.
-func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider string, t connector.Tokens) error {
+func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider string, keys *uuid.UUID, t connector.Tokens) error {
 	s, err := d.seal(tenantID, userID, provider, t)
 	if err != nil {
 		return err
@@ -361,8 +370,8 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO ohs_sync.connections (tenant_id, user_id, provider, status, provider_user_id,
-			access_token_enc, refresh_token_enc, token_expires_at, scopes, initial_backfill_at)
-		VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9)
+			access_token_enc, refresh_token_enc, token_expires_at, scopes, initial_backfill_at, tenant_keys_id)
+		VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (tenant_id, user_id, provider) DO UPDATE SET
 			status = 'active',
 			provider_user_id = coalesce(EXCLUDED.provider_user_id, ohs_sync.connections.provider_user_id),
@@ -371,8 +380,9 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 			token_expires_at = EXCLUDED.token_expires_at,
 			scopes = EXCLUDED.scopes,
 			initial_backfill_at = EXCLUDED.initial_backfill_at,
+			tenant_keys_id = EXCLUDED.tenant_keys_id,
 			updated_at = now()`,
-		tenantID, userID, provider, s.providerUserID, s.access, s.refresh, s.expiresAt, s.scopes, backfillAt); err != nil {
+		tenantID, userID, provider, s.providerUserID, s.access, s.refresh, s.expiresAt, s.scopes, backfillAt, keys); err != nil {
 		return fmt.Errorf("store connection: %w", err)
 	}
 	// Connecting again is what fixes a broken grant.

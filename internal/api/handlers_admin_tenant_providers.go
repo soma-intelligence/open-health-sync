@@ -11,6 +11,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 )
 
@@ -31,8 +32,13 @@ type adminTenantProviderJSON struct {
 	InstanceStatus string `json:"instance_status"`
 	// Enabled is the tenant's switch, true unless an admin turned it off.
 	Enabled bool `json:"enabled"`
-	// Available is true when the tenant's users can use it now: the
-	// instance runs it (active or built_in) and the switch is on.
+	// OwnKeys is true while the tenant has keys of its own for the
+	// provider (.../providers/{provider}/keys): its users connect through
+	// them instead of the instance's keys.
+	OwnKeys bool `json:"own_keys"`
+	// Available is true when the tenant's users can use it now: the switch
+	// is on and either the tenant's own keys run, or the tenant has none
+	// and the instance runs it (active or built_in).
 	Available bool `json:"available"`
 	// UpdatedAt is the last change of the switch, null when never set.
 	UpdatedAt *time.Time `json:"updated_at"`
@@ -53,7 +59,7 @@ func (s *server) mountAdminTenantProviders(admin func(string, http.HandlerFunc))
 	admin("PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}", s.updateAdminTenantProvider)
 }
 
-func toAdminTenantProvider(st providerset.State, set tenantproviders.Setting, saved bool) adminTenantProviderJSON {
+func toAdminTenantProvider(st providerset.State, set tenantproviders.Setting, saved bool, own tenantkeys.State, hasOwn bool) adminTenantProviderJSON {
 	out := adminTenantProviderJSON{Slug: st.Slug, Name: collect.ProviderName(st.Slug), Kinds: kinds(st.Connector),
 		InstanceStatus: st.Status, Enabled: true}
 	if saved {
@@ -62,6 +68,10 @@ func toAdminTenantProvider(st providerset.State, set tenantproviders.Setting, sa
 		out.UpdatedAt = &t
 	}
 	runs := st.Status == providerset.StatusActive || st.Status == providerset.StatusBuiltIn
+	if hasOwn {
+		out.OwnKeys = true
+		runs = own.Status == tenantkeys.StatusActive
+	}
 	out.Available = runs && out.Enabled
 	return out
 }
@@ -78,11 +88,13 @@ func (s *server) listAdminTenantProviders(w http.ResponseWriter, r *http.Request
 		internalError(w, r, "api: tenant providers", err)
 		return
 	}
+	own := s.d.TenantKeys.Tenant(t.ID)
 	states := s.d.Providers.States()
 	out := make([]adminTenantProviderJSON, 0, len(states))
 	for _, st := range states {
 		set, ok := saved[st.Slug]
-		out = append(out, toAdminTenantProvider(st, set, ok))
+		keys, hasOwn := own[st.Slug]
+		out = append(out, toAdminTenantProvider(st, set, ok, keys, hasOwn))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
@@ -121,5 +133,6 @@ func (s *server) updateAdminTenantProvider(w http.ResponseWriter, r *http.Reques
 		internalError(w, r, "api: tenant provider", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAdminTenantProvider(st, set, true))
+	keys, hasOwn := s.d.TenantKeys.Tenant(t.ID)[slug]
+	writeJSON(w, http.StatusOK, toAdminTenantProvider(st, set, true, keys, hasOwn))
 }

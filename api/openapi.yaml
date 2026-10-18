@@ -3458,6 +3458,89 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/admin/tenants/{tenant_id}/providers/{provider}/keys:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/Provider"
+    get:
+      tags: [admin]
+      operationId: getAdminTenantProviderKeys
+      summary: A tenant's own keys for a provider, without their values (instance admin)
+      description: |
+        Whether the tenant has keys of its own for the provider and how they stand. No value is
+        ever served: `client_id` shows its first and last four characters only, and each key says
+        whether it is set. 409 for a provider that takes no keys (a device source). Recorded as
+        `config.read`. See docs/admin-api.md.
+      responses:
+        "200":
+          description: The tenant's keys for the provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminTenantProviderKeys" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    put:
+      tags: [admin]
+      operationId: putAdminTenantProviderKeys
+      summary: Set or replace a tenant's own keys for a provider (instance admin)
+      description: |
+        The tenant's users then connect the provider through the tenant's OAuth application
+        (their consent screen shows it) instead of the instance's; other tenants keep the
+        instance's keys. The provider becomes available to the tenant even when the instance has
+        no keys for it. The body replaces every key: give the required ones (400 otherwise); the
+        provider's own rules check them before anything is stored (422 with the reason). They are
+        sealed with `OHS_ENCRYPTION_KEY` and apply at once in the process that answers, within 30
+        seconds in the others. A connection keeps the keys it was made with: keys with the same
+        `CLIENT_ID`, `REGION` and `ENVIRONMENT` (a secret rotated) keep the tenant's connections,
+        keys naming another application set the connections made with the old ones
+        `needs_reauth` (counted in `reauth_required`). The callback URL stays the instance's.
+        Recorded as `tenant.provider_keys` in the caller's audit log and in the tenant's, together
+        with the change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminTenantProviderKeysPut" }
+      responses:
+        "200":
+          description: The tenant's keys after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminTenantProviderKeys" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422":
+          description: The provider's rules refused the keys; nothing was stored.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+    delete:
+      tags: [admin]
+      operationId: deleteAdminTenantProviderKeys
+      summary: Remove a tenant's own keys for a provider (instance admin)
+      description: |
+        The tenant's new connections go back to the instance's keys (or the provider is no longer
+        available to the tenant when the instance has none). Its connections made with the removed
+        keys are set `needs_reauth`, with a `connection.needs_reauth` webhook event each, and the
+        consents started with them are dropped; connecting the user again uses the keys in force
+        then. 404 when the tenant has no keys for the provider. Recorded as
+        `tenant.provider_keys`, like a change.
+      responses:
+        "200":
+          description: The tenant's keys after the change (`set` false).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminTenantProviderKeys" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /v1/admin/tenants/{tenant_id}/users:
     parameters:
       - $ref: "#/components/parameters/TenantID"
@@ -5330,7 +5413,7 @@ components:
 
     AdminTenantProvider:
       type: object
-      required: [slug, name, kinds, instance_status, enabled, available, updated_at]
+      required: [slug, name, kinds, instance_status, enabled, own_keys, available, updated_at]
       properties:
         slug: { type: string, examples: [oura] }
         name: { type: string, examples: [Oura] }
@@ -5344,15 +5427,85 @@ components:
         enabled:
           type: boolean
           description: The tenant's switch, true unless an instance admin turned it off.
+        own_keys:
+          type: boolean
+          description: |
+            True while the tenant has keys of its own for the provider
+            (`/v1/admin/tenants/{tenant_id}/providers/{provider}/keys`).
         available:
           type: boolean
           description: |
-            True when the tenant's users can use the provider now: the instance runs it (`active`
-            or `built_in`) and `enabled` is true.
+            True when the tenant's users can use the provider now: `enabled` is true and either the
+            tenant's own keys run, or the tenant has none and the instance runs the provider
+            (`active` or `built_in`).
         updated_at:
           type: [string, "null"]
           format: date-time
           description: The last change of the switch, null when it was never set.
+
+    AdminTenantProviderKeys:
+      type: object
+      required: [provider, set, status, error, client_id, keys, urls, created_at, updated_at, updated_by]
+      properties:
+        provider: { type: string, examples: [withings] }
+        set:
+          type: boolean
+          description: True while the tenant has keys of its own for the provider.
+        status:
+          type: string
+          enum: [active, error, not_set]
+          description: |
+            `active`: the tenant's new connections use these keys. `error`: they do not run (they no
+            longer open with the configured encryption keys, or the provider refused them, see
+            `error`); the tenant cannot connect the provider until they are set again or removed.
+            `not_set`: the tenant uses the instance's keys.
+        error: { type: [string, "null"] }
+        client_id:
+          type: [string, "null"]
+          description: The first and last four characters of `CLIENT_ID`, never all of it.
+          examples: [abcd...wxyz]
+        keys:
+          type: array
+          description: Every key the provider takes. No value is ever served.
+          items:
+            type: object
+            required: [name, required, secret, set]
+            properties:
+              name: { type: string, examples: [CLIENT_SECRET] }
+              required: { type: boolean }
+              secret: { type: boolean }
+              set: { type: boolean }
+        urls:
+          type: object
+          description: |
+            The addresses to register in the tenant's application at the provider: the instance's,
+            the same for every tenant.
+          required: [redirect, inbound]
+          properties:
+            redirect: { type: [string, "null"], description: "The OAuth redirect URI." }
+            inbound: { type: [string, "null"], description: "Where the provider posts notifications, for a push provider." }
+        created_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+        updated_by: { type: [string, "null"], description: The id of the admin key that saved the keys. }
+        reauth_required:
+          type: integer
+          description: |
+            Only in the answers of PUT and DELETE: how many connections of the tenant the change
+            set `needs_reauth`.
+
+    AdminTenantProviderKeysPut:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      properties:
+        keys:
+          type: object
+          description: |
+            Every key of the tenant's application by name, such as `CLIENT_ID` and
+            `CLIENT_SECRET`; the provider's `keys` lists them. Replaces the previous ones whole.
+          additionalProperties: { type: string }
+          examples:
+            - { CLIENT_ID: your-client-id, CLIENT_SECRET: your-client-secret }
 
     AdminTenantProviderPatch:
       type: object
@@ -5388,7 +5541,8 @@ components:
             data.read, data.export, data.write, user.create, user.read, user.delete,
             user.erased, token.create, connection.read, connection.create,
             connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-            config.write, tenant.create, tenant.provider, key.create, key.revoke, share.create,
+            config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
+            key.revoke, share.create,
             share.read, share.revoke, share.access (more may be added).
         user_id: { type: [string, "null"], format: uuid, description: "The end user the action concerns." }
         method: { type: string, description: "The HTTP method, absent outside a request." }

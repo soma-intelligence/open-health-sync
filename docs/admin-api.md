@@ -41,6 +41,9 @@ revoke the old one). A key cannot revoke itself, so the tooling cannot lock itse
 | `POST /v1/admin/tenants/{tenant_id}/demo-user` | 201 or 200, a user of the tenant filled with [synthetic data](demo.md) |
 | `GET /v1/admin/tenants/{tenant_id}/providers` | `{"data": [provider, ...]}`, every provider of the instance with the tenant's switch |
 | `PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}` | The provider, turned off or back on for the tenant: body `{"enabled": false}` |
+| `GET /v1/admin/tenants/{tenant_id}/providers/{provider}/keys` | The tenant's own keys for the provider, never their values |
+| `PUT /v1/admin/tenants/{tenant_id}/providers/{provider}/keys` | The tenant's own keys, set or replaced: body `{"keys": {"CLIENT_ID": "...", "CLIENT_SECRET": "..."}}` |
+| `DELETE /v1/admin/tenants/{tenant_id}/providers/{provider}/keys` | The tenant's own keys removed: it goes back to the instance's |
 | `/v1/admin/tenants/{tenant_id}/users...`, `/webhooks...`, `/pipeline/...`, `/deletions/{job_id}`, `/audit` | The tenant's own API, run with the admin key: the answer of the tenant route of the same name, listed in [Run a tenant's API](#run-a-tenants-api) |
 
 A tenant is:
@@ -180,6 +183,7 @@ curl -s -X PATCH "$OHS/v1/admin/tenants/$TENANT/providers/oura" -H "Authorizatio
   "kinds": ["oauth"],
   "instance_status": "active",
   "enabled": false,
+  "own_keys": false,
   "available": false,
   "updated_at": "2026-10-17T09:30:02.481190Z"
 }
@@ -188,9 +192,11 @@ curl -s -X PATCH "$OHS/v1/admin/tenants/$TENANT/providers/oura" -H "Authorizatio
 The list holds every provider the instance knows, in the order of `GET /v1/admin/providers`.
 `instance_status` is the provider's status there (`active`, `off`, `not_configured`, `error`,
 `built_in`). `enabled` is the tenant's switch: true unless an admin turned it off, the default
-for every tenant and every provider, new ones included. `available` is true when the tenant's
-users can use the provider now: the instance runs it (`active` or `built_in`) and the switch is
-on. `updated_at` is the last change of the switch, null when it was never set.
+for every tenant and every provider, new ones included. `own_keys` is true while the tenant has
+[keys of its own](#a-tenants-own-provider-keys) for the provider. `available` is true when the
+tenant's users can use the provider now: the switch is on and either the tenant's own keys run,
+or the tenant has none and the instance runs the provider (`active` or `built_in`). `updated_at`
+is the last change of the switch, null when it was never set.
 
 `PATCH` takes `{"enabled": true}` or `{"enabled": false}`, nothing else (400 otherwise), and
 answers the provider as listed. It can be set for a provider the instance does not run yet, so
@@ -213,6 +219,85 @@ While a provider is off for a tenant:
 Nothing is deleted: the connections stay, with their tokens, and the data stored stays readable.
 Turned back on, the next scheduled pull reaches back to the connection's last successful sync,
 up to 7 days, like after an outage.
+
+## A tenant's own provider keys
+
+The instance's provider keys serve every tenant, and every user sees the instance's application
+on the provider's consent screen. A tenant can bring its own instead: a team with its own
+Withings or Oura developer account, whose users should see the team's application, or whose
+provider quota should be its own. Its users then connect through the tenant's keys; every other
+tenant keeps the instance's.
+
+```sh
+curl -s -X PUT "$OHS/v1/admin/tenants/$TENANT/providers/withings/keys" -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"keys":{"CLIENT_ID":"...","CLIENT_SECRET":"..."}}'
+curl -s "$OHS/v1/admin/tenants/$TENANT/providers/withings/keys" -H "Authorization: Bearer $ADMIN_KEY"
+curl -s -X DELETE "$OHS/v1/admin/tenants/$TENANT/providers/withings/keys" -H "Authorization: Bearer $ADMIN_KEY"
+```
+
+```json
+{
+  "provider": "withings",
+  "set": true,
+  "status": "active",
+  "error": null,
+  "client_id": "8f2c...91ab",
+  "keys": [
+    { "name": "CLIENT_ID", "required": true, "secret": false, "set": true },
+    { "name": "CLIENT_SECRET", "required": true, "secret": true, "set": true }
+  ],
+  "urls": {
+    "redirect": "https://ohs.example.com/oauth/withings/callback",
+    "inbound": "https://ohs.example.com/inbound/withings"
+  },
+  "created_at": "2026-10-18T08:02:11.507301Z",
+  "updated_at": "2026-10-18T08:02:11.507301Z",
+  "updated_by": "8d2e4f60-1a3b-4c5d-8e9f-0a1b2c3d4e5f",
+  "reauth_required": 0
+}
+```
+
+No value is ever served back: `client_id` shows the first and last four characters, each key
+whether it is set. `keys` lists every key the provider takes, the same names as its
+`OHS_<PROVIDER>_*` variables (`GET /v1/admin/providers`). `status` is `active` (the tenant's new
+connections use them), `error` (they do not run, see `error`) or `not_set`. `urls` are the
+addresses to register in the tenant's application at the provider: the instance's, the same for
+every tenant, since the OAuth state of a consent already names the tenant. `reauth_required`,
+in the answers of `PUT` and `DELETE` only, counts the connections the change set `needs_reauth`.
+
+- **`PUT`** replaces the tenant's keys whole: give every required key (400 otherwise, like an
+  unknown key name). The provider's own rules check them before anything is stored (422 with
+  the reason). They are sealed with `OHS_ENCRYPTION_KEY`, like the instance's keys saved in the
+  console, rotated by `ohs admin rekey` and counted by `ohs doctor`. They apply at once on the
+  instance that answered and within 30 seconds on the others. Only OAuth providers take keys:
+  a device source answers 409.
+- **A provider the instance has no keys for** becomes available to that tenant alone: it shows in
+  its `GET /v1/providers`, its connect page and the scheduler's pulls, and in no other tenant's.
+- **A connection keeps the keys it was made with**: its refreshes, pulls, notifications and
+  revocation use them, whatever the tenant sets later. New keys with the same `CLIENT_ID`,
+  `REGION` and `ENVIRONMENT` are the same application (a secret rotated): the connections carry
+  on with the new secret. Keys naming another application set the connections made with the old
+  ones `needs_reauth`, since its server does not refresh grants the other one issued.
+- **`DELETE`** sends the tenant's new connections back to the instance's keys (or makes the
+  provider unavailable to it, when the instance has none). Its connections made with the removed
+  keys are set `needs_reauth`, broken for `needs_reauth`, with a `connection.needs_reauth`
+  webhook event each and their pending pulls parked, as when a provider revokes a grant; consents
+  started with those keys and not completed are dropped. Connecting the user again (the
+  [connect page](connect-page.md) offers it) uses the keys in force then. Nothing is
+  unsubscribed or revoked at the provider: the keys to do it are gone, and the tenant's
+  application stops being called. 404 when the tenant had none.
+- **Keys that do not run** (sealed under an encryption key the instance no longer has, or
+  refused by the provider) leave the tenant without the provider rather than send its users to
+  the instance's application: set them again, or remove them.
+- **Notifications** reach the instance's single `/inbound/{provider}` URL for every tenant.
+  Each set of keys verifies them in turn (the instance's, then each tenant's, for providers
+  that sign with the client secret such as Withings), and a notification goes only to the
+  connections made with the keys that verified it. Where the notification URL is set per
+  application (in the provider's developer portal, or with one subscription per application
+  such as Strava's), set it in the tenant's application too, as for the instance's.
+- The tenant's own switch still applies: a provider turned off for the tenant stays off,
+  whatever its keys.
 
 ## Run a tenant's API
 
@@ -267,8 +352,8 @@ route can be repeated as it is.
 ## Audit
 
 Each request is recorded in the admin tenant's [audit log](audit-log.md), like any request:
-`tenant.create`, `key.create`, `key.revoke`, `data.write` (the demo user) and `tenant.provider`
-for the changes, `config.read` for the reads of tenants, keys, pipelines and providers, the
+`tenant.create`, `key.create`, `key.revoke`, `data.write` (the demo user), `tenant.provider` and
+`tenant.provider_keys` for the changes, `config.read` for the reads of tenants, keys, pipelines and providers, the
 action of the tenant route for the [tenant routes](#run-a-tenants-api), with the `tenant_id` of
 the path in `detail`.
 
@@ -276,8 +361,10 @@ The tenant that was changed gets an event of its own, so its log tells the whole
 type `admin`, actor id `api_key:` followed by the admin key's id, the action above, and in
 `detail` the admin's tenant (`admin_tenant_id`) with the key's `key_id` and `key_prefix` (never
 the key), for the demo user its `user_id`, `days`, `persona`, `rows_written` and
-`user_created`, for a provider switch its `provider` and `enabled`. A tenant, key or switch
-change and its event are written together: if the event cannot be written, nothing changes. A
+`user_created`, for a provider switch its `provider` and `enabled`, for the tenant's own keys its
+`provider`, `set` (true for a `PUT`, false for a `DELETE`) and `reauth_required`, never a key. A
+tenant, key, switch or provider keys change and its event are written together: if the event
+cannot be written, nothing changes. A
 request through the tenant routes gets an event too, with the user of the path.
 
 ## Not here
@@ -286,7 +373,8 @@ request through the tenant routes gets an event too, with the user of the path.
 - Making a tenant an instance admin, or clearing the mark: `ohs admin tenant admin`.
 - The [admin console](console.md) still shows the tenant of the key signed in.
 - The server SDKs leave these routes out, as they do the provider settings; their types
-  (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`, `AdminTenantProvider`) are generated. The
+  (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`, `AdminTenantProvider`,
+  `AdminTenantProviderKeys`) are generated. The
   tenant routes answer the types of the routes of the same name.
 - The tenant routes not listed above (FHIR, Open mHealth, exports, the archive, consents,
   shares, tags, tokens, uploads, the tenant's keys): use a key of the tenant, made with

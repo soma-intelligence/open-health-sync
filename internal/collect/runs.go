@@ -383,9 +383,10 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	}
 	var status string
 	var syncedThrough *time.Time
-	err = tx.QueryRow(ctx, `SELECT status, synced_through FROM ohs_sync.connections
+	var keys *uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT status, synced_through, tenant_keys_id FROM ohs_sync.connections
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 FOR SHARE`,
-		tenantID, userID, provider).Scan(&status, &syncedThrough)
+		tenantID, userID, provider).Scan(&status, &syncedThrough, &keys)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SyncRun{}, false, &syncProblem{http.StatusNotFound, "no connection to this provider"}
 	}
@@ -399,7 +400,7 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	case StatusDisconnected:
 		return SyncRun{}, false, &syncProblem{http.StatusConflict, "the connection is disconnected: connect the user again"}
 	}
-	if _, ok := d.oauth(provider); !ok {
+	if _, ok := d.withKeys(tenantID, provider, keys); !ok {
 		return SyncRun{}, false, &syncProblem{http.StatusConflict, "this provider is not enabled on this instance"}
 	}
 	if !d.allowed(tenantID, provider) {

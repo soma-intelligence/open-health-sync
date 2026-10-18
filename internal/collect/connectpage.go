@@ -88,8 +88,9 @@ func (d Deps) ConnectURL(token string) string {
 }
 
 // oauthSlugs are the OAuth providers a tenant can connect on this instance:
-// Deps.Slugs (every registered connector when nil) that Lookup resolves to an
-// OAuth connector, less those turned off for the tenant.
+// Deps.Slugs (every registered connector when nil) that the instance's keys
+// or the tenant's own run as an OAuth connector (forTenant), less those
+// turned off for the tenant.
 func (d Deps) oauthSlugs(tenantID uuid.UUID) []string {
 	cands := d.Slugs
 	if cands == nil {
@@ -99,7 +100,7 @@ func (d Deps) oauthSlugs(tenantID uuid.UUID) []string {
 	}
 	var out []string
 	for _, s := range cands {
-		if _, ok := d.oauth(s); ok && d.allowed(tenantID, s) && !slices.Contains(out, s) {
+		if _, _, ok := d.forTenant(tenantID, s); ok && d.allowed(tenantID, s) && !slices.Contains(out, s) {
 			out = append(out, s)
 		}
 	}
@@ -153,7 +154,7 @@ func (d Deps) newConnectSession(tenantID uuid.UUID, req ConnectSessionRequest, n
 		return bad(fmt.Sprintf("providers lists at most %d providers", maxConnectProviders))
 	}
 	for _, p := range req.Providers {
-		if _, ok := d.oauth(p); !ok {
+		if _, _, ok := d.forTenant(tenantID, p); !ok {
 			if len(p) > 64 {
 				p = p[:64]
 			}
@@ -306,7 +307,7 @@ func (h *Handlers) sessionProviders(s connectSession, provider string) (slugs []
 		if provider != "" && p != provider {
 			continue
 		}
-		if _, ok := h.d.oauth(p); !ok {
+		if _, _, ok := h.d.forTenant(s.tenant, p); !ok {
 			continue
 		}
 		if !h.d.allowed(s.tenant, p) {
@@ -404,7 +405,7 @@ func (h *Handlers) ConnectPage() http.Handler {
 			}
 			v.Providers = append(v.Providers, pv)
 		}
-		setPageHeaders(w, h.pageCSP(slugs))
+		setPageHeaders(w, h.pageCSP(s.tenant, slugs))
 		w.WriteHeader(http.StatusOK)
 		if err := connectPage.Execute(w, v); err != nil {
 			slog.ErrorContext(r.Context(), "collect: render connect page", "error", err)
@@ -434,8 +435,8 @@ func (h *Handlers) ConnectStart() http.Handler {
 			renderSourceRefused(w, off)
 			return
 		}
-		oc, _ := h.d.oauth(provider)
-		authorize, err := h.authorize(r.Context(), s.tenant, s.user, provider, oc, s.redirect)
+		oc, keys, _ := h.d.forTenant(s.tenant, provider)
+		authorize, err := h.authorize(r.Context(), s.tenant, s.user, provider, oc, keys, s.redirect)
 		if err != nil {
 			renderConnectProblem(w, http.StatusInternalServerError, "Something went wrong", "Try again in a moment.")
 			return
@@ -506,10 +507,10 @@ var cspSource = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(:[0-9]+)?$`)
 // pageCSP is the page's Content-Security-Policy. Browsers apply form-action
 // to the redirects that follow a form submission too, so the origins of the
 // providers' consent pages are listed next to 'self'.
-func (h *Handlers) pageCSP(slugs []string) string {
+func (h *Handlers) pageCSP(tenantID uuid.UUID, slugs []string) string {
 	sources := []string{"'self'"}
 	for _, p := range slugs {
-		oc, ok := h.d.oauth(p)
+		oc, _, ok := h.d.forTenant(tenantID, p)
 		if !ok {
 			continue
 		}

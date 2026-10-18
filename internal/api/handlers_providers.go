@@ -4,12 +4,15 @@ package api
 
 import (
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 )
 
 type providerJSON struct {
@@ -39,13 +42,26 @@ func (s *server) providerAllowed(tenantID uuid.UUID, slug string) bool {
 	return s.d.TenantProviders.Allowed(tenantID, slug)
 }
 
-// listProviders lists the providers enabled on the instance and not turned
-// off for the caller's tenant.
+// listProviders lists the providers the caller's tenant can use: those
+// enabled on the instance, and those it runs keys of its own for, less
+// those turned off for it. A provider whose tenant keys do not run is left
+// out, as its users cannot connect it.
 func (s *server) listProviders(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.From(r.Context())
-	list := s.enabled()
+	list := slices.Clone(s.enabled())
+	own := s.d.TenantKeys.Tenant(p.TenantID)
+	for slug, st := range own {
+		if st.Status != tenantkeys.StatusActive || slices.ContainsFunc(list, func(c connector.Connector) bool { return c.Slug() == slug }) {
+			continue
+		}
+		list = append(list, st.Connector)
+	}
+	slices.SortFunc(list, func(a, b connector.Connector) int { return strings.Compare(a.Slug(), b.Slug()) })
 	out := make([]providerJSON, 0, len(list))
 	for _, c := range list {
+		if st, ok := own[c.Slug()]; ok && st.Status != tenantkeys.StatusActive {
+			continue
+		}
 		if !s.providerAllowed(p.TenantID, c.Slug()) {
 			continue
 		}

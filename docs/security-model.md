@@ -18,6 +18,7 @@ checklist see [hardening.md](hardening.md); to report a problem see
 | OAuth `state` values | `ohs_sync.oauth_states` | SHA-256 hash only, single use, 10 minute lifetime |
 | Share link files | `ohs_sync.shares` | A JWE (AES-256-GCM) under a key held only in the link; the manifest id as a SHA-256 hash, the passcode as a PBKDF2-SHA256 hash |
 | Provider keys saved in the [console](console.md) | `ohs_core.provider_settings` | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the provider; the API never returns a secret's value |
+| A tenant's own provider keys ([admin API](admin-api.md#a-tenants-own-provider-keys)) | `ohs_core.tenant_provider_keys` | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the tenant and the provider; the API never returns a value, only part of the client id |
 | `OHS_ENCRYPTION_KEY` and provider keys set by environment | The process environment | Not stored by the application; the operator's job |
 
 ## Actors and trust boundaries

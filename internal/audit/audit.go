@@ -77,6 +77,11 @@ const (
 	// TenantProvider is a provider turned off or back on for one tenant by
 	// an instance admin; detail has the provider and enabled.
 	TenantProvider = "tenant.provider"
+	// TenantProviderKeys is a tenant's own keys for a provider set,
+	// replaced or removed by an instance admin; detail has the provider,
+	// whether keys are set after the change and how many connections were
+	// set needs_reauth, never a key.
+	TenantProviderKeys = "tenant.provider_keys"
 )
 
 // Event is one entry to record.
@@ -176,6 +181,8 @@ func Classify(method, pattern string) string {
 		return DataWrite // synthetic data for one of the tenant's users
 	case path == "/v1/admin/tenants/{tenant_id}/providers/{provider}" && method == "PATCH":
 		return TenantProvider
+	case path == "/v1/admin/tenants/{tenant_id}/providers/{provider}/keys" && (method == "PUT" || method == "DELETE"):
+		return TenantProviderKeys
 	case strings.HasPrefix(path, "/v1/keys"):
 		switch method {
 		case "POST":

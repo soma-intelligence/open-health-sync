@@ -26,6 +26,7 @@ type tenantProvider struct {
 	Kinds          []string   `json:"kinds"`
 	InstanceStatus string     `json:"instance_status"`
 	Enabled        bool       `json:"enabled"`
+	OwnKeys        bool       `json:"own_keys"`
 	Available      bool       `json:"available"`
 	UpdatedAt      *time.Time `json:"updated_at"`
 }
@@ -69,8 +70,8 @@ func TestAdminTenantProviders(t *testing.T) {
 	r := e.do("GET", base, e.keyA, nil)
 	require.Equal(t, http.StatusOK, r.code, string(r.body))
 	assert.JSONEq(t, `{"data":[
-		{"slug":"apple_health","name":"Apple Health","kinds":["device"],"instance_status":"built_in","enabled":true,"available":true,"updated_at":null},
-		{"slug":"dexcom","name":"Dexcom","kinds":["oauth"],"instance_status":"not_configured","enabled":true,"available":false,"updated_at":null}]}`,
+		{"slug":"apple_health","name":"Apple Health","kinds":["device"],"instance_status":"built_in","enabled":true,"own_keys":false,"available":true,"updated_at":null},
+		{"slug":"dexcom","name":"Dexcom","kinds":["oauth"],"instance_status":"not_configured","enabled":true,"own_keys":false,"available":false,"updated_at":null}]}`,
 		string(r.body))
 	assert.Equal(t, []string{"apple_health"}, providerSlugs(t, e, blue.Key.Key))
 	assert.Equal(t, http.StatusBadRequest, e.do("POST", "/v1/ingest/apple-health", tok, []byte("x")).code,
@@ -81,7 +82,7 @@ func TestAdminTenantProviders(t *testing.T) {
 	require.Equal(t, http.StatusOK, r.code, string(r.body))
 	var off tenantProvider
 	r.json(t, &off)
-	assert.ElementsMatch(t, []string{"slug", "name", "kinds", "instance_status", "enabled", "available", "updated_at"},
+	assert.ElementsMatch(t, []string{"slug", "name", "kinds", "instance_status", "enabled", "own_keys", "available", "updated_at"},
 		keysOfAny(r.body))
 	assert.Equal(t, "apple_health", off.Slug)
 	assert.Equal(t, "built_in", off.InstanceStatus)

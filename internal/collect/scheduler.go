@@ -390,8 +390,8 @@ func (s *Scheduler) Schedule(ctx context.Context) (int, error) {
 }
 
 // slugs are the providers this instance pulls: Deps.Slugs when set, else
-// the providers of active connections; either way only those Lookup resolves
-// to an OAuth connector.
+// the providers of active connections; either way only those the instance's
+// keys or a tenant's run as an OAuth connector.
 func (s *Scheduler) slugs(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	candidates := s.d.Slugs
 	if candidates == nil {
@@ -406,7 +406,7 @@ func (s *Scheduler) slugs(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	}
 	out := make([]string, 0, len(candidates))
 	for _, slug := range candidates {
-		if _, ok := s.d.oauth(slug); ok {
+		if _, ok := s.d.capableOAuth(slug); ok {
 			out = append(out, slug)
 		}
 	}
@@ -417,7 +417,7 @@ func (s *Scheduler) slugs(ctx context.Context, tx pgx.Tx) ([]string, error) {
 func (s *Scheduler) pushSlugs(slugs []string) []string {
 	out := []string{}
 	for _, slug := range slugs {
-		if c, ok := s.d.lookup(slug); ok {
+		if c, ok := s.d.capable(slug); ok {
 			if _, push := connector.AsPush(c); push {
 				out = append(out, slug)
 			}
@@ -609,8 +609,7 @@ const (
 
 // pull fetches the job's window. It returns the number of raw objects stored.
 func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
-	oc, ok := s.d.oauth(job.Provider)
-	if !ok {
+	if _, ok := s.d.capableOAuth(job.Provider); !ok {
 		return 0, fmt.Errorf("provider %q is not available on this instance", job.Provider)
 	}
 	// Queued before the provider was turned off for the tenant: nothing is
@@ -618,7 +617,7 @@ func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
 	if !s.d.allowed(job.TenantID, job.Provider) {
 		return 0, ErrProviderOff
 	}
-	conn, err := s.d.connection(ctx, oc, job.TenantID, job.UserID, job.Provider)
+	conn, oc, err := s.d.connection(ctx, job.TenantID, job.UserID, job.Provider)
 	if err != nil {
 		return 0, err
 	}
@@ -634,7 +633,7 @@ func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
 		// The access token may just have expired early or been revoked
 		// alone (Withings answers 401): refresh once and retry once. Only a
 		// refused refresh, or a second refusal, means the grant is gone.
-		conn, err = s.d.refresh(ctx, oc, job.TenantID, job.UserID, job.Provider, conn.Tokens.Access)
+		conn, err = s.d.refresh(ctx, job.TenantID, job.UserID, job.Provider, conn.Tokens.Access)
 		if err != nil {
 			// refresh marks needs_reauth itself when the provider refuses.
 			return sink.stored, err

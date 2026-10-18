@@ -26,6 +26,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -59,6 +60,11 @@ type Deps struct {
 	// runs: false when an instance admin turned it off for that tenant
 	// (tenantproviders.Set.Allowed). Nil allows every provider.
 	Allowed func(tenant uuid.UUID, slug string) bool
+	// TenantKeys are the provider keys tenants brought for themselves: a
+	// tenant's new connections go through its own keys instead of the
+	// instance's, and a connection keeps the keys it was made with. Nil:
+	// every tenant runs on the instance's keys.
+	TenantKeys *tenantkeys.Set
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -77,12 +83,70 @@ func (d Deps) lookup(slug string) (connector.Connector, bool) {
 	return connector.Get(slug)
 }
 
-func (d Deps) oauth(slug string) (connector.OAuthConnector, bool) {
+// capable returns a connector of slug to ask what the provider can do (push,
+// subscriptions, typed pulls): the instance's, else one running on a
+// tenant's keys. It never makes a provider call for a connection: those go
+// through forTenant or withKeys.
+func (d Deps) capable(slug string) (connector.Connector, bool) {
+	if c, ok := d.lookup(slug); ok {
+		return c, true
+	}
+	return d.TenantKeys.Any(slug)
+}
+
+// capableOAuth is capable for an OAuth provider.
+func (d Deps) capableOAuth(slug string) (connector.OAuthConnector, bool) {
+	c, ok := d.capable(slug)
+	if !ok {
+		return nil, false
+	}
+	return connector.AsOAuth(c)
+}
+
+// instanceOAuth is the instance's OAuth connector of slug.
+func (d Deps) instanceOAuth(slug string) (connector.OAuthConnector, bool) {
 	c, ok := d.lookup(slug)
 	if !ok {
 		return nil, false
 	}
 	return connector.AsOAuth(c)
+}
+
+// forTenant returns the connector a new connection of the tenant to slug
+// goes through, and the id of the tenant keys it runs (nil for the
+// instance's keys): the tenant's own keys when it has some, else the
+// instance's. Keys of the tenant that do not run (StatusError) make the
+// provider unavailable to it rather than fall back on the instance's
+// application, which the tenant chose not to show its users.
+func (d Deps) forTenant(tenantID uuid.UUID, slug string) (connector.OAuthConnector, *uuid.UUID, bool) {
+	if c, id, ok := d.TenantKeys.Current(tenantID, slug); ok {
+		oc, ok := connector.AsOAuth(c)
+		return oc, &id, ok
+	}
+	if d.TenantKeys.Has(tenantID, slug) {
+		return nil, nil, false
+	}
+	oc, ok := d.instanceOAuth(slug)
+	return oc, nil, ok
+}
+
+// withKeys returns the connector of the keys a connection or a consent was
+// made with: the instance's when keys is nil, else the tenant's while it
+// still has those keys.
+func (d Deps) withKeys(tenantID uuid.UUID, slug string, keys *uuid.UUID) (connector.OAuthConnector, bool) {
+	if keys == nil {
+		return d.instanceOAuth(slug)
+	}
+	c, ok := d.TenantKeys.Get(tenantID, slug, *keys)
+	if !ok {
+		return nil, false
+	}
+	return connector.AsOAuth(c)
+}
+
+// oauthOf is the connector of a connection row (withKeys).
+func (d Deps) oauthOf(c connRow) (connector.OAuthConnector, bool) {
+	return d.withKeys(c.tenant, c.provider, c.keys)
 }
 
 // ProviderOffDetail is the problem detail of a request refused because the
@@ -138,15 +202,18 @@ type connRow struct {
 	scopes         []string
 	lastSyncAt     *time.Time
 	createdAt      time.Time
+	// keys is the id of the tenant keys the connection was made with, nil
+	// for the instance's keys.
+	keys *uuid.UUID
 }
 
 const connCols = `tenant_id, user_id, provider, status, coalesce(provider_user_id, ''),
-	access_token_enc, refresh_token_enc, token_expires_at, scopes, last_sync_at, created_at`
+	access_token_enc, refresh_token_enc, token_expires_at, scopes, last_sync_at, created_at, tenant_keys_id`
 
 func scanConn(row pgx.Row) (connRow, error) {
 	var c connRow
 	err := row.Scan(&c.tenant, &c.user, &c.provider, &c.status, &c.providerUserID,
-		&c.accessEnc, &c.refreshEnc, &c.expiresAt, &c.scopes, &c.lastSyncAt, &c.createdAt)
+		&c.accessEnc, &c.refreshEnc, &c.expiresAt, &c.scopes, &c.lastSyncAt, &c.createdAt, &c.keys)
 	return c, err
 }
 
