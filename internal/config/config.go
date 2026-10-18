@@ -42,6 +42,10 @@ type Config struct {
 	// presents it, once, while the instance has no tenant. Empty (the
 	// default) leaves the setup routes out. A secret: never logged.
 	SetupToken string
+	// EncryptionKeySource and SetupTokenSource say where each secret came
+	// from: the variable, or the file its _FILE variable names (read, or
+	// created with a random value). For `ohs doctor`.
+	EncryptionKeySource, SetupTokenSource SecretSource
 	// RetentionDays prunes raw files and normalized data older than this
 	// many days; 0 keeps everything.
 	RetentionDays int
@@ -155,6 +159,7 @@ var (
 var reserved = map[string]bool{
 	"DATABASE_URL":                true,
 	"ENCRYPTION_KEY":              true,
+	"ENCRYPTION_KEY_FILE":         true,
 	"PREVIOUS_ENCRYPTION_KEYS":    true,
 	"PUBLIC_URL":                  true,
 	"RAW_STORE":                   true,
@@ -167,6 +172,7 @@ var reserved = map[string]bool{
 	"METRICS_TOKEN":               true,
 	"METRICS_LISTEN":              true,
 	"SETUP_TOKEN":                 true,
+	"SETUP_TOKEN_FILE":            true,
 	"RETENTION_DAYS":              true,
 	"AUDIT_RETENTION_DAYS":        true,
 	"INGEST_CONCURRENCY":          true,
@@ -244,7 +250,10 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		return Config{}, fmt.Errorf("OHS_DATABASE_URL is required (postgres://user:password@host:5432/db?sslmode=disable)")
 	}
 
-	raw := get("OHS_ENCRYPTION_KEY", "")
+	raw, src, err := secret(get, "OHS_ENCRYPTION_KEY", newKey)
+	if err != nil {
+		return Config{}, fmt.Errorf("%w: %w", ErrEncryptionKey, err)
+	}
 	if raw == "" {
 		return Config{}, fmt.Errorf("%w is required (32 random bytes, base64)%s", ErrEncryptionKey, keyHint)
 	}
@@ -255,7 +264,7 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	if len(key) != 32 {
 		return Config{}, fmt.Errorf("%w must decode to 32 bytes, got %d%s", ErrEncryptionKey, len(key), keyHint)
 	}
-	c.EncryptionKey = key
+	c.EncryptionKey, c.EncryptionKeySource = key, src
 	if c.PreviousEncryptionKeys, err = previousKeys(get("OHS_PREVIOUS_ENCRYPTION_KEYS", ""), key); err != nil {
 		return Config{}, err
 	}
@@ -299,7 +308,9 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		return Config{}, fmt.Errorf("OHS_METRICS_LISTEN %q must differ from OHS_LISTEN", c.MetricsListen)
 	}
 
-	c.SetupToken = get("OHS_SETUP_TOKEN", "")
+	if c.SetupToken, c.SetupTokenSource, err = secret(get, "OHS_SETUP_TOKEN", newToken); err != nil {
+		return Config{}, err
+	}
 	if c.SetupToken != "" && len(c.SetupToken) < MinSetupToken {
 		return Config{}, fmt.Errorf("OHS_SETUP_TOKEN must be at least %d characters (generate one with `openssl rand -hex 32`)", MinSetupToken)
 	}

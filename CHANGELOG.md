@@ -16,6 +16,12 @@ release may change the API, the configuration or the database schema.
   app can tell which source gives what without reading the docs. The lists are read from each
   mapper's source by `go run ./internal/connector/cmd/gendatatypes`, which also writes the table in
   [docs/connectors/README.md](docs/connectors/README.md#what-each-connector-delivers).
+- `OHS_ENCRYPTION_KEY_FILE` and `OHS_SETUP_TOKEN_FILE`: read the encryption key or the setup token
+  from a file instead of the variable. A missing file is created on first start with a random
+  value (mode 0600), so app store templates without per-install secrets (CasaOS, Unraid) still get
+  a different key on every install. Setting a variable and its `_FILE` together is an error, and
+  `ohs doctor` says which file each secret came from without printing it. See
+  [docs/setup.md](docs/setup.md).
 - Admin console for the whole pipeline. `/console` now runs the instance, not only shows it: an
   overview of the five pipeline stages (sources, sync, processing, storage, delivery) with what
   needs attention, providers turned on and their keys saved from the browser, users created and

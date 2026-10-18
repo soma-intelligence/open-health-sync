@@ -159,6 +159,7 @@ Environment variables only, documented line by line in `.env.example`.
 |---|---|---|
 | `OHS_DATABASE_URL` | set by compose | Postgres connection URL; size its pool with `pool_max_conns` (see below) |
 | `OHS_ENCRYPTION_KEY` | none, required | 32 random bytes, base64. Seals stored OAuth tokens and webhook secrets. `openssl rand -base64 32` makes one, or `ohs doctor` prints one |
+| `OHS_ENCRYPTION_KEY_FILE` | none | Path of a file holding the key, used instead of `OHS_ENCRYPTION_KEY` (setting both is an error). If the file does not exist, `ohs` writes a random key into it on first start (mode 0600, parent folder created) and reads it back on every start after. For app store templates and Docker secrets. Back the file up with the database. Next release |
 | `OHS_PREVIOUS_ENCRYPTION_KEYS` | none | Comma separated keys `OHS_ENCRYPTION_KEY` replaced: they still open what they sealed, never seal. Set only while [rotating the key](key-rotation.md). Next release |
 | `OHS_PUBLIC_URL` | `http://localhost:8080` | Public base URL, used for OAuth callbacks, notification URLs and [share links](share-links.md). Use your https address |
 | `OHS_RAW_STORE` | `file:///var/lib/ohs/raw` | `file:///path` or `s3://bucket?endpoint=&region=&path_style=true` |
@@ -168,6 +169,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON on stderr |
 | `OHS_CONSOLE` | `false` | `true` serves the [admin console](console.md) on `/console`, where you run the pipeline and turn providers on; `read-only` serves it without any action. It asks for a tenant API key and calls the API with it; off, the route is not mounted (404). The actions and `read-only` are next release: 0.1.0 serves the read-only console |
 | `OHS_SETUP_TOKEN` | none | 16 characters or more (`openssl rand -hex 32`). Turns on the browser [first-run setup](setup.md): with `OHS_CONSOLE` on, `/console/setup` creates the first tenant and shows its API key once, for whoever types this token, while the instance has no tenant. Unset, `/v1/setup` is not mounted. Next release |
+| `OHS_SETUP_TOKEN_FILE` | none | Path of a file holding the setup token, used instead of `OHS_SETUP_TOKEN` (not both). Created with a random token (64 hex characters, mode 0600) when it does not exist. Next release |
 | `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](self-hosting.md#metrics)) |
 | `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
 | `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |

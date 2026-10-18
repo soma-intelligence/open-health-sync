@@ -169,3 +169,29 @@ func TestDoctorRawStoreNotWritable(t *testing.T) {
 	out, _ = runDoctorT(t, m, true, nil)
 	require.Contains(t, out, "ok    raw store")
 }
+
+func TestDoctorSaysWhereFileSecretsCameFrom(t *testing.T) {
+	dir := t.TempDir()
+	keyFile, tokenFile := dir+"/secrets/encryption-key", dir+"/secrets/setup-token"
+	out, _ := runDoctorT(t, map[string]string{
+		"OHS_DATABASE_URL":        "postgres://ohs@127.0.0.1:1/ohs",
+		"OHS_ENCRYPTION_KEY_FILE": keyFile,
+		"OHS_SETUP_TOKEN_FILE":    tokenFile,
+		"OHS_RAW_STORE":           "file://" + dir,
+	}, true, nil)
+	require.Contains(t, out, "ok    config")
+	require.Contains(t, out, "OHS_ENCRYPTION_KEY generated into "+keyFile)
+	require.Contains(t, out, "OHS_SETUP_TOKEN generated into "+tokenFile)
+	key, err := os.ReadFile(keyFile)
+	require.NoError(t, err)
+	require.NotContains(t, out, strings.TrimSpace(string(key)), "the doctor prints the key")
+	require.NotContains(t, out, "Paste this generated key")
+
+	out, _ = runDoctorT(t, map[string]string{
+		"OHS_DATABASE_URL":        "postgres://ohs@127.0.0.1:1/ohs",
+		"OHS_ENCRYPTION_KEY_FILE": keyFile,
+		"OHS_RAW_STORE":           "file://" + dir,
+	}, true, nil)
+	require.Contains(t, out, "OHS_ENCRYPTION_KEY read from "+keyFile)
+	require.NotContains(t, out, "OHS_SETUP_TOKEN")
+}

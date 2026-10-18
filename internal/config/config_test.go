@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/base64"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
@@ -486,5 +487,112 @@ func TestKeyHintPointsAtRotation(t *testing.T) {
 	_, err := load(t, m)
 	if err == nil || !strings.Contains(err.Error(), "docs/key-rotation.md") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLoadSecretFiles(t *testing.T) {
+	dir := t.TempDir()
+	keyFile, tokenFile := dir+"/secrets/encryption-key", dir+"/secrets/setup-token"
+	m := map[string]string{
+		"OHS_DATABASE_URL":        "postgres://x",
+		"OHS_ENCRYPTION_KEY_FILE": keyFile,
+		"OHS_SETUP_TOKEN_FILE":    tokenFile,
+	}
+	c, err := load(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.EncryptionKeySource != SourceCreated || c.SetupTokenSource != SourceCreated {
+		t.Fatalf("sources on first start: %q %q", c.EncryptionKeySource, c.SetupTokenSource)
+	}
+	if len(c.EncryptionKey) != 32 || len(c.SetupToken) != 64 {
+		t.Fatalf("generated key %d bytes, token %d chars", len(c.EncryptionKey), len(c.SetupToken))
+	}
+	for _, f := range []string{keyFile, tokenFile} {
+		st, err := os.Stat(f)
+		if err != nil || st.Mode().Perm() != 0o600 {
+			t.Fatalf("%s: %v %v", f, st, err)
+		}
+	}
+	if len(c.Providers) != 0 {
+		t.Fatalf("_FILE variables read as provider settings: %v", c.Providers)
+	}
+
+	// A restart reads the same values back.
+	again, err := load(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again.EncryptionKey) != string(c.EncryptionKey) || again.SetupToken != c.SetupToken {
+		t.Fatal("second start did not reuse the files")
+	}
+	if again.EncryptionKeySource != SourceFile || again.SetupTokenSource != SourceFile {
+		t.Fatalf("sources on restart: %q %q", again.EncryptionKeySource, again.SetupTokenSource)
+	}
+}
+
+func TestLoadSecretFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		p := dir + "/" + name
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	key := func(path string) map[string]string {
+		return map[string]string{"OHS_DATABASE_URL": "postgres://x", "OHS_ENCRYPTION_KEY_FILE": path}
+	}
+
+	both := key(write("both", goodKey))
+	both["OHS_ENCRYPTION_KEY"] = goodKey
+	if _, err := load(t, both); err == nil || !strings.Contains(err.Error(), "not both") || !errors.Is(err, ErrEncryptionKey) {
+		t.Fatalf("variable and file: %v", err)
+	}
+
+	if _, err := load(t, key(write("empty", " \n"))); err == nil || !strings.Contains(err.Error(), "is empty") {
+		t.Fatalf("empty file: %v", err)
+	}
+
+	bad := write("bad", "not-a-key\n")
+	_, err := load(t, key(bad))
+	if err == nil || !errors.Is(err, ErrEncryptionKey) {
+		t.Fatalf("malformed key file: %v", err)
+	}
+	if strings.Contains(err.Error(), "not-a-key") {
+		t.Fatalf("the error repeats the file content: %v", err)
+	}
+
+	c, err := load(t, key(write("spaced", "  "+goodKey+"\n\n")))
+	if err != nil || c.EncryptionKeySource != SourceFile {
+		t.Fatalf("surrounding whitespace: %q %v", c.EncryptionKeySource, err)
+	}
+
+	if _, err := load(t, key(dir)); err == nil || !strings.Contains(err.Error(), "OHS_ENCRYPTION_KEY_FILE") {
+		t.Fatalf("a directory: %v", err)
+	}
+
+	short := map[string]string{"OHS_DATABASE_URL": "postgres://x", "OHS_ENCRYPTION_KEY": goodKey, "OHS_SETUP_TOKEN_FILE": write("short", "tooshort")}
+	if _, err := load(t, short); err == nil || !strings.Contains(err.Error(), "OHS_SETUP_TOKEN") {
+		t.Fatalf("short token file: %v", err)
+	}
+}
+
+func TestCreateSecretFileKeepsTheFirstValue(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/token"
+	created, err := createSecretFile(path, "first")
+	if err != nil || !created {
+		t.Fatalf("first: %v %v", created, err)
+	}
+	created, err = createSecretFile(path, "second")
+	if err != nil || created {
+		t.Fatalf("second: %v %v", created, err)
+	}
+	if v, err := readSecretFile(path); err != nil || v != "first" {
+		t.Fatalf("value: %q %v", v, err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("temporary files left behind: %v", entries)
 	}
 }
