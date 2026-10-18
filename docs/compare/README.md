@@ -46,7 +46,7 @@ Detailed comparisons:
 | Raw payloads kept | Always | Varies | Varies | What you build |
 | Runs on a Raspberry Pi | Yes, one binary | No | Usually several services | Depends |
 | Vendor developer apps | You register your own | Often theirs | You register your own | You register your own |
-| Garmin | Planned | Most have it | Some have it | Needs Garmin's approval |
+| Garmin | Next release, with your own Garmin app | Most have it | Some have it | Needs Garmin's approval |
 | Dashboard | Admin console, no end-user dashboard | Yes | Some ship one | What you build |
 
 Pick a hosted API when you need Garmin or a long tail of devices today, do not want to run a
@@ -107,8 +107,8 @@ official schemas, from 13 current sources.
 
 Thirteen sources are available: Apple Health, Health Connect (and through it Samsung Health and
 other Android apps), Withings, Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman,
-intervals.icu, Dexcom and OMRON. Xiaomi, FIT, GPX and TCX activity files, and standard Bluetooth
-health devices are on main for the next release. Garmin and others are planned. The
+intervals.icu, Dexcom and OMRON. Garmin, Xiaomi, FIT, GPX and TCX activity files, and standard
+Bluetooth health devices are on main for the next release. Others are planned. The
 [connectors page](../connectors/README.md) lists the status and integration path of each.
 
 ## Next

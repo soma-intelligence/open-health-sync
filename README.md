@@ -38,7 +38,7 @@ An open source, self-hosted alternative to hosted wearable APIs such as Terra.
 <a href="docs/connectors/health-connect.md"><img alt="Health Connect: available" src="https://img.shields.io/badge/Health_Connect-available-0e9f8e?style=flat-square"></a>
 <a href="docs/connectors/dexcom.md"><img alt="Dexcom: available" src="https://img.shields.io/badge/Dexcom-available-0e9f8e?style=flat-square"></a>
 <a href="docs/connectors/omron.md"><img alt="OMRON: available" src="https://img.shields.io/badge/OMRON-available-0e9f8e?style=flat-square"></a>
-<a href="docs/connectors/README.md"><img alt="Garmin: planned" src="https://img.shields.io/badge/Garmin-planned-8a8f98?style=flat-square"></a>
+<a href="docs/connectors/garmin.md"><img alt="Garmin: next release" src="https://img.shields.io/badge/Garmin-next_release-3d7ea6?style=flat-square"></a>
 </p>
 
 ```bash
@@ -170,13 +170,14 @@ and the server stays free under the AGPL.
 | 🔜 | Hourly and daily statistics per quantity type, in any time zone, over REST and MCP ([docs](docs/api.md#reading-data)) | | |
 | 🔜 | First-run setup in the browser with a one-shot token, rate limited, so app stores need no terminal step ([docs](docs/setup.md)) | | |
 | 🔜 | Xiaomi: Mi Fitness data import, and Health Connect attribution for Xiaomi, Amazfit and RingConn ([guide](docs/connectors/xiaomi.md)) | | |
+| 🔜 | Garmin: Health API connector (daily summaries, sleep, activities, HRV, body composition and more) for operators with their own Garmin app ([guide](docs/connectors/garmin.md)) | | |
 | 🔜 | Activity files: FIT, GPX and TCX, and the exports of Garmin, COROS, Wahoo, Suunto, Zwift and Strava, with `ohs import files` ([guide](docs/connectors/activity-files.md)) | | |
 | 🔜 | ECG recordings over REST, FHIR (waveform as SampledData), MCP and exports ([docs](docs/api.md#ecg-recordings)) | | |
 | 🔜 | Self reports: a person's own ratings (feeling, mood, stress, energy, sleep quality and more) next to their synced data ([docs](docs/self-reports.md)) | | |
 | 🔜 | Share links (SMART Health Links): an encrypted FHIR bundle for a doctor or coach, with expiry, passcode and a built-in viewer ([docs](docs/share-links.md)) | | |
 | 🔜 | Tenants and their API keys managed over HTTP with an instance admin key, for one instance serving several teams ([docs](docs/admin-api.md)) | | |
 | ✅ | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
-| ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Garmin, Coros |
+| ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Coros |
 
 A line moves up only when its release is published. Details per source:
 [docs/connectors](docs/connectors/README.md).
@@ -288,7 +289,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 
 ### Sources and outputs
 
-Thirteen sources are in v0.1.0. Xiaomi, and Amazfit and RingConn through Health Connect, are on `main` for the next release.
+Thirteen sources are in v0.1.0. Garmin, Xiaomi, and Amazfit and RingConn through Health Connect, are on `main` for the next release.
 Every other one is planned: on the roadmap, not built yet.
 Integration paths, vendor programs and tracking issues for each:
 [docs/connectors](docs/connectors/README.md).
@@ -301,7 +302,7 @@ Integration paths, vendor programs and tracking issues for each:
 | Whoop | ✅ Available | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
 | Strava | ✅ Available | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
 | Polar | ✅ Available | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
-| Garmin | 🛠 Planned ([#9](https://github.com/soma-intelligence/open-health-sync/issues/9)) | partner program; Garmin has paused new applications ([research notes](docs/connectors/garmin.md)) |
+| Garmin | 🔜 Next release | partner program: OAuth with PKCE, scheduled pulls, Garmin's notifications; bring your own Garmin app, and Garmin has paused new applications ([guide](docs/connectors/garmin.md)) |
 | Fitbit | ✅ Available | Google Health API: OAuth, scheduled pulls, signed webhooks ([guide](docs/connectors/fitbit.md)). Unverified Google projects serve at most 100 users |
 | Suunto | ✅ Available | partner program: OAuth, scheduled pulls, signed notifications ([guide](docs/connectors/suunto.md)) |
 | Ultrahuman | ✅ Available | Partnership API: OAuth, daily pulls; ring data and M1 glucose ([guide](docs/connectors/ultrahuman.md)) |
@@ -675,8 +676,10 @@ intervals.icu accounts, Dexcom CGMs and OMRON blood pressure monitors and scales
 the user's own account with each. Fitbit, Suunto, Ultrahuman and OMRON need keys their vendor gives to approved
 developers only. On Android, anything that writes to Health Connect (Samsung Health, CGM apps
 such as FreeStyle Libre) arrives through an app that uploads it
-([contract](docs/connectors/health-connect.md)). Garmin and more are
-[planned](docs/connectors/README.md), not available yet, and the
+([contract](docs/connectors/health-connect.md)). Garmin watches work through the user's Garmin
+Connect account on `main` for the next release, with keys Garmin gives approved businesses only
+([guide](docs/connectors/garmin.md)). More sources are
+[planned](docs/connectors/README.md), and the
 [connector request form](https://github.com/soma-intelligence/open-health-sync/issues/new/choose)
 is open.
 

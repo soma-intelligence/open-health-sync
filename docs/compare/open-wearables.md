@@ -18,8 +18,8 @@ Both projects move fast, so check [openwearables.io](https://openwearables.io) a
 | Stack | One Go binary, Postgres with TimescaleDB | Python (FastAPI) API and worker, SvelteKit dashboard, Postgres and Redis |
 | Cloud sources | Withings, Oura, WHOOP, Fitbit (Google Health API), Polar, Strava, Suunto, Ultrahuman, Dexcom, OMRON, intervals.icu | Garmin, Oura, WHOOP, Suunto, Polar, Ultrahuman, Strava, Fitbit, Withings, Google Health |
 | On-device sources | Apple Health, Health Connect (Samsung Health and other Android apps through it) | Apple Health, Health Connect, Samsung Health |
-| Next release | Xiaomi, FIT/GPX/TCX activity files, Bluetooth health devices | Coros and Xiaomi listed as coming soon |
-| Garmin | Planned. Garmin exports import as activity files (next release) | Listed as available |
+| Next release | Garmin, Xiaomi, FIT/GPX/TCX activity files, Bluetooth health devices | Coros and Xiaomi listed as coming soon |
+| Garmin | Next release: a Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin exports import as activity files (next release) | Listed as available |
 | Standard outputs | FHIR R4, Open mHealth, CSV, Parquet, alongside REST | REST and webhooks. FHIR and Open mHealth not found in its documentation |
 | AI agents | Read-only MCP server over stdio and Streamable HTTP | MCP server over stdio |
 | Dashboard | Admin console for the pipeline, no end-user dashboard | Web dashboard |
