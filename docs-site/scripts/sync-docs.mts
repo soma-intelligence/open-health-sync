@@ -360,9 +360,86 @@ sources["docs/compare/open-wearables.md"] = [
       "The two open source, self-hosted wearable data APIs side by side: sources, standards, footprint, license, and when to pick each one.",
   },
 ];
+sources["docs/compare/junction.md"] = [
+  {
+    page: "(guides)/compare/junction",
+    description:
+      "Open Health Sync and Junction (formerly Vital) side by side: price, where the data is kept, sources, lab testing, FHIR R4, MCP, when Junction fits better, and how to move.",
+  },
+];
+sources["docs/compare/thryve.md"] = [
+  {
+    page: "(guides)/compare/thryve",
+    description:
+      "Open Health Sync and Thryve side by side: price, hosting in Germany, how long the data is kept, sources, FHIR R4 and Open mHealth, when Thryve fits better, and how to move.",
+  },
+];
+sources["docs/compare/spike.md"] = [
+  {
+    page: "(guides)/compare/spike",
+    description:
+      "Open Health Sync and the Spike API side by side: price, sources, MCP servers, health scores, FHIR R4 and Open mHealth, and when Spike fits better.",
+  },
+];
+sources["docs/compare/sahha.md"] = [
+  {
+    page: "(guides)/compare/sahha",
+    description:
+      "Open Health Sync and Sahha side by side: raw measurements or computed health scores, price, how long the data is kept, sources, MCP, and when Sahha fits better.",
+  },
+];
+sources["docs/compare/rook.md"] = [
+  {
+    page: "(guides)/compare/rook",
+    description:
+      "Open Health Sync and ROOK side by side: price, sources, lab and health record data, FHIR R4, health scores, and when ROOK fits better.",
+  },
+];
 for (const file of readdirSync(join(repo, "docs", "compare")).sort()) {
   if (!file.endsWith(".md") || file === "README.md" || sources[`docs/compare/${file}`]) continue;
   sources[`docs/compare/${file}`] = [{ page: `(guides)/compare/${file.replace(/\.md$/, "")}` }];
+}
+
+// How-to guides: the index page, then one page per task.
+sources["docs/how-to/README.md"] = [
+  {
+    page: "(guides)/how-to/index",
+    title: "How-to guides",
+    description:
+      "Step by step guides for one task each: Apple Health into PostgreSQL, Apple Health in Claude through MCP, Oura data as FHIR R4, WHOOP data as CSV or Parquet.",
+  },
+];
+sources["docs/how-to/apple-health-to-postgres.md"] = [
+  {
+    page: "(guides)/how-to/apple-health-to-postgres",
+    description:
+      "Load the Apple Health export (export.zip) into PostgreSQL as clean tables of samples, sleep, workouts and daily summaries, then query it with SQL.",
+  },
+];
+sources["docs/how-to/apple-health-mcp.md"] = [
+  {
+    page: "(guides)/how-to/apple-health-mcp",
+    description:
+      "Give Claude or another MCP client read-only access to your Apple Health data: import the Health app export, mint a read-only token, add the MCP server.",
+  },
+];
+sources["docs/how-to/oura-fhir.md"] = [
+  {
+    page: "(guides)/how-to/oura-fhir",
+    description:
+      "Turn Oura ring data into FHIR R4 Observations with LOINC codes and UCUM units: sleep sessions, heart rate, SpO2 and daily readiness scores, checked with the HL7 validator.",
+  },
+];
+sources["docs/how-to/whoop-export.md"] = [
+  {
+    page: "(guides)/how-to/whoop-export",
+    description:
+      "Export WHOOP recovery, strain, sleep and workouts as CSV or Parquet, by calendar day, from a self-hosted instance that keeps syncing.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "how-to")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md" || sources[`docs/how-to/${file}`]) continue;
+  sources[`docs/how-to/${file}`] = [{ page: `(guides)/how-to/${file.replace(/\.md$/, "")}` }];
 }
 
 // Learn by building: the index page, then one page per project.
@@ -444,6 +521,16 @@ const icons: Record<string, string> = {
   "(guides)/compare/index": "Scale",
   "(guides)/compare/terra": "ArrowLeftRight",
   "(guides)/compare/open-wearables": "ArrowLeftRight",
+  "(guides)/compare/junction": "ArrowLeftRight",
+  "(guides)/compare/thryve": "ArrowLeftRight",
+  "(guides)/compare/spike": "ArrowLeftRight",
+  "(guides)/compare/sahha": "ArrowLeftRight",
+  "(guides)/compare/rook": "ArrowLeftRight",
+  "(guides)/how-to/index": "ListChecks",
+  "(guides)/how-to/apple-health-to-postgres": "Database",
+  "(guides)/how-to/apple-health-mcp": "Bot",
+  "(guides)/how-to/oura-fhir": "HeartPulse",
+  "(guides)/how-to/whoop-export": "FileDown",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

@@ -84,7 +84,7 @@ Most of Terra's concepts have a direct counterpart. The data types map like this
 | Nutrition | `nutrition` |
 | Menstruation | `category-samples` and `menstrual-cycles` |
 | Historical data requests (`GET /activity`, `/sleep`, `/daily`, `/body`) | A backfill when a user connects, then reads with `start` and `end` on `GET /v1/users/{id}/<resource>` |
-| FHIR processing | `GET /v1/users/{id}/fhir` ([FHIR R4](../fhir.md)) |
+| FHIR processing | `GET /v1/users/{id}/fhir/Observation` and the other FHIR routes ([FHIR R4](../fhir.md)) |
 | AI Interface (MCP) | `ohs mcp` for desktop agents, or `/mcp` over HTTP ([MCP](../mcp.md)) |
 
 For each cloud provider, register your own developer app and set its keys: every connector guide
@@ -98,5 +98,6 @@ The [quickstart](../../README.md#quickstart) starts an instance with Docker Comp
 with 90 days of synthetic data from six sources, so you can call every route before you connect
 a real account.
 
-See also: [all the options compared](README.md) and
-[Open Health Sync vs Open Wearables](open-wearables.md).
+See also: [all the options compared](README.md),
+[Open Health Sync vs Open Wearables](open-wearables.md), [Junction alternative](junction.md) and
+[Spike API alternative](spike.md).

@@ -19,8 +19,8 @@ check their pages too.
 | [Terra](https://tryterra.co) | Hosted API | Proprietary | $399 a month billed annually, $499 monthly | 500+ wearables and sources |
 | [Junction](https://junction.com) (formerly Vital) | Hosted API, plus lab testing | Proprietary | $300 a month for up to 500 users | 300+ devices |
 | [Thryve](https://www.thryve.health) | Hosted API, hosted in Europe | Proprietary | 499 EUR a month for up to 500 users | 500+ trackers |
-| [Spike API](https://www.spikeapi.com) | Hosted API | Proprietary | From $450 a month | 500+ integrations |
-| [Sahha](https://sahha.ai) | Hosted API, with health scores | Proprietary | Free for 30 days, then from $299 a month | 165 integrations |
+| [Spike API](https://www.spikeapi.com) | Hosted API | Proprietary | From $450 a month | 40+ providers, 500+ devices |
+| [Sahha](https://sahha.ai) | Hosted API, with health scores | Proprietary | Free for 30 days, then from $299 a month billed annually | 165 integrations |
 | [ROOK](https://www.tryrook.io) | Hosted API, with lab and EHR data | Proprietary | $399 a month for up to 750 users | 500+ devices |
 | [Shimmer](https://github.com/openmhealth/shimmer) (Open mHealth) | Open source, self-hosted | Apache-2.0 | Free | 6 APIs. No commit since 2021, last release in 2017 |
 | Your own code | Self-hosted | Yours | Your time | The ones you build |
@@ -29,6 +29,11 @@ Detailed comparisons:
 
 - [Terra API alternative](terra.md): Open Health Sync and Terra, side by side, and how to move.
 - [Open Health Sync vs Open Wearables](open-wearables.md): the two open source options.
+- [Junction alternative](junction.md): wearable data and lab testing, and how to move.
+- [Thryve alternative](thryve.md): a hosted API in Germany, and how to move.
+- [Spike API alternative](spike.md): wearables, nutrition from photos and an MCP server.
+- [Sahha alternative](sahha.md): raw measurements or computed health scores.
+- [ROOK alternative](rook.md): wearables next to lab and health record data.
 
 ## Hosted, open source or your own code
 
@@ -72,20 +77,23 @@ Health, Export All Health Data) with `ohs import apple-health`. History included
 Postgres as samples, sleep, workouts and daily summaries you can query over the
 [REST API](../api.md) or with SQL. For continuous sync, an iOS app uploads new HealthKit data to
 the [Apple Health connector](../connectors/apple-health.md), with the
-[Swift SDK](../sdks/swift.md#healthkit-sync) doing the reading.
+[Swift SDK](../sdks/swift.md#healthkit-sync) doing the reading. Step by step:
+[Import Apple Health data into PostgreSQL](../how-to/apple-health-to-postgres.md).
 
 ### How do I give Claude or another AI assistant access to my health data?
 
 Open Health Sync includes an MCP server. Mint a read-only token for one person and add the
 server to Claude Desktop, Claude Code or any MCP client: the agent can read samples, sleep,
 workouts and daily summaries, and cannot write or delete anything. See the
-[MCP server reference](../mcp.md).
+[MCP server reference](../mcp.md), or
+[Connect Claude to your Apple Health data](../how-to/apple-health-mcp.md) step by step.
 
 ### How do I get wearable data as FHIR?
 
 Open Health Sync serves FHIR R4 Observations (samples, blood pressure, sleep, workouts, daily
 summaries) with LOINC codes and UCUM units, plus the Patient, its Devices and Provenance, checked
-with the official HL7 validator. See [FHIR R4](../fhir.md).
+with the official HL7 validator. See [FHIR R4](../fhir.md), or
+[Get Oura data as FHIR R4](../how-to/oura-fhir.md) for a worked example.
 
 ### What happened to Open mHealth Shimmer?
 
