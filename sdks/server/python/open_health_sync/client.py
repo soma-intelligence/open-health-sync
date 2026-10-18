@@ -266,6 +266,9 @@ class OpenHealthSync:
         """Connectors enabled on this instance.
 
         ``GET /v1/providers``
+
+        The connectors enabled on this instance, less those an instance admin turned off for the
+        caller's tenant.
         """
         return self._request(
             "GET",
@@ -605,7 +608,8 @@ class OpenHealthSync:
         lands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in
         result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
         `Idempotency-Key` is not honoured here. While the user's data from this provider is
-        being deleted the answer is 409: connect again once the deletion job is done.
+        being deleted the answer is 409: connect again once the deletion job is done. 403 when an
+        instance admin turned the provider off for the tenant.
         """
         return self._request(
             "POST",
@@ -801,7 +805,8 @@ class OpenHealthSync:
         (minus an hour of overlap), a day back for a connection that never synced, or at `from`
         (at most 30 days back). While a manual run of the connection is still queued or running, the
         answer is 200 with that run and nothing new is queued. 409 when the connection does not sync
-        (`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.
+        (`needs_reauth`, `disconnected`: connect the user again), its provider is not enabled here,
+        or an instance admin turned the provider off for the tenant.
         """
         return self._request(
             "POST",

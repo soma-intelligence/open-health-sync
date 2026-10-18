@@ -34,6 +34,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 )
 
 type env struct {
@@ -46,6 +47,9 @@ type env struct {
 	tenantB uuid.UUID
 	keyB    string
 	metrics *automation.Metrics
+	// switches are the providers turned off per tenant, as the router
+	// sees them.
+	switches *tenantproviders.Set
 }
 
 // testMetricsToken is the OHS_METRICS_TOKEN of the test router.
@@ -79,11 +83,12 @@ func newEnv(t *testing.T, tweak ...func(*api.Deps)) *env {
 		MetricsToken:  testMetricsToken,
 		ETLMetrics:    m,
 	}
+	deps.TenantProviders = tenantproviders.New(ctx, tenantproviders.NewPG(pool))
 	for _, f := range tweak {
 		f(&deps)
 	}
 	return &env{t: t, pool: pool, store: st, handler: api.NewRouter(deps),
-		tenantA: a.ID, keyA: keyA, tenantB: b.ID, keyB: keyB, metrics: m}
+		tenantA: a.ID, keyA: keyA, tenantB: b.ID, keyB: keyB, metrics: m, switches: deps.TenantProviders}
 }
 
 type resp struct {

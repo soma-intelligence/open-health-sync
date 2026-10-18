@@ -39,6 +39,33 @@ release may change the API, the configuration or the database schema.
   code path of `ohs seed --demo` now shared by both. Each change is also recorded in the audit
   log of the tenant it changed (actor `admin`, the admin key's id, the key prefix, never the
   key), in the same transaction for tenants and keys. See [docs/admin-api.md](docs/admin-api.md).
+- Providers per tenant: an instance admin turns a provider off, or back on, for one tenant with
+  `PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}` (`{"enabled": false}`), and lists the
+  switches with `GET /v1/admin/tenants/{tenant_id}/providers`. On by default. While off, the
+  tenant's `GET /v1/providers` and connect page leave the provider out, starting a connection,
+  the OAuth callback and uploads answer 403, sync now answers 409, no pull is planned and a
+  queued one ends `cancelled` without reaching the provider. Connections and data are kept. The
+  switch is audited as `tenant.provider` on both tenants and applies in every process within 30
+  seconds; migration 0041 adds `ohs_core.tenant_providers`.
+- An instance admin runs one tenant's API with its own key: under
+  `/v1/admin/tenants/{tenant_id}`, the tenant's users (list, create, read, delete, deletion
+  jobs), their data (`daily`, `samples`, `samples/stats`, `sleep`, `workouts`, `nutrition`,
+  `coverage`), their connections (`connections`, `freshness`, `sync-runs`, connection links,
+  sync now, disconnect), its webhooks and deliveries, its sync runs and processing jobs (with
+  retries) and its audit log answer what the tenant's own key gets from the route of the same
+  name, through the same handlers. A `Location` points at the admin route. Each request is
+  recorded on the tenant served (actor `admin`, the user of the path, `admin_tenant_id`) as well
+  as on the admin's tenant (without the user); a request on the admin's own tenant is recorded
+  once. A portal can run a team's projects behind its own sign in, with no tenant key in a
+  browser.
+- Demo personas: `ohs seed --demo --persona` and `"persona"` on
+  `POST /v1/admin/tenants/{tenant_id}/demo-user` pick `mix` (the default, unchanged), `runner`
+  (polar, whoop, apple_health: resting heart rate about 46, HRV about 78, VO2 max about 56, runs
+  on most days), `sleep` (oura, apple_health: about 6.2 h a night with late, irregular
+  bedtimes) or `weight` (withings, fitbit: about 92 kg with a slow yearly drift). Each is its
+  own person with its own seed and, by default, its own user (`demo-runner`, `demo-sleep`,
+  `demo-weight`); the answer and the audit event name the persona. See
+  [docs/demo.md](docs/demo.md#personas).
 - `GET /v1/pipeline` (the tenant's pipeline counts in one answer), `GET /v1/pipeline/sync-runs`
   (sync runs across users, with `status` and `provider` filters), `GET /v1/pipeline/etl-jobs`
   (parked, pending or running processing jobs), and `POST /v1/pipeline/etl-jobs/{job_id}/retry`

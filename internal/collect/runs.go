@@ -322,7 +322,8 @@ type SyncRequest struct {
 // connection ahead of routine work and answers 202 with the run. While a
 // manual run of the connection is still queued or running, it answers 200
 // with that run instead of queueing another. 409 when the connection does not
-// sync (needs_reauth, disconnected) or its provider is not enabled here.
+// sync (needs_reauth, disconnected) or its provider is not enabled here, or
+// is turned off for the tenant.
 func (h *Handlers) SyncNow() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tenantID, userID, ok := h.caller(w, r)
@@ -400,6 +401,9 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	}
 	if _, ok := d.oauth(provider); !ok {
 		return SyncRun{}, false, &syncProblem{http.StatusConflict, "this provider is not enabled on this instance"}
+	}
+	if !d.allowed(tenantID, provider) {
+		return SyncRun{}, false, &syncProblem{http.StatusConflict, ProviderOffDetail}
 	}
 
 	now := d.now().UTC().Truncate(time.Second)

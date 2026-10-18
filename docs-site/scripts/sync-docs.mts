@@ -337,6 +337,34 @@ for (const file of readdirSync(join(repo, "docs", "recipes")).sort()) {
   sources[`docs/recipes/${file}`] = [{ page: `(guides)/recipes/${file.replace(/\.md$/, "")}` }];
 }
 
+// Comparisons with other health data APIs: the overview, then one page per product.
+sources["docs/compare/README.md"] = [
+  {
+    page: "(guides)/compare/index",
+    title: "Health data aggregators compared",
+    description:
+      "Terra, Open Wearables, Junction, Thryve and the other ways to collect wearable and health data: what each one is, what it costs, and when to pick it.",
+  },
+];
+sources["docs/compare/terra.md"] = [
+  {
+    page: "(guides)/compare/terra",
+    description:
+      "Open Health Sync and the Terra API side by side: price, where the data is kept, sources, FHIR R4 and Open mHealth, MCP, when Terra fits better, and how to move.",
+  },
+];
+sources["docs/compare/open-wearables.md"] = [
+  {
+    page: "(guides)/compare/open-wearables",
+    description:
+      "The two open source, self-hosted wearable data APIs side by side: sources, standards, footprint, license, and when to pick each one.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "compare")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md" || sources[`docs/compare/${file}`]) continue;
+  sources[`docs/compare/${file}`] = [{ page: `(guides)/compare/${file.replace(/\.md$/, "")}` }];
+}
+
 // Learn by building: the index page, then one page per project.
 sources["docs/learn/README.md"] = [
   {
@@ -413,6 +441,9 @@ const icons: Record<string, string> = {
   "(guides)/guides/demo": "FlaskConical",
   "(guides)/guides/server-sdks": "Package",
   "(guides)/guides/api-collections": "FolderTree",
+  "(guides)/compare/index": "Scale",
+  "(guides)/compare/terra": "ArrowLeftRight",
+  "(guides)/compare/open-wearables": "ArrowLeftRight",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

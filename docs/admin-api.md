@@ -5,7 +5,8 @@ data, connections, webhooks, the audit log and API keys belong to one tenant and
 sees them. `ohs admin tenant create` makes a tenant from a shell on the server. The routes below
 do the same over HTTP, so your own tooling (a script, an internal portal where a team signs up,
 an infrastructure pipeline) can create a tenant per team, hand out and revoke its keys, watch its
-pipeline and give it a demo user, without the database credentials.
+pipeline, choose its providers, give it a demo user and read its data for support, without the
+database credentials.
 
 > **Next release.** These routes are on `main` and ship in the next release.
 
@@ -38,6 +39,9 @@ revoke the old one). A key cannot revoke itself, so the tooling cannot lock itse
 | `POST /v1/admin/tenants/{tenant_id}/keys` | 201, a new key for the tenant |
 | `DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}` | 204, the key is revoked |
 | `POST /v1/admin/tenants/{tenant_id}/demo-user` | 201 or 200, a user of the tenant filled with [synthetic data](demo.md) |
+| `GET /v1/admin/tenants/{tenant_id}/providers` | `{"data": [provider, ...]}`, every provider of the instance with the tenant's switch |
+| `PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}` | The provider, turned off or back on for the tenant: body `{"enabled": false}` |
+| `/v1/admin/tenants/{tenant_id}/users...`, `/webhooks...`, `/pipeline/...`, `/deletions/{job_id}`, `/audit` | The tenant's own API, run with the admin key: the answer of the tenant route of the same name, listed in [Run a tenant's API](#run-a-tenants-api) |
 
 A tenant is:
 
@@ -129,15 +133,24 @@ curl -s -X POST "$OHS/v1/admin/tenants/$TENANT/demo-user" -H "Authorization: Bea
 {
   "user": { "id": "2b9e...", "external_ref": "demo-user", "status": "active", "created_at": "..." },
   "days": 30,
-  "rows_written": 14923
+  "rows_written": 14923,
+  "persona": "mix"
 }
 ```
 
 What `ohs seed --demo --tenant <id>` does, through the same code: the tenant's user with this
-`external_ref` is reused, or created, then filled with `days` days of made-up data from six
-sources, ending yesterday. Every record carries `{"synthetic": true}`; [demo.md](demo.md) says
-what is written. Both members are optional: `external_ref` is 1 to 255 bytes (default
-`demo-user`), `days` 1 to 90 (default 30). `user` is the object `POST /v1/users` answers.
+`external_ref` is reused, or created, then filled with `days` days of made-up data, ending
+yesterday. Every record carries `{"synthetic": true}`; [demo.md](demo.md) says what is written.
+Every member is optional:
+
+- `persona` is the kind of person: `mix` (the default, one person seen through six sources),
+  `runner`, `sleep` or `weight`, each with its own sources and figures
+  ([demo.md](demo.md#personas)). Any other value is a 400 that lists them.
+- `external_ref` is 1 to 255 bytes. By default `demo-user` for `mix` and `demo-<persona>` for
+  the others (`demo-runner`), so each persona fills a user of its own.
+- `days` is 1 to 90 (default 30).
+
+`user` is the object `POST /v1/users` answers, `persona` the persona written.
 
 The answer is 201 when the user was created, 200 when it existed. `rows_written` counts the rows
 this call stored: running it again adds nothing for the days already there (0), and on a later
@@ -145,8 +158,104 @@ day adds the new days. 30 days take about a second, 90 days a few seconds. A use
 `external_ref` being deleted is a 409.
 
 The team reads the data with its own key, like any user's: `GET /v1/users/{id}/daily`,
-`/sleep`, FHIR, exports. The admin key does not see it (404), since the user is not in the
-admin's tenant.
+`/sleep`, FHIR, exports. The admin key does not see it on those routes (404), since the user is
+not in the admin's tenant; it reads it through [the admin tenant routes](#run-a-tenants-api).
+
+## Providers per tenant
+
+The instance runs a provider for every tenant: its keys are the instance's, set in the
+[provider settings](console.md). An admin can narrow that, tenant by tenant: a team that has
+not signed the provider's terms, a study that collects from one wearable only.
+
+```sh
+curl -s "$OHS/v1/admin/tenants/$TENANT/providers" -H "Authorization: Bearer $ADMIN_KEY"
+curl -s -X PATCH "$OHS/v1/admin/tenants/$TENANT/providers/oura" -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'
+```
+
+```json
+{
+  "slug": "oura",
+  "name": "Oura",
+  "kinds": ["oauth"],
+  "instance_status": "active",
+  "enabled": false,
+  "available": false,
+  "updated_at": "2026-10-17T09:30:02.481190Z"
+}
+```
+
+The list holds every provider the instance knows, in the order of `GET /v1/admin/providers`.
+`instance_status` is the provider's status there (`active`, `off`, `not_configured`, `error`,
+`built_in`). `enabled` is the tenant's switch: true unless an admin turned it off, the default
+for every tenant and every provider, new ones included. `available` is true when the tenant's
+users can use the provider now: the instance runs it (`active` or `built_in`) and the switch is
+on. `updated_at` is the last change of the switch, null when it was never set.
+
+`PATCH` takes `{"enabled": true}` or `{"enabled": false}`, nothing else (400 otherwise), and
+answers the provider as listed. It can be set for a provider the instance does not run yet, so
+the tenant does not get it when it is turned on. An unknown tenant or provider is a 404. The
+change applies at once on the instance that answered and within 30 seconds on the others.
+
+While a provider is off for a tenant:
+
+- `GET /v1/providers` leaves it out, for the tenant's keys and user tokens, and the
+  [hosted connect page](connect-page.md) does not offer it.
+- Starting a connection, a connect session that names it, the connect page's button and the
+  OAuth callback of a consent already started answer 403, `detail` saying the provider is turned
+  off for this tenant. A callback with a `redirect_uri` goes back with `status=error`. The code is
+  never exchanged.
+- Sync now answers 409, and the scheduler plans no pull. A pull already queued ends `cancelled`
+  without reaching the provider; it is not a failure of the connection and is not retried.
+  Provider notifications are still answered, and dropped for the tenant.
+- Uploads (`/v1/ingest/...`) and self reports answer 403, before anything is stored.
+
+Nothing is deleted: the connections stay, with their tokens, and the data stored stays readable.
+Turned back on, the next scheduled pull reaches back to the connection's last successful sync,
+up to 7 days, like after an outage.
+
+## Run a tenant's API
+
+Support, or a portal that runs a team's projects behind its own sign in, uses a tenant's API
+with the admin key, without asking the team for its own:
+
+```sh
+curl -s "$OHS/v1/admin/tenants/$TENANT/users" -H "Authorization: Bearer $ADMIN_KEY"
+curl -s "$OHS/v1/admin/tenants/$TENANT/users/$USER_ID/daily?start=2026-10-01" -H "Authorization: Bearer $ADMIN_KEY"
+curl -s -X POST "$OHS/v1/admin/tenants/$TENANT/webhooks" -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' -d '{"url":"https://app.example.com/hooks"}'
+```
+
+Each route is the tenant route after `/v1/admin/tenants/{tenant_id}`, served by the same code:
+the same body and query parameters (`start`, `end`, `view`, `type`, `cursor`, `limit` and the
+others), the same answer, the same errors, as the tenant's own key would get. A `Location` in
+the answer points at the admin route (`/v1/admin/tenants/{tenant_id}/webhooks/{id}`).
+`Idempotency-Key` works on `POST .../users` as on `POST /v1/users`. An unknown tenant is a 404
+(`tenant not found`), a user of another tenant a 404 (`user not found`), the admin's own users
+included. It gives the admin key nothing it could not do already, since it can mint a key for
+any tenant: it spares minting one, and the tenant's log names the admin.
+
+| Routes after `/v1/admin/tenants/{tenant_id}` | Same as |
+|---|---|
+| `GET /users`, `POST /users`, `GET /users/{id}`, `DELETE /users/{id}`, `GET /deletions/{job_id}` | [Users](api.md#users) |
+| `GET /users/{id}/daily`, `/samples`, `/samples/stats`, `/sleep`, `/workouts`, `/nutrition`, `/coverage` | [Reading data](api.md#reading-data) |
+| `GET /users/{id}/connections`, `/freshness`, `/sync-runs`, `/sync-runs/{run}`; `POST /users/{id}/connect-sessions`, `/connections/{provider}/sync`; `DELETE /users/{id}/connections/{provider}` | [Connecting a provider](api.md#connecting-a-provider), [the connection page](connect-page.md), [sync history](sync-health.md) |
+| `/webhooks` and every route under it: create, list, read, change, delete, `rotate-secret`, `test`, deliveries, `retry`, `replay` | [Webhooks](webhooks.md) |
+| `GET /pipeline/sync-runs`, `/pipeline/etl-jobs`; `POST /pipeline/etl-jobs/retry`, `/pipeline/etl-jobs/{job_id}/retry` | [Running the instance](api.md#running-the-instance) |
+| `GET /audit` | The tenant's [audit log](audit-log.md) |
+
+`GET /v1/admin/tenants/{tenant_id}/pipeline` is the [pipeline](#pipeline) above.
+
+Each request is recorded twice, like a change (see [Audit](#audit)). On the admin's tenant, like
+any request: the action of the tenant route (`user.create`, `data.read`, `webhook.write`,
+`connection.sync` and the others), the `tenant_id` in `detail`, never the user, who is not one
+of the admin's. On the tenant served: actor type `admin`, actor id `api_key:` and the admin
+key's id, the same action, the user of the path in `user_id` and the admin's tenant in `detail`
+(`admin_tenant_id`, with `provider` or `job_id` when the path names one), so the team sees in
+its own log who read or changed what, and when. A request on the admin's own tenant through
+these routes is recorded once, on that tenant, with the user: a second event there would count
+every request twice in one log. A request the tenant route refuses (400, 404 for a user, 409) is
+recorded with its status; one for an unknown tenant is recorded on the admin's tenant only.
 
 ## Retries
 
@@ -158,15 +267,18 @@ route can be repeated as it is.
 ## Audit
 
 Each request is recorded in the admin tenant's [audit log](audit-log.md), like any request:
-`tenant.create`, `key.create`, `key.revoke` and `data.write` (the demo user) for the changes,
-`config.read` for the reads, with the `tenant_id` of the path in `detail`.
+`tenant.create`, `key.create`, `key.revoke`, `data.write` (the demo user) and `tenant.provider`
+for the changes, `config.read` for the reads of tenants, keys, pipelines and providers, the
+action of the tenant route for the [tenant routes](#run-a-tenants-api), with the `tenant_id` of
+the path in `detail`.
 
 The tenant that was changed gets an event of its own, so its log tells the whole story: actor
 type `admin`, actor id `api_key:` followed by the admin key's id, the action above, and in
 `detail` the admin's tenant (`admin_tenant_id`) with the key's `key_id` and `key_prefix` (never
-the key), or for the demo user its `user_id`, `days`, `rows_written` and `user_created`. A
-tenant or key change and its event are written together: if the event cannot be written,
-nothing changes.
+the key), for the demo user its `user_id`, `days`, `persona`, `rows_written` and
+`user_created`, for a provider switch its `provider` and `enabled`. A tenant, key or switch
+change and its event are written together: if the event cannot be written, nothing changes. A
+request through the tenant routes gets an event too, with the user of the path.
 
 ## Not here
 
@@ -174,4 +286,8 @@ nothing changes.
 - Making a tenant an instance admin, or clearing the mark: `ohs admin tenant admin`.
 - The [admin console](console.md) still shows the tenant of the key signed in.
 - The server SDKs leave these routes out, as they do the provider settings; their types
-  (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`) are generated.
+  (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`, `AdminTenantProvider`) are generated. The
+  tenant routes answer the types of the routes of the same name.
+- The tenant routes not listed above (FHIR, Open mHealth, exports, the archive, consents,
+  shares, tags, tokens, uploads, the tenant's keys): use a key of the tenant, made with
+  `POST .../keys`.

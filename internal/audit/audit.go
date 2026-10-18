@@ -74,6 +74,9 @@ const (
 	// ShareAccess is a manifest request on a known share link, or a file
 	// download; detail has the share id and the outcome.
 	ShareAccess = "share.access"
+	// TenantProvider is a provider turned off or back on for one tenant by
+	// an instance admin; detail has the provider and enabled.
+	TenantProvider = "tenant.provider"
 )
 
 // Event is one entry to record.
@@ -135,6 +138,10 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 	return nil
 }
 
+// adminTenantAreas are the tenant route areas an instance admin also reaches
+// under /v1/admin/tenants/{tenant_id} (the API's admin tenant routes).
+var adminTenantAreas = []string{"users", "deletions", "pipeline", "webhooks", "audit"}
+
 // Classify names the action of an authenticated API request from its method
 // and matched route pattern ("GET /v1/users/{id}/samples").
 func Classify(method, pattern string) string {
@@ -143,6 +150,15 @@ func Classify(method, pattern string) string {
 		path = pattern
 	}
 	const userPrefix = "/v1/users/{id}"
+	// An instance admin running one tenant's API: the action of the tenant
+	// route it stands for.
+	if rest, ok := strings.CutPrefix(path, "/v1/admin/tenants/{tenant_id}/"); ok {
+		for _, area := range adminTenantAreas {
+			if rest == area || strings.HasPrefix(rest, area+"/") {
+				return Classify(method, "/v1/"+rest)
+			}
+		}
+	}
 	switch {
 	case path == "/mcp":
 		return DataRead // the MCP server is read only
@@ -158,6 +174,8 @@ func Classify(method, pattern string) string {
 		return KeyRevoke
 	case path == "/v1/admin/tenants/{tenant_id}/demo-user":
 		return DataWrite // synthetic data for one of the tenant's users
+	case path == "/v1/admin/tenants/{tenant_id}/providers/{provider}" && method == "PATCH":
+		return TenantProvider
 	case strings.HasPrefix(path, "/v1/keys"):
 		switch method {
 		case "POST":

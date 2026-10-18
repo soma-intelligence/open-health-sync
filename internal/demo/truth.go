@@ -95,13 +95,14 @@ func (g *gen) makeDay(d time.Time) *day {
 	t.workout = g.planWorkout(d)
 
 	// Sleep: to bed later before a weekend day, longer at the weekend.
+	hb := g.persona.habits
 	eve := d.AddDate(0, 0, -1)
-	bed := time.Date(eve.Year(), eve.Month(), eve.Day(), 22, 50, 0, 0, g.loc)
+	bed := time.Date(eve.Year(), eve.Month(), eve.Day(), hb.bedHour, hb.bedMinute, 0, 0, g.loc)
 	if eve.Weekday() == time.Friday || eve.Weekday() == time.Saturday {
-		bed = bed.Add(50 * time.Minute)
+		bed = bed.Add(hb.weekendLater)
 	}
-	bed = bed.Add(time.Duration(norm(r, 0, 25)) * time.Minute).Truncate(time.Minute)
-	hours := norm(r, 7.3, 0.55)
+	bed = bed.Add(time.Duration(norm(r, 0, hb.bedSD)) * time.Minute).Truncate(time.Minute)
+	hours := norm(r, hb.sleepHours, hb.sleepSD)
 	if t.weekend {
 		hours += 0.4
 	}
@@ -119,8 +120,16 @@ func (g *gen) makeDay(d time.Time) *day {
 	t.resp = norm(r, 14.5, 0.6)
 	t.spo2 = math.Min(99.5, norm(r, 96.6, 0.7))
 	t.tempDev = norm(r, 0, 0.18)
-	t.weight = g.p.weight + 0.9*math.Sin(2*math.Pi*n/67+g.p.phase) + norm(r, 0, 0.25)
-	t.bodyFat = g.p.bodyFat + 0.6*math.Sin(2*math.Pi*n/67+g.p.phase) + norm(r, 0, 0.3)
+	if hb.drift {
+		// A slow cycle of loss and regain, water from day to day; body fat
+		// follows a part of it.
+		base := g.p.weight + drift(n, g.p.phase)
+		t.weight = base + 0.3*math.Sin(2*math.Pi*n/9+g.p.phase) + norm(r, 0, 0.3)
+		t.bodyFat = g.p.bodyFat + 0.3*(base-g.p.weight) + norm(r, 0, 0.3)
+	} else {
+		t.weight = g.p.weight + 0.9*math.Sin(2*math.Pi*n/67+g.p.phase) + norm(r, 0, 0.25)
+		t.bodyFat = g.p.bodyFat + 0.6*math.Sin(2*math.Pi*n/67+g.p.phase) + norm(r, 0, 0.3)
+	}
 
 	// Steps per hour: a commute, lunch and evening shape on weekdays, a
 	// late and flatter one at the weekend.
@@ -148,8 +157,9 @@ func (g *gen) makeDay(d time.Time) *day {
 	return t
 }
 
-// planWorkout is the workout of date d, or nil. It has its own random
-// stream, so the day after can look at it without drawing the whole day.
+// planWorkout is the workout of date d, or nil: the persona's week, or the
+// mix person's below. It has its own random stream, so the day after can
+// look at it without drawing the whole day.
 func (g *gen) planWorkout(d time.Time) *workoutPlan {
 	r := g.dayRNG("workout", d)
 	at := func(h, m int) time.Time {
@@ -157,6 +167,9 @@ func (g *gen) planWorkout(d time.Time) *workoutPlan {
 		return t.Add(time.Duration(norm(r, 0, 12)) * time.Minute).Truncate(time.Minute)
 	}
 	p := r.Float64()
+	if plan := g.persona.habits.plan; plan != nil {
+		return plan(d, p, r, at)
+	}
 	var w *workoutPlan
 	switch d.Weekday() {
 	case time.Monday:

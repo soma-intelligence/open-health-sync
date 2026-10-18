@@ -179,19 +179,25 @@ Fills an instance with synthetic, plausible data for one user, so every read
 route (samples, sleep, workouts, daily, FHIR, Open mHealth, exports, MCP) has
 something to return without a wearable account. About 90 days from six
 sources (oura, whoop, withings, fitbit, polar, apple_health) that overlap like
-real devices. The data is made up: every record carries metadata
-{"synthetic": true}. It goes through the ETL writer, so running the command
-again adds nothing (content hash dedup).
+real devices, or from the few sources of a persona. The data is made up:
+every record carries metadata {"synthetic": true}. It goes through the ETL
+writer, so running the command again adds nothing (content hash dedup).
 
   --demo              required: confirms that synthetic data is wanted
+  --persona NAME      kind of person (default mix):
+                        mix     one person, six overlapping sources
+                        runner  a trained runner (polar, whoop, apple_health)
+                        sleep   a short, irregular sleeper (oura, apple_health)
+                        weight  someone watching their weight (withings,
+                                fitbit)
   --tenant ID         tenant to write into; without it, the tenant named
                       "demo" is used, created on the first run with an API
                       key printed once
   --days N            days of data, ending yesterday (default 90, max 365)
   --external-ref REF  external_ref of the user, created or reused
-                      (default demo-user)
+                      (default demo-user for mix, demo-<persona> otherwise)
   --seed N            random seed: the same seed gives the same data
-                      (default 1)
+                      (default the persona's own: 1 for mix)
 
 Prints the tenant id, the user id, the API key when one was created, and
 curl calls to try (OHS_URL, default http://localhost:8080). Needs

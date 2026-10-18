@@ -55,6 +55,29 @@ and the external id of every sleep and workout starts with `demo-`, so demo rows
 tell apart from real ones. None of the six connectors needs to be configured: the data is stored
 and read like any other.
 
+## Personas
+
+`--persona` picks another kind of person. The default, `mix`, is the person above, seen through
+all six sources. The others are a person of their own each, seen through a few sources, for a
+demo of one kind of user or of a narrower product:
+
+| Persona | Sources | Who |
+|---|---|---|
+| `mix` | all six | the person above (seed 1) |
+| `runner` | `polar`, `whoop`, `apple_health` | a trained runner: resting heart rate about 46 bpm, HRV about 78 ms, VO2 max about 56, about 12,000 steps a day, runs on most days (easy runs, intervals, a tempo run and a long Saturday run); the phone goes on the runs |
+| `sleep` | `oura`, `apple_health` | a short sleeper: about 6.2 hours of sleep a night, to bed later and at more irregular times (around midnight, later at the weekend), resting heart rate about 63 bpm, HRV about 30 ms, about 6,000 steps, a walk now and then |
+| `weight` | `withings`, `fitbit` | someone watching their weight: about 92 kg, body fat about 28 percent, about 5,500 steps, a walk now and then; the weight falls slowly from mid February to mid December (about 6 kg) and comes back over the holidays, the same each year |
+
+```sh
+ohs seed --demo --persona runner
+```
+
+Each persona has its own seed (2, 3 and 4; the mix keeps 1) and its own user by default,
+`demo-runner`, `demo-sleep` and `demo-weight`, so two personas never fill one user. `--seed`
+and `--external-ref` still choose another person or user; the same seed is another person in
+each persona. The figures above are averages: each day varies around them, and a date's
+records depend only on the seed and the date, never on the day the command runs.
+
 ## How it is written
 
 The records go through the same path as data from a provider: units, validation against the
@@ -62,18 +85,20 @@ plausible ranges, content hash deduplication, the daily summaries derived from s
 and energy, coverage, and the `data.written` [webhook](webhooks.md) events of the tenant. Only the
 raw store is skipped, because there is no provider payload to keep.
 
-The data is deterministic: the same `--seed` gives the same values for a given date. Running the
-command again adds nothing. Run on a later day, it adds the new days and leaves the others.
+The data is deterministic: the same `--persona` and `--seed` give the same values for a given
+date. Running the command again adds nothing. Run on a later day, it adds the new days and
+leaves the others.
 
 ## Flags
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--demo` | required | Confirms that synthetic data is wanted. Without it the command refuses to run. |
+| `--persona <name>` | `mix` | The kind of person: `mix`, `runner`, `sleep` or `weight` ([Personas](#personas)). |
 | `--tenant <id>` | the `demo` tenant | Write into an existing tenant instead. No key is created or printed. |
 | `--days <n>` | 90 | Days of data, ending yesterday, at most 365. |
-| `--external-ref <ref>` | `demo-user` | The user to create, or to reuse when the tenant already has one with this ref. |
-| `--seed <n>` | 1 | Another seed gives another person and other data. |
+| `--external-ref <ref>` | `demo-user`, or `demo-<persona>` | The user to create, or to reuse when the tenant already has one with this ref. |
+| `--seed <n>` | the persona's (1 for `mix`) | Another seed gives another person and other data. |
 
 The key of the `demo` tenant is printed on the first run only. To get another one later:
 
@@ -84,10 +109,10 @@ ohs admin key create --tenant <tenant id>
 ## From the admin API
 
 An instance admin key does the same over HTTP for any tenant, without a shell on the server:
-`POST /v1/admin/tenants/{tenant_id}/demo-user` with `{"external_ref": "demo-user", "days": 30}`
-(both optional, `days` at most 90) writes the same data through the same code, for the seed's
-default person, and answers the user with `rows_written`. See
-[admin-api.md](admin-api.md#demo-user).
+`POST /v1/admin/tenants/{tenant_id}/demo-user` with `{"persona": "runner", "external_ref":
+"demo-runner", "days": 30}` (all optional, `days` at most 90) writes the same data through the
+same code, for the persona's own seed, and answers the user with `rows_written` and `persona`.
+See [admin-api.md](admin-api.md#demo-user).
 
 ## Things to try
 

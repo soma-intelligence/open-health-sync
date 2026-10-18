@@ -31,7 +31,8 @@ func (s *server) mountIngest(mux *http.ServeMux) {
 		if dev == nil {
 			continue
 		}
-		upload := collect.NewUploadHandler(collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: dev})
+		upload := collect.NewUploadHandler(collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: dev,
+			Allowed: s.providerAllowed})
 		// Authenticate first, so an anonymous caller gets 401 and never a slot.
 		mux.Handle(path, auth.Middleware(s.lookup, auth.UserUpload)(limit(upload)))
 	}

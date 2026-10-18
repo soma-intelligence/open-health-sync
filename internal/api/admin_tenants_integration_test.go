@@ -60,6 +60,12 @@ func TestAdminTenantsNeedAnAdminKey(t *testing.T) {
 		{"POST", "/v1/admin/tenants/" + b + "/keys", ""},
 		{"DELETE", "/v1/admin/tenants/" + b + "/keys/" + uuid.NewString(), ""},
 		{"POST", "/v1/admin/tenants/" + b + "/demo-user", `{"days":1}`},
+		{"GET", "/v1/admin/tenants/" + b + "/providers", ""},
+		{"PATCH", "/v1/admin/tenants/" + b + "/providers/apple_health", `{"enabled":false}`},
+		{"GET", "/v1/admin/tenants/" + b + "/users", ""},
+		{"GET", "/v1/admin/tenants/" + b + "/users/" + u.String(), ""},
+		{"GET", "/v1/admin/tenants/" + b + "/users/" + u.String() + "/daily", ""},
+		{"GET", "/v1/admin/tenants/" + b + "/users/" + u.String() + "/coverage", ""},
 	} {
 		var body any
 		if c.body != "" {
@@ -296,6 +302,7 @@ type demoUser struct {
 	User        userJSON `json:"user"`
 	Days        int      `json:"days"`
 	RowsWritten int      `json:"rows_written"`
+	Persona     string   `json:"persona"`
 }
 
 func TestAdminTenantDemoUser(t *testing.T) {
@@ -312,6 +319,8 @@ func TestAdminTenantDemoUser(t *testing.T) {
 	assert.Equal(t, "active", first.User.Status)
 	assert.Equal(t, 3, first.Days)
 	assert.Positive(t, first.RowsWritten)
+	assert.Equal(t, "mix", first.Persona)
+	assert.ElementsMatch(t, []string{"user", "days", "rows_written", "persona"}, keysOfAny(r.body))
 	var raw map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(r.body, &raw))
 	assert.ElementsMatch(t, []string{"id", "external_ref", "status", "created_at"}, keysOfAny(raw["user"]),
@@ -350,10 +359,13 @@ func TestAdminTenantDemoUser(t *testing.T) {
 	for _, body := range []string{
 		`{"days":0}`, `{"days":91}`, `{"days":-1}`, `{"days":"30"}`, `{"days":1.5}`,
 		`{"external_ref":""}`, `{"external_ref":"` + strings.Repeat("x", 256) + `"}`, `{"seed":2}`, `[`,
+		`{"persona":""}`, `{"persona":"athlete"}`, `{"persona":"Runner"}`, `{"persona":1}`,
 	} {
 		r = e.do("POST", demo, e.keyA, body)
 		assert.Equal(t, http.StatusBadRequest, r.code, "%s: %s", body, r.body)
 	}
+	r = e.do("POST", demo, e.keyA, `{"persona":"athlete"}`)
+	assert.Contains(t, string(r.body), "persona is one of mix, runner, sleep, weight")
 	for _, id := range []string{uuid.NewString(), "nope"} {
 		assert.Equal(t, http.StatusNotFound, e.do("POST", "/v1/admin/tenants/"+id+"/demo-user", e.keyA, `{"days":1}`).code, id)
 	}
@@ -414,7 +426,7 @@ func TestAdminTenantsAudit(t *testing.T) {
 	assert.Equal(t, demo.User.ID, *written.UserID)
 	assert.Equal(t, "req-demo-1", written.RequestID)
 	assert.Equal(t, map[string]any{"admin_tenant_id": e.tenantA.String(), "synthetic": true, "days": float64(1),
-		"rows_written": float64(demo.RowsWritten), "user_created": true}, written.Detail)
+		"persona": "mix", "rows_written": float64(demo.RowsWritten), "user_created": true}, written.Detail)
 
 	// The admin's own log: one event per request, its action by route, the
 	// target tenant in the detail, never the target's user.
@@ -466,4 +478,52 @@ func keysOfAny(raw []byte) []string {
 		return nil
 	}
 	return keysOf(m)
+}
+
+// Each persona fills a user of its own, from its own providers.
+func TestAdminTenantDemoUserPersonas(t *testing.T) {
+	e := newEnv(t)
+	blue := e.newTenant("Team Blue")
+	path := "/v1/admin/tenants/" + blue.ID.String() + "/demo-user"
+	users := map[uuid.UUID]bool{}
+	for name, providers := range map[string][]string{
+		"mix":    {"apple_health", "fitbit", "oura", "polar", "whoop", "withings"},
+		"runner": {"apple_health", "polar", "whoop"},
+		"sleep":  {"apple_health", "oura"},
+		"weight": {"fitbit", "withings"},
+	} {
+		r := e.do("POST", path, e.keyA, `{"days":3,"persona":"`+name+`"}`)
+		require.Equal(t, http.StatusCreated, r.code, "%s: %s", name, r.body)
+		var d demoUser
+		r.json(t, &d)
+		assert.Equal(t, name, d.Persona)
+		want := "demo-" + name
+		if name == "mix" {
+			want = "demo-user"
+		}
+		require.NotNil(t, d.User.ExternalRef)
+		assert.Equal(t, want, *d.User.ExternalRef, "each persona its own user by default")
+		assert.Positive(t, d.RowsWritten)
+		users[d.User.ID] = true
+
+		var cov struct{ Days []struct{ Provider string } }
+		r = e.do("GET", "/v1/users/"+d.User.ID.String()+"/coverage", blue.Key.Key, nil)
+		require.Equal(t, http.StatusOK, r.code, string(r.body))
+		r.json(t, &cov)
+		got := map[string]bool{}
+		for _, day := range cov.Days {
+			assert.Contains(t, providers, day.Provider, "%s: only its providers", name)
+			got[day.Provider] = true
+		}
+		for _, p := range providers {
+			// The watch writes on workout days only, maybe none of three.
+			assert.True(t, got[p] || p == "polar", "%s: nothing from %s", name, p)
+		}
+
+		r = e.do("POST", path, e.keyA, `{"days":3,"persona":"`+name+`"}`)
+		require.Equal(t, http.StatusOK, r.code, string(r.body))
+		r.json(t, &d)
+		assert.Zero(t, d.RowsWritten, "%s: again, nothing new", name)
+	}
+	assert.Len(t, users, 4)
 }

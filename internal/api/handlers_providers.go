@@ -5,6 +5,9 @@ package api
 import (
 	"net/http"
 
+	"github.com/google/uuid"
+
+	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 )
@@ -30,10 +33,22 @@ func (s *server) enabled() []connector.Connector {
 	return s.d.Providers.List()
 }
 
+// providerAllowed reports whether the tenant may use the provider: false
+// when an instance admin turned it off for the tenant.
+func (s *server) providerAllowed(tenantID uuid.UUID, slug string) bool {
+	return s.d.TenantProviders.Allowed(tenantID, slug)
+}
+
+// listProviders lists the providers enabled on the instance and not turned
+// off for the caller's tenant.
 func (s *server) listProviders(w http.ResponseWriter, r *http.Request) {
+	p, _ := auth.From(r.Context())
 	list := s.enabled()
 	out := make([]providerJSON, 0, len(list))
 	for _, c := range list {
+		if !s.providerAllowed(p.TenantID, c.Slug()) {
+			continue
+		}
 		out = append(out, providerJSON{Slug: c.Slug(), Name: collect.ProviderName(c.Slug()), Kinds: kinds(c)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})

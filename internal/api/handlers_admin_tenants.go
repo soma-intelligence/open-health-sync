@@ -36,10 +36,6 @@ const (
 	// about 44,000 rows, written in a few seconds within the request.
 	defaultDemoDays = 30
 	maxDemoDays     = 90
-	// defaultDemoRef and demoSeed are the user and the person
-	// `ohs seed --demo` writes by default.
-	defaultDemoRef = "demo-user"
-	demoSeed       = 1
 )
 
 // adminTenantJSON is a tenant as an instance admin sees it.
@@ -70,6 +66,7 @@ type createTenantRequest struct {
 type demoUserRequest struct {
 	ExternalRef *string `json:"external_ref"`
 	Days        *int    `json:"days"`
+	Persona     *string `json:"persona"`
 }
 
 type demoUserJSON struct {
@@ -78,6 +75,8 @@ type demoUserJSON struct {
 	// RowsWritten counts the rows this call stored; the days already there
 	// add nothing.
 	RowsWritten int `json:"rows_written"`
+	// Persona is the kind of person written (demo.Personas).
+	Persona string `json:"persona"`
 }
 
 // mountAdminTenants serves the tenant routes with admin, the admin key
@@ -94,6 +93,8 @@ func (s *server) mountAdminTenants(admin func(string, http.HandlerFunc)) {
 	admin("POST /v1/admin/tenants/{tenant_id}/keys", s.createAdminTenantKey)
 	admin("DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}", s.revokeAdminTenantKey)
 	admin("POST /v1/admin/tenants/{tenant_id}/demo-user", s.createDemoUser)
+	s.mountAdminTenantProviders(admin)
+	s.mountAdminTenantRoutes(admin)
 }
 
 // pathTenantID parses {tenant_id}. A malformed id is a tenant that does not
@@ -306,7 +307,15 @@ func (s *server) createDemoUser(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req, true) {
 		return
 	}
-	ref, days := defaultDemoRef, defaultDemoDays
+	persona, _ := demo.LookupPersona(demo.PersonaMix)
+	if req.Persona != nil {
+		var ok bool
+		if persona, ok = demo.LookupPersona(*req.Persona); !ok || *req.Persona == "" {
+			badRequest(w, "persona is one of "+demo.PersonaNames())
+			return
+		}
+	}
+	ref, days := demo.DefaultExternalRef(persona.Name), defaultDemoDays
 	if req.ExternalRef != nil {
 		if ref = *req.ExternalRef; ref == "" || len(ref) > maxExternalRef {
 			badRequest(w, "external_ref is 1 to 255 characters")
@@ -320,7 +329,8 @@ func (s *server) createDemoUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ctx := context.WithoutCancel(r.Context())
-	res, err := demo.Seed(ctx, s.d.Store, t.ID, demo.SeedOptions{Days: days, Seed: demoSeed, ExternalRef: ref})
+	res, err := demo.Seed(ctx, s.d.Store, t.ID, demo.SeedOptions{Days: days, Seed: persona.Seed, Persona: persona.Name,
+		ExternalRef: ref})
 	switch {
 	case errors.Is(err, tenant.ErrNotFound):
 		notFound(w, "tenant")
@@ -337,7 +347,7 @@ func (s *server) createDemoUser(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 	}
 	ev := adminEvent(r, p, audit.DataWrite, status, map[string]any{
-		"synthetic": true, "days": days, "rows_written": res.Written, "user_created": res.Created})
+		"synthetic": true, "days": days, "persona": persona.Name, "rows_written": res.Written, "user_created": res.Created})
 	ev.Tenant, ev.User = t.ID, &res.User.ID
 	actx, cancel := context.WithTimeout(ctx, auditTimeout)
 	defer cancel()
@@ -345,5 +355,5 @@ func (s *server) createDemoUser(w http.ResponseWriter, r *http.Request) {
 		internalError(w, r, "api: demo user", err)
 		return
 	}
-	writeJSON(w, status, demoUserJSON{User: toUserJSON(res.User), Days: days, RowsWritten: res.Written})
+	writeJSON(w, status, demoUserJSON{User: toUserJSON(res.User), Days: days, RowsWritten: res.Written, Persona: persona.Name})
 }
