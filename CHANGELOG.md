@@ -9,6 +9,8 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Releases carry the Android example app, `ohs-example-android.apk`, so a phone installs it without
+  a build; its checksum is in the signed `checksums.txt`.
 - `data_types` on each provider of `GET /v1/providers`: the record kinds the connector writes
   (`sample`, `sleep`, `workout`...) and the quantity names it can produce (`heart_rate`...), so an
   app can tell which source gives what without reading the docs. The lists are read from each
