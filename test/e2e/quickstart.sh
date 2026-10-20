@@ -134,6 +134,14 @@ recipe export-all "daily.csv" --dir "$E2E_WORK/export"
 head -n 1 "$E2E_WORK/export/samples.csv" | grep -q '^id,type,value' && ok "export-all wrote samples.csv" ||
   fail "samples.csv header: $(head -n 1 "$E2E_WORK/export/samples.csv")"
 recipe ai-agent "claude mcp add --transport http open-health-sync http://localhost:$OHS_E2E_PORT/mcp"
+recipe training-load "7 days to" -weeks "$((SINCE / 7 + 1))"
+# The fixture has no blood pressure: the recipe says so and exits 1.
+if out=$(OHS_ENV_FILE="$ENV_FILE" "$E2E_WORK/recipes/bp-log" -days "$SINCE" 2>&1); then
+  fail "bp-log exits 0 without data: $out"
+else
+  grep -q "no blood pressure readings" <<<"$out" && ok "recipe bp-log explains missing data" ||
+    fail "bp-log: $out"
+fi
 # The fixture has no resting heart rate or HRV: the recipe says so and exits 1.
 if out=$(OHS_ENV_FILE="$ENV_FILE" "$E2E_WORK/recipes/heart-trend" 2>&1); then
   fail "heart-trend exits 0 without data: $out"

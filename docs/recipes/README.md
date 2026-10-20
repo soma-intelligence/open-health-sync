@@ -15,6 +15,8 @@ projects, from a first sync to a server of your own.
 |---|---|
 | [Sleep report](sleep-report.md) | your last nights in the terminal, whatever device measured them |
 | [Heart trend](heart-trend.md) | resting heart rate and HRV week by week, and how this week compares |
+| [Training load](training-load.md) | your workouts week by week, and whether this week is a jump |
+| [Blood pressure log](bp-log.md) | your cuff readings and their averages, to bring to your doctor |
 | [Compare sources](compare-sources.md) | the same figure from your ring, your watch and your phone, side by side |
 | [Weekly digest](weekly-digest.md) | a short Markdown note about last week, ready for your notes or a chat |
 | [Dashboard](dashboard.md) | a one page HTML dashboard of steps, sleep, resting heart rate and HRV |

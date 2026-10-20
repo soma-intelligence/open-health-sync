@@ -1,4 +1,4 @@
 {
   "title": "Recipes",
-  "pages": ["index", "sleep-report", "heart-trend", "compare-sources", "weekly-digest", "dashboard", "export-all", "ai-agent", "connect", "..."]
+  "pages": ["index", "sleep-report", "heart-trend", "training-load", "bp-log", "compare-sources", "weekly-digest", "dashboard", "export-all", "ai-agent", "connect", "..."]
 }

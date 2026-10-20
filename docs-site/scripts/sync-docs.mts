@@ -490,6 +490,8 @@ const icons: Record<string, string> = {
   "(guides)/recipes/index": "Sparkles",
   "(guides)/recipes/sleep-report": "Moon",
   "(guides)/recipes/heart-trend": "HeartPulse",
+  "(guides)/recipes/training-load": "Dumbbell",
+  "(guides)/recipes/bp-log": "Gauge",
   "(guides)/recipes/compare-sources": "GitCompare",
   "(guides)/recipes/weekly-digest": "CalendarDays",
   "(guides)/recipes/dashboard": "ChartLine",
