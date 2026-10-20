@@ -9,6 +9,11 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `data_types` on each provider of `GET /v1/providers`: the record kinds the connector writes
+  (`sample`, `sleep`, `workout`...) and the quantity names it can produce (`heart_rate`...), so an
+  app can tell which source gives what without reading the docs. The lists are read from each
+  mapper's source by `go run ./internal/connector/cmd/gendatatypes`, which also writes the table in
+  [docs/connectors/README.md](docs/connectors/README.md#what-each-connector-delivers).
 - Admin console for the whole pipeline. `/console` now runs the instance, not only shows it: an
   overview of the five pipeline stages (sources, sync, processing, storage, delivery) with what
   needs attention, providers turned on and their keys saved from the browser, users created and

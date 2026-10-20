@@ -130,7 +130,9 @@ pull still running when the job is due delays it until the pull ends. The `data.
 
 `GET /v1/providers` lists the connectors enabled on this instance, with their display `name`
 and how they work: `oauth` (the server pulls), `push` (the provider notifies), `device` (an SDK
-uploads). An instance admin turns providers on and saves their keys from the
+uploads). `data_types` says what each one delivers: the record kinds it writes (`sample`,
+`sleep`, `workout`...) and then the quantity names it can produce (`heart_rate`...), as listed in
+[connectors/README.md](connectors/README.md#what-each-connector-delivers). An instance admin turns providers on and saves their keys from the
 [console](console.md), or with the `OHS_<PROVIDER>_*` environment variables.
 
 For an OAuth provider, your server asks for a consent URL and sends the user there:

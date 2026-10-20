@@ -58,6 +58,32 @@ type OptionalKeyed interface {
 	OptionalKeys() []string
 }
 
+// DataTypes is optionally implemented by a connector whose mapper builds its
+// quantity names at run time, so its source cannot tell what it delivers
+// (self reports). Every other connector gets its list generated from its
+// source (datatypes_gen.go). See DataTypesOf.
+type DataTypes interface {
+	DataTypes() []string
+}
+
+// Record kinds, one per table a mapper writes to.
+const (
+	KindSample      = "sample"
+	KindCategory    = "category"
+	KindSleep       = "sleep"
+	KindWorkout     = "workout"
+	KindRoute       = "route"
+	KindNutrition   = "nutrition"
+	KindECG         = "ecg"
+	KindHeartbeat   = "heartbeat"
+	KindDaily       = "daily"
+	KindObservation = "observation"
+)
+
+// Kinds lists every record kind.
+var Kinds = []string{KindSample, KindCategory, KindSleep, KindWorkout, KindRoute,
+	KindNutrition, KindECG, KindHeartbeat, KindDaily, KindObservation}
+
 // Configurable is optionally implemented by connectors that take their
 // operator keys. The app calls Configure for every enabled connector before
 // any role starts (an error stops startup), and again whenever the keys
@@ -163,6 +189,21 @@ func AsOAuth(c Connector) (OAuthConnector, bool) { o, ok := c.(OAuthConnector); 
 
 // AsPush reports whether c receives provider notifications.
 func AsPush(c Connector) (PushConnector, bool) { p, ok := c.(PushConnector); return p, ok }
+
+// DataTypesOf lists what c delivers, as GET /v1/providers reports it: the
+// record kinds it writes (the Kind constants) and the canonical quantity
+// names it produces (for example heart_rate), kinds first, each sorted. A
+// connector that implements DataTypes answers itself; the others answer from
+// the generated list. Empty, never nil, for a connector in neither.
+func DataTypesOf(c Connector) []string {
+	if d, ok := c.(DataTypes); ok {
+		return d.DataTypes()
+	}
+	if v, ok := generatedDataTypes[c.Slug()]; ok {
+		return v
+	}
+	return []string{}
+}
 
 // AsDevice reports whether c accepts SDK uploads.
 func AsDevice(c Connector) (DeviceConnector, bool) { d, ok := c.(DeviceConnector); return d, ok }
