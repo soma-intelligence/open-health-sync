@@ -74,6 +74,16 @@ Open <http://localhost:3000>, create a user, upload the sample data and read it 
 
 None of the names starts with `NEXT_PUBLIC_`, so Next.js never copies them into browser code.
 
+## Deploy to Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsoma-intelligence%2Fopen-health-sync&root-directory=examples%2Fweb&project-name=open-health-sync-web&env=OHS_URL,OHS_API_KEY&envDescription=The%20API%20URL%20of%20your%20instance%20and%20a%20project%20key%20(ohs_sk_...)&envLink=https%3A%2F%2Fgithub.com%2Fsoma-intelligence%2Fopen-health-sync%2Ftree%2Fmain%2Fexamples%2Fweb%23quickstart)
+
+Vercel copies the repository to your GitHub account and builds this folder. It asks for `OHS_URL` and
+`OHS_API_KEY`; the app reaches itself at its production address, so the hosted connection page can send people
+back and webhooks can arrive at `/api/webhooks` with no `APP_URL` to set. `vercel.json` builds the server SDK
+first, the way `npm install` does on your machine. The key stays on the server: no variable starts with
+`NEXT_PUBLIC_`.
+
 ## The steps and their routes
 
 ### 1. Users: `/`
