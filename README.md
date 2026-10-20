@@ -607,7 +607,7 @@ and units):
 ## Open Health Sync vs Terra and other health data APIs
 
 Looking for a Terra API alternative, or an open source health data aggregator? Here is how Open
-Health Sync compares with the hosted wearable APIs and the other open source option. Facts about
+Health Sync compares with the hosted wearable APIs. Facts about
 other products come from their own sites and pricing pages, checked on 2026-10-17; each row links
 to a full comparison, with how to move.
 
@@ -615,7 +615,6 @@ to a full comparison, with how to move.
 |---|---|---|---|---|---|
 | **Open Health Sync** | Yes, AGPL-3.0 | Free, you pay for your server | Yes, checked with the official HL7 validator | Read-only, stdio and HTTP | Your server |
 | [Terra](docs/compare/terra.md) | No | $399 a month billed annually | A FHIR option, no version named | Read-only | Terra's cloud, then your destination |
-| [Open Wearables](docs/compare/open-wearables.md) | Yes, MIT | Free, custom Enterprise tier | Not in its documentation | Yes, stdio | Your server |
 | [Junction](docs/compare/junction.md) | No | $300 a month for up to 500 users | Not in its documentation | Not in its documentation | Junction's cloud, US or EU |
 | [Thryve](docs/compare/thryve.md) | No | 499 EUR a month for up to 500 users | Not found on its site | Not found on its site | Thryve's servers in Germany |
 | [Spike API](docs/compare/spike.md) | No | From $450 a month | Not found in its documentation | Yes | Spike's cloud |
@@ -689,16 +688,14 @@ demo data only for now.
 </details>
 
 <details>
-<summary><b>How does it compare to Terra or Open Wearables?</b></summary>
+<summary><b>How does it compare to Terra?</b></summary>
 
 Terra is a hosted API: it advertises 500+ integrations, Garmin included, starts at $399 a month
-billed annually, and your users' data passes through its cloud. Open Wearables is open source (MIT) and
-self-hosted like Open Health Sync, with a dashboard and a larger community. Open Health Sync is
+billed annually, and your users' data passes through its cloud. Open Health Sync is
 free and puts standards first: FHIR R4 and Open mHealth output checked against the official
 validators, every raw payload kept, and one Go binary that runs on a Raspberry Pi. See the
 [comparison table](#open-health-sync-vs-terra-and-other-health-data-apis), or side by side:
-[Terra API alternative](docs/compare/terra.md),
-[Open Health Sync vs Open Wearables](docs/compare/open-wearables.md).
+[Terra API alternative](docs/compare/terra.md).
 
 </details>
 

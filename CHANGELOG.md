@@ -167,8 +167,8 @@ release may change the API, the configuration or the database schema.
   Unset, the routes are not mounted. Tries are rate limited per client address like the OAuth
   callback (`OHS_RATE_LIMIT_OAUTH`, its own bucket, `route_group="setup"` in
   `ohs_rate_limited_total`). See [docs/setup.md](docs/setup.md).
-- A reproducible ingestion benchmark against Open Wearables: `bench/openwearables/` and
-  [the method and results](docs/benchmarks/open-wearables.md).
+- A reproducible Apple Health ingestion benchmark in Go: `bench/ingest/` and
+  [the method and results](docs/benchmarks/ingest.md).
 - Eight Sleep connector, slug `eight_sleep`. Eight Sleep has no public API: the connector signs
   in the way the Eight Sleep app does (a password grant with the app's client id and secret,
   built in from the values pyEight publishes, overridable with `OHS_EIGHT_SLEEP_CLIENT_ID` and

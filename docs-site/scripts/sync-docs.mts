@@ -343,7 +343,7 @@ sources["docs/compare/README.md"] = [
     page: "(guides)/compare/index",
     title: "Health data aggregators compared",
     description:
-      "Terra, Open Wearables, Junction, Thryve and the other ways to collect wearable and health data: what each one is, what it costs, and when to pick it.",
+      "Terra, Junction, Thryve and the other ways to collect wearable and health data: what each one is, what it costs, and when to pick it.",
   },
 ];
 sources["docs/compare/terra.md"] = [
@@ -351,13 +351,6 @@ sources["docs/compare/terra.md"] = [
     page: "(guides)/compare/terra",
     description:
       "Open Health Sync and the Terra API side by side: price, where the data is kept, sources, FHIR R4 and Open mHealth, MCP, when Terra fits better, and how to move.",
-  },
-];
-sources["docs/compare/open-wearables.md"] = [
-  {
-    page: "(guides)/compare/open-wearables",
-    description:
-      "The two open source, self-hosted wearable data APIs side by side: sources, standards, footprint, license, and when to pick each one.",
   },
 ];
 sources["docs/compare/junction.md"] = [
@@ -520,7 +513,6 @@ const icons: Record<string, string> = {
   "(guides)/guides/api-collections": "FolderTree",
   "(guides)/compare/index": "Scale",
   "(guides)/compare/terra": "ArrowLeftRight",
-  "(guides)/compare/open-wearables": "ArrowLeftRight",
   "(guides)/compare/junction": "ArrowLeftRight",
   "(guides)/compare/thryve": "ArrowLeftRight",
   "(guides)/compare/spike": "ArrowLeftRight",
