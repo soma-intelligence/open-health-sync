@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Dashboard writes a one page dashboard of your steps, sleep, resting heart
+// Command dashboard writes a one page dashboard of your steps, sleep, resting heart
 // rate and HRV.
 //
 //	go run ./recipes/dashboard                     # last 90 days, writes health-dashboard.html

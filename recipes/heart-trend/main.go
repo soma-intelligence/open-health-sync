@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Heart-trend prints your resting heart rate and HRV week by week, and how
+// Command heart-trend prints your resting heart rate and HRV week by week, and how
 // this week compares.
 //
 //	go run ./recipes/heart-trend              # the last 8 weeks

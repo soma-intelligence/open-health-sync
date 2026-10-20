@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Compare-sources prints the same figure from every app that measures it,
+// Command compare-sources prints the same figure from every app that measures it,
 // day by day, and how far apart they are.
 //
 //	go run ./recipes/compare-sources                       # steps, last 14 days

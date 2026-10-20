@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Export-all downloads a copy of all your health data, every app in one place,
+// Command export-all downloads a copy of all your health data, every app in one place,
 // as CSV or Parquet.
 //
 //	go run ./recipes/export-all                    # CSV, into health-export-<date>/

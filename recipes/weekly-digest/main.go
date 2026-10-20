@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Weekly-digest writes last week of your health in a short Markdown note,
+// Command weekly-digest writes last week of your health in a short Markdown note,
 // against the week before.
 //
 //	go run ./recipes/weekly-digest                  # prints the note

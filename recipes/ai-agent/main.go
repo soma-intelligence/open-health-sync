@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Ai-agent lets an AI assistant read your health data, read only, through MCP.
+// Command ai-agent lets an AI assistant read your health data, read only, through MCP.
 //
 //	go run ./recipes/ai-agent      # a token valid 30 days, and the setup lines
 //

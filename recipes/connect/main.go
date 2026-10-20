@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Connect links your accounts (Oura, WHOOP, Fitbit, Withings, ...) and shows
+// Command connect links your accounts (Oura, WHOOP, Fitbit, Withings, ...) and shows
 // how fresh each one is.
 //
 //	go run ./recipes/connect          # what is connected, and what can be

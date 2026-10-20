@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Starter is the block every recipe begins with, and a first tool below it:
+// Command starter is the block every recipe begins with, and a first tool below it:
 // how many sleep sessions each app recorded in the last 14 days. Copy it and
 // replace main with your own.
 //

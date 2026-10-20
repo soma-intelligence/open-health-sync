@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Sleep-report prints your last nights of sleep in the terminal, whatever app
+// Command sleep-report prints your last nights of sleep in the terminal, whatever app
 // or ring measured them.
 //
 //	go run ./recipes/sleep-report             # the last 14 nights
