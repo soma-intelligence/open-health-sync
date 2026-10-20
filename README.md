@@ -192,7 +192,7 @@ and the server stays free under the AGPL.
 | 🔜 | Self reports: a person's own ratings (feeling, mood, stress, energy, sleep quality and more) next to their synced data ([docs](docs/self-reports.md)) | | |
 | 🔜 | Share links (SMART Health Links): an encrypted FHIR bundle for a doctor or coach, with expiry, passcode and a built-in viewer ([docs](docs/share-links.md)) | | |
 | 🔜 | Tenants and their API keys managed over HTTP with an instance admin key, for one instance serving several teams ([docs](docs/admin-api.md)) | | |
-| ✅ | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
+| ✅ | Personal mode (`ohs admin personal setup`) and [eight small Go recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
 | ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Coros |
 
 A line moves up only when its release is published. Details per source:
@@ -211,7 +211,7 @@ A line moves up only when its release is published. Details per source:
   and keep it on a machine you own.
 - **Small tools on your own data.** `ohs admin personal setup` gives you one instance for
   yourself, and the [recipes](docs/recipes/README.md) add a sleep report, a heart trend, a weekly
-  digest, a dashboard and more, each a single Python file with no dependency.
+  digest, a dashboard and more, each a single Go file with no dependency.
 
 ## Why
 

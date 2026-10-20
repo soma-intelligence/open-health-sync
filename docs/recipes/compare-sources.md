@@ -4,9 +4,9 @@ Wear a ring and a watch, carry a phone, and they never agree on your steps or yo
 Open Health Sync keeps every source with its provenance, you can see by how much.
 
 ```sh
-python3 recipes/compare-sources.py                     # steps, last 14 days
-python3 recipes/compare-sources.py --metric sleep      # also resting_hr, hrv
-python3 recipes/compare-sources.py --metric resting_hr --days 30
+go run ./recipes/compare-sources                    # steps, last 14 days
+go run ./recipes/compare-sources -metric sleep      # also resting_hr, hrv
+go run ./recipes/compare-sources -metric resting_hr -days 30
 ```
 
 ```text

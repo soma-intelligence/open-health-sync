@@ -4,8 +4,8 @@ A short note about last week, against the week before: steps, sleep, resting hea
 training. Markdown, so it pastes into notes, a journal or a chat.
 
 ```sh
-python3 recipes/weekly-digest.py                 # prints the note
-python3 recipes/weekly-digest.py --out week.md   # writes it to a file
+go run ./recipes/weekly-digest                 # prints the note
+go run ./recipes/weekly-digest -out week.md    # writes it to a file
 ```
 
 ```markdown
@@ -24,7 +24,7 @@ The week is the last full one, Monday to Sunday. A change under 3% shows as →.
 ## Send it every Monday
 
 ```text
-0 8 * * 1  cd ~/open-health-sync && python3 recipes/weekly-digest.py --out ~/notes/health-$(date +\%F).md
+0 8 * * 1  cd ~/open-health-sync && go run ./recipes/weekly-digest -out ~/notes/health-$(date +\%F).md
 ```
 
 To post it to a chat, pipe the note to the chat's incoming webhook, for example with `curl`.

@@ -276,6 +276,11 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- The recipes are Go programs: `recipes/<name>/main.go`, standard library only, run with
+  `go run ./recipes/<name>` (they were Python scripts). Their flags, output and files are the
+  same. `recipes/starter` holds the block every recipe starts with, to copy for a tool of your
+  own, and the seven tutorials in `docs/learn/`, the webhook examples and the export examples are
+  in Go or DuckDB SQL too. The quickstart end to end test needs Go in place of Python 3.
 - `OHS_CONSOLE=true` now serves the console with its actions. An instance that turned it on for
   the read-only view gets them on upgrade; set `OHS_CONSOLE=read-only` to keep the console
   without any action.
