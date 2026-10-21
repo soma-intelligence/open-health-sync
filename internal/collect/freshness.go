@@ -161,7 +161,7 @@ func utcPtr(t *time.Time) *time.Time {
 
 // isPush reports whether provider sends notifications on this instance.
 func (d Deps) isPush(provider string) bool {
-	c, ok := d.lookup(provider)
+	c, ok := d.capable(provider)
 	if !ok {
 		return false
 	}
@@ -172,7 +172,7 @@ func (d Deps) isPush(provider string) bool {
 // typed reports whether provider's connector can pull only what a
 // notification names.
 func (d Deps) typed(provider string) bool {
-	oc, ok := d.oauth(provider)
+	oc, ok := d.capableOAuth(provider)
 	if !ok {
 		return false
 	}

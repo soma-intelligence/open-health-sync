@@ -188,3 +188,62 @@ func TestAdminPersonalSetup(t *testing.T) {
 		t.Fatal("a --person with a space must be refused")
 	}
 }
+
+// The first tenant is the instance admin; tenant create --admin and tenant
+// admin name others, --off clears the mark, tenant list shows it.
+func TestAdminTenantAdmin(t *testing.T) {
+	url := db.TestDB(t)
+	t.Setenv("OHS_DATABASE_URL", url)
+	idOf := regexp.MustCompile(`id ([0-9a-f-]{36})`)
+	var buf bytes.Buffer
+	if err := run([]string{"admin", "tenant", "create", "--name", "Ops"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "instance admin") {
+		t.Fatalf("the first tenant is the admin: %q", buf.String())
+	}
+	ops := idOf.FindStringSubmatch(buf.String())[1]
+	buf.Reset()
+	if err := run([]string{"admin", "tenant", "create", "--name", "Acme"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "instance admin") {
+		t.Fatalf("a later tenant is not: %q", buf.String())
+	}
+	acme := idOf.FindStringSubmatch(buf.String())[1]
+	buf.Reset()
+	if err := run([]string{"admin", "tenant", "create", "--name", "Lab", "--admin"}, &buf); err != nil ||
+		!strings.Contains(buf.String(), "instance admin") {
+		t.Fatalf("--admin: %v %q", err, buf.String())
+	}
+
+	buf.Reset()
+	if err := run([]string{"admin", "tenant", "admin", "--tenant", acme}, &buf); err != nil ||
+		!strings.Contains(buf.String(), "is now an instance admin") {
+		t.Fatalf("tenant admin: %v %q", err, buf.String())
+	}
+	buf.Reset()
+	if err := run([]string{"admin", "tenant", "admin", "--tenant", ops, "--off"}, &buf); err != nil ||
+		!strings.Contains(buf.String(), "no longer") {
+		t.Fatalf("tenant admin --off: %v %q", err, buf.String())
+	}
+	buf.Reset()
+	if err := run([]string{"admin", "tenant", "list"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(buf.String(), "\n") {
+		switch {
+		case strings.Contains(line, ops) && strings.HasSuffix(strings.TrimSpace(line), "yes"):
+			t.Errorf("ops is no longer admin: %q", line)
+		case strings.Contains(line, acme) && !strings.HasSuffix(strings.TrimSpace(line), "yes"):
+			t.Errorf("acme is admin: %q", line)
+		}
+	}
+	if err := run([]string{"admin", "tenant", "admin", "--tenant", "00000000-0000-0000-0000-000000000001"}, io.Discard); err == nil ||
+		!strings.Contains(err.Error(), "no tenant") {
+		t.Fatalf("unknown tenant: %v", err)
+	}
+	if err := run([]string{"admin", "tenant", "admin", "--tenant", "nope"}, io.Discard); err == nil {
+		t.Fatal("a malformed id is refused")
+	}
+}

@@ -115,7 +115,16 @@ const sources: Record<string, Target[]> = {
     {
       page: "(guides)/self-hosting/console",
       title: "Admin console",
-      description: "A read-only page for operators: users, connections, freshness and webhook deliveries.",
+      description:
+        "Run the pipeline from a browser: providers and their keys, users, jobs, webhooks, API keys and the audit log.",
+    },
+  ],
+  "docs/admin-api.md": [
+    {
+      page: "(guides)/self-hosting/admin-api",
+      title: "Admin API: tenants and their keys",
+      description:
+        "Run one instance for several teams: create tenants, manage their keys and fill a demo user over HTTP.",
     },
   ],
   "docs/setup.md": [
@@ -272,6 +281,14 @@ const sources: Record<string, Target[]> = {
       description: "Let a person share a window of their own data through an encrypted, expiring SMART Health Link.",
     },
   ],
+  "docs/bridge.md": [
+    {
+      page: "(guides)/guides/desktop-bridge",
+      title: "Desktop bridge",
+      description:
+        "ohs-bridge sends what Bluetooth health devices and USB-mounted watches record, from a computer or a Raspberry Pi.",
+    },
+  ],
   "docs/server-sdks.md": [
     {
       page: "(guides)/guides/server-sdks",
@@ -320,6 +337,104 @@ for (const file of readdirSync(join(repo, "docs", "recipes")).sort()) {
   sources[`docs/recipes/${file}`] = [{ page: `(guides)/recipes/${file.replace(/\.md$/, "")}` }];
 }
 
+// Comparisons with other health data APIs: the overview, then one page per product.
+sources["docs/compare/README.md"] = [
+  {
+    page: "(guides)/compare/index",
+    title: "Health data aggregators compared",
+    description:
+      "Terra, Junction, Thryve and the other ways to collect wearable and health data: what each one is, what it costs, and when to pick it.",
+  },
+];
+sources["docs/compare/terra.md"] = [
+  {
+    page: "(guides)/compare/terra",
+    description:
+      "Open Health Sync and the Terra API side by side: price, where the data is kept, sources, FHIR R4 and Open mHealth, MCP, when Terra fits better, and how to move.",
+  },
+];
+sources["docs/compare/junction.md"] = [
+  {
+    page: "(guides)/compare/junction",
+    description:
+      "Open Health Sync and Junction (formerly Vital) side by side: price, where the data is kept, sources, lab testing, FHIR R4, MCP, when Junction fits better, and how to move.",
+  },
+];
+sources["docs/compare/thryve.md"] = [
+  {
+    page: "(guides)/compare/thryve",
+    description:
+      "Open Health Sync and Thryve side by side: price, hosting in Germany, how long the data is kept, sources, FHIR R4 and Open mHealth, when Thryve fits better, and how to move.",
+  },
+];
+sources["docs/compare/spike.md"] = [
+  {
+    page: "(guides)/compare/spike",
+    description:
+      "Open Health Sync and the Spike API side by side: price, sources, MCP servers, health scores, FHIR R4 and Open mHealth, and when Spike fits better.",
+  },
+];
+sources["docs/compare/sahha.md"] = [
+  {
+    page: "(guides)/compare/sahha",
+    description:
+      "Open Health Sync and Sahha side by side: raw measurements or computed health scores, price, how long the data is kept, sources, MCP, and when Sahha fits better.",
+  },
+];
+sources["docs/compare/rook.md"] = [
+  {
+    page: "(guides)/compare/rook",
+    description:
+      "Open Health Sync and ROOK side by side: price, sources, lab and health record data, FHIR R4, health scores, and when ROOK fits better.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "compare")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md" || sources[`docs/compare/${file}`]) continue;
+  sources[`docs/compare/${file}`] = [{ page: `(guides)/compare/${file.replace(/\.md$/, "")}` }];
+}
+
+// How-to guides: the index page, then one page per task.
+sources["docs/how-to/README.md"] = [
+  {
+    page: "(guides)/how-to/index",
+    title: "How-to guides",
+    description:
+      "Step by step guides for one task each: Apple Health into PostgreSQL, Apple Health in Claude through MCP, Oura data as FHIR R4, WHOOP data as CSV or Parquet.",
+  },
+];
+sources["docs/how-to/apple-health-to-postgres.md"] = [
+  {
+    page: "(guides)/how-to/apple-health-to-postgres",
+    description:
+      "Load the Apple Health export (export.zip) into PostgreSQL as clean tables of samples, sleep, workouts and daily summaries, then query it with SQL.",
+  },
+];
+sources["docs/how-to/apple-health-mcp.md"] = [
+  {
+    page: "(guides)/how-to/apple-health-mcp",
+    description:
+      "Give Claude or another MCP client read-only access to your Apple Health data: import the Health app export, mint a read-only token, add the MCP server.",
+  },
+];
+sources["docs/how-to/oura-fhir.md"] = [
+  {
+    page: "(guides)/how-to/oura-fhir",
+    description:
+      "Turn Oura ring data into FHIR R4 Observations with LOINC codes and UCUM units: sleep sessions, heart rate, SpO2 and daily readiness scores, checked with the HL7 validator.",
+  },
+];
+sources["docs/how-to/whoop-export.md"] = [
+  {
+    page: "(guides)/how-to/whoop-export",
+    description:
+      "Export WHOOP recovery, strain, sleep and workouts as CSV or Parquet, by calendar day, from a self-hosted instance that keeps syncing.",
+  },
+];
+for (const file of readdirSync(join(repo, "docs", "how-to")).sort()) {
+  if (!file.endsWith(".md") || file === "README.md" || sources[`docs/how-to/${file}`]) continue;
+  sources[`docs/how-to/${file}`] = [{ page: `(guides)/how-to/${file.replace(/\.md$/, "")}` }];
+}
+
 // Learn by building: the index page, then one page per project.
 sources["docs/learn/README.md"] = [
   {
@@ -355,6 +470,7 @@ const icons: Record<string, string> = {
   "(guides)/self-hosting/operating-notes": "NotebookPen",
   "(guides)/self-hosting/console": "LayoutDashboard",
   "(guides)/self-hosting/setup": "KeyRound",
+  "(guides)/self-hosting/admin-api": "Building2",
   "(guides)/self-hosting/observability": "Telescope",
   "(guides)/self-hosting/hardening": "Lock",
   "(guides)/guides/fhir": "HeartPulse",
@@ -370,9 +486,12 @@ const icons: Record<string, string> = {
   "(guides)/guides/time-tags": "Tag",
   "(guides)/guides/self-reports": "Smile",
   "(guides)/guides/share-links": "Share2",
+  "(guides)/guides/desktop-bridge": "Bluetooth",
   "(guides)/recipes/index": "Sparkles",
   "(guides)/recipes/sleep-report": "Moon",
   "(guides)/recipes/heart-trend": "HeartPulse",
+  "(guides)/recipes/training-load": "Dumbbell",
+  "(guides)/recipes/bp-log": "Gauge",
   "(guides)/recipes/compare-sources": "GitCompare",
   "(guides)/recipes/weekly-digest": "CalendarDays",
   "(guides)/recipes/dashboard": "ChartLine",
@@ -394,6 +513,18 @@ const icons: Record<string, string> = {
   "(guides)/guides/demo": "FlaskConical",
   "(guides)/guides/server-sdks": "Package",
   "(guides)/guides/api-collections": "FolderTree",
+  "(guides)/compare/index": "Scale",
+  "(guides)/compare/terra": "ArrowLeftRight",
+  "(guides)/compare/junction": "ArrowLeftRight",
+  "(guides)/compare/thryve": "ArrowLeftRight",
+  "(guides)/compare/spike": "ArrowLeftRight",
+  "(guides)/compare/sahha": "ArrowLeftRight",
+  "(guides)/compare/rook": "ArrowLeftRight",
+  "(guides)/how-to/index": "ListChecks",
+  "(guides)/how-to/apple-health-to-postgres": "Database",
+  "(guides)/how-to/apple-health-mcp": "Bot",
+  "(guides)/how-to/oura-fhir": "HeartPulse",
+  "(guides)/how-to/whoop-export": "FileDown",
 };
 
 // Anchors of a source file that live on a page written for the site (.mdx).

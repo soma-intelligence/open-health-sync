@@ -1,6 +1,6 @@
 {
   "title": "Hosted platform",
-  "description": "A managed instance, planned",
+  "description": "A managed instance, in free beta",
   "root": true,
   "icon": "Cloud",
   "pages": ["index"]

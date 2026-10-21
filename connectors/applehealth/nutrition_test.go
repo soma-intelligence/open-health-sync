@@ -166,3 +166,74 @@ func TestMapDietaryQuantity_ScalesMassToTheDestinationColumn(t *testing.T) {
 		})
 	}
 }
+
+// A food entry goes through the same unit conversion as a single dietary
+// sample: its masses used to land in their column unconverted.
+func TestMapFoodCorrelation_ConvertsUnits(t *testing.T) {
+	m := newMapper()
+	res, err := m.mapFoodCorrelation(map[string]any{
+		"startDate":       "2026-09-01T12:00:00Z",
+		"endDate":         "2026-09-01T12:20:00Z",
+		"correlationType": "HKCorrelationTypeIdentifierFood",
+		"objects": []any{
+			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietaryProtein", "value": 0.025, "unit": "kg"},
+			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietarySodium", "value": 0.0008, "unit": "kg"},
+			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietaryCaffeine", "value": 0.0001, "unit": "kg"},
+			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietaryWater", "value": 0.33, "unit": "L"},
+			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietaryVitaminD", "value": 0.000005, "unit": "g"},
+		},
+	}, "user-1")
+	require.NoError(t, err)
+	require.Len(t, res.NutritionLogs, 1)
+	nl := res.NutritionLogs[0]
+	require.NotNil(t, nl.ProteinG)
+	require.NotNil(t, nl.SodiumMg)
+	assert.InDelta(t, 25, *nl.ProteinG, 1e-9)
+	assert.InDelta(t, 800, *nl.SodiumMg, 1e-9)
+	assert.InDelta(t, 100, nl.NutrientsJSON["caffeine"], 1e-9, "caffeine in mg")
+	assert.InDelta(t, 330, nl.NutrientsJSON["water"], 1e-9, "water in mL")
+	assert.InDelta(t, 5, nl.NutrientsJSON["vitamin_d"], 1e-9, "vitamin D in mcg")
+}
+
+func TestMapFoodCorrelation_RefusesAnUnknownUnit(t *testing.T) {
+	m := newMapper()
+	_, err := m.mapFoodCorrelation(map[string]any{
+		"startDate":       "2026-09-01T12:00:00Z",
+		"endDate":         "2026-09-01T12:20:00Z",
+		"correlationType": "HKCorrelationTypeIdentifierFood",
+		"objects": []any{
+			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietaryProtein", "value": 25.0, "unit": "oz"},
+		},
+	}, "user-1")
+	assert.Error(t, err)
+}
+
+func TestMapDietaryQuantity_ExtendedNutrientsInTheirUnit(t *testing.T) {
+	m := newMapper()
+	for _, c := range []struct {
+		qt, unit, nutrient string
+		in, want           float64
+	}{
+		{"HKQuantityTypeIdentifierDietaryCaffeine", "kg", "caffeine", 0.000095, 95},
+		{"HKQuantityTypeIdentifierDietaryCaffeine", "mg", "caffeine", 95, 95},
+		{"HKQuantityTypeIdentifierDietaryWater", "mL", "water", 250, 250},
+		{"HKQuantityTypeIdentifierDietaryWater", "fl_oz_us", "water", 8, 236.5882365},
+		{"HKQuantityTypeIdentifierDietaryVitaminB12", "mcg", "vitamin_b12", 2.4, 2.4},
+	} {
+		res, err := m.mapDietaryQuantity(map[string]any{
+			"quantityType": c.qt, "value": c.in, "unit": c.unit,
+			"startDate": "2026-09-01T12:00:00Z", "endDate": "2026-09-01T12:00:00Z",
+		}, "user-1")
+		require.NoError(t, err, c.qt)
+		require.Len(t, res.NutritionLogs, 1)
+		assert.InDelta(t, c.want, res.NutritionLogs[0].NutrientsJSON[c.nutrient], 1e-9, "%s in %s", c.qt, c.unit)
+	}
+}
+
+// Every dietary type the connector stores has a declared unit.
+func TestDietaryNutrientsHaveAUnit(t *testing.T) {
+	for hk, n := range dietaryNutrients {
+		_, ok := model.NutrientUnit(n)
+		assert.True(t, ok, "%s (%s) has no unit in model.Nutrients", hk, n)
+	}
+}

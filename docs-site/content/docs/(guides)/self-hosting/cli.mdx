@@ -22,9 +22,11 @@ ohs <command> [flags]
 | `ohs admin key create --tenant <id>` | Adds an API key to a tenant, for rotation. |
 | `ohs admin key list --tenant <id>` | Lists a tenant's keys by prefix, with creation and last use. |
 | `ohs admin key revoke --tenant <id> --key <key or prefix>` | Revokes a key. A whole user token is revoked the same way. |
-| `ohs admin personal setup [--person <name>]` | Readies a one person install for the [recipes](/documentation/recipes): a `personal` tenant, a user and a new key, printed as an env file. |
-| `ohs admin rekey [--batch <rows>]` | Re-seals every stored OAuth token and webhook secret under `OHS_ENCRYPTION_KEY` after a [key rotation](/documentation/self-hosting/key-rotation), and prints counts. |
+| `ohs admin personal setup [--person <name>] [--url <url>]` | Readies a one person install for the [recipes](/documentation/recipes): a `personal` tenant, a user and a new key, printed as an env file. |
+| `ohs admin rekey [--batch <rows>]` | Next release. Re-seals every stored OAuth token and webhook secret under `OHS_ENCRYPTION_KEY` after a [key rotation](/documentation/self-hosting/key-rotation), and prints counts. |
 | `ohs import apple-health <export.zip\|export.xml> [--since] [--tz] [--dry-run]` | Loads a Health app export into an instance with a user token (`--url`/`OHS_URL`, `--token`/`OHS_TOKEN`). |
+| `ohs import mi-fitness <folder\|copy.zip> [--since] [--dry-run]` | Next release. Loads the copy of Mi Fitness data Xiaomi sends from its account privacy center, the same way. |
+| `ohs import files <file\|folder\|zip> [--since] [--dry-run]` | Next release. Loads activity files (.fit, .gpx, .tcx), one file, a folder or a zip such as a Garmin or Strava export; each file is sent once. |
 | `ohs mcp` | Serves the read-only MCP tools on stdin and stdout for a local agent. See [AI agents](/documentation/guides/ai-agents). |
 | `ohs seed --demo [--tenant <id>] [--days 90] [--external-ref demo-user] [--seed N]` | Fills the instance with synthetic data for one user, from six sources. Running it again adds nothing. See [Try it without a wearable](/documentation/guides/demo). |
 | `ohs version` | Prints the version and the commit it was built from. |

@@ -207,7 +207,7 @@ func TestECGFHIR(t *testing.T) {
 	q := url.QueryEscape
 
 	all := e.walk(obs, e.keyA)
-	assert.Equal(t, []string{"sleep", "daily", "qs", "qs", "workout", "ecg", "qs", "qs", "qs", "qs", "daily", "ecg"}, idPrefixes(all))
+	assert.Equal(t, []string{"sleep", "daily", "qs", "qs", "workout", "ecg", "qs", "qs", "qs", "qs", "nutrition", "daily", "ecg"}, idPrefixes(all))
 	o := all[5]
 	assert.Equal(t, "ecg-"+strconv.FormatInt(early, 10), o.ID)
 	assert.Equal(t, []fhir.Coding{{System: fhir.LOINC, Code: "11524-6"}, {System: fhir.RecordTypeSystem, Code: fhir.RecordECG}}, o.Code.Coding)
@@ -225,7 +225,7 @@ func TestECGFHIR(t *testing.T) {
 		assert.Equal(t, strconv.FormatFloat(ecgVolt(i), 'f', -1, 64), v, i)
 	}
 	assert.Equal(t, "sinus_rhythm", o.Component[2].ValueCodeableConcept.Coding[0].Code)
-	w := all[11]
+	w := all[12]
 	assert.Equal(t, "ecg-"+strconv.FormatInt(late, 10), w.ID)
 	assert.Equal(t, fhir.AFibClassificationSystem, w.Component[2].ValueCodeableConcept.Coding[0].System)
 	assert.Equal(t, "inconclusive", w.Component[2].ValueCodeableConcept.Coding[0].Code)
@@ -349,6 +349,6 @@ func TestECGExportAndArchive(t *testing.T) {
 		counts[fl.Path] = fl.Records
 	}
 	assert.Equal(t, 2, counts["canonical/ecg.ndjson"])
-	assert.Equal(t, 12, counts["fhir/bundle.json"], "ten of e.seed and the two recordings")
+	assert.Equal(t, 13, counts["fhir/bundle.json"], "eleven of e.seed and the two recordings")
 	assert.Contains(t, string(files["fhir/bundle.json"]), `"valueSampledData"`)
 }

@@ -317,7 +317,13 @@ func TestEveryTool(t *testing.T) {
 	assert.Nil(t, conns[0]["last_sync_at"])
 	assert.NotEmpty(t, conns[0]["connected_at"])
 	assert.Equal(t, true, conns[0]["health"].(map[string]any)["healthy"])
-	assert.Len(t, conns[0], 5) // no token column ever leaves
+	// No token column ever leaves: exactly these fields.
+	var keys []string
+	for k := range conns[0] {
+		keys = append(keys, k)
+	}
+	assert.ElementsMatch(t, []string{"provider", "status", "scopes", "last_sync_at", "initial_backfill_at",
+		"created_at", "updated_at", "connected_at", "health"}, keys)
 
 	msg, isErr = call(t, cs, "get_samples", map[string]any{"user_id": u, "type": "heart_rate", "cursor": "%%%"})
 	assert.True(t, isErr)

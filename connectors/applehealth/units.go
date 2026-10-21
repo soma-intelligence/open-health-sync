@@ -31,8 +31,14 @@ var wireUnitToCanonical = map[string]string{
 	// (oxygen saturation, body fat, blood alcohol). A ratio metric with no
 	// declared storage unit keeps the honest "fraction" label rather than a
 	// "percent" one that lies about the number.
-	"%":      "fraction",
-	"kcal":   "kcal",
+	"%":    "fraction",
+	"kcal": "kcal",
+	// HealthKit spells the large calorie, a kilocalorie, "Cal": an export
+	// written with Calories as the energy unit carries it on every energy
+	// record. The choke point in internal/model/units.go lowercases units
+	// before matching, so left alone "Cal" became "cal", the small calorie,
+	// and every value landed 1,000x too low.
+	"Cal":    "kcal",
 	"cal":    "kcal",
 	"degC":   "celsius",
 	"mg/dL":  "mg/dL",

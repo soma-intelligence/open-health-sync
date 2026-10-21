@@ -1,0 +1,27 @@
+[package]
+name = "ohs-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "AGPL-3.0-only"
+description = "Sends what standard Bluetooth health devices and USB-mounted watches record to an Open Health Sync server"
+repository = "https://github.com/soma-intelligence/open-health-sync"
+publish = false
+
+[dependencies]
+btleplug = "0.13.5"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
+flate2 = "1.1.10"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "time", "signal", "sync"] }
+ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
+uuid = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -15,7 +15,8 @@ in `bpm`.
 | **Workout** and **RoutePoint** | a session with its metrics, then its GPS track |
 | **NutritionLog** | a food or drink entry with its nutrients |
 | **DailySummary** | totals per local day, from the provider or rolled up from samples |
-| **ECGRecording**, **HeartbeatSample** | stored today; their read routes are planned |
+| **HeartbeatSample** | the beat-to-beat intervals of a heartbeat series, read with `rr-intervals` and `hrv` |
+| **ECGRecording** | an ECG with its voltage samples; its read routes ship in the next release |
 | **Observation** | a generic coded fact for the long tail; no connector writes it yet |
 
 Every field, and the full list of quantity names, is in the

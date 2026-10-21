@@ -40,6 +40,11 @@ The Swift SDK also reads HealthKit itself and uploads what changed since the las
 ([HealthKit sync](swift.md#healthkit-sync)). Reading Health Connect on Android is planned for the
 Kotlin SDK.
 
+The Swift and Kotlin SDKs also upload what standard Bluetooth health devices send (straps, cuffs,
+scales, glucose meters, thermometers, pulse oximeters): see
+[Swift](swift.md#bluetooth-devices) and [Kotlin](kotlin.md#bluetooth-devices). On a computer or
+a Raspberry Pi, the [desktop bridge](../bridge.md) does the same without an app.
+
 ## Which credential goes where
 
 An app on a phone must never hold a tenant API key (`ohs_sk_`): anyone can pull it out of the
@@ -48,7 +53,7 @@ app and read every user of the tenant. The API splits the work this way:
 | Who | Credential | Calls |
 |---|---|---|
 | Your backend | tenant key | everything except the upload: users, tokens, connections and `startConnection`, freshness, every read route, coverage, FHIR |
-| The app | user token with the `upload` scope, minted by your backend | `uploadAppleHealthPart` and `uploadParts` only |
+| The app | user token with the `upload` scope, minted by your backend | `uploadAppleHealthPart`, `uploadParts` and `uploadBluetoothPart` only |
 
 A user token gets 403 on every other route. (A token with the `read` scope reads only through the
 [MCP server](../mcp.md), for a person's own AI agent.)

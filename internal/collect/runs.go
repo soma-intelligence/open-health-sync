@@ -76,14 +76,15 @@ type SyncRunList struct {
 const runCols = `id, provider, trigger, status, outcome, data_type, from_time, to_time, attempts,
 	objects_stored, last_error, created_at, coalesce(started_at, claimed_at), finished_at, not_before`
 
-func scanRun(row pgx.Row) (SyncRun, error) {
+// scanRun reads the runCols of row, then the extra columns that follow them.
+func scanRun(row pgx.Row, extra ...any) (SyncRun, error) {
 	var r SyncRun
 	var status string
 	var outcome *string
 	var notBefore time.Time
-	if err := row.Scan(&r.ID, &r.Provider, &r.Trigger, &status, &outcome, &r.DataType, &r.WindowStart,
+	if err := row.Scan(append([]any{&r.ID, &r.Provider, &r.Trigger, &status, &outcome, &r.DataType, &r.WindowStart,
 		&r.WindowEnd, &r.Attempts, &r.ObjectsStored, &r.Error, &r.CreatedAt, &r.StartedAt, &r.FinishedAt,
-		&notBefore); err != nil {
+		&notBefore}, extra...)...); err != nil {
 		return SyncRun{}, err
 	}
 	r.WindowStart, r.WindowEnd, r.CreatedAt = r.WindowStart.UTC(), r.WindowEnd.UTC(), r.CreatedAt.UTC()
@@ -152,6 +153,75 @@ func (d Deps) SyncRuns(ctx context.Context, tenantID, userID uuid.UUID, provider
 	}
 	if out.Data == nil {
 		out.Data = []SyncRun{}
+	}
+	return out, nil
+}
+
+// TenantSyncRun is a sync run with the user it belongs to.
+type TenantSyncRun struct {
+	UserID uuid.UUID `json:"user_id"`
+	SyncRun
+}
+
+// TenantSyncRunList is a page of a tenant's sync runs, newest first.
+type TenantSyncRunList struct {
+	Data       []TenantSyncRun `json:"data"`
+	NextCursor *string         `json:"next_cursor"`
+}
+
+// runStatusSQL is the condition on a pull job for each run status.
+var runStatusSQL = map[string]string{
+	RunQueued: `status = 'pending' AND coalesce(outcome, '') NOT IN ('` + queue.OutcomeFailed + `', '` +
+		queue.OutcomeRateLimited + `')`,
+	RunRetrying:    `status = 'pending' AND outcome = '` + queue.OutcomeFailed + `'`,
+	RunRateLimited: `status = 'pending' AND outcome = '` + queue.OutcomeRateLimited + `'`,
+	RunRunning:     `status = 'running'`,
+	RunSucceeded:   `status = 'done'`,
+	RunFailed:      `status = 'parked' AND coalesce(outcome, '') <> '` + queue.OutcomeInactive + `'`,
+	RunCancelled:   `status = 'parked' AND outcome = '` + queue.OutcomeInactive + `'`,
+}
+
+// ValidRunStatus reports whether status names a run status.
+func ValidRunStatus(status string) bool {
+	_, ok := runStatusSQL[status]
+	return ok
+}
+
+// TenantSyncRuns lists the sync runs of every user of a tenant, newest
+// first, optionally of one status (ValidRunStatus) and one provider. before
+// (an id) continues a page; limit is 1 to 100.
+func (d Deps) TenantSyncRuns(ctx context.Context, tenantID uuid.UUID, status, provider string, before int64, limit int) (TenantSyncRunList, error) {
+	cond := "true"
+	if status != "" {
+		c, ok := runStatusSQL[status]
+		if !ok {
+			return TenantSyncRunList{}, fmt.Errorf("sync runs: unknown status %q", status)
+		}
+		cond = c
+	}
+	rows, err := d.Pool.Query(ctx, `SELECT `+runCols+`, user_id FROM ohs_sync.pull_jobs
+		WHERE tenant_id = $1 AND (`+cond+`) AND ($2 = '' OR provider = $2) AND ($3 = 0 OR id < $3)
+		ORDER BY id DESC LIMIT $4`, tenantID, provider, before, limit+1)
+	if err != nil {
+		return TenantSyncRunList{}, fmt.Errorf("sync runs: %w", err)
+	}
+	runs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (TenantSyncRun, error) {
+		var t TenantSyncRun
+		var err error
+		t.SyncRun, err = scanRun(r, &t.UserID)
+		return t, err
+	})
+	if err != nil {
+		return TenantSyncRunList{}, fmt.Errorf("sync runs: %w", err)
+	}
+	out := TenantSyncRunList{Data: runs}
+	if len(runs) > limit {
+		out.Data = runs[:limit]
+		c := strconv.FormatInt(runs[limit-1].ID, 10)
+		out.NextCursor = &c
+	}
+	if out.Data == nil {
+		out.Data = []TenantSyncRun{}
 	}
 	return out, nil
 }
@@ -252,7 +322,8 @@ type SyncRequest struct {
 // connection ahead of routine work and answers 202 with the run. While a
 // manual run of the connection is still queued or running, it answers 200
 // with that run instead of queueing another. 409 when the connection does not
-// sync (needs_reauth, disconnected) or its provider is not enabled here.
+// sync (needs_reauth, disconnected) or its provider is not enabled here, or
+// is turned off for the tenant.
 func (h *Handlers) SyncNow() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tenantID, userID, ok := h.caller(w, r)
@@ -312,9 +383,10 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	}
 	var status string
 	var syncedThrough *time.Time
-	err = tx.QueryRow(ctx, `SELECT status, synced_through FROM ohs_sync.connections
+	var keys *uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT status, synced_through, tenant_keys_id FROM ohs_sync.connections
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 FOR SHARE`,
-		tenantID, userID, provider).Scan(&status, &syncedThrough)
+		tenantID, userID, provider).Scan(&status, &syncedThrough, &keys)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SyncRun{}, false, &syncProblem{http.StatusNotFound, "no connection to this provider"}
 	}
@@ -328,8 +400,11 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	case StatusDisconnected:
 		return SyncRun{}, false, &syncProblem{http.StatusConflict, "the connection is disconnected: connect the user again"}
 	}
-	if _, ok := d.oauth(provider); !ok {
+	if _, ok := d.withKeys(tenantID, provider, keys); !ok {
 		return SyncRun{}, false, &syncProblem{http.StatusConflict, "this provider is not enabled on this instance"}
+	}
+	if !d.allowed(tenantID, provider) {
+		return SyncRun{}, false, &syncProblem{http.StatusConflict, ProviderOffDetail}
 	}
 
 	now := d.now().UTC().Truncate(time.Second)

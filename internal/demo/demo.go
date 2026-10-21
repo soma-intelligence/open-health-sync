@@ -5,9 +5,12 @@
 // MCP) without a wearable account: `ohs seed --demo`. The data is plausible
 // but made up, deterministic for a seed, and spread over six providers that
 // overlap the way real ones do (two straps both report heart rate, two
-// sources report sleep, steps and weight). Generate has no I/O: it returns
-// canonical records per provider, which the caller writes through the ETL
-// writer (etl.WriteSynthetic). Every record that has metadata carries
+// sources report sleep, steps and weight). Other personas (Personas) are a
+// person of their own seen through a few providers: a runner, a short
+// sleeper, someone watching their weight. Generate has no I/O: it returns
+// canonical records per provider. Seed writes them for one user of a tenant
+// through the ETL writer (etl.WriteSynthetic), for `ohs seed --demo` and for
+// the admin API's demo user alike. Every record that has metadata carries
 // {"synthetic": true}.
 package demo
 
@@ -34,7 +37,8 @@ const (
 	AppleHealth = "apple_health"
 )
 
-// Providers lists the providers Generate fills, in write order.
+// Providers lists the providers Generate fills for PersonaMix, in write
+// order. Another persona fills some of them, in the same order.
 var Providers = []string{Oura, Whoop, Withings, Fitbit, Polar, AppleHealth}
 
 // Defaults and limits of Options.
@@ -60,10 +64,14 @@ type Options struct {
 	// and dedups the others.
 	Today time.Time
 	// Seed selects the person and their data. The same seed gives the same
-	// records.
+	// records. Each persona has its own (PersonaInfo.Seed), and the same seed
+	// is another person in another persona.
 	Seed int64
 	// Location is the person's zone. nil means DefaultZone.
 	Location *time.Location
+	// Persona names the kind of person, one of Personas. "" means
+	// PersonaMix.
+	Persona string
 }
 
 // Batch is the records of one provider.
@@ -72,8 +80,13 @@ type Batch struct {
 	Records  *model.MapResult
 }
 
-// Generate returns the records of every provider in Providers, in that order.
+// Generate returns the records of every provider of the persona, in the
+// order of Providers.
 func Generate(o Options) ([]Batch, error) {
+	pi, ok := LookupPersona(o.Persona)
+	if !ok {
+		return nil, fmt.Errorf("demo: unknown persona %q: one of %s", o.Persona, PersonaNames())
+	}
 	if o.Days == 0 {
 		o.Days = DefaultDays
 	}
@@ -90,7 +103,7 @@ func Generate(o Options) ([]Batch, error) {
 	if o.Today.IsZero() {
 		o.Today = time.Now()
 	}
-	g := newGen(o.Seed, o.Location)
+	g := newGen(o.Seed, o.Location, personaOf(pi.Name))
 	t := o.Today.In(o.Location)
 	last := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, o.Location).AddDate(0, 0, -1)
 	if last.Before(time.Date(1970, 1, 2, 0, 0, 0, 0, time.UTC)) {
@@ -101,8 +114,8 @@ func Generate(o Options) ([]Batch, error) {
 		Oura: g.oura, Whoop: g.whoop, Withings: g.withings,
 		Fitbit: g.fitbit, Polar: g.polar, AppleHealth: g.appleHealth,
 	}
-	out := make([]Batch, 0, len(Providers))
-	for _, p := range Providers {
+	out := make([]Batch, 0, len(pi.Providers))
+	for _, p := range pi.Providers {
 		mr := &model.MapResult{}
 		for i := o.Days - 1; i >= 0; i-- {
 			builders[p](g.day(last.AddDate(0, 0, -i)), mr)
@@ -128,29 +141,28 @@ type profile struct {
 // gen holds the person and the per-date truth, computed once per date.
 type gen struct {
 	seed int64
-	loc  *time.Location
-	p    profile
-	days map[string]*day
+	// salt prefixes every random stream of a persona other than mix, so
+	// one seed is another person in each persona; mix has none, and draws
+	// what it always drew.
+	salt    string
+	loc     *time.Location
+	persona persona
+	p       profile
+	days    map[string]*day
 }
 
-func newGen(seed int64, loc *time.Location) *gen {
-	r := rng(seed, "profile")
+func newGen(seed int64, loc *time.Location, ps persona) *gen {
+	salt := ""
+	if ps.name != PersonaMix {
+		salt = ps.name + "|"
+	}
 	return &gen{
-		seed: seed,
-		loc:  loc,
-		days: map[string]*day{},
-		p: profile{
-			restingHR: 52 + 8*r.Float64(),
-			hrv:       42 + 25*r.Float64(),
-			weight:    68 + 12*r.Float64(),
-			bodyFat:   15 + 7*r.Float64(),
-			height:    1.70 + 0.15*r.Float64(),
-			stepGoal:  7500 + 3000*r.Float64(),
-			vo2max:    44 + 8*r.Float64(),
-			phase:     2 * math.Pi * r.Float64(),
-			// A park in Paris, where the demo zone is.
-			home: [2]float64{48.8462 + 0.002*r.Float64(), 2.3371 + 0.002*r.Float64()},
-		},
+		seed:    seed,
+		salt:    salt,
+		loc:     loc,
+		persona: ps,
+		days:    map[string]*day{},
+		p:       ps.profile(rng(seed, salt+"profile")),
 	}
 }
 
@@ -164,7 +176,7 @@ func rng(seed int64, stream string) *rand.Rand {
 
 // dayRNG is the generator of one stream of one date.
 func (g *gen) dayRNG(stream string, date time.Time) *rand.Rand {
-	return rng(g.seed, stream+"|"+date.Format(time.DateOnly))
+	return rng(g.seed, g.salt+stream+"|"+date.Format(time.DateOnly))
 }
 
 // norm draws from a normal distribution, clamped to mean +- 3 sd.

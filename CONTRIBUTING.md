@@ -61,8 +61,8 @@ Read [docs/architecture.md](docs/architecture.md) first. To add a provider, read
 - **No secrets, no health values in logs.** Tokens, keys and measurements never reach a log
   line, an error message or a test fixture. Fixtures use invented values.
 - **Migrations.** Add a numbered pair of `.up.sql` and `.down.sql` files under
-  `internal/db/migrations`. Use hypertables. No continuous aggregates; compression only
-  as migration 0015 sets it up.
+  `internal/db/migrations`. Use hypertables. No continuous aggregate beyond `quantity_hourly` (migration 0035) without
+  discussing it first; compression only as migration 0015 sets it up.
 - **Standard library first.** The router is `http.ServeMux`; a new dependency needs a reason.
 - **Repository checks.** `make guard` scans the tracked files and the branch's commit messages
   for names that must not appear in this repository. The list is kept private by the maintainers

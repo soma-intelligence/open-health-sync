@@ -85,6 +85,36 @@ Observations ([api.md](../api.md#ecg-recordings)); heartbeat intervals by
 `GET /v1/users/{id}/rr-intervals` and `/hrv`. Clinical record and FHIR resource lines are
 accepted and dropped on purpose.
 
+### Sleep
+
+HealthKit records a night as separate samples: at most one "in bed" sample (value `0`, from the
+iPhone's sleep schedule or a sleep app) and the watch's stage samples (`2` awake, `3` core, `4`
+deep, `5` REM, `1` asleep with no stage). Uploads file each sample under the local day it
+starts on, so a night that crosses midnight arrives in two parts. The server puts each night
+back together, whichever part is processed first:
+
+- Samples less than an hour apart belong to the same night. A longer gap starts another one,
+  so a nap is a session of its own.
+- A night with an in bed sample is that session: `bedtime_start` and `bedtime_end` are the time
+  in bed, and each stage goes to the in bed session that contains it, or else to the nearest.
+- A night with no in bed sample becomes one session from its first stage to its last, with
+  `"synthesized": true` in its metadata.
+- The figures are sums of the stages: `deep_sleep_seconds`, `rem_sleep_seconds`,
+  `light_sleep_seconds` (core and unstaged sleep) and `awake_seconds`. `total_sleep_seconds` is
+  deep, REM and light together, the Health app's "time asleep".
+
+Nights stored by 0.1.0 can be split at midnight, have no figures or hold stages of another
+night. To rebuild them, delete the person's Apple Health sleep in `psql`, then re-process their
+raw files with the recipe in [self-hosting.md](../self-hosting.md#operating-notes):
+
+```sql
+DELETE FROM ohs_data.sleep_phases p USING ohs_data.sleep_sessions s
+WHERE p.tenant_id = s.tenant_id AND p.user_id = s.user_id AND p.session_id = s.id
+  AND s.provider = 'apple_health' AND s.tenant_id = '<tenant id>' AND s.user_id = '<user id>';
+DELETE FROM ohs_data.sleep_sessions
+WHERE provider = 'apple_health' AND tenant_id = '<tenant id>' AND user_id = '<user id>';
+```
+
 ### Heartbeat series
 
 HealthKit gives beat times, not intervals, so a series is one line carrying all its beats:
@@ -208,3 +238,8 @@ to 6 tries per part. 401 and 403 stop the import at once: check the token and it
   iPhone and an Apple Watch both report, the larger source total wins instead of being added.
 - A value outside its hard plausible range rejects the record; outside the soft range it is
   stored and flagged in its metadata.
+- Dietary values, single samples and food entries alike, are converted to the unit of their
+  nutrient ([the nutrient table](../api.md#nutrition-logs)): a mass in kilograms, grams,
+  milligrams or micrograms, a volume in litres, millilitres or fluid ounces, an energy in
+  kilocalories (HealthKit's `Cal`) or kilojoules. A value in a unit that does not convert to its
+  nutrient's (a mass for water, the small calorie `cal`) rejects the record.

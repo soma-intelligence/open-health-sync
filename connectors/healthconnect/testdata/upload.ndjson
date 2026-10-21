@@ -10,4 +10,8 @@
 {"recordType":"MenstruationFlow","metadata":{"id":"mf-1","dataOrigin":"com.example.cycles","recordingMethod":"manual"},"time":"2026-03-01T23:30:00Z","zoneOffset":"+01:00","flow":"light"}
 {"recordType":"MenstruationFlow","metadata":{"id":"mf-2","dataOrigin":"com.example.cycles"},"time":"2026-03-03T08:00:00Z","flow":"unknown"}
 {"recordType":"IntermenstrualBleeding","metadata":{"id":"ib-1","dataOrigin":"com.example.cycles"},"time":"2026-03-15T08:00:00Z","zoneOffset":"+01:00"}
-{"recordType":"Hydration","metadata":{"id":"hy-1"},"startTime":"2026-03-02T08:00:00Z","endTime":"2026-03-02T08:01:00Z","volumeLiters":0.25}
+{"recordType":"Hydration","metadata":{"id":"hy-1","dataOrigin":"com.example.water","recordingMethod":"manual"},"startTime":"2026-03-02T08:00:00Z","endTime":"2026-03-02T08:01:00Z","startZoneOffset":"+01:00","volumeLiters":0.25}
+{"recordType":"Nutrition","metadata":{"id":"nu-1","dataOrigin":"com.example.food","recordingMethod":"manual"},"startTime":"2026-03-02T12:00:00Z","endTime":"2026-03-02T12:30:00Z","startZoneOffset":"+01:00","name":"Lentil soup","mealType":"lunch","energyKilocalories":420,"energyFromFatKilocalories":90,"proteinGrams":24,"totalCarbohydrateGrams":55,"totalFatGrams":10,"saturatedFatGrams":1.5,"dietaryFiberGrams":16,"sugarGrams":6,"sodiumGrams":0.8,"caffeineGrams":0,"ironGrams":0.0066,"vitaminCGrams":0.012,"vitaminDGrams":0.000002}
+{"recordType":"TotalCaloriesBurned","metadata":{"id":"tc-1","dataOrigin":"com.sec.android.app.shealth","recordingMethod":"automatic"},"startTime":"2026-03-02T00:00:00Z","endTime":"2026-03-02T01:00:00Z","startZoneOffset":"+01:00","energyKilocalories":85.5}
+{"recordType":"BasalMetabolicRate","metadata":{"id":"bm-1","dataOrigin":"com.withings.wiscale2","recordingMethod":"automatic"},"time":"2026-03-02T06:50:00Z","zoneOffset":"+01:00","basalMetabolicRateKilocaloriesPerDay":1650}
+{"recordType":"Vo2Max","metadata":{"id":"vo-1"},"time":"2026-03-02T08:00:00Z","vo2MillilitersPerMinuteKilogram":45}

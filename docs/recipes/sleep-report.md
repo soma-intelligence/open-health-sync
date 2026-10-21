@@ -4,8 +4,8 @@ How did you sleep these last two weeks? One command answers, whether a ring, a w
 your phone measured the nights.
 
 ```sh
-python3 recipes/sleep-report.py            # the last 14 nights
-python3 recipes/sleep-report.py --days 60
+go run ./recipes/sleep-report           # the last 14 nights
+go run ./recipes/sleep-report -days 60
 ```
 
 ```text

@@ -44,10 +44,18 @@ func QuantityTypes(ctx context.Context, db Querier) ([]QuantityType, error) {
 
 // Connection is a user's link to one provider. Tokens never leave the store.
 type Connection struct {
-	Provider    string     `json:"provider"`
-	Status      string     `json:"status"` // active, needs_reauth or disconnected
-	LastSyncAt  *time.Time `json:"last_sync_at"`
-	ConnectedAt time.Time  `json:"connected_at"`
+	Provider   string     `json:"provider"`
+	Status     string     `json:"status"` // active, needs_reauth or disconnected
+	Scopes     []string   `json:"scopes"`
+	LastSyncAt *time.Time `json:"last_sync_at"`
+	// InitialBackfillAt is when the pull of the user's history was queued,
+	// null until then.
+	InitialBackfillAt *time.Time `json:"initial_backfill_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	// ConnectedAt is CreatedAt under the name earlier versions served, kept
+	// for the clients that read it.
+	ConnectedAt time.Time `json:"connected_at"`
 	// Health says whether the connection syncs, and if not why and what
 	// fixes it.
 	Health ConnectionHealth `json:"health"`
@@ -121,8 +129,8 @@ func Connections(ctx context.Context, db Querier, tenantID, userID uuid.UUID) ([
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(ctx, `SELECT provider, status, last_sync_at, created_at,
-			broken_reason, broken_since, rate_limited_until
+	rows, err := db.Query(ctx, `SELECT provider, status, scopes, last_sync_at, initial_backfill_at,
+			created_at, updated_at, broken_reason, broken_since, rate_limited_until
 		FROM ohs_sync.connections WHERE tenant_id = $1 AND user_id = $2 ORDER BY provider`, tenantID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("read: connections: %w", err)
@@ -134,11 +142,15 @@ func Connections(ctx context.Context, db Querier, tenantID, userID uuid.UUID) ([
 		var c Connection
 		var reason *string
 		var since, until *time.Time
-		if err := rows.Scan(&c.Provider, &c.Status, &c.LastSyncAt, &c.ConnectedAt, &reason, &since, &until); err != nil {
+		if err := rows.Scan(&c.Provider, &c.Status, &c.Scopes, &c.LastSyncAt, &c.InitialBackfillAt,
+			&c.CreatedAt, &c.UpdatedAt, &reason, &since, &until); err != nil {
 			return nil, fmt.Errorf("read: connections: scan: %w", err)
 		}
 		utc(c.LastSyncAt)
-		utc(&c.ConnectedAt)
+		utc(c.InitialBackfillAt)
+		utc(&c.CreatedAt)
+		utc(&c.UpdatedAt)
+		c.ConnectedAt = c.CreatedAt
 		c.Health = HealthOf(reason, since, until, now)
 		out = append(out, c)
 	}

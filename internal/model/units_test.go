@@ -84,6 +84,17 @@ func TestToStorageUnit_MolarConversionIsMetricScoped(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestToStorageUnit_KilopascalIsBloodPressureOnly(t *testing.T) {
+	for _, qt := range []string{"blood_pressure_systolic", "blood_pressure_diastolic"} {
+		v, u, err := ToStorageUnit(qt, 16, "kPa")
+		require.NoError(t, err)
+		assert.InDelta(t, 120.0, v, 0.01)
+		assert.Equal(t, "mmHg", u)
+	}
+	_, _, err := ToStorageUnit("body_mass", 16, "kPa")
+	require.Error(t, err)
+}
+
 func TestToStorageUnit_FractionalSaturation(t *testing.T) {
 	v, u, err := ToStorageUnit(QTOxygenSaturation, 0.97, "fraction")
 	require.NoError(t, err)

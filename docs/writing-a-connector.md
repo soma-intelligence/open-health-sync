@@ -26,8 +26,10 @@ several at once; the registry checks which ones it implements.
 | `NotifiedFetcher` | `FetchNotified` | pull only what a notification names (its `InboundEvent.DataType`), to spare the provider's rate limit |
 | `DeviceConnector` | `ParseUpload` | on-device stores uploaded by an SDK |
 | `KeyedConnector` | `RequiredKeys` | operator keys: the connector is off until each is set |
-| `Configurable` | `Configure` | receives its keys once at startup |
+| `OptionalKeyed` | `OptionalKeys` | keys it reads but runs without (a webhook secret, a region), listed in the [console](console.md) |
+| `Configurable` | `Configure` | receives its keys at startup, and again when the console saves new ones: validate before changing anything, and be safe to call while the connector runs |
 | `PostConnectHook` | `AfterConnect` | work after a user connects, such as subscribing to notifications |
+| `DataTypes` | `DataTypes` | only when `Map` builds its quantity names at run time (self reports): what it delivers. Every other connector's list is read from its source |
 
 Rules that matter:
 
@@ -148,6 +150,11 @@ Read `connectors/example/example.go` for the full version.
    and `ohs doctor` says why. For an OAuth connector `ohs doctor` also prints the callback URL
    to register with the provider.
 4. Document it in `docs/connectors/<slug>.md`: where to get keys, the callback URL, scopes.
+5. Run `go run ./internal/connector/cmd/gendatatypes`. It reads which record kinds and
+   quantity names your mapper writes, for the `data_types` of `GET /v1/providers` and the table
+   in [connectors/README.md](connectors/README.md#what-each-connector-delivers). A test fails
+   until the generated files are current. A canonical quantity name your code mentions without
+   writing it as a quantity (a metadata key) goes in the generator's `notEmitted` list.
 
 ## Test it with fixtures
 

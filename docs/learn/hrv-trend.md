@@ -11,7 +11,7 @@ band or an Apple Watch.
 Day to day, resting heart rate and HRV jump around. Week by week, a trend shows.
 
 ```sh
-python3 recipes/heart-trend.py --weeks 8
+go run ./recipes/heart-trend -weeks 8
 ```
 
 ```text
@@ -40,7 +40,7 @@ intervals and computes the standard measures from them, the same way every time:
 
 ```sh
 set -a; . ~/.ohs.env; set +a
-START=$(python3 -c 'import datetime as d; print(d.date.today() - d.timedelta(days=30))')
+START=$(date -v-30d +%F 2>/dev/null || date -d '30 days ago' +%F)   # macOS, then Linux
 curl -s "$OHS_URL/v1/users/$OHS_USER/hrv?start=$START" -H "Authorization: Bearer $OHS_KEY" \
   | jq -r '.data[] | "\(.start_date[:16])  RMSSD \(.rmssd_ms // "-") ms  SDNN \(.sdnn_ms // "-") ms  (\(.accepted_intervals) beats)"'
 ```
@@ -56,9 +56,9 @@ counted is in [RR intervals and HRV](../hrv.md).
 
 ## Make it yours
 
-- **Flag a week.** Open `recipes/heart-trend.py` and print a `!` next to any week whose resting
+- **Flag a week.** Open `recipes/heart-trend/main.go` and print a `!` next to any week whose resting
   heart rate is 3 bpm or more above the average of the others.
-- **A longer view.** `--weeks 26` shows half a year: you may see a training block, a holiday or
+- **A longer view.** `-weeks 26` shows half a year: you may see a training block, a holiday or
   a season.
 - **Morning only.** Keep the `/hrv` recordings that start before 9:00, when you are most
   comparable from one day to the next.

@@ -6,62 +6,145 @@
 <meta name="robots" content="noindex">
 <title>{{if .Problem}}{{.Problem}}{{else}}Connect your health data{{end}}</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f7f7f5; --card: #ffffff; --ink: #1c1c1e; --muted: #6b6b70; --line: #e6e6e3;
-          --ok: #1f7a4d; --warn: #9a5b00; --accent: #1c1c1e; --on-accent: #ffffff; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #111113; --card: #1c1c1f; --ink: #f2f2f4; --muted: #a0a0a8; --line: #2c2c31;
-          --ok: #5fd39a; --warn: #f2b45c; --accent: #f2f2f4; --on-accent: #111113; } }
-  * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
-         background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { width: 100%; max-width: 440px; background: var(--card); border-radius: 16px; padding: 32px 24px;
-         box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 6%); }
-  header { text-align: center; margin-bottom: 24px; }
-  .logo { display: block; width: 56px; height: 56px; margin: 0 auto 12px; border-radius: 12px; object-fit: contain; }
-  h1 { margin: 0 0 8px; font-size: 20px; }
-  p { margin: 0; color: var(--muted); }
+{{template "frame-style"}}
+  :root { --frame-max: {{if .Problem}}620px{{else}}980px{{end}}; }
+  main { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); grid-template-rows: 1fr auto auto;
+         grid-template-areas: "intro sources" "stats sources"; }
+  .intro { grid-area: intro; display: flex; flex-direction: column; padding: 22px 24px 24px; }
+  .pair { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+  .intro h1 { margin-top: auto; }
+  .logo, .glyph { width: 48px; height: 48px; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--glass-edge); }
+  .logo { object-fit: contain; background: rgb(255 255 255 / 92%); }
+  .glyph { display: grid; place-items: center; background: rgb(255 255 255 / 9%); color: var(--ink); }
+  .link { display: flex; gap: 4px; color: var(--faint); }
+  .link i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+  .intro p { margin: 12px 0 0; color: var(--muted); max-width: 36ch; text-wrap: pretty; }
+  .stats { grid-area: stats; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .stat { display: flex; flex-direction: column; min-height: 164px; padding: 18px 18px 16px; }
+  .num { margin-top: auto; padding-top: 16px; font: 500 60px/.95 var(--display); letter-spacing: -.045em;
+         font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .num small { font-size: .36em; letter-spacing: -.01em; color: var(--faint); margin-left: 4px; }
+  .stat .label { margin-top: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .src { grid-area: sources; align-self: start; padding: 6px; }
+  .src-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 15px 14px 9px; }
   ul { list-style: none; margin: 0; padding: 0; }
-  li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
-  li:first-child { border-top: 0; }
-  .name { font-weight: 600; overflow-wrap: anywhere; }
-  .status { display: block; font-size: 14px; color: var(--muted); }
-  .status.connected { color: var(--ok); }
-  .status.needs_reauth { color: var(--warn); }
-  form { margin: 0; flex: none; }
-  button { font: inherit; font-weight: 600; cursor: pointer; border-radius: 10px; padding: 8px 16px;
-           border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); }
-  button.secondary { background: transparent; color: var(--ink); border-color: var(--line); }
-  footer { margin-top: 24px; font-size: 13px; text-align: center; color: var(--muted); }
+  .sources li { position: relative; }
+  .sources li + li::before { content: ""; position: absolute; top: 0; left: 14px; right: 14px; height: 1px; background: var(--line); }
+  form { margin: 0; }
+  .row { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 14px; cursor: pointer;
+         padding: 11px 11px 11px 14px; border-radius: 16px; transition: background-color .15s; }
+  .row:hover { background: var(--hover); }
+  .row:focus-visible { box-shadow: 0 0 0 2px var(--ring); }
+  .tile { position: relative; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none;
+          background: rgb(255 255 255 / 8%); box-shadow: inset 0 0 0 1px var(--glass-edge); font: 500 17px/1 var(--display); }
+  .badge { position: absolute; right: -4px; bottom: -4px; width: 18px; height: 18px; border-radius: 50%; display: grid;
+           place-items: center; background: var(--ok); color: #0c1a11; box-shadow: 0 0 0 2px rgb(24 32 25); }
+  .meta { flex: 1; min-width: 0; }
+  .line1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .name { font-weight: 550; overflow-wrap: anywhere; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font: 500 10.5px/18px var(--mono); letter-spacing: .12em;
+          text-transform: uppercase; white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+  .pill.connected { color: var(--ok); }
+  .pill.needs_reauth { color: var(--warn); }
+  .detail { display: block; font-size: 13px; color: var(--muted); margin-top: 1px; text-wrap: pretty; }
+  .cta { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 12px 0 14px; border-radius: 999px;
+         font-size: 13.5px; font-weight: 600; background: var(--cta); color: var(--on-cta);
+         transition: background-color .15s, transform .1s; }
+  .row:hover .cta { background: var(--cta-hover); }
+  .row:active .cta { transform: scale(.96); }
+  .row.connected .cta { padding: 0 14px; background: rgb(255 255 255 / 8%); color: var(--ink); box-shadow: inset 0 0 0 1px var(--glass-edge); }
+  .row.connected:hover .cta { background: rgb(255 255 255 / 14%); }
+  .trust { display: flex; gap: 10px; align-items: flex-start; margin: 4px 14px 0; padding: 12px 0 8px; border-top: 1px solid var(--line);
+           font-size: 13px; color: var(--muted); }
+  .trust svg { margin-top: 2px; color: var(--faint); }
+  main.solo { display: block; }
+  .problem { max-width: 440px; margin: 28px auto; padding: 30px 28px 32px; text-align: center; }
+  .problem .glyph { margin: 0 auto 22px; color: var(--warn); }
+  .problem p { margin: 12px auto 0; color: var(--muted); max-width: 32ch; text-wrap: balance; }
+  @media (max-width: 760px) {
+    main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "intro" "sources" "stats"; gap: 10px; }
+    .intro { padding: 20px 20px 22px; }
+    .pair { margin-bottom: 20px; }
+    .stats { gap: 10px; }
+    .stat { min-height: 148px; padding: 16px; }
+    .num { font-size: 52px; }
+    .src { padding: 2px; }
+    .src-head { padding: 14px 12px 8px; }
+    .row { padding: 12px 10px 12px 12px; gap: 12px; }
+    .tile { width: 36px; height: 36px; border-radius: 11px; font-size: 16px; }
+    .line1 { column-gap: 8px; row-gap: 0; }
+    .cta { height: 32px; padding: 0 13px; font-size: 13px; }
+    .cta svg { display: none; }
+    .trust { margin: 4px 12px 0; }
+    .problem { margin: 40px 0; padding: 26px 20px 28px; }
+  }
 </style>
 </head>
 <body>
-<main>
+<div class="page">
+<div class="stage">
+{{template "frame-guides"}}
+<div class="frame">
+{{template "frame-scene"}}
 {{if .Problem}}
-  <header>
-    <h1>{{.Problem}}</h1>
-    <p>{{.Detail}}</p>
-  </header>
+  <main class="solo">
+    <header class="glass problem">
+      <div class="glyph" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
+      <h1>{{.Problem}}</h1>
+      <p>{{.Detail}}</p>
+    </header>
+  </main>
 {{else}}
-  <header>
-    {{if .LogoURL}}<img class="logo" src="{{.LogoURL}}" alt="" width="56" height="56">{{end}}
-    <h1>{{if .AppName}}{{.AppName}} would like to read your health data{{else}}Connect your health data{{end}}</h1>
-    <p>{{if .Single}}Sign in to the source below and allow access.{{else}}Choose a source, sign in there and allow access. You can connect several.{{end}}</p>
-  </header>
-  <ul>
-  {{range .Providers}}
-    <li>
-      <div>
-        <span class="name">{{.Name}}</span>
-        <span class="status {{.Status}}">{{.StatusText}}</span>
+  <main>
+    <header class="glass intro">
+      <div class="pair" aria-hidden="true">
+        {{if .LogoURL}}<img class="logo" src="{{.LogoURL}}" alt="" width="48" height="48">
+        <span class="link"><i></i><i></i><i></i></span>{{end}}
+        <span class="glyph"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 13.6 12 21l-7.5-7.4A5 5 0 1 1 12 7a5 5 0 1 1 7.5 6.6Z"/><path d="M3.5 12h4l2-3 3 6 2-3h6"/></svg></span>
       </div>
-      <form method="post" action="{{.Action}}">
-        <input type="hidden" name="session" value="{{$.Session}}">
-        <button type="submit"{{if eq .Status "connected"}} class="secondary"{{end}}>{{.Button}}</button>
-      </form>
-    </li>
-  {{end}}
-  </ul>
-  <footer>Your sign-in happens on the source's own site. This link expires {{.Expires}}.</footer>
+      <h1>{{if .AppName}}{{.AppName}} would like to read your health data{{else}}Connect your health data{{end}}</h1>
+      <p>{{if .Single}}Sign in to the source below and allow access.{{else}}Choose a source, sign in there and allow access. You can connect several.{{end}}</p>
+    </header>
+    <section class="glass src" aria-labelledby="src-title">
+      <div class="src-head"><h2 id="src-title">{{if .Single}}Your source{{else}}Choose a source{{end}}</h2><span class="label">Read-only access</span></div>
+      <ul class="sources">
+      {{range .Providers}}
+        <li>
+          <form method="post" action="{{.Action}}">
+            <input type="hidden" name="session" value="{{$.Session}}">
+            <button type="submit" class="row {{.Status}}">
+              <span class="tile" aria-hidden="true">{{.Initial}}{{if eq .Status "connected"}}<span class="badge"><svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 6.2 2.3 2.3 4.7-4.9"/></svg></span>{{end}}</span>
+              <span class="meta">
+                <span class="line1"><span class="name">{{.Name}}</span>{{if eq .Status "not_connected"}}<span class="sr">{{.StatusText}}</span>{{else}}<span class="pill {{.Status}}">{{.StatusText}}</span>{{end}}</span>
+                {{if .Detail}}<span class="detail">{{.Detail}}</span>{{end}}
+              </span>
+              <span class="cta">{{.Button}}{{if ne .Status "connected"}}<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg>{{end}}</span>
+            </button>
+          </form>
+        </li>
+      {{end}}
+      </ul>
+      <p class="trust"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg><span>You sign in on each source's own site.{{if .PasswordSources}} For {{.PasswordSources}}, this server asks for the password itself (there is no sign-in page for other apps), sends it only to that source and keeps it encrypted.{{end}} {{if .AppName}}{{.AppName}}{{else}}The app{{end}} never sees your password.</span></p>
+    </section>
+    <div class="stats">
+      <div class="glass stat">
+        <h2>Sources</h2>
+        <span class="num" aria-hidden="true">{{.Connected}}<small>/{{len .Providers}}</small></span>
+        <span class="label" aria-hidden="true">Connected</span>
+        <span class="sr">{{.Connected}} of {{len .Providers}} connected</span>
+      </div>
+      <div class="glass stat">
+        <h2>This link</h2>
+        <span class="num" aria-hidden="true">{{.ExpiresMinutes}}<small>min</small></span>
+        <span class="label" aria-hidden="true">Remaining</span>
+        <span class="sr">This link expires {{.Expires}}.</span>
+      </div>
+    </div>
+  </main>
 {{end}}
-</main>
+</div>
+</div>
+</div>
 </body>
 </html>

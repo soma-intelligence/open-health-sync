@@ -33,7 +33,7 @@ The containers read `.env` themselves either way.
 
 `OHS_ENCRYPTION_KEY` must hold 32 random bytes in base64; the `sed` line above fills it. Keep
 it: it encrypts the OAuth tokens stored in the database. To change it later, follow
-[rotating the encryption key](key-rotation.md). If it is empty, `ohs` exits at start
+[rotating the encryption key](key-rotation.md) (next release; on 0.1.0 a new key leaves the stored tokens unreadable). If it is empty, `ohs` exits at start
 and its container restarts in a loop, never healthy. `ohs doctor` then prints a freshly
 generated key: paste it into `.env` and run the same `up -d` command again, so the container is
 recreated with the new environment.
@@ -93,7 +93,7 @@ There is no `latest` tag while the version is 0.x: pin a version. The compose fi
 uses `${OHS_VERSION:-0.1.0}`; set `OHS_VERSION` to move to another release.
 Release binaries for Linux and macOS (amd64, arm64) and their `checksums.txt` are
 attached to each [GitHub release](https://github.com/soma-intelligence/open-health-sync/releases).
-Releases after 0.0.2 sign the image digest and `checksums.txt` with Sigstore cosign (keyless);
+Releases after 0.1.0 sign the image digest and `checksums.txt` with Sigstore cosign (keyless);
 [hardening.md](hardening.md#updates-and-image-signatures) has the verification commands.
 
 The image is distroless (static, nonroot). Go cross-compiles, so no emulation is
@@ -159,15 +159,15 @@ Environment variables only, documented line by line in `.env.example`.
 |---|---|---|
 | `OHS_DATABASE_URL` | set by compose | Postgres connection URL; size its pool with `pool_max_conns` (see below) |
 | `OHS_ENCRYPTION_KEY` | none, required | 32 random bytes, base64. Seals stored OAuth tokens and webhook secrets. `openssl rand -base64 32` makes one, or `ohs doctor` prints one |
-| `OHS_PREVIOUS_ENCRYPTION_KEYS` | none | Comma separated keys `OHS_ENCRYPTION_KEY` replaced: they still open what they sealed, never seal. Set only while [rotating the key](key-rotation.md) |
+| `OHS_PREVIOUS_ENCRYPTION_KEYS` | none | Comma separated keys `OHS_ENCRYPTION_KEY` replaced: they still open what they sealed, never seal. Set only while [rotating the key](key-rotation.md). Next release |
 | `OHS_PUBLIC_URL` | `http://localhost:8080` | Public base URL, used for OAuth callbacks, notification URLs and [share links](share-links.md). Use your https address |
 | `OHS_RAW_STORE` | `file:///var/lib/ohs/raw` | `file:///path` or `s3://bucket?endpoint=&region=&path_style=true` |
 | `OHS_ROLES` | `api,collect,etl` | Roles this process runs |
-| `OHS_BOOTSTRAP_TENANT` | none | Creates this tenant at first start and logs its API key once |
+| `OHS_BOOTSTRAP_TENANT` | none | Creates this tenant at first start and logs its API key once. It is an [instance admin](console.md#the-instance-admin) |
 | `OHS_LISTEN` | `:8080` | Listen address |
 | `OHS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON on stderr |
-| `OHS_CONSOLE` | `false` | `true` serves the read-only [admin console](console.md) on `/console`. It asks for a tenant API key and reads the API with it; off, the route is not mounted (404) |
-| `OHS_SETUP_TOKEN` | none | 16 characters or more (`openssl rand -hex 32`). Turns on the browser [first-run setup](setup.md): with `OHS_CONSOLE=true`, `/console/setup` creates the first tenant and shows its API key once, for whoever types this token, while the instance has no tenant. Unset, `/v1/setup` is not mounted |
+| `OHS_CONSOLE` | `false` | `true` serves the [admin console](console.md) on `/console`, where you run the pipeline and turn providers on; `read-only` serves it without any action. It asks for a tenant API key and calls the API with it; off, the route is not mounted (404). The actions and `read-only` are next release: 0.1.0 serves the read-only console |
+| `OHS_SETUP_TOKEN` | none | 16 characters or more (`openssl rand -hex 32`). Turns on the browser [first-run setup](setup.md): with `OHS_CONSOLE` on, `/console/setup` creates the first tenant and shows its API key once, for whoever types this token, while the instance has no tenant. Unset, `/v1/setup` is not mounted. Next release |
 | `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](self-hosting.md#metrics)) |
 | `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
 | `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
@@ -179,11 +179,11 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Turns on OpenTelemetry traces, sent over OTLP to this address. The other standard `OTEL_` variables apply; see [observability](observability.md) |
-| `OHS_RATE_LIMIT_INBOUND` | `30/120` | Notification requests (`/inbound/{provider}`) per client address: `rate/burst` in requests per second, `0` disables. See [rate limits](#rate-limits) |
-| `OHS_RATE_LIMIT_INBOUND_PROVIDER` | `300/600` | Notification requests per provider, whatever the address; `0` disables |
-| `OHS_RATE_LIMIT_OAUTH` | `2/20` | OAuth callback requests per client address, and in buckets of their own `POST /v1/setup` requests and share link manifest and file requests; `0` disables |
-| `OHS_TRUSTED_PROXIES` | none | Comma-separated CIDRs (or addresses) of your reverse proxies. Only a request from one of them has its client address read from `X-Forwarded-For` |
-| `OHS_<PROVIDER>_CLIENT_ID`, `_CLIENT_SECRET` | none | Keys of a provider; its connector is on when they are set. Every process that runs `collect` or `etl` needs them (see below) |
+| `OHS_RATE_LIMIT_INBOUND` | `30/120` | Notification requests (`/inbound/{provider}`) per client address: `rate/burst` in requests per second, `0` disables. See [rate limits](#rate-limits). Next release |
+| `OHS_RATE_LIMIT_INBOUND_PROVIDER` | `300/600` | Notification requests per provider, whatever the address; `0` disables. Next release |
+| `OHS_RATE_LIMIT_OAUTH` | `2/20` | OAuth callback requests per client address, and in buckets of their own `POST /v1/setup` requests and share link manifest and file requests; `0` disables. Next release |
+| `OHS_TRUSTED_PROXIES` | none | Comma-separated CIDRs (or addresses) of your reverse proxies. Only a request from one of them has its client address read from `X-Forwarded-For`. Next release |
+| `OHS_<PROVIDER>_CLIENT_ID`, `_CLIENT_SECRET` | none | Keys of a provider; its connector is on when they are set. Every process that runs `collect` or `etl` needs them (see below). Or save them from the [console](console.md#where-provider-keys-come-from) instead (next release); set here, they win |
 
 ### Database pool size
 
@@ -216,11 +216,17 @@ grants and unsubscribe notifications at the provider. Give the provider keys to 
 that runs either role. A process without them cannot call that provider: it logs a warning, and
 a deletion it carries out still deletes the data but leaves the grant valid at the provider.
 
+Keys saved from the [console](console.md) (next release) need none of this: they are stored in the database,
+sealed with `OHS_ENCRYPTION_KEY`, and every process reads them within 30 seconds. Each process
+still needs the same `OHS_ENCRYPTION_KEY`.
+
 Put a reverse proxy with TLS in front of port 8080; the bearer secrets travel in headers.
 [hardening.md](hardening.md) is the full production checklist, and
 [security-model.md](security-model.md) the threat model behind it.
 
 ### Rate limits
+
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
 
 The provider-facing routes take no credential: `POST` and `GET /inbound/{provider}`
 (notifications and the URL check) and `GET /oauth/{provider}/callback`. Neither does
@@ -338,12 +344,12 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
 
   A user token minted with the old key keeps working until it expires. `key revoke` with a
   whole user token (`ohs_ut_...`) revokes that token.
-- **`OHS_ENCRYPTION_KEY`.** Rotate it online: put the new key in `OHS_ENCRYPTION_KEY` and the
+- **`OHS_ENCRYPTION_KEY`.** From the next release, rotate it online: put the new key in `OHS_ENCRYPTION_KEY` and the
   old one in `OHS_PREVIOUS_ENCRYPTION_KEYS`, restart every process, run `ohs admin rekey`, then
   remove the old key once `ohs doctor` says nothing uses it. The whole procedure, and what
-  happens when a step is skipped, is in [rotating the encryption key](key-rotation.md). Replacing
-  the key without keeping the old one leaves the stored OAuth tokens and webhook secrets
-  unreadable: each user must connect the provider again. Uploads and stored data are not
+  happens when a step is skipped, is in [rotating the encryption key](key-rotation.md). On 0.1.0,
+  and whenever the old key is not kept, replacing it leaves the stored OAuth tokens, webhook secrets
+  and provider keys saved in the console unreadable: each user must connect the provider again. Uploads and stored data are not
   affected.
 - **Provider secrets.** See the Withings note under operating notes below.
 - **`POSTGRES_PASSWORD`** only applies when the database volume is first created. To change it
@@ -351,28 +357,6 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   containers.
 
 ## Operating notes
-
-- **A token** (`OHS_METRICS_TOKEN`): the API listener serves `/metrics` to a scrape that sends
-  `Authorization: Bearer <token>`, and answers 401 otherwise. In Prometheus:
-
-  ```yaml
-  scrape_configs:
-    - job_name: ohs
-      authorization:
-        credentials_file: /etc/prometheus/ohs-metrics-token
-      static_configs:
-        - targets: ["ohs:8080"]
-  ```
-
-- **A private address** (`OHS_METRICS_LISTEN`, for example `127.0.0.1:9464` or an address on
-  your monitoring network): `/metrics` moves off the API listener to that address. Whoever can
-  reach the address can scrape it, unless `OHS_METRICS_TOKEN` is also set. Never publish that
-  port.
-
-With neither, `/metrics` answers 403 and names the two settings. `OHS_METRICS=false` removes the
-route altogether.
-[observability.md](observability.md) lists the metrics, and how to turn on OpenTelemetry
-traces.
 
 - **Run `etl` somewhere.** User deletion is carried out by a worker that runs with the `etl`
   role. An `api` only deployment accepts `DELETE /v1/users/{id}` but never finishes it, and
@@ -455,3 +439,25 @@ traces.
 `/metrics` serves Prometheus counters for the whole instance (requests by route, ingest load, ETL
 queues, sync state by provider), never per-tenant data. It is still information about your
 instance, so it is closed unless you open it one of two ways:
+
+- **A token** (`OHS_METRICS_TOKEN`): the API listener serves `/metrics` to a scrape that sends
+  `Authorization: Bearer <token>`, and answers 401 otherwise. In Prometheus:
+
+  ```yaml
+  scrape_configs:
+    - job_name: ohs
+      authorization:
+        credentials_file: /etc/prometheus/ohs-metrics-token
+      static_configs:
+        - targets: ["ohs:8080"]
+  ```
+
+- **A private address** (`OHS_METRICS_LISTEN`, for example `127.0.0.1:9464` or an address on
+  your monitoring network): `/metrics` moves off the API listener to that address. Whoever can
+  reach the address can scrape it, unless `OHS_METRICS_TOKEN` is also set. Never publish that
+  port.
+
+With neither, `/metrics` answers 403 and names the two settings. `OHS_METRICS=false` removes the
+route altogether.
+[observability.md](observability.md) lists the metrics, and how to turn on OpenTelemetry
+traces.

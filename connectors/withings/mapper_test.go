@@ -365,7 +365,7 @@ const activityLine = `{"date":"2024-03-02","timezone":"Europe/Paris","steps":850
 func TestMapActivity_StepsDistanceCalories(t *testing.T) {
 	res := mustMap(t, DataTypeActivity, activityLine)
 	m := byType(res.QuantitySamples)
-	require.Len(t, m, 3)
+	require.Len(t, m, 5)
 	assert.InDelta(t, 8500.0, m["step_count"].Value, 1e-9)
 	assert.Equal(t, "count", m["step_count"].Unit)
 	assert.Equal(t, "withings", m["step_count"].Provider)
@@ -378,6 +378,31 @@ func TestMapActivity_StepsDistanceCalories(t *testing.T) {
 		assert.True(t, s.Replaceable, "a day's total is re-sent while the day is open")
 		assert.NotEmpty(t, s.ContentHash)
 	}
+}
+
+// Withings' moderate and intense durations (seconds) are the day's moderate
+// and vigorous minutes, kept apart per device like the other day totals.
+func TestMapActivity_IntensityMinutes(t *testing.T) {
+	res := mustMap(t, DataTypeActivity, activityLine)
+	require.Empty(t, model.CanonicalizeUnits(&res), "seconds convert to the storage unit")
+	m := byType(res.QuantitySamples)
+	moderate, vigorous := m[model.QTModerateActivityTime], m[model.QTVigorousActivityTime]
+	assert.InDelta(t, 20.0, moderate.Value, 1e-9, "1200 s of moderate activity")
+	assert.InDelta(t, 10.0, vigorous.Value, 1e-9, "600 s of intense activity")
+	for _, s := range []model.QuantitySample{moderate, vigorous} {
+		assert.Equal(t, "min", s.Unit)
+		assert.True(t, m["step_count"].StartDate.Equal(s.StartDate))
+		assert.True(t, s.Replaceable)
+		assert.Equal(t, 1200.0, s.Metadata["moderate_duration"], "the metadata copy stays")
+	}
+	assert.Equal(t, "2024-03-02_moderate_activity_time", moderate.ExternalID)
+
+	// Zero is a value; a missing figure gives no sample.
+	res = mustMap(t, DataTypeActivity, `{"date":"2024-03-02","steps":1000,"moderate":0}`)
+	require.Empty(t, model.CanonicalizeUnits(&res))
+	m = byType(res.QuantitySamples)
+	assert.InDelta(t, 0.0, m[model.QTModerateActivityTime].Value, 1e-9)
+	assert.NotContains(t, m, model.QTVigorousActivityTime)
 }
 
 // The day is the user's local day: midnight in the zone Withings gave, or UTC

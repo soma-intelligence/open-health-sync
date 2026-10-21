@@ -1,8 +1,13 @@
 # Rotating the encryption key
 
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
+
 `OHS_ENCRYPTION_KEY` seals the secrets Open Health Sync keeps in the database: the OAuth access
-and refresh tokens of every provider connection (`ohs_sync.connections`) and the signing secret
-of every webhook endpoint (`ohs_core.webhook_endpoints`). This page explains how to replace that
+and refresh tokens of every provider connection (`ohs_sync.connections`), the signing secret
+of every webhook endpoint (`ohs_core.webhook_endpoints`), the provider keys saved in the
+[console](console.md) (`ohs_core.provider_settings`) and the provider keys tenants brought for
+themselves through the [admin API](admin-api.md#a-tenants-own-provider-keys)
+(`ohs_core.tenant_provider_keys`). This page explains how to replace that
 key on a running instance without losing them.
 
 ## Why rotate
@@ -110,7 +115,7 @@ cannot open values with a key id header.
 | A process not restarted (step 4) | It keeps sealing with the old key, and cannot open what the others seal with the new one. | Restart it, then run `ohs admin rekey` again. |
 | `ohs admin rekey` not run (step 5) | Nothing breaks, but the old key stays needed: removing it later loses every value it still seals. | Run it before step 7. |
 | Old key removed before `ohs doctor` agrees (step 7) | Values still under the old key no longer open; `ohs admin rekey` reports them as `failed` and leaves them as they are. | Put the old key back in `OHS_PREVIOUS_ENCRYPTION_KEYS`, restart, run `ohs admin rekey`. |
-| The old key is lost | The values it sealed cannot be recovered. | Each affected user connects the provider again (the connection is replaced), and each affected webhook endpoint gets a new secret (`POST /v1/webhooks/{webhook_id}/rotate-secret`). Then `ohs admin rekey` and `ohs doctor` report no failure. |
+| The old key is lost | The values it sealed cannot be recovered. | Each affected user connects the provider again (the connection is replaced), each affected webhook endpoint gets a new secret (`POST /v1/webhooks/{webhook_id}/rotate-secret`), and the keys of each provider the console shows as refused are saved again from the console. Then `ohs admin rekey` and `ohs doctor` report no failure. |
 
 `ohs admin rekey` never deletes a row. A value no key opens is reported, and the command exits
 with status 1 so a script notices.
@@ -125,8 +130,8 @@ copy taken before still opens with the old key. So:
    as soon as `ohs doctor` agrees.
 2. Treat the provider tokens as exposed: revoke them at the providers where you can (the
    developer console of each provider app, or by asking users to disconnect and connect again),
-   and rotate the provider client secrets (`OHS_<PROVIDER>_CLIENT_SECRET`) if the same leak may
-   have exposed `.env`.
+   and rotate the provider client secrets (`OHS_<PROVIDER>_CLIENT_SECRET`, or the ones saved in
+   the console) if the same leak may have exposed `.env`.
 3. Rotate the webhook signing secrets (`POST /v1/webhooks/{webhook_id}/rotate-secret`) and tell the
    receivers.
 4. Find out how the key leaked, and replace whatever else lived next to it: tenant API keys

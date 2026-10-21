@@ -62,14 +62,20 @@ suspend fun uploadHeartRate(serverUrl: String, token: String, bpm: Int): UploadS
     )
     val parts = builder.build()
 
-    return try {
-        val client = OhsClient(serverUrl, token)
-        val results = client.uploadParts(parts)
-        UploadState.Done(
-            parts.zip(results) { part, result ->
-                PartOutcome(part.partNumber, part.type, part.day, result.duplicate)
-            },
-        )
+    return uploadState {
+        OhsClient(serverUrl, token).uploadParts(parts).let { results ->
+            parts.zip(results) { part, result -> PartOutcome(part.partNumber, part.type, part.day, result.duplicate) }
+        }
+    }
+}
+
+/**
+ * Runs an upload and returns what the screen shows: [UploadState.Done], or [UploadState.Failed]
+ * for an API, network or settings error.
+ */
+suspend fun uploadState(upload: suspend () -> List<PartOutcome>): UploadState =
+    try {
+        UploadState.Done(upload())
     } catch (e: OhsApiException) {
         UploadState.Failed(
             message = "The server refused the upload.",
@@ -82,4 +88,3 @@ suspend fun uploadHeartRate(serverUrl: String, token: String, bpm: Int): UploadS
     } catch (e: IllegalArgumentException) {
         UploadState.Failed(e.message ?: "Invalid settings.")
     }
-}

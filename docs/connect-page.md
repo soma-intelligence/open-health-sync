@@ -39,8 +39,9 @@ providers is fixed when the session is created; `GET /v1/providers` lists what i
 ## Send the user
 
 Open `url` in the user's browser: a redirect from your app, a link in an email, or a web view
-in a mobile app. The page shows your logo and app name and one row per provider, with the
-user's status for it:
+in a mobile app. The page shows your logo and app name and one row per provider, with what that
+source shares (for example "Sleep, readiness, activity and heart rate" for Oura) and the user's
+status for it:
 
 - **Connected**: an active connection. The button reconnects, which is harmless.
 - **Needs reconnecting**: the provider stopped accepting the grant (`needs_reauth`).
@@ -48,6 +49,13 @@ user's status for it:
 
 To show a single provider, append its slug to the path:
 `https://ohs.example.org/connect/withings?session=...`.
+
+The whole row is the button. Beside the list, two figures give how many of the sources are
+connected and how many minutes the link has left. The panels sit on a background the page draws
+itself (gradients and SVG noise, no image or font is downloaded), so it has no script, loads
+nothing but your logo, and fits a phone screen. The space around it follows the light or dark
+setting of the device. The list says that the access is read only, and under it the page tells
+the user that they sign in on each source's own site.
 
 When the user presses a button, the page sends them to the provider's consent screen. After
 consent they land on `redirect_uri?status=connected&provider=withings` (`status=error` on

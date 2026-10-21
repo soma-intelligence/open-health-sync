@@ -98,6 +98,7 @@ type Options struct {
 type Connector struct {
 	mu   sync.RWMutex
 	keys connector.Config
+	opts Options // what New was given, for NewInstance
 
 	authURL, tokenURL, revokeURL, apiBase string
 	httpc                                 *http.Client
@@ -120,6 +121,7 @@ var (
 // New returns a Fitbit connector.
 func New(o Options) *Connector {
 	c := &Connector{
+		opts:    o,
 		authURL: o.AuthURL, tokenURL: o.TokenURL, revokeURL: o.RevokeURL, apiBase: o.APIBase,
 		httpc: o.HTTPClient, retryBase: o.RetryBase, pageDelay: o.PageDelay,
 		now: o.Now, sleep: o.Sleep,
@@ -199,6 +201,9 @@ func (c *Connector) Enabled(cfg connector.Config) bool {
 	return cfg[KeyClientID] != "" && cfg[KeyClientSecret] != ""
 }
 
+// OptionalKeys lists the keys it also reads and runs without: WEBHOOK_SECRET and WEBHOOK_SIGNATURE (notifications).
+func (c *Connector) OptionalKeys() []string { return []string{KeyWebhookSecret, KeyWebhookSignature} }
+
 // Configure hands the connector its keys (the OHS_FITBIT_* values). It may
 // be called again; the last call wins. An unknown WEBHOOK_SIGNATURE mode is
 // an error.
@@ -216,6 +221,16 @@ func (c *Connector) Configure(cfg connector.Config) error {
 		KeyWebhookSecret: cfg[KeyWebhookSecret], KeyWebhookSignature: cfg[KeyWebhookSignature],
 	}
 	return nil
+}
+
+// NewInstance returns a connector like c without keys, sharing its HTTP
+// client, for a tenant's own keys (connector.Instancer).
+func (c *Connector) NewInstance() connector.Connector {
+	o := c.opts
+	o.HTTPClient = c.httpc
+	n := New(o)
+	n.keys = nil
+	return n
 }
 
 // credentials returns the configured client id and secret.

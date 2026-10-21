@@ -1,11 +1,11 @@
 # Export everything
 
 A copy of all your health data, every app in one set of files: CSV to open in a spreadsheet,
-Parquet for pandas, Polars, DuckDB or Spark. Same columns whatever device the data came from.
+Parquet for DuckDB, Polars, pandas or Spark. Same columns whatever device the data came from.
 
 ```sh
-python3 recipes/export-all.py                                  # CSV, into health-export-<date>/
-python3 recipes/export-all.py --format parquet --since 2026-01-01
+go run ./recipes/export-all                                # CSV, into health-export-<date>/
+go run ./recipes/export-all -format parquet -since 2026-01-01
 ```
 
 ```text
@@ -17,10 +17,8 @@ health-export-2026-10-12/category-samples.csv            118 bytes
 health-export-2026-10-12/nutrition.csv                   161 bytes
 ```
 
-```python
-import pandas as pd
-daily = pd.read_parquet("health-export-2026-10-12/daily.parquet")
-daily.pivot_table(index="date", columns="provider", values="step_count")
+```sh
+duckdb -c "PIVOT 'health-export-2026-10-12/daily.parquet' ON provider USING first(step_count) GROUP BY date ORDER BY date"
 ```
 
 ## How it works

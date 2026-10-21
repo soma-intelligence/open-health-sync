@@ -1,34 +1,49 @@
 ---
 title: Hosted platform
-description: A managed Open Health Sync for developers who would rather not run one. Planned.
+description: A managed Open Health Sync for developers who would rather not run one. Free beta, open sign-up.
 icon: Cloud
-status: soon
+status: beta
 ---
 
 import { BellRing, Server } from 'lucide-react';
 
-<Status is="soon" />
+<Status is="beta" />
 
-We are preparing a hosted Open Health Sync: sign up, get an API key, and build on clean health
-data without running Postgres, a raw store or provider developer apps yourself.
+The hosted Open Health Sync is in free beta with open sign-up: sign up, get an API key, and build on clean
+health data without running Postgres, a raw store or workers yourself. Anyone can
+[sign up free](https://app.openhealthsync.com/portal/signup?utm_source=docs&utm_medium=docs&utm_campaign=platform)
+and confirm their email. The beta runs on shared capacity, for test and demo data only.
 
-Nothing is open yet, and nothing on this page is a commitment. The plan:
+## What the beta gives you
 
-- **The same API.** The hosted service is meant to run the open source server, so everything in
-  these docs, from the [quickstart](/documentation/quickstart) to the [API reference](/documentation/api-reference),
-  applies to it too.
-- **Nothing to migrate.** Code written against a self-hosted instance should only need a new base
-  URL and a new key.
+- **A key in a minute.** Create a project and get its API key, shown once. During the beta:
+  three projects per account, five keys per project.
+- **Data on the first call.** One click adds a synthetic user with 30 days from six sources, so
+  your first request already returns sleep, heart rate and steps.
+- **A checklist that ticks itself.** First key, first call, first user, first data, first
+  webhook, each with the command to copy.
+- **The same API.** The hosted service runs the open source server, so everything in these docs,
+  from the [quickstart](/documentation/quickstart) to the [API reference](/documentation/api-reference),
+  applies to it: REST, FHIR R4, Open mHealth, exports, webhooks and the read-only MCP server.
+- **A quickstart with your values.** curl, TypeScript and Python, already filled in with your
+  instance's address.
+
+## Before you join
+
+- **Test data only, for now.** Real user data opens once data processing terms and the
+  providers' production approvals are in place. Until then, use demo and synthetic users.
+- **Free during the beta.** Pricing for later is not set, and nothing on this page is a
+  commitment.
+- **Nothing to migrate.** Code written against the hosted service moves to a self-hosted
+  instance with a new base URL and a new key, and back.
 - **Self-hosting stays first class.** The server stays free and open source under the AGPL. The
   hosted service is an option, not a replacement.
 
-## Until then
-
 <Cards>
+  <Card icon={<BellRing />} title="Get started for free" href="https://app.openhealthsync.com/portal/signup?utm_source=docs&utm_medium=docs&utm_campaign=platform-card">
+    Sign up with an email, confirm it, and create your first project.
+  </Card>
   <Card icon={<Server />} title="Self-host it today" href="/documentation/self-hosting">
     The same server on your own machine, a Raspberry Pi 5 or any cloud, in about five minutes.
-  </Card>
-  <Card icon={<BellRing />} title="Hear when it opens" href="https://github.com/soma-intelligence/open-health-sync/releases">
-    Watch the repository's releases on GitHub.
   </Card>
 </Cards>

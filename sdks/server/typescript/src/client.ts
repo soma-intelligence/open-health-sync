@@ -19,6 +19,7 @@ import type {
   CreateTimeTagRequest,
   CreateUserRequest,
   CreateWebhookRequest,
+  CreatedAPIKey,
   CreatedShare,
   DailySummary,
   DailySummaryPage,
@@ -29,6 +30,7 @@ import type {
   ECGRecording,
   ECGRecordingDetail,
   ECGRecordingPage,
+  ETLJob,
   FHIRBundle,
   FHIRCapabilityStatement,
   FHIRDevice,
@@ -44,14 +46,18 @@ import type {
   HealthzResponse,
   IngestActivityFilesResponse,
   IngestAppleHealthResponse,
+  IngestBluetoothResponse,
   IngestHealthConnectResponse,
   IngestXiaomiResponse,
   ListAuditEventsResponse,
   ListConnectionsResponse,
   ListConsentHistoryResponse,
   ListConsentsResponse,
+  ListETLJobsResponse,
+  ListKeysResponse,
   ListProvidersResponse,
   ListSyncRunsResponse,
+  ListTenantSyncRunsResponse,
   ListUsersResponse,
   ListWebhookDeliveriesResponse,
   ListWebhooksResponse,
@@ -62,11 +68,14 @@ import type {
   NutritionLogPage,
   OMHDataPoint,
   OMHDataPointPage,
+  Pipeline,
   Problem,
   PutSourcePrioritiesRequest,
   RRInterval,
   RRIntervalPage,
   ReadyzResponse,
+  RetryParkedETLJobsRequest,
+  RetryParkedETLJobsResponse,
   RotateWebhookSecretResponse,
   RoutePoint,
   RoutePointPage,
@@ -90,6 +99,8 @@ import type {
   StartConnectionResponse,
   SyncConnectionRequest,
   SyncRun,
+  Tenant,
+  TenantSyncRun,
   TestWebhookRequest,
   TimeTag,
   TimeTagPage,
@@ -512,7 +523,7 @@ export interface SearchFHIRObservationsParams {
    * (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
    * like `type`), or a record type
    * (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
-   * `blood_pressure`, `sleep_session`, `workout`, `daily_summary` or `ecg_recording`). One value; other
+   * `blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other
    * systems are a 400. A code no Observation carries is an empty Bundle.
    */
   code?: string;
@@ -671,6 +682,38 @@ export interface IngestActivityFilesParams {
   ohsPart: number;
 }
 
+/** Query and header parameters of {@link OpenHealthSync.ingestBluetooth}. */
+export interface IngestBluetoothParams {
+  /** Sent as the X-OHS-Type header. Always `gatt`. */
+  ohsType: "gatt";
+  /** Sent as the X-OHS-Day header. UTC day of the part's first line (the server does not check it). */
+  ohsDay: string;
+  /** Sent as the X-OHS-Batch header. */
+  ohsBatch: string;
+  /** Sent as the X-OHS-Part header. */
+  ohsPart: number;
+}
+
+/** Query and header parameters of {@link OpenHealthSync.listTenantSyncRuns}. */
+export interface ListTenantSyncRunsParams {
+  status?: "queued" | "running" | "retrying" | "rate_limited" | "succeeded" | "failed" | "cancelled";
+  /** Only this provider's runs. */
+  provider?: string;
+  limit?: number;
+  /** The next_cursor of the previous page. */
+  cursor?: string;
+}
+
+/** Query and header parameters of {@link OpenHealthSync.listETLJobs}. */
+export interface ListETLJobsParams {
+  status?: "parked" | "pending" | "running";
+  /** Only this provider's jobs. */
+  provider?: string;
+  limit?: number;
+  /** The next_cursor of the previous page. */
+  cursor?: string;
+}
+
 /** Query and header parameters of {@link OpenHealthSync.listAuditEvents}. */
 export interface ListAuditEventsParams {
   /** Only events about this end user. */
@@ -740,6 +783,9 @@ export class OpenHealthSync {
    * Connectors enabled on this instance.
    *
    * `GET /v1/providers`
+   *
+   * The connectors enabled on this instance, less those an instance admin turned off for the
+   * caller's tenant.
    */
   listProviders(options?: RequestOptions): Promise<ListProvidersResponse> {
     return this.#request<ListProvidersResponse>({
@@ -1147,7 +1193,11 @@ export class OpenHealthSync {
    * lands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in
    * result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
    * `Idempotency-Key` is not honoured here. While the user's data from this provider is
-   * being deleted the answer is 409: connect again once the deletion job is done.
+   * being deleted the answer is 409: connect again once the deletion job is done. 403 when an
+   * instance admin turned the provider off for the tenant. For a provider without a consent
+   * page for other apps (Eight Sleep) the URL is this server's own sign-in page,
+   * `/oauth/{provider}/signin`, which asks for the account email and password; it ends the
+   * same way.
    */
   startConnection(
     userId: string,
@@ -1365,7 +1415,8 @@ export class OpenHealthSync {
    * (minus an hour of overlap), a day back for a connection that never synced, or at `from`
    * (at most 30 days back). While a manual run of the connection is still queued or running, the
    * answer is 200 with that run and nothing new is queued. 409 when the connection does not sync
-   * (`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.
+   * (`needs_reauth`, `disconnected`: connect the user again), its provider is not enabled here,
+   * or an instance admin turned the provider off for the tenant.
    */
   syncConnection(
     userId: string,
@@ -1683,6 +1734,10 @@ export class OpenHealthSync {
    * Nutrition logs.
    *
    * `GET /v1/users/{id}/nutrition`
+   *
+   * Food and drink entries from Apple Health and Health Connect. Each nutrient has one
+   * unit whatever the source: kcal for energy, g for the macronutrients, mg or mcg for
+   * the others, mL for water (the table is in docs/api.md).
    */
   listNutrition(
     userId: string,
@@ -2274,9 +2329,10 @@ export class OpenHealthSync {
    * The user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,
    * `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
    * panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
-   * workouts (`workout-`), daily summaries (`daily-`) and ECG recordings with their
-   * voltage samples (`ecg-`), merged in time order (a sample's start, a bedtime, a
-   * workout's start, a day at midnight UTC, a recording's start), then by kind and id.
+   * workouts (`workout-`), daily summaries (`daily-`), ECG recordings with their
+   * voltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a
+   * sample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or
+   * a meal's start), then by kind and id.
    * Paged like every list: the Bundle's `next` link carries the cursor, and there is no
    * `next` link on the last page; `total` is left out. A blood pressure pair is never
    * split across pages, and its two samples are not listed on their own. A page holds at
@@ -2754,6 +2810,247 @@ export class OpenHealthSync {
       },
       body,
       contentType: "application/gzip",
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Upload one part of Bluetooth device values.
+   *
+   * `POST /v1/ingest/bluetooth`
+   *
+   * One gzip NDJSON part (at most 64 MiB, never truncated), one characteristic value a
+   * standard Bluetooth health device sent per line: `{"at": "<RFC 3339 arrival time with
+   * offset>", "char": "2a37", "value": "<hex>", "session": "<id of the connection>",
+   * "device": {"name", "manufacturer", "model", "firmware"}, "device_user": <index>}`
+   * (`device` and `device_user` optional; the line format is in docs/connectors/bluetooth.md;
+   * `ohs-bridge` and the Swift and Kotlin SDKs write it). The server decodes heart rate with
+   * RR intervals, blood pressure, weight, body composition, glucose, temperature and pulse
+   * oximetry; other characteristics are stored and not mapped. The part is refused with
+   * 400, and nothing is stored, when a line breaks the format; a value that does not decode
+   * is a failed record of its line only. Same headers, limits and answers as the Apple
+   * Health upload.
+   * Re-sending the same part is safe: the answer is 200 with `duplicate: true`. Other
+   * bytes under a (day, batch, part) already stored are a 409, and so is a part sent while
+   * this provider's data is being deleted for the user (nothing is kept; send it again
+   * once the deletion job is done). Each instance processes a
+   * bounded number of uploads at once; above it the answer is 503 with `Retry-After`.
+   *
+   * Needs a user token (ohs_ut_) as the client's apiKey.
+   */
+  ingestBluetooth(
+    body: Uint8Array | ArrayBuffer | Blob,
+    params: IngestBluetoothParams,
+    options?: RequestOptions,
+  ): Promise<IngestBluetoothResponse> {
+    return this.#request<IngestBluetoothResponse>({
+      method: "POST",
+      path: "/v1/ingest/bluetooth",
+      headers: {
+        "X-OHS-Type": params.ohsType,
+        "X-OHS-Day": params.ohsDay,
+        "X-OHS-Batch": params.ohsBatch,
+        "X-OHS-Part": params.ohsPart,
+      },
+      body,
+      contentType: "application/gzip",
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * The tenant of the calling key.
+   *
+   * `GET /v1/tenant`
+   *
+   * The tenant the key belongs to, whether it is the instance admin (the one tenant whose keys
+   * manage the providers, see /v1/admin/providers) and which key is calling.
+   */
+  getTenant(options?: RequestOptions): Promise<Tenant> {
+    return this.#request<Tenant>({
+      method: "GET",
+      path: "/v1/tenant",
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * The tenant's API keys.
+   *
+   * `GET /v1/keys`
+   *
+   * Every key of the tenant, revoked ones included, newest first. Only the prefix of a key is
+   * stored in clear; the secret itself was shown once, when the key was created.
+   */
+  listKeys(options?: RequestOptions): Promise<ListKeysResponse> {
+    return this.#request<ListKeysResponse>({
+      method: "GET",
+      path: "/v1/keys",
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Create an API key for the tenant.
+   *
+   * `POST /v1/keys`
+   *
+   * A new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in
+   * this answer only. To rotate: deploy the new key, then revoke the old one. Recorded in the
+   * audit log as `key.create`.
+   */
+  createKey(body?: Record<string, unknown>, options?: RequestOptions): Promise<CreatedAPIKey> {
+    return this.#request<CreatedAPIKey>({
+      method: "POST",
+      path: "/v1/keys",
+      json: body,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Revoke an API key.
+   *
+   * `DELETE /v1/keys/{key_id}`
+   *
+   * Every call with the key is refused from now on. A key cannot revoke itself (409): revoke it
+   * with another key of the tenant. Revoking a revoked key changes nothing. Recorded in the
+   * audit log as `key.revoke`.
+   */
+  revokeKey(keyId: string, options?: RequestOptions): Promise<void> {
+    return this.#request<void>({
+      method: "DELETE",
+      path: `/v1/keys/${encode(keyId)}`,
+      expect: "none",
+      options,
+    });
+  }
+
+  /**
+   * The tenant's pipeline, stage by stage.
+   *
+   * `GET /v1/pipeline`
+   *
+   * Counts of the tenant's work at each stage, in the order data flows: the sources (providers
+   * that are on, and any provider still holding the tenant's connections), the sync runs, the
+   * processing jobs, the raw archive and the webhook deliveries. Counts only, never a health
+   * value. The console's overview is this answer.
+   */
+  getPipeline(options?: RequestOptions): Promise<Pipeline> {
+    return this.#request<Pipeline>({
+      method: "GET",
+      path: "/v1/pipeline",
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Sync runs of every user of the tenant.
+   *
+   * `GET /v1/pipeline/sync-runs`
+   *
+   * The sync runs of all the tenant's users, newest first, each with its user. Filter by
+   * `status` (for example `failed`, the runs that gave up) and by provider.
+   */
+  listTenantSyncRuns(
+    params: ListTenantSyncRunsParams = {},
+    options?: RequestOptions,
+  ): Promise<ListTenantSyncRunsResponse> {
+    return this.#request<ListTenantSyncRunsResponse>({
+      method: "GET",
+      path: "/v1/pipeline/sync-runs",
+      query: {
+        status: params.status,
+        provider: params.provider,
+        limit: params.limit,
+        cursor: params.cursor,
+      },
+      expect: "json",
+      options,
+    });
+  }
+
+  /** Every item of {@link OpenHealthSync.listTenantSyncRuns}, page after page, following `next_cursor`. */
+  iterTenantSyncRuns(
+    params: Omit<ListTenantSyncRunsParams, "cursor"> = {},
+    options?: RequestOptions,
+  ): AsyncGenerator<TenantSyncRun> {
+    return paginate((cursor) => this.listTenantSyncRuns({ ...params, cursor }, options));
+  }
+
+  /**
+   * Processing jobs of the tenant.
+   *
+   * `GET /v1/pipeline/etl-jobs`
+   *
+   * The jobs that turn stored raw payloads into records, newest first. `parked` (the default)
+   * lists the jobs that failed 5 times and wait for a retry; `pending` and `running` list the
+   * work in flight. Done jobs are summed up by each user's coverage report.
+   */
+  listETLJobs(
+    params: ListETLJobsParams = {},
+    options?: RequestOptions,
+  ): Promise<ListETLJobsResponse> {
+    return this.#request<ListETLJobsResponse>({
+      method: "GET",
+      path: "/v1/pipeline/etl-jobs",
+      query: {
+        status: params.status,
+        provider: params.provider,
+        limit: params.limit,
+        cursor: params.cursor,
+      },
+      expect: "json",
+      options,
+    });
+  }
+
+  /** Every item of {@link OpenHealthSync.listETLJobs}, page after page, following `next_cursor`. */
+  iterETLJobs(
+    params: Omit<ListETLJobsParams, "cursor"> = {},
+    options?: RequestOptions,
+  ): AsyncGenerator<ETLJob> {
+    return paginate((cursor) => this.listETLJobs({ ...params, cursor }, options));
+  }
+
+  /**
+   * Retry every parked processing job.
+   *
+   * `POST /v1/pipeline/etl-jobs/retry`
+   *
+   * Queues every parked job of the tenant again with fresh attempts, or only one provider's. A
+   * job that fails for the same reason parks again after 5 attempts.
+   */
+  retryParkedETLJobs(
+    body?: RetryParkedETLJobsRequest,
+    options?: RequestOptions,
+  ): Promise<RetryParkedETLJobsResponse> {
+    return this.#request<RetryParkedETLJobsResponse>({
+      method: "POST",
+      path: "/v1/pipeline/etl-jobs/retry",
+      json: body,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Retry one parked processing job.
+   *
+   * `POST /v1/pipeline/etl-jobs/{job_id}/retry`
+   *
+   * Queues the job again with fresh attempts. Only a parked job can be retried (409 otherwise).
+   */
+  retryETLJob(jobId: number, options?: RequestOptions): Promise<ETLJob> {
+    return this.#request<ETLJob>({
+      method: "POST",
+      path: `/v1/pipeline/etl-jobs/${encode(jobId)}/retry`,
       expect: "json",
       options,
     });

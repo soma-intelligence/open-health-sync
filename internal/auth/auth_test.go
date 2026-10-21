@@ -215,3 +215,28 @@ func TestForbiddenNamesTheCredential(t *testing.T) {
 		}
 	}
 }
+
+func TestTenantAdmin(t *testing.T) {
+	tenant := uuid.New()
+	user := uuid.New()
+	admin, _, _ := NewSecret("ohs_sk_")
+	plain, _, _ := NewSecret("ohs_sk_")
+	tok, _, _ := NewSecret("ohs_ut_")
+	lookup := lookupMap(map[string]Principal{
+		Hash(admin): {TenantID: tenant, Admin: true},
+		Hash(plain): principalFor(tenant, nil),
+		// A user token never acts as an admin, whatever its tenant.
+		Hash(tok): {TenantID: tenant, UserID: &user, Scopes: []string{"read"}, Admin: true},
+	})
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	h := Middleware(lookup, TenantAdmin)(next)
+
+	require.Equal(t, http.StatusNoContent, do(t, h, "Bearer "+admin).Code)
+	rec := do(t, h, "Bearer "+plain)
+	requireProblem(t, rec, 403)
+	require.Contains(t, rec.Body.String(), "instance admin tenant")
+	requireProblem(t, do(t, h, "Bearer "+tok), 403)
+	requireProblem(t, do(t, h, ""), 401)
+	// An admin key still passes every tenant key route.
+	require.Equal(t, http.StatusNoContent, do(t, Middleware(lookup, TenantKey)(next), "Bearer "+admin).Code)
+}

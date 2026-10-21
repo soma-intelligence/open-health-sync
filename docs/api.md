@@ -128,8 +128,12 @@ pull still running when the job is due delays it until the pull ends. The `data.
 
 ## Connecting a provider
 
-`GET /v1/providers` lists the connectors enabled on this instance and how they work:
-`oauth` (the server pulls), `push` (the provider notifies), `device` (an SDK uploads).
+`GET /v1/providers` lists the connectors enabled on this instance, with their display `name`
+and how they work: `oauth` (the server pulls), `push` (the provider notifies), `device` (an SDK
+uploads). `data_types` says what each one delivers: the record kinds it writes (`sample`,
+`sleep`, `workout`...) and then the quantity names it can produce (`heart_rate`...), as listed in
+[connectors/README.md](connectors/README.md#what-each-connector-delivers). An instance admin turns providers on and saves their keys from the
+[console](console.md), or with the `OHS_<PROVIDER>_*` environment variables.
 
 For an OAuth provider, your server asks for a consent URL and sends the user there:
 
@@ -174,7 +178,10 @@ Android Health Connect records the same way; its line format is in
 rows of a Mi Fitness data copy, as `ohs import mi-fitness` writes them
 ([connectors/xiaomi.md](connectors/xiaomi.md)). `POST /v1/ingest/activity-files` takes one FIT, GPX
 or TCX activity file per part, base64 on one line, as `ohs import files` sends them
-([connectors/activity-files.md](connectors/activity-files.md)). The routes share the limit of
+([connectors/activity-files.md](connectors/activity-files.md)). `POST /v1/ingest/bluetooth` takes
+the values standard Bluetooth health devices send, one per line in hex with the time they arrived,
+as `ohs-bridge` and the Swift and Kotlin SDKs send them; the server decodes them
+([connectors/bluetooth.md](connectors/bluetooth.md)). The routes share the limit of
 uploads in flight.
 
 ## Reading data
@@ -184,7 +191,7 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 | Resource | Filters | Ordered by |
 |---|---|---|
 | `samples` | `type` (required), `start`, `end`, `view` | `start_date` |
-| `samples/stats` | `type`, `start`, `end` (required), `interval`, `tz`, `provider`, `view` | interval, not paged |
+| `samples/stats` (next release) | `type`, `start`, `end` (required), `interval`, `tz`, `provider`, `view` | interval, not paged |
 | `category-samples` | `type` (optional), `start`, `end`, `view` | `start_date` |
 | `sleep` | `start`, `end`, `view` | `bedtime_start` |
 | `sleep/{session_id}/phases` | `start`, `end` | `start_date` |
@@ -339,6 +346,8 @@ rules (local days, gaps inside a period, the read limit) are in
 
 ### ECG recordings
 
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
+
 `GET /v1/users/{id}/ecg` lists the user's ECG recordings (Apple Watch through Apple Health,
 Withings) by start time, metadata only. `GET /v1/users/{id}/ecg/{ecg_id}` returns one recording
 with its voltage samples. Both take a tenant key, like every read.
@@ -395,6 +404,28 @@ their samples. The same recordings are FHIR Observations with the waveform as `S
 ([fhir.md](fhir.md#ecg-recordings)), the MCP tool `get_ecg_recordings` lists them and
 summarizes one without its samples, and `exports/ecg` and the user archive hold them
 ([exports.md](exports.md)).
+
+### Nutrition logs
+
+`GET /v1/users/{id}/nutrition` lists food and drink entries, from Apple Health (dietary samples
+and food entries) and Health Connect (`Nutrition` and `Hydration` records). Seven nutrients have
+their own field; every other one is in `nutrients`, by name. Each nutrient has one unit, whatever
+the source: the mappers convert to it and refuse a value whose unit does not convert.
+
+| Nutrients | Unit |
+|---|---|
+| `energy_kcal` (energy consumed), `nutrients.energy_from_fat` | kcal |
+| `protein_g`, `carbs_g`, `fat_g`, `fiber_g`, `sugar_g`; `nutrients.fat_saturated`, `fat_monounsaturated`, `fat_polyunsaturated`, `fat_unsaturated`, `fat_trans` | g |
+| `sodium_mg`; `nutrients.cholesterol`, `caffeine`, `calcium`, `chloride`, `copper`, `iron`, `magnesium`, `manganese`, `phosphorus`, `potassium`, `zinc`, `niacin`, `pantothenic_acid`, `riboflavin`, `thiamin`, `vitamin_b6`, `vitamin_c`, `vitamin_e` | mg |
+| `nutrients.biotin`, `chromium`, `folate`, `folic_acid`, `iodine`, `molybdenum`, `selenium`, `vitamin_a`, `vitamin_b12`, `vitamin_d`, `vitamin_k` | mcg |
+| `nutrients.water` | mL |
+
+`meal_type` is `breakfast`, `lunch`, `dinner`, `snack` or null. Rows written before the release after 0.1.0 may
+hold `nutrients` in the unit the upload gave (an Apple Health food entry also kept its core
+masses unconverted); erasing the provider's data and importing again rewrites them. A Health
+Connect entry is identified by its record id: a re-sent record replaces its figures, a record
+whose start moved replaces its older copy, and a `Deletion` line removes it. The same logs are
+FHIR Observations ([fhir.md](fhir.md#nutrition-logs)).
 
 ### Knowing when an upload is processed
 
@@ -469,7 +500,7 @@ curl -s -X POST $OHS/v1/users/$USER_ID/shares -H "Authorization: Bearer $KEY" \
 
 `GET /v1/users/{id}/fhir/Observation` serves the same quantity samples, blood pressure readings
 (a systolic and a diastolic sample paired into one panel), sleep sessions, workouts, daily
-summaries and ECG recordings as FHIR R4 Observations, in one `searchset` Bundle (`application/fhir+json`) in time
+summaries, ECG recordings and nutrition logs as FHIR R4 Observations, in one `searchset` Bundle (`application/fhir+json`) in time
 order, paged by its `next` link, and `GET /v1/users/{id}/fhir/Observation/{observation_id}` reads
 one back. Filters: `type`, `code` (`http://loinc.org|8867-4`), `category` (`vital-signs`,
 `laboratory`, `activity`), `start`, `end`. The user is `GET /v1/users/{id}/fhir/Patient/{id}`,
@@ -544,6 +575,52 @@ source (the others are revoked), `DELETE` revokes them all, `GET /v1/users/{id}/
 grant are not stored, and a revoked category's stored records are deleted. Details:
 [consent.md](consent.md).
 
+## Running the instance
+
+These routes back the [admin console](console.md); a script can call them too. All take a tenant
+API key and are recorded in the audit log.
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/tenant` | The tenant of the key: `id`, `name`, `admin`, and the `id` and `prefix` of the key in use |
+| `GET /v1/keys`, `POST /v1/keys` | The tenant's API keys (revoked ones included, `current` marks the one in use); create one, its full `key` is in the 201 answer only (`Cache-Control: no-store`) |
+| `DELETE /v1/keys/{key_id}` | Revoke a key; 409 for the key making the call |
+| `GET /v1/pipeline` | The tenant's pipeline in one answer: users, sources (connections per provider and status, rate limit pauses), sync runs, processing jobs, rejected records, raw data stored in the last 24 hours, webhook endpoints and deliveries |
+| `GET /v1/pipeline/sync-runs` | Sync runs across the tenant's users, newest first; filters `status` and `provider`, paged with `cursor` and `limit` |
+| `GET /v1/pipeline/etl-jobs` | Processing jobs; `status` is `parked` (default), `pending` or `running`; filter `provider`, paged with `cursor` and `limit` |
+| `POST /v1/pipeline/etl-jobs/{job_id}/retry` | Queue a parked job again with fresh attempts; 409 when it is not parked |
+| `POST /v1/pipeline/etl-jobs/retry` | Queue again every parked job of the tenant, or of one `provider` in the body; answers `{"retried": n}` |
+
+Provider settings are instance wide, so their routes need a key of an
+[instance admin](console.md#the-instance-admin) tenant (403 otherwise):
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/admin/providers` | Every connector of the binary: `status` (`active`, `off`, `not_configured`, `error`, `built_in`), where its keys come from (`env`, `console`), each key (required, secret, set, and its value only when it is not a secret), and the redirect and notification URLs to register at the provider |
+| `GET /v1/admin/providers/{provider}` | One of them |
+| `PATCH /v1/admin/providers/{provider}` | `{"keys": {"CLIENT_ID": "...", "CLIENT_SECRET": "..."}, "enabled": true}`; a `null` key removes it. The connector checks the keys before they are stored (422 with its message). 409 when the provider's keys come from the environment and the body changes keys |
+| `DELETE /v1/admin/providers/{provider}` | Forget the keys and the on/off choice saved in the console; 404 when nothing was saved |
+
+```sh
+curl -s -X PATCH $OHS/v1/admin/providers/oura -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"keys":{"CLIENT_ID":"...","CLIENT_SECRET":"..."},"enabled":true}'
+```
+
+An instance that serves several teams manages their tenants with the same admin keys, as
+`ohs admin tenant` and `ohs admin key` do from a shell. Shapes, examples and the audit trail:
+[admin-api.md](admin-api.md).
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/admin/tenants` | Every tenant (`id`, `name`, `admin`, `created_at`, `active_keys`), oldest first, paged with `cursor` and `limit` |
+| `POST /v1/admin/tenants` | `{"name": "..."}`: a tenant (never an admin) and its first key, whose full `key` is in the 201 answer only (`Cache-Control: no-store`) |
+| `GET /v1/admin/tenants/{tenant_id}` | One tenant |
+| `GET /v1/admin/tenants/{tenant_id}/pipeline` | The tenant's `GET /v1/pipeline` answer |
+| `GET`, `POST /v1/admin/tenants/{tenant_id}/keys` | The tenant's keys; create one, its full `key` in the 201 answer only |
+| `DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}` | Revoke one of its keys; 409 for the key making the call |
+| `POST /v1/admin/tenants/{tenant_id}/demo-user` | `{"external_ref": "demo-user", "days": 30}`, both optional: a user of the tenant filled with [synthetic data](demo.md), 201 when created, 200 when it existed |
+
 ## MCP
 
 `POST /mcp` speaks the Model Context Protocol for AI agents, read only. See [mcp.md](mcp.md).
@@ -562,7 +639,7 @@ grant are not stored, and a revoked category's stored records are deleted. Detai
 | `GET /readyz` | Readiness: database ping and raw store check, 503 when either fails |
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
 | `GET /v1/setup`, `POST /v1/setup` | The browser [first-run setup](setup.md): creates the first tenant and its key with `OHS_SETUP_TOKEN`, once; only when that is set |
-| `GET /console` | Read-only admin console (HTML), only when `OHS_CONSOLE=true`; see [console.md](console.md) |
+| `GET /console` | The [admin console](console.md) (HTML), only when `OHS_CONSOLE` is `true` or `read-only` |
 
 The OAuth callback, the notification routes and the share link manifest and file routes take
 no credential and are rate limited per client address (and the notification routes per provider): over a limit they answer 429 with a

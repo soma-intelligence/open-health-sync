@@ -1,5 +1,7 @@
 # First-run setup in the browser
 
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
+
 A fresh instance has no tenant, so no API key exists yet. The usual way to get the first one is a
 terminal: `ohs admin tenant create`, or `OHS_BOOTSTRAP_TENANT`, which prints the key once in the
 logs. Where there is no terminal and no log viewer, as with Umbrel, CasaOS and similar app
@@ -21,7 +23,9 @@ With docker compose, put both in `.env` (next to `OHS_ENCRYPTION_KEY`), run
 `http://localhost:8080/console/setup` (or your https address). Type the token and, optionally, a
 tenant name (default `default`). The page shows the tenant id and its API key with a copy button.
 **Store the key at once: it is not shown again.** The same browser tab is then signed in to the
-[console](console.md) with it until the tab closes.
+[console](console.md) with it until the tab closes. The first tenant is the
+[instance admin](console.md#the-instance-admin): from the console, its key turns providers on and
+saves their keys.
 
 `OHS_SETUP_TOKEN` must be 16 characters or more, or the process refuses to start. Unset (the
 default), the feature is off: `GET` and `POST /v1/setup` are not mounted and answer 404, and the
@@ -71,10 +75,9 @@ in [`api/openapi.yaml`](../api/openapi.yaml).
   `tenant.create`, actor `system` / `setup`, with the key's prefix only. It is written in the same
   transaction as the tenant, so a failed write creates nothing. A refused call (401, 409) is not
   an audit event, like any call without a valid credential.
-- **Same origin, strict headers.** `/console/setup` is a page of its own beside the read-only
-  console, with the same Content-Security-Policy and headers. Its one script posts only to
-  `/v1/setup` on the same server, without cookies, and inserts the key as text. The console
-  itself still never writes.
+- **Same origin, strict headers.** `/console/setup` is a page of its own beside the console,
+  with the same Content-Security-Policy and headers. Its one script posts only to `/v1/setup` on
+  the same server, without cookies, and inserts the key as text.
 - **Put HTTPS in front.** The token and the key cross the network in the request and the
   answer. On anything but `localhost`, serve the instance through a reverse proxy with TLS (see
   [self-hosting.md](self-hosting.md)) before you open the setup page.

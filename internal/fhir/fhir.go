@@ -54,6 +54,20 @@ const (
 	CategorySurvey     = "survey"
 )
 
+// PhysicalActivitySystem is the code system of the HL7 Physical Activity
+// IG's own codes (hl7.fhir.us.physical-activity 1.0.0); PhysicalActivity is
+// the category its measures carry next to the HL7 activity category.
+const (
+	PhysicalActivitySystem = "http://hl7.org/fhir/us/physical-activity/CodeSystem/pa-temporary-codes"
+	PhysicalActivity       = "PhysicalActivity"
+)
+
+// physicalActivityCategory is the Physical Activity IG's category, a second
+// category element next to activity.
+func physicalActivityCategory() CodeableConcept {
+	return CodeableConcept{Coding: []Coding{{System: PhysicalActivitySystem, Code: PhysicalActivity}}}
+}
+
 var categoryDisplay = map[string]string{
 	CategoryVitalSigns: "Vital Signs",
 	CategoryActivity:   "Activity",
@@ -190,6 +204,9 @@ func FromQuantitySample(user uuid.UUID, s read.CodedSample) Observation {
 		if cat == CategorySurvey {
 			// A self report: the person gave the answer.
 			o.Performer = []Reference{o.Subject}
+		}
+		if physicalActivityMeasures[s.Type] {
+			o.Category = append(o.Category, physicalActivityCategory())
 		}
 	}
 

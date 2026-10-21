@@ -67,6 +67,341 @@ export interface ConsentEvent {
   evidence: string;
 }
 
+export interface Tenant {
+  id: string;
+  name: string;
+  /** True for the instance admin tenant, whose keys manage the providers. The first tenant of an instance is the admin. */
+  admin: boolean;
+  created_at: string;
+  /** The key making the call. */
+  key: TenantKey;
+}
+
+/** The key making the call. */
+export interface TenantKey {
+  id: string;
+  prefix: string;
+}
+
+export interface APIKey {
+  id: string;
+  /** The start of the key, kept in clear to tell keys apart. */
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  /** True for the key making the call. */
+  current: boolean;
+}
+
+export interface CreatedAPIKey {
+  id: string;
+  /** The start of the key, kept in clear to tell keys apart. */
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  /** True for the key making the call. */
+  current: boolean;
+  /** The whole key, returned this once. */
+  key: string;
+}
+
+export interface AdminTenant {
+  id: string;
+  name: string;
+  /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
+  admin: boolean;
+  created_at: string;
+  /** The tenant's keys that are not revoked. */
+  active_keys: number;
+}
+
+export interface CreatedAdminTenant {
+  id: string;
+  name: string;
+  /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
+  admin: boolean;
+  created_at: string;
+  /** The tenant's keys that are not revoked. */
+  active_keys: number;
+  /** The tenant's first key, with its secret, returned this once. */
+  key: CreatedAPIKey;
+}
+
+export interface CreateAdminTenantRequest {
+  /**
+   * Surrounding spaces are trimmed; what is left must be 1 to 100 characters, none of them a
+   * control character.
+   */
+  name: string;
+}
+
+export interface DemoUserRequest {
+  /**
+   * The user to fill, created when the tenant has none with this reference. By default
+   * `demo-user` for `mix` and `demo-<persona>` for the others, so each persona fills its own.
+   */
+  external_ref?: string;
+  /** Days of data, ending yesterday. */
+  days?: number;
+  /**
+   * The kind of person: `mix` (one person seen through six sources), `runner` (polar, whoop,
+   * apple_health), `sleep` (a short, irregular sleeper: oura, apple_health) or `weight`
+   * (someone watching their weight: withings, fitbit). See docs/demo.md.
+   */
+  persona?: "mix" | "runner" | "sleep" | "weight";
+}
+
+export interface DemoUser {
+  user: User;
+  days: number;
+  /** Rows this call stored; 0 when every day was already there. */
+  rows_written: number;
+  /** The persona written. */
+  persona: "mix" | "runner" | "sleep" | "weight";
+}
+
+export interface Pipeline {
+  generated_at: string;
+  users: PipelineUser;
+  sources: PipelineSource[];
+  /**
+   * Sync runs in flight (`queued`, `running`, `retrying` after a failed attempt,
+   * `rate_limited`), and those created in the last 24 hours that ended `failed` or
+   * `succeeded`.
+   */
+  sync: PipelineSync;
+  /** Processing jobs by status, and the records processing rejected and has not recovered (as in the coverage report). */
+  processing: PipelineProcessing;
+  /** Raw payloads stored in the last 24 hours. */
+  storage: PipelineStorage;
+  /** Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done. */
+  delivery: PipelineDelivery;
+}
+
+export interface PipelineUser {
+  active: number;
+  deleting: number;
+}
+
+/**
+ * Sync runs in flight (`queued`, `running`, `retrying` after a failed attempt,
+ * `rate_limited`), and those created in the last 24 hours that ended `failed` or
+ * `succeeded`.
+ */
+export interface PipelineSync {
+  queued: number;
+  running: number;
+  retrying: number;
+  rate_limited: number;
+  failed_24h: number;
+  succeeded_24h: number;
+}
+
+/** Processing jobs by status, and the records processing rejected and has not recovered (as in the coverage report). */
+export interface PipelineProcessing {
+  pending: number;
+  running: number;
+  parked: number;
+  rejected_records: number;
+}
+
+/** Raw payloads stored in the last 24 hours. */
+export interface PipelineStorage {
+  raw_objects_24h: number;
+  raw_bytes_24h: number;
+}
+
+/** Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done. */
+export interface PipelineDelivery {
+  endpoints: number;
+  endpoints_failing: number;
+  endpoints_disabled: number;
+  pending: number;
+  parked: number;
+}
+
+export interface PipelineSource {
+  slug: string;
+  name: string;
+  kinds: ("oauth" | "push" | "device")[];
+  enabled: boolean;
+  /** The tenant's connections by status (active, needs_reauth, disconnected). */
+  connections: Record<string, number>;
+  /** Active connections whose health is not ok. */
+  broken: number;
+  /** Set while the provider's rate limit pauses every pull. */
+  paused_until: string | null;
+}
+
+export interface TenantSyncRun {
+  id: number;
+  provider: string;
+  trigger: "backfill" | "scheduled" | "notification" | "manual";
+  status: "queued" | "running" | "retrying" | "rate_limited" | "succeeded" | "failed" | "cancelled";
+  /** Set when a notification named the one data type to pull. */
+  data_type: string | null;
+  window_start: string;
+  window_end: string;
+  /** Failed attempts so far. */
+  attempts: number;
+  objects_stored: number | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  next_attempt_at: string | null;
+  user_id: string;
+}
+
+/** One processing job, turning a stored raw payload into records. */
+export interface ETLJob {
+  id: number;
+  user_id: string;
+  provider: string;
+  tier: string;
+  status: "pending" | "running" | "parked" | "done";
+  attempts: number;
+  /** The error of the last failed attempt. */
+  error: string | null;
+  created_at: string;
+  /** Set while the job is pending. */
+  next_attempt_at: string | null;
+}
+
+export interface AdminProvider {
+  slug: string;
+  name: string;
+  kinds: ("oauth" | "push" | "device")[];
+  /**
+   * `active` runs; `off` was turned off; `not_configured` lacks a required key; `error` has
+   * keys the provider's rules refuse (see `error`); `built_in` needs no key and is always on.
+   */
+  status: "active" | "off" | "not_configured" | "error" | "built_in";
+  enabled: boolean;
+  /** Where the keys come from. Environment variables win over the console as a whole. */
+  source: "env" | "console" | null;
+  keys: AdminProviderKey[];
+  error: string | null;
+  /** The addresses to register in the provider's developer portal. */
+  urls: AdminProviderUrl;
+  updated_at: string | null;
+  /** The id of the API key that saved the last change. */
+  updated_by: string | null;
+}
+
+/** The addresses to register in the provider's developer portal. */
+export interface AdminProviderUrl {
+  /** The OAuth redirect URI, for a provider users connect to. */
+  redirect: string | null;
+  /** Where the provider posts notifications, for a push provider. */
+  inbound: string | null;
+}
+
+export interface AdminProviderKey {
+  name: string;
+  /** The environment variable that can set it instead. */
+  env: string;
+  required: boolean;
+  secret: boolean;
+  set: boolean;
+  /** The saved value of a key that is not a secret. Secrets are never served. */
+  value: string | null;
+}
+
+export interface AdminProviderPatch {
+  /** Key name to its new value; null removes the key. */
+  keys?: Record<string, string | null>;
+  enabled?: boolean;
+}
+
+export interface AdminTenantProvider {
+  slug: string;
+  name: string;
+  kinds: ("oauth" | "push" | "device")[];
+  /** The provider's status on the instance, as `GET /v1/admin/providers` gives it. */
+  instance_status: "active" | "off" | "not_configured" | "error" | "built_in";
+  /** The tenant's switch, true unless an instance admin turned it off. */
+  enabled: boolean;
+  /**
+   * True while the tenant has keys of its own for the provider
+   * (`/v1/admin/tenants/{tenant_id}/providers/{provider}/keys`).
+   */
+  own_keys: boolean;
+  /**
+   * True when the tenant's users can use the provider now: `enabled` is true and either the
+   * tenant's own keys run, or the tenant has none and the instance runs the provider
+   * (`active` or `built_in`).
+   */
+  available: boolean;
+  /** The last change of the switch, null when it was never set. */
+  updated_at: string | null;
+}
+
+export interface AdminTenantProviderKeys {
+  provider: string;
+  /** True while the tenant has keys of its own for the provider. */
+  set: boolean;
+  /**
+   * `active`: the tenant's new connections use these keys. `error`: they do not run (they no
+   * longer open with the configured encryption keys, or the provider refused them, see
+   * `error`); the tenant cannot connect the provider until they are set again or removed.
+   * `not_set`: the tenant uses the instance's keys.
+   */
+  status: "active" | "error" | "not_set";
+  error: string | null;
+  /** The first and last four characters of `CLIENT_ID`, never all of it. */
+  client_id: string | null;
+  /** Every key the provider takes. No value is ever served. */
+  keys: AdminTenantProviderKeysKey[];
+  /**
+   * The addresses to register in the tenant's application at the provider: the instance's,
+   * the same for every tenant.
+   */
+  urls: AdminTenantProviderKeysUrl;
+  created_at: string | null;
+  updated_at: string | null;
+  /** The id of the admin key that saved the keys. */
+  updated_by: string | null;
+  /**
+   * Only in the answers of PUT and DELETE: how many connections of the tenant the change
+   * set `needs_reauth`.
+   */
+  reauth_required?: number;
+}
+
+export interface AdminTenantProviderKeysKey {
+  name: string;
+  required: boolean;
+  secret: boolean;
+  set: boolean;
+}
+
+/**
+ * The addresses to register in the tenant's application at the provider: the instance's,
+ * the same for every tenant.
+ */
+export interface AdminTenantProviderKeysUrl {
+  /** The OAuth redirect URI. */
+  redirect: string | null;
+  /** Where the provider posts notifications, for a push provider. */
+  inbound: string | null;
+}
+
+export interface AdminTenantProviderKeysPut {
+  /**
+   * Every key of the tenant's application by name, such as `CLIENT_ID` and
+   * `CLIENT_SECRET`; the provider's `keys` lists them. Replaces the previous ones whole.
+   */
+  keys: Record<string, string>;
+}
+
+export interface AdminTenantProviderPatch {
+  /** false turns the provider off for the tenant, true turns it back on. */
+  enabled: boolean;
+}
+
 export interface AuditEvent {
   /** Increasing; the cursor of the next page. */
   id: number;
@@ -76,8 +411,9 @@ export interface AuditEvent {
    * data.read, data.export, data.write, user.create, user.read, user.delete,
    * user.erased, token.create, connection.read, connection.create,
    * connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-   * config.write, tenant.create, key.create, key.revoke, share.create, share.read,
-   * share.revoke, share.access (more may be added).
+   * config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
+   * key.revoke, share.create,
+   * share.read, share.revoke, share.access (more may be added).
    */
   action: string;
   /** The end user the action concerns. */
@@ -106,7 +442,11 @@ export interface AuditEventActor {
 
 export interface Provider {
   slug: string;
+  /** Display name, the slug when the build has none. Older servers leave it out. */
+  name?: string;
   kinds: ("oauth" | "push" | "device")[];
+  /** What the connector delivers: first the record kinds it writes (sample, category, sleep, workout, route, nutrition, ecg, heartbeat, daily), then the canonical quantity names it can produce. Read from the connector's source, so a quantity is listed when the connector can write it, not when a given user has it. Older servers leave it out. */
+  data_types?: string[];
 }
 
 export interface CreateUserRequest {
@@ -347,9 +687,12 @@ export interface Connection {
   status: "active" | "needs_reauth" | "disconnected";
   scopes?: string[];
   last_sync_at?: string | null;
+  /** When the pull of the user's history was queued. */
   initial_backfill_at?: string | null;
   created_at: string;
   updated_at?: string;
+  /** Same as created_at, under its earlier name. */
+  connected_at?: string;
   /**
    * Whether the connection syncs, and if not why and what fixes it. `reason` is `needs_reauth`
    * (the provider refused the grant: token expired or revoked), `missing_scope` (the grant lacks a
@@ -626,6 +969,7 @@ export interface NutritionLog {
   id: number;
   start_date: string;
   end_date?: string | null;
+  /** breakfast, lunch, dinner or snack. */
   meal_type?: string | null;
   energy_kcal?: number | null;
   protein_g?: number | null;
@@ -634,7 +978,10 @@ export interface NutritionLog {
   fiber_g?: number | null;
   sugar_g?: number | null;
   sodium_mg?: number | null;
-  /** Extended nutrients by name. */
+  /**
+   * Extended nutrients by name (caffeine, vitamin_d, water...), each in its
+   * nutrient's unit (docs/api.md lists them).
+   */
   nutrients?: Record<string, unknown> | null;
   external_id?: string | null;
   /** Provider fields kept as is, plus timezone (IANA name) when known. */
@@ -1666,6 +2013,37 @@ export interface IngestActivityFilesResponse {
   /** Raw object key. */
   key: string;
   duplicate: boolean;
+}
+
+export interface IngestBluetoothResponse {
+  /** Raw object key. */
+  key: string;
+  duplicate: boolean;
+}
+
+export interface ListKeysResponse {
+  data: APIKey[];
+}
+
+export interface ListTenantSyncRunsResponse {
+  data: TenantSyncRun[];
+  /** Null on the last page. */
+  next_cursor: string | null;
+}
+
+export interface ListETLJobsResponse {
+  data: ETLJob[];
+  /** Null on the last page. */
+  next_cursor: string | null;
+}
+
+export interface RetryParkedETLJobsRequest {
+  /** Only this provider's parked jobs. */
+  provider?: string;
+}
+
+export interface RetryParkedETLJobsResponse {
+  retried: number;
 }
 
 export interface ListAuditEventsResponse {

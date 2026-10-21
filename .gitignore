@@ -21,3 +21,7 @@ health-export-*/
 
 __pycache__/
 *.pyc
+
+# Rust bridge and Swift SDK build output
+/bridge/target/
+/sdks/swift/.build/

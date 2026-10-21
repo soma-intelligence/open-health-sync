@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>org.openhealthsync.bridge</string>
+	<key>CFBundleName</key>
+	<string>ohs-bridge</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>ohs-bridge connects to your Bluetooth health devices and sends their readings to your Open Health Sync server.</string>
+</dict>
+</plist>

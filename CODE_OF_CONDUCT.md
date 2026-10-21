@@ -60,9 +60,11 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement, the maintainers
-of this repository, through GitHub. To report privately, open an issue that
-only asks a maintainer to contact you, without any detail of the incident, and a
-maintainer will follow up in private. Behavior that breaks GitHub's own rules can
+of this repository, through GitHub. To report privately, use the repository's
+private reporting form,
+**[report privately](https://github.com/soma-intelligence/open-health-sync/security/advisories/new)**,
+and start the title with "Conduct:". Only the maintainers see the report, and
+they will reply to you there. Behavior that breaks GitHub's own rules can
 also be reported to GitHub with the "Report content" option on any comment,
 issue or pull request.
 All complaints will be reviewed and investigated promptly and fairly.

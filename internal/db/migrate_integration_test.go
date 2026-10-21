@@ -6,10 +6,12 @@ package db
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"sort"
 	"testing"
 
+	"github.com/golang-migrate/migrate/v4"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -255,6 +257,59 @@ func TestSubscriptionStateMigrationKeepsLiveRows(t *testing.T) {
 		t.Errorf("live row after down: active=%v err=%v", active, err)
 	}
 	if err := m.Up(); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+}
+
+// Migration 0038 makes the only tenant of a single-tenant instance its admin,
+// so the console keeps working on upgrade, and names no admin when the
+// instance has several tenants.
+func TestAdminMigrationPromotesOnlyTenant(t *testing.T) {
+	ctx := context.Background()
+	url := TestDB(t)
+	m, err := newMigrator(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	pool, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	admins := func() (n int) {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.tenants WHERE admin`).Scan(&n); err != nil {
+			t.Fatalf("count admins: %v", err)
+		}
+		return n
+	}
+
+	if err := m.Migrate(37); err != nil {
+		t.Fatalf("down to 37: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('only')`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := m.Migrate(38); err != nil {
+		t.Fatalf("up to 38: %v", err)
+	}
+	if got := admins(); got != 1 {
+		t.Errorf("one tenant: %d admins, want 1", got)
+	}
+
+	if err := m.Migrate(37); err != nil {
+		t.Fatalf("down to 37 again: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('second')`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := m.Migrate(38); err != nil {
+		t.Fatalf("up to 38 again: %v", err)
+	}
+	if got := admins(); got != 0 {
+		t.Errorf("two tenants: %d admins, want 0", got)
+	}
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		t.Fatalf("up: %v", err)
 	}
 }

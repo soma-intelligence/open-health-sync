@@ -1,5 +1,7 @@
 # Share links
 
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
+
 A share link lets a person show some of their own data to someone they choose (a physician, a
 coach, a relative) without handing over a credential or a file. It opens a read-only snapshot
 of the categories and the time window the person picked, encrypted end to end, expiring when

@@ -716,6 +716,22 @@ type NutritionLog struct {
 	Provenance
 }
 
+const nutritionCols = `id, start_date, end_date, meal_type, energy_kcal, protein_g, carbs_g, fat_g, fiber_g, sugar_g,
+	sodium_mg, coalesce(nutrients_json, 'null'::jsonb), external_id, metadata,
+	provider, source_slug, device_id, ingested_at`
+
+func (x *NutritionLog) dest() []any {
+	return []any{&x.ID, &x.StartDate, &x.EndDate, &x.MealType, &x.EnergyKcal, &x.ProteinG, &x.CarbsG,
+		&x.FatG, &x.FiberG, &x.SugarG, &x.SodiumMg, &x.Nutrients, &x.ExternalID, &x.Metadata,
+		&x.Provider, &x.Source, &x.Device, &x.IngestedAt}
+}
+
+func (x *NutritionLog) utc() {
+	utc(&x.StartDate)
+	utc(x.EndDate)
+	utc(&x.IngestedAt)
+}
+
 // Nutrition lists nutrition logs.
 func Nutrition(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query) (Page[NutritionLog], error) {
 	n, err := q.normalize(false)
@@ -725,18 +741,11 @@ func Nutrition(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Qu
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[NutritionLog]{}, err
 	}
-	l := list{table: "ohs_data.nutrition_logs", timeCol: "start_date",
-		cols: `id, start_date, end_date, meal_type, energy_kcal, protein_g, carbs_g, fat_g, fiber_g, sugar_g,
-			sodium_mg, coalesce(nutrients_json, 'null'::jsonb), external_id, metadata,
-			provider, source_slug, device_id, ingested_at`}
+	l := list{table: "ohs_data.nutrition_logs", timeCol: "start_date", cols: nutritionCols}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (NutritionLog, time.Time, int64, error) {
 		var x NutritionLog
-		err := r.Scan(&x.ID, &x.StartDate, &x.EndDate, &x.MealType, &x.EnergyKcal, &x.ProteinG, &x.CarbsG,
-			&x.FatG, &x.FiberG, &x.SugarG, &x.SodiumMg, &x.Nutrients, &x.ExternalID, &x.Metadata,
-			&x.Provider, &x.Source, &x.Device, &x.IngestedAt)
-		utc(&x.StartDate)
-		utc(x.EndDate)
-		utc(&x.IngestedAt)
+		err := r.Scan(x.dest()...)
+		x.utc()
 		return x, x.StartDate, x.ID, err
 	})
 }

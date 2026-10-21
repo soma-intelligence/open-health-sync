@@ -17,9 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
+	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
+	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/rekey"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -96,6 +99,17 @@ func seed(t *testing.T) fixture {
 	_, _, err = webhook.NewStore(pool, newBox).Create(ctx, f.tenant, "https://example.org/b", "", []string{})
 	require.NoError(t, err)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM ohs_core.webhook_endpoints WHERE url = 'https://example.org/b'`).Scan(&f.freshHook))
+
+	// Provider keys saved in the console: one under the old key, one with
+	// no keys (NULL, not counted).
+	require.NoError(t, providerset.NewPG(pool, oldBox).Put(ctx, providerset.Settings{Slug: "oura", Enabled: true,
+		Keys: config.ProviderKeys{"CLIENT_ID": "id", "CLIENT_SECRET": "provider-secret"}}))
+	require.NoError(t, providerset.NewPG(pool, oldBox).Put(ctx, providerset.Settings{Slug: "whoop"}))
+	// A tenant's own provider keys, under the old key.
+	_, _, err = tenantkeys.NewPG(pool, oldBox, nil).Put(ctx, tenantkeys.Keys{Tenant: f.tenant, Provider: "oura",
+		Keys: config.ProviderKeys{"CLIENT_ID": "tenant-id", "CLIENT_SECRET": "tenant-secret"}},
+		func(config.ProviderKeys) bool { return true }, nil)
+	require.NoError(t, err)
 	return f
 }
 
@@ -133,6 +147,10 @@ func TestRunRekeysEverySealedColumn(t *testing.T) {
 		c["ohs_sync.connections.refresh_token_enc"])
 	require.Equal(t, rekey.Counts{Column: "ohs_core.webhook_endpoints.secret_sealed", Rewritten: 1, Current: 1},
 		c["ohs_core.webhook_endpoints.secret_sealed"])
+	require.Equal(t, rekey.Counts{Column: "ohs_core.provider_settings.keys_sealed", Rewritten: 1},
+		c["ohs_core.provider_settings.keys_sealed"])
+	require.Equal(t, rekey.Counts{Column: "ohs_core.tenant_provider_keys.keys_sealed", Rewritten: 1},
+		c["ohs_core.tenant_provider_keys.keys_sealed"])
 	require.Len(t, failures, 2)
 	for _, x := range failures {
 		require.Contains(t, x.Row, f.users[2].String())
@@ -172,6 +190,16 @@ func TestRunRekeysEverySealedColumn(t *testing.T) {
 	plain, err := alone.OpenFor(hook, webhook.SecretAAD(f.oldHook))
 	require.NoError(t, err)
 	require.Equal(t, f.hookSecret, string(plain))
+	saved, err := providerset.NewPG(f.pool, alone).List(ctx)
+	require.NoError(t, err)
+	require.Len(t, saved, 2)
+	require.NoError(t, saved[0].OpenErr)
+	require.Equal(t, "provider-secret", saved[0].Keys["CLIENT_SECRET"])
+	own, err := tenantkeys.NewPG(f.pool, alone, nil).List(ctx)
+	require.NoError(t, err)
+	require.Len(t, own, 1)
+	require.NoError(t, own[0].OpenErr)
+	require.Equal(t, "tenant-secret", own[0].Keys["CLIENT_SECRET"])
 
 	// The row no key opens is left exactly as it was, never deleted.
 	var lost []byte

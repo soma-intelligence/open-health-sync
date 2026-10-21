@@ -7,9 +7,21 @@ zone) with `AppleHealthPartBuilder` and sends it with `OhsClient.uploadParts`. I
 result per part (part number, type, day, stored or duplicate) or the error (status, title,
 request id).
 
+It also connects to Bluetooth health devices (heart rate straps, blood pressure cuffs, scales,
+glucose meters, thermometers, pulse oximeters) and uploads what they send, as described in
+[Bluetooth devices](#bluetooth-devices).
+
 The app holds only a user token with the `upload` scope. It cannot read anything back: every
 read route needs the tenant key, which belongs on your backend, never in an app. You check the
 data with curl instead (below).
+
+## Install without building
+
+Each release from the next one on carries the app, built from the release's own commit:
+[ohs-example-android.apk](https://github.com/soma-intelligence/open-health-sync/releases/latest/download/ohs-example-android.apk).
+Open that link on the phone, allow the install from your browser, then paste the server URL and an
+upload token in Settings (below). Its SHA-256 is in the release's signed `checksums.txt`. The APK is signed with a build key that changes with each release: remove the previous version
+before installing a new one.
 
 ## Requirements
 
@@ -70,6 +82,35 @@ curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bear
 
 The sample has `"source_name": "Android example"`.
 
+## Bluetooth devices
+
+Below the heart rate field, **Find devices** asks for the Bluetooth permission (on Android 11
+and earlier, for location, which a Bluetooth scan needs there, with location turned on) and
+connects to every device in range that advertises a standard health service. The live line shows
+the last value, for example `Polar H10: 72 bpm`. **Upload recorded values** sends what was
+recorded with `OhsClient.uploadBluetoothPart`; when an upload fails, the next tap sends the same
+part again and the server stores it once.
+
+[BluetoothSync.kt](app/src/main/java/org/openhealthsync/example/BluetoothSync.kt) is the part to
+copy into an app. For each device it reads Device Information, sets the device clock through the
+Current Time service when the device allows it, subscribes to every measurement, and asks a
+glucose meter for the records after the last one recorded. It feeds the bytes to the SDK's
+`BluetoothRecorder` without decoding them: the server decodes them
+([Bluetooth connector](../../docs/connectors/bluetooth.md)). The device address stays on the
+phone.
+
+Cuffs, scales and glucose meters usually need pairing: Android shows its prompt on the first
+subscription. A cuff or meter that keeps readings in memory sends them when it connects, so
+press its Bluetooth button after starting **Find devices**. A Bluetooth device does not work on
+the emulator: use a phone.
+
+The readings land as samples with `"provider": "bluetooth"` (`view=all` lists them next to the
+same readings from other sources):
+
+```sh
+curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate&view=all" -H "Authorization: Bearer $KEY"
+```
+
 ## Health Connect
 
 Reading Health Connect is planned for the Kotlin SDK. When it lands, this app will use it in
@@ -81,10 +122,12 @@ place of the manual entry. Until then the data source is the text field.
   That is enough for a demo. A real app should keep the token in EncryptedSharedPreferences or
   encrypt it with a key from the Android Keystore, and fetch short-lived tokens from its backend
   through `OhsClient(baseUrl, tokenProvider = { ... })`.
-- One reading per upload, from manual entry only.
+- One reading per upload from manual entry.
 - No background sync, no retry queue beyond the SDK's own retries (429, 5xx and network errors,
-  up to 5 attempts).
-- The app never logs the token or the value.
+  up to 5 attempts). Bluetooth values wait in memory until you tap upload: closing the app drops
+  the ones not sent. Connections stop when the app closes; the desktop
+  [bridge](../../docs/bridge.md) is the always-on option.
+- The app never logs the token or a value.
 
 ## Licence
 

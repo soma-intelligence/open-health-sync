@@ -1,0 +1,124 @@
+{{/* The frame the connect and result pages share: the page canvas with its
+guide lines, a rounded frame whose background is drawn here (gradients and SVG
+noise, no image, so the page needs nothing but itself), and frosted glass
+panels on top. The CSP of both pages allows inline styles and nothing else. */}}
+{{define "frame-style"}}
+  :root {
+    color-scheme: light dark;
+    --canvas: #efeee9; --guide: rgb(24 24 20 / 24%);
+    --frame-shadow: 0 0 0 1px rgb(24 24 20 / 6%), 0 40px 90px -40px rgb(20 26 18 / 60%);
+    --ink: #f6f5ef; --muted: rgb(246 245 239 / 74%); --faint: rgb(246 245 239 / 54%);
+    --glass: rgb(16 22 17 / 36%); --glass-hi: rgb(255 255 255 / 9%); --glass-edge: rgb(255 255 255 / 13%);
+    --line: rgb(255 255 255 / 10%); --hover: rgb(255 255 255 / 7%);
+    --ok: #95e9ba; --warn: #f7c66d; --err: #ffa092;
+    --cta: #f4f3ec; --cta-hover: #ffffff; --on-cta: #0f130f; --ring: rgb(255 255 255 / 85%);
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    --display: "Inter Display", "Inter", -apple-system, "SF Pro Display", BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --canvas: #0a0a0a; --guide: rgb(255 255 255 / 16%);
+            --frame-shadow: 0 0 0 1px rgb(255 255 255 / 6%), 0 40px 90px -40px rgb(0 0 0 / 80%); }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--canvas); }
+  body { margin: 0; color: var(--ink); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  svg { display: block; flex: none; }
+  .page { position: relative; min-height: 100vh; min-height: 100dvh; overflow: hidden; display: grid; place-items: center;
+          padding: 40px 52px; background: var(--canvas); }
+  .stage { position: relative; width: 100%; max-width: var(--frame-max); }
+  .guides i, .guides b { position: absolute; pointer-events: none; }
+  .guides i { background: repeating-linear-gradient(var(--dir), var(--guide) 0 2px, transparent 2px 6px); }
+  .gl, .gr { --dir: to bottom; top: -100vh; bottom: -100vh; width: 1px; }
+  .gt, .gb { --dir: to right; left: -100vw; right: -100vw; height: 1px; }
+  .gl { left: -26px; } .gr { right: -26px; } .gt { top: -18px; } .gb { bottom: -18px; }
+  .guides b { width: 13px; height: 13px; margin: -6px; }
+  .guides b::before, .guides b::after { content: ""; position: absolute; left: 6px; top: -1px; width: 1px; height: 15px;
+                                        background: var(--guide); transform: rotate(45deg); }
+  .guides b::after { transform: rotate(-45deg); }
+  .x1, .x3 { left: -26px; } .x2, .x4 { right: -26px; } .x1, .x2 { top: -18px; } .x3, .x4 { bottom: -18px; }
+  .frame { position: relative; isolation: isolate; overflow: hidden; clip-path: inset(0 round 30px); border-radius: 30px;
+           background: #1a261b; box-shadow: var(--frame-shadow); padding: 34px; }
+  .scene, .scene > * { position: absolute; pointer-events: none; }
+  .scene { inset: 0; z-index: -1; }
+  .base { inset: 0; background:
+            radial-gradient(38% 46% at 80% 16%, rgb(222 217 186 / 72%), transparent 70%),
+            radial-gradient(30% 40% at 97% 64%, rgb(150 166 98 / 55%), transparent 70%),
+            radial-gradient(44% 56% at 56% 78%, rgb(36 58 35 / 90%), transparent 72%),
+            linear-gradient(100deg, #bdbeb8 0%, #7e8576 16%, #33432f 36%, #1d2b1d 58%, #44583a 100%); }
+  .foliage { left: -40%; top: -40%; width: 180%; height: 180%; transform: rotate(-17deg); opacity: .94;
+             -webkit-mask-image: linear-gradient(90deg, transparent 22%, #000 44%); mask-image: linear-gradient(90deg, transparent 22%, #000 44%); }
+  .mist { inset: 0; background: linear-gradient(98deg, rgb(206 207 201) 0%, rgb(178 180 172 / 88%) 13%, rgb(126 131 120 / 42%) 29%, transparent 45%); }
+  .sheen { border-radius: 50%; filter: blur(26px); mix-blend-mode: screen; opacity: .62;
+           background: linear-gradient(118deg, transparent 8%, #ff6fd6 26%, #ffd86e 40%, #70ffb4 54%, #66c8ff 68%, #b78dff 82%, transparent 96%); }
+  .p1 { left: 15%; top: -14%; width: 27%; height: 46%; transform: rotate(-12deg); }
+  .p2 { left: 27%; bottom: -16%; width: 22%; height: 30%; transform: rotate(8deg); opacity: .5; }
+  .dissolve, .grain { inset: 0; width: 100%; height: 100%; }
+  .grain { opacity: .3; mix-blend-mode: overlay; }
+  .shade { inset: 0; background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgb(0 0 0 / 34%) 100%),
+                                 linear-gradient(rgb(0 0 0 / 6%), rgb(0 0 0 / 22%)); }
+  .glass { position: relative; border-radius: 22px; color: var(--ink);
+           background: linear-gradient(180deg, var(--glass-hi), transparent 55%), var(--glass);
+           -webkit-backdrop-filter: blur(26px) saturate(140%); backdrop-filter: blur(26px) saturate(140%);
+           box-shadow: inset 0 0 0 1px var(--glass-edge), inset 0 1px 0 rgb(255 255 255 / 10%), 0 24px 48px -28px rgb(0 0 0 / 55%); }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass { background: rgb(22 30 23 / 84%); }
+  }
+  .label { font: 500 11.5px/1.35 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  h1 { margin: 0; font: 500 29px/1.12 var(--display); letter-spacing: -.022em; text-wrap: balance; }
+  h2 { margin: 0; font: 500 16px/1.3 var(--sans); letter-spacing: -.005em; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  @media (prefers-reduced-motion: no-preference) {
+    .glass { animation: rise .6s cubic-bezier(.2, .7, .2, 1) both; }
+    .glass:nth-child(2) { animation-delay: .06s; } .glass:nth-child(3) { animation-delay: .12s; }
+    .scene { animation: fade 1s ease-out both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+    @keyframes fade { from { opacity: 0; } }
+  }
+  @media (max-width: 760px) {
+    .page { padding: 10px; place-items: start center; }
+    .guides { display: none; }
+    .frame { padding: 10px; border-radius: 24px; clip-path: inset(0 round 24px); }
+    h1 { font-size: 26px; }
+  }
+{{end}}
+{{define "frame-guides"}}<div class="guides" aria-hidden="true"><i class="gl"></i><i class="gr"></i><i class="gt"></i><i class="gb"></i><b class="x1"></b><b class="x2"></b><b class="x3"></b><b class="x4"></b></div>{{end}}
+{{define "frame-scene"}}<div class="scene" aria-hidden="true">
+  <div class="base"></div>
+  <svg class="foliage" focusable="false"><filter id="foliage" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.0034 0.011" numOctaves="4" seed="4"/>
+    <feColorMatrix type="matrix" values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0 1"/>
+    <feComponentTransfer>
+      <feFuncR type="table" tableValues="0.04 0.05 0.07 0.13 0.27 0.5 0.8 0.93 0.96"/>
+      <feFuncG type="table" tableValues="0.07 0.08 0.11 0.2 0.36 0.58 0.79 0.91 0.94"/>
+      <feFuncB type="table" tableValues="0.05 0.05 0.07 0.13 0.22 0.38 0.62 0.82 0.88"/>
+    </feComponentTransfer>
+    <feGaussianBlur stdDeviation="2.5"/>
+  </filter><rect width="100%" height="100%" filter="url(#foliage)"/></svg>
+  <div class="mist"></div>
+  <div class="sheen p1"></div>
+  <div class="sheen p2"></div>
+  <svg class="dissolve" focusable="false">
+    <linearGradient id="dissolve-fade" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".56" stop-color="#000"/></linearGradient>
+    <filter id="specks-light" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency=".9" seed="2" result="fine"/>
+      <feTurbulence type="fractalNoise" baseFrequency=".007 .018" numOctaves="3" seed="9" result="coarse"/>
+      <feComposite in="fine" in2="coarse" operator="arithmetic" k2=".6" k3=".5" result="n"/>
+      <feComposite in="SourceGraphic" in2="n" operator="arithmetic" k2=".78" k3="1" k4="-.64" result="v"/>
+      <feColorMatrix in="v" type="matrix" values="0 0 0 0 .93  0 0 0 0 .93  0 0 0 0 .91  16 0 0 0 -7.4"/>
+    </filter>
+    <filter id="specks-dark" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency=".85" seed="21" result="fine"/>
+      <feTurbulence type="fractalNoise" baseFrequency=".009 .02" numOctaves="3" seed="13" result="coarse"/>
+      <feComposite in="fine" in2="coarse" operator="arithmetic" k2=".6" k3=".5" result="n"/>
+      <feComposite in="SourceGraphic" in2="n" operator="arithmetic" k2=".64" k3="1" k4="-.64" result="v"/>
+      <feColorMatrix in="v" type="matrix" values="0 0 0 0 .06  0 0 0 0 .07  0 0 0 0 .06  16 0 0 0 -7.2"/>
+    </filter>
+    <rect width="100%" height="100%" fill="url(#dissolve-fade)" filter="url(#specks-light)"/>
+    <rect width="100%" height="100%" fill="url(#dissolve-fade)" filter="url(#specks-dark)"/>
+  </svg>
+  <svg class="grain" focusable="false"><filter id="grain" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="2" seed="5" stitchTiles="stitch"/>
+  </filter><rect width="100%" height="100%" filter="url(#grain)"/></svg>
+  <div class="shade"></div>
+</div>{{end}}

@@ -57,11 +57,15 @@ One Health Connect record per line, as a JSON object. Field names follow the and
 | `Height` | `heightMeters` | `height` (stored in cm) |
 | `BodyFat` | `percentage` | `body_fat_percentage` |
 | `ActiveCaloriesBurned` | `energyKilocalories` | `active_energy_burned` |
+| `TotalCaloriesBurned` | `energyKilocalories` | `total_energy_burned` |
+| `BasalMetabolicRate` | `basalMetabolicRateKilocaloriesPerDay` | `basal_metabolic_rate` (kcal/d) |
 | `Distance` | `distanceMeters` | `distance_walking_running` |
 | `SleepSession` | `title`, `stages`: `[{startTime, endTime, stage}]` | a sleep session with its phases |
 | `ExerciseSession` | `exerciseType`, `title` | a workout |
 | `MenstruationFlow` | `flow` | a `menstrual_flow` category sample |
 | `IntermenstrualBleeding` | none | an `intermenstrual_bleeding` category sample |
+| `Nutrition` | `energyKilocalories`, `energyFromFatKilocalories`, every mass as `<field>Grams` (`proteinGrams`, `totalCarbohydrateGrams`, `sodiumGrams`, `vitaminDGrams`...), `name`, `mealType` | a nutrition log |
+| `Hydration` | `volumeLiters` | a nutrition log with `nutrients.water` (mL) |
 | `Deletion` | `recordId` | removes the stored records of that id |
 
 Example lines:
@@ -69,6 +73,7 @@ Example lines:
 ```json
 {"recordType":"BloodGlucose","metadata":{"id":"0b1e...","dataOrigin":"com.freestylelibre.app.de","recordingMethod":"automatic"},"time":"2026-03-02T07:30:00Z","zoneOffset":"+01:00","levelMillimolesPerLiter":5.6,"specimenSource":"interstitial_fluid","relationToMeal":"fasting"}
 {"recordType":"BloodPressure","metadata":{"id":"9a2c...","dataOrigin":"jp.co.omron.healthcare.omron_connect","device":{"type":"unknown","manufacturer":"OMRON","model":"M7"}},"time":"2026-03-02T07:00:00Z","zoneOffset":"+01:00","systolicMillimetersOfMercury":121,"diastolicMillimetersOfMercury":79,"bodyPosition":"sitting_down"}
+{"recordType":"Nutrition","metadata":{"id":"5d07...","dataOrigin":"com.myfitnesspal.android"},"startTime":"2026-03-02T11:30:00Z","endTime":"2026-03-02T11:50:00Z","startZoneOffset":"+01:00","mealType":"lunch","name":"Lentil soup","energyKilocalories":420,"proteinGrams":24,"sodiumGrams":0.8,"dietaryFiberGrams":13}
 {"recordType":"Deletion","recordId":"0b1e..."}
 ```
 
@@ -96,6 +101,22 @@ fails at processing.
   them into one panel.
 - **Sleep**: stages `awake` and `awake_in_bed` are awake, `sleeping` counts as light, `light`,
   `deep` and `rem` keep their name; `out_of_bed` and `unknown` give no phase.
+- **Nutrition**: masses go up in grams (`Mass.inGrams`) whatever the nutrient; the server
+  converts each to [its nutrient's unit](../api.md#nutrition-logs) (`sodiumGrams` 0.8 is
+  `sodium_mg` 800, `vitaminDGrams` goes to micrograms). The mass fields are those of
+  `NutritionRecord`: `biotin`, `caffeine`, `calcium`, `chloride`, `cholesterol`, `chromium`,
+  `copper`, `dietaryFiber`, `folate`, `folicAcid`, `iodine`, `iron`, `magnesium`, `manganese`,
+  `molybdenum`, `monounsaturatedFat`, `niacin`, `pantothenicAcid`, `phosphorus`,
+  `polyunsaturatedFat`, `potassium`, `protein`, `riboflavin`, `saturatedFat`, `selenium`,
+  `sodium`, `sugar`, `thiamin`, `totalCarbohydrate`, `totalFat`, `transFat`, `unsaturatedFat`,
+  `vitaminA`, `vitaminB12`, `vitaminB6`, `vitaminC`, `vitaminD`, `vitaminE`, `vitaminK`, `zinc`,
+  each with `Grams`. `mealType` `breakfast`, `lunch`, `dinner` or `snack` is kept, `unknown` is
+  none; `name` goes to `metadata.food_name`. A record with no figure is kept: the person logged
+  a meal. Like the samples, a log is identified by its record id: a re-sent record replaces its
+  figures, a moved start replaces the older copy, and a `Deletion` removes it.
+- **Energy**: `total_energy_burned` is summed per local day and becomes the daily summary's
+  `total_kcal` of the Health Connect summary; without it, `total_kcal` stays basal plus active energy.
+  `basal_metabolic_rate` is a rate, not summed. Neither has a LOINC code.
 - **Menstruation**: `flow` `light`, `medium` and `heavy` keep their name as the label, with the
   values Apple Health uses (2, 3, 4); `unknown` or no flow is `unspecified` (1). The samples feed
   the [menstrual cycles](../menstrual-cycles.md). They are identified by record id and time: a

@@ -28,6 +28,7 @@ from .models import (
     CreateTimeTagRequest,
     CreateUserRequest,
     CreateWebhookRequest,
+    CreatedAPIKey,
     CreatedShare,
     DailySummary,
     DailySummaryPage,
@@ -38,6 +39,7 @@ from .models import (
     ECGRecording,
     ECGRecordingDetail,
     ECGRecordingPage,
+    ETLJob,
     FHIRBundle,
     FHIRCapabilityStatement,
     FHIRDevice,
@@ -53,14 +55,18 @@ from .models import (
     HealthzResponse,
     IngestActivityFilesResponse,
     IngestAppleHealthResponse,
+    IngestBluetoothResponse,
     IngestHealthConnectResponse,
     IngestXiaomiResponse,
     ListAuditEventsResponse,
     ListConnectionsResponse,
     ListConsentHistoryResponse,
     ListConsentsResponse,
+    ListETLJobsResponse,
+    ListKeysResponse,
     ListProvidersResponse,
     ListSyncRunsResponse,
+    ListTenantSyncRunsResponse,
     ListUsersResponse,
     ListWebhookDeliveriesResponse,
     ListWebhooksResponse,
@@ -71,10 +77,13 @@ from .models import (
     NutritionLogPage,
     OMHDataPoint,
     OMHDataPointPage,
+    Pipeline,
     PutSourcePrioritiesRequest,
     RRInterval,
     RRIntervalPage,
     ReadyzResponse,
+    RetryParkedETLJobsRequest,
+    RetryParkedETLJobsResponse,
     RotateWebhookSecretResponse,
     RoutePoint,
     RoutePointPage,
@@ -98,6 +107,8 @@ from .models import (
     StartConnectionResponse,
     SyncConnectionRequest,
     SyncRun,
+    Tenant,
+    TenantSyncRun,
     TestWebhookRequest,
     TimeTag,
     TimeTagPage,
@@ -255,6 +266,9 @@ class OpenHealthSync:
         """Connectors enabled on this instance.
 
         ``GET /v1/providers``
+
+        The connectors enabled on this instance, less those an instance admin turned off for the
+        caller's tenant.
         """
         return self._request(
             "GET",
@@ -594,7 +608,11 @@ class OpenHealthSync:
         lands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in
         result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
         `Idempotency-Key` is not honoured here. While the user's data from this provider is
-        being deleted the answer is 409: connect again once the deletion job is done.
+        being deleted the answer is 409: connect again once the deletion job is done. 403 when an
+        instance admin turned the provider off for the tenant. For a provider without a consent
+        page for other apps (Eight Sleep) the URL is this server's own sign-in page,
+        `/oauth/{provider}/signin`, which asks for the account email and password; it ends the
+        same way.
         """
         return self._request(
             "POST",
@@ -790,7 +808,8 @@ class OpenHealthSync:
         (minus an hour of overlap), a day back for a connection that never synced, or at `from`
         (at most 30 days back). While a manual run of the connection is still queued or running, the
         answer is 200 with that run and nothing new is queued. 409 when the connection does not sync
-        (`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.
+        (`needs_reauth`, `disconnected`: connect the user again), its provider is not enabled here,
+        or an instance admin turned the provider off for the tenant.
         """
         return self._request(
             "POST",
@@ -1266,6 +1285,10 @@ class OpenHealthSync:
         """Nutrition logs.
 
         ``GET /v1/users/{id}/nutrition``
+
+        Food and drink entries from Apple Health and Health Connect. Each nutrient has one
+        unit whatever the source: kcal for energy, g for the macronutrients, mg or mcg for
+        the others, mL for water (the table is in docs/api.md).
 
         Args:
             start: Inclusive lower bound, RFC 3339 or YYYY-MM-DD.
@@ -1948,9 +1971,10 @@ class OpenHealthSync:
         The user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,
         `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
         panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
-        workouts (`workout-`), daily summaries (`daily-`) and ECG recordings with their
-        voltage samples (`ecg-`), merged in time order (a sample's start, a bedtime, a
-        workout's start, a day at midnight UTC, a recording's start), then by kind and id.
+        workouts (`workout-`), daily summaries (`daily-`), ECG recordings with their
+        voltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a
+        sample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or
+        a meal's start), then by kind and id.
         Paged like every list: the Bundle's `next` link carries the cursor, and there is no
         `next` link on the last page; `total` is left out. A blood pressure pair is never
         split across pages, and its two samples are not listed on their own. A page holds at
@@ -1973,7 +1997,7 @@ class OpenHealthSync:
                 (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
                 like `type`), or a record type
                 (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
-                `blood_pressure`, `sleep_session`, `workout`, `daily_summary` or `ecg_recording`). One value; other
+                `blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other
                 systems are a 400. A code no Observation carries is an empty Bundle.
             category: An HL7 observation category code, bare or as
                 `http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,
@@ -2482,6 +2506,250 @@ class OpenHealthSync:
             },
             data=body,
             content_type="application/gzip",
+        )
+
+    def ingest_bluetooth(
+        self,
+        body: bytes,
+        *,
+        ohs_type: Literal["gatt"],
+        ohs_day: str,
+        ohs_batch: str,
+        ohs_part: int,
+    ) -> IngestBluetoothResponse:
+        """Upload one part of Bluetooth device values.
+
+        ``POST /v1/ingest/bluetooth``
+
+        One gzip NDJSON part (at most 64 MiB, never truncated), one characteristic value a
+        standard Bluetooth health device sent per line: `{"at": "<RFC 3339 arrival time with
+        offset>", "char": "2a37", "value": "<hex>", "session": "<id of the connection>",
+        "device": {"name", "manufacturer", "model", "firmware"}, "device_user": <index>}`
+        (`device` and `device_user` optional; the line format is in docs/connectors/bluetooth.md;
+        `ohs-bridge` and the Swift and Kotlin SDKs write it). The server decodes heart rate with
+        RR intervals, blood pressure, weight, body composition, glucose, temperature and pulse
+        oximetry; other characteristics are stored and not mapped. The part is refused with
+        400, and nothing is stored, when a line breaks the format; a value that does not decode
+        is a failed record of its line only. Same headers, limits and answers as the Apple
+        Health upload.
+        Re-sending the same part is safe: the answer is 200 with `duplicate: true`. Other
+        bytes under a (day, batch, part) already stored are a 409, and so is a part sent while
+        this provider's data is being deleted for the user (nothing is kept; send it again
+        once the deletion job is done). Each instance processes a
+        bounded number of uploads at once; above it the answer is 503 with `Retry-After`.
+
+        Needs a user token (ohs_ut_) as the client's api_key.
+
+        Args:
+            ohs_type: Sent as the X-OHS-Type header. Always `gatt`.
+            ohs_day: Sent as the X-OHS-Day header. UTC day of the part's first line (the server does not check it).
+        """
+        return self._request(
+            "POST",
+            "/v1/ingest/bluetooth",
+            headers={
+                "X-OHS-Type": ohs_type,
+                "X-OHS-Day": ohs_day,
+                "X-OHS-Batch": ohs_batch,
+                "X-OHS-Part": ohs_part,
+            },
+            data=body,
+            content_type="application/gzip",
+        )
+
+    def get_tenant(self) -> Tenant:
+        """The tenant of the calling key.
+
+        ``GET /v1/tenant``
+
+        The tenant the key belongs to, whether it is the instance admin (the one tenant whose keys
+        manage the providers, see /v1/admin/providers) and which key is calling.
+        """
+        return self._request(
+            "GET",
+            "/v1/tenant",
+        )
+
+    def list_keys(self) -> ListKeysResponse:
+        """The tenant's API keys.
+
+        ``GET /v1/keys``
+
+        Every key of the tenant, revoked ones included, newest first. Only the prefix of a key is
+        stored in clear; the secret itself was shown once, when the key was created.
+        """
+        return self._request(
+            "GET",
+            "/v1/keys",
+        )
+
+    def create_key(self, body: Optional[Dict[str, Any]] = None) -> CreatedAPIKey:
+        """Create an API key for the tenant.
+
+        ``POST /v1/keys``
+
+        A new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in
+        this answer only. To rotate: deploy the new key, then revoke the old one. Recorded in the
+        audit log as `key.create`.
+        """
+        return self._request(
+            "POST",
+            "/v1/keys",
+            json_body=body,
+        )
+
+    def revoke_key(self, key_id: str) -> None:
+        """Revoke an API key.
+
+        ``DELETE /v1/keys/{key_id}``
+
+        Every call with the key is refused from now on. A key cannot revoke itself (409): revoke it
+        with another key of the tenant. Revoking a revoked key changes nothing. Recorded in the
+        audit log as `key.revoke`.
+        """
+        return self._request(
+            "DELETE",
+            f"/v1/keys/{_path(key_id)}",
+            expect="none",
+        )
+
+    def get_pipeline(self) -> Pipeline:
+        """The tenant's pipeline, stage by stage.
+
+        ``GET /v1/pipeline``
+
+        Counts of the tenant's work at each stage, in the order data flows: the sources (providers
+        that are on, and any provider still holding the tenant's connections), the sync runs, the
+        processing jobs, the raw archive and the webhook deliveries. Counts only, never a health
+        value. The console's overview is this answer.
+        """
+        return self._request(
+            "GET",
+            "/v1/pipeline",
+        )
+
+    def list_tenant_sync_runs(
+        self,
+        *,
+        status: Optional[Literal["queued", "running", "retrying", "rate_limited", "succeeded", "failed", "cancelled"]] = None,
+        provider: Optional[str] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> ListTenantSyncRunsResponse:
+        """Sync runs of every user of the tenant.
+
+        ``GET /v1/pipeline/sync-runs``
+
+        The sync runs of all the tenant's users, newest first, each with its user. Filter by
+        `status` (for example `failed`, the runs that gave up) and by provider.
+
+        Args:
+            provider: Only this provider's runs.
+            cursor: The next_cursor of the previous page.
+        """
+        return self._request(
+            "GET",
+            "/v1/pipeline/sync-runs",
+            query={
+                "status": status,
+                "provider": provider,
+                "limit": limit,
+                "cursor": cursor,
+            },
+        )
+
+    def iter_tenant_sync_runs(
+        self,
+        *,
+        status: Optional[Literal["queued", "running", "retrying", "rate_limited", "succeeded", "failed", "cancelled"]] = None,
+        provider: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Iterator[TenantSyncRun]:
+        """Every item of :meth:`list_tenant_sync_runs`, page after page, following ``next_cursor``."""
+        return paginate(
+            lambda cursor: self.list_tenant_sync_runs(
+                status=status,
+                provider=provider,
+                limit=limit,
+                cursor=cursor,
+            )
+        )
+
+    def list_etl_jobs(
+        self,
+        *,
+        status: Optional[Literal["parked", "pending", "running"]] = None,
+        provider: Optional[str] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> ListETLJobsResponse:
+        """Processing jobs of the tenant.
+
+        ``GET /v1/pipeline/etl-jobs``
+
+        The jobs that turn stored raw payloads into records, newest first. `parked` (the default)
+        lists the jobs that failed 5 times and wait for a retry; `pending` and `running` list the
+        work in flight. Done jobs are summed up by each user's coverage report.
+
+        Args:
+            provider: Only this provider's jobs.
+            cursor: The next_cursor of the previous page.
+        """
+        return self._request(
+            "GET",
+            "/v1/pipeline/etl-jobs",
+            query={
+                "status": status,
+                "provider": provider,
+                "limit": limit,
+                "cursor": cursor,
+            },
+        )
+
+    def iter_etl_jobs(
+        self,
+        *,
+        status: Optional[Literal["parked", "pending", "running"]] = None,
+        provider: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Iterator[ETLJob]:
+        """Every item of :meth:`list_etl_jobs`, page after page, following ``next_cursor``."""
+        return paginate(
+            lambda cursor: self.list_etl_jobs(
+                status=status,
+                provider=provider,
+                limit=limit,
+                cursor=cursor,
+            )
+        )
+
+    def retry_parked_etl_jobs(
+        self,
+        body: Optional[RetryParkedETLJobsRequest] = None,
+    ) -> RetryParkedETLJobsResponse:
+        """Retry every parked processing job.
+
+        ``POST /v1/pipeline/etl-jobs/retry``
+
+        Queues every parked job of the tenant again with fresh attempts, or only one provider's. A
+        job that fails for the same reason parks again after 5 attempts.
+        """
+        return self._request(
+            "POST",
+            "/v1/pipeline/etl-jobs/retry",
+            json_body=body,
+        )
+
+    def retry_etl_job(self, job_id: int) -> ETLJob:
+        """Retry one parked processing job.
+
+        ``POST /v1/pipeline/etl-jobs/{job_id}/retry``
+
+        Queues the job again with fresh attempts. Only a parked job can be retried (409 otherwise).
+        """
+        return self._request(
+            "POST",
+            f"/v1/pipeline/etl-jobs/{_path(job_id)}/retry",
         )
 
     def list_audit_events(

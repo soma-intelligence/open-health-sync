@@ -58,7 +58,7 @@ is shared between installs: the page of each [connector](../connectors/README.md
 get them, in about ten minutes. Then:
 
 ```sh
-python3 recipes/connect.py withings    # or oura, whoop, fitbit...
+go run ./recipes/connect withings    # or oura, whoop, fitbit...
 ```
 
 Allow access on the page that opens. The first data arrives within seconds, and your history
@@ -67,7 +67,7 @@ follows in the background.
 ## 4. See what came in
 
 ```sh
-python3 recipes/connect.py
+go run ./recipes/connect
 ```
 
 ```text

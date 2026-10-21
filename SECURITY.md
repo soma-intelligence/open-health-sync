@@ -49,7 +49,8 @@ configuration, or an instance running without the settings in
 - API keys (`ohs_sk_`) and user tokens (`ohs_ut_`) are stored as SHA-256 hashes only.
 - OAuth tokens are encrypted with AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the tenant,
   user and provider. Losing the key loses the stored OAuth tokens; leaking it exposes them.
-- Logs never contain tokens, keys or health values.
+- Logs never contain tokens or health values. The only key ever logged is the one
+  `OHS_BOOTSTRAP_TENANT` creates, once, at first start.
 - Every query on user data filters on `tenant_id` and `user_id`.
 
 Known limits that operators should plan around are listed in
@@ -61,7 +62,7 @@ production is [docs/hardening.md](docs/hardening.md).
 
 ## Verifying releases
 
-Releases after 0.0.2 are signed keylessly with [Sigstore](https://www.sigstore.dev) cosign by
+Releases after 0.1.0 are signed keylessly with [Sigstore](https://www.sigstore.dev) cosign by
 the release workflow, using its GitHub OIDC identity; no long-lived signing key exists. The
 container image is signed by digest. Find the digest of a tag, then verify it:
 

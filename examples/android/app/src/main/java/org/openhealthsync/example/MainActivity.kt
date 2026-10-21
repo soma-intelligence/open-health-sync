@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package org.openhealthsync.example
 
+import android.Manifest
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -42,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -49,9 +54,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val store = SettingsStore(this)
+        val bluetooth = ViewModelProvider(this)[BluetoothModel::class.java]
         setContent {
             ExampleTheme {
-                App(store)
+                App(store, bluetooth)
             }
         }
     }
@@ -72,7 +78,7 @@ private fun ExampleTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun App(store: SettingsStore) {
+private fun App(store: SettingsStore, bluetooth: BluetoothModel) {
     var showSettings by rememberSaveable { mutableStateOf(store.token.isEmpty()) }
     var serverUrl by remember { mutableStateOf(store.serverUrl) }
     var token by remember { mutableStateOf(store.token) }
@@ -115,6 +121,7 @@ private fun App(store: SettingsStore) {
                 )
             } else {
                 UploadScreen(serverUrl = serverUrl, token = token)
+                BluetoothScreen(bluetooth = bluetooth, serverUrl = serverUrl, token = token)
             }
         }
     }
@@ -195,6 +202,52 @@ private fun UploadScreen(serverUrl: String, token: String) {
         UploadState.Running -> CircularProgressIndicator()
         is UploadState.Done -> ResultCard(s)
         is UploadState.Failed -> ErrorCard(s)
+    }
+}
+
+/** Android 12 and later ask for the Bluetooth permissions; earlier versions for location. */
+private val BLUETOOTH_PERMISSIONS =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+    } else {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+@Composable
+private fun BluetoothScreen(bluetooth: BluetoothModel, serverUrl: String, token: String) {
+    val scope = rememberCoroutineScope()
+    val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted.values.all { it }) bluetooth.start() else bluetooth.refused()
+    }
+    val state = bluetooth.state
+
+    HorizontalDivider()
+    Text("Bluetooth devices", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Connects to heart rate straps, blood pressure cuffs, scales, glucose meters, thermometers " +
+            "and pulse oximeters that use the standard Bluetooth health profiles, and uploads the " +
+            "values they send with the Kotlin SDK. The server decodes them.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Button(
+        onClick = { if (bluetooth.scanning) bluetooth.stop() else askPermission.launch(BLUETOOTH_PERMISSIONS) },
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text(if (bluetooth.scanning) "Stop" else "Find devices") }
+    if (bluetooth.live.isNotEmpty()) {
+        Text(bluetooth.live, style = MaterialTheme.typography.bodyLarge)
+    }
+    Text("Values recorded: ${bluetooth.recorded}", style = MaterialTheme.typography.bodySmall)
+    Button(
+        onClick = { scope.launch { bluetooth.upload(serverUrl, token) } },
+        enabled = bluetooth.canUpload && state !is UploadState.Running && token.isNotEmpty(),
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text("Upload recorded values") }
+
+    when (state) {
+        UploadState.Idle -> Unit
+        UploadState.Running -> CircularProgressIndicator()
+        is UploadState.Done -> ResultCard(state)
+        is UploadState.Failed -> ErrorCard(state)
     }
 }
 

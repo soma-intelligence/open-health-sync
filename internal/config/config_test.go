@@ -198,8 +198,22 @@ func TestLoadConsole(t *testing.T) {
 	if len(c.Providers) != 0 {
 		t.Fatalf("OHS_CONSOLE leaked as a provider: %v", c.Providers)
 	}
+	if c.ConsoleReadOnly {
+		t.Fatal("true is the managing console")
+	}
+	m["OHS_CONSOLE"] = "read-only"
+	c, err = load(t, m)
+	if err != nil || !c.Console || !c.ConsoleReadOnly {
+		t.Fatalf("read-only: %v %v %v", c.Console, c.ConsoleReadOnly, err)
+	}
+	m["OHS_CONSOLE"] = "false"
+	c, err = load(t, m)
+	if err != nil || c.Console || c.ConsoleReadOnly {
+		t.Fatalf("false: %v %v %v", c.Console, c.ConsoleReadOnly, err)
+	}
 	m["OHS_CONSOLE"] = "maybe"
-	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_CONSOLE") {
+	if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_CONSOLE") ||
+		!strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("bad value: %v", err)
 	}
 }

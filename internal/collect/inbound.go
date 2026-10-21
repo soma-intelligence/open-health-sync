@@ -31,6 +31,33 @@ var inboundReadTimeout = 30 * time.Second
 // inboundDefaultSpan is the window pulled for an event that names no times.
 const inboundDefaultSpan = 24 * time.Hour
 
+// pushTarget is one set of keys a notification may come for: the
+// instance's (tenant and keys nil), or one tenant's own. Its connector
+// verifies the notification with those keys, and only the connections made
+// with them get its events.
+type pushTarget struct {
+	tenant, keys *uuid.UUID
+	c            connector.PushConnector
+}
+
+// pushTargets lists the keys a notification for provider may be meant for:
+// the instance's first, then every tenant's own, by tenant. The route names
+// only the provider (one callback URL per provider), so each is tried.
+func (d Deps) pushTargets(provider string) []pushTarget {
+	var out []pushTarget
+	if c, ok := d.lookup(provider); ok {
+		if pc, ok := connector.AsPush(c); ok {
+			out = append(out, pushTarget{c: pc})
+		}
+	}
+	for _, cand := range d.TenantKeys.Candidates(provider) {
+		if pc, ok := connector.AsPush(cand.Connector); ok {
+			out = append(out, pushTarget{tenant: &cand.Tenant, keys: &cand.ID, c: pc})
+		}
+	}
+	return out
+}
+
 // InboundProbe serves HEAD and GET /inbound/{provider}: some providers check
 // that a notification URL answers before they subscribe it. It answers 200
 // with no body for a provider that sends notifications, 404 otherwise. A
@@ -39,7 +66,7 @@ const inboundDefaultSpan = 24 * time.Hour
 // auth.
 func (h *Handlers) InboundProbe() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, ok := h.d.lookup(r.PathValue("provider"))
+		c, ok := h.d.capable(r.PathValue("provider"))
 		if !ok {
 			writeNotFound(w, "unknown provider")
 			return
@@ -48,13 +75,18 @@ func (h *Handlers) InboundProbe() http.Handler {
 			writeNotFound(w, "this provider does not send notifications")
 			return
 		}
-		if cr, ok := c.(connector.ChallengeResponder); ok {
+		// Each set of keys may have registered this URL: the first whose
+		// connector verifies the challenge answers it.
+		var refused error
+		for _, t := range h.d.pushTargets(r.PathValue("provider")) {
+			cr, ok := t.c.(connector.ChallengeResponder)
+			if !ok {
+				continue
+			}
 			ctype, body, err := cr.AnswerChallenge(r)
 			if err != nil {
-				// Anyone can probe here: DEBUG, like a refused notification.
-				slog.DebugContext(r.Context(), "collect: inbound challenge refused", "provider", r.PathValue("provider"), "error", safeErr(err))
-				auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "the challenge could not be verified")
-				return
+				refused = err
+				continue
 			}
 			if body != nil {
 				w.Header().Set("Content-Type", ctype)
@@ -62,6 +94,14 @@ func (h *Handlers) InboundProbe() http.Handler {
 				_, _ = w.Write(body)
 				return
 			}
+			refused = nil
+			break
+		}
+		if refused != nil {
+			// Anyone can probe here: DEBUG, like a refused notification.
+			slog.DebugContext(r.Context(), "collect: inbound challenge refused", "provider", r.PathValue("provider"), "error", safeErr(refused))
+			auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "the challenge could not be verified")
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 	})
@@ -70,7 +110,10 @@ func (h *Handlers) InboundProbe() http.Handler {
 // Inbound serves POST /inbound/{provider}. It is provider facing: mount it
 // without auth; the connector verifies the request (signature, secret or
 // whatever the provider uses). A body over 1 MiB is 413; a request the
-// connector rejects gets 401. Neither enqueues anything. Each event is
+// connector rejects gets 401. Neither enqueues anything. The connector of
+// each set of keys of the provider verifies it (the instance's, then each
+// tenant's own, see pushTargets); the events of one that accepts it go only
+// to the connections made with its keys. Each event is
 // matched to every active connection holding its provider user id, across
 // tenants (one provider account linked in two tenants feeds both), and a pull
 // job for [From, To] is enqueued for each; events for unknown users are
@@ -82,13 +125,12 @@ func (h *Handlers) Inbound() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		provider := r.PathValue("provider")
-		c, ok := h.d.lookup(provider)
+		c, ok := h.d.capable(provider)
 		if !ok {
 			writeNotFound(w, "unknown provider")
 			return
 		}
-		pc, ok := connector.AsPush(c)
-		if !ok {
+		if _, ok := connector.AsPush(c); !ok {
 			writeNotFound(w, "this provider does not send notifications")
 			return
 		}
@@ -107,30 +149,43 @@ func (h *Handlers) Inbound() http.Handler {
 			auth.WriteProblem(w, http.StatusBadRequest, "Bad Request", "the body could not be read")
 			return
 		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		events, err := pc.HandleInbound(ctx, r)
-		if err != nil {
-			// Anyone can post here: DEBUG, so junk traffic cannot flood the log.
-			slog.DebugContext(ctx, "collect: inbound refused", "provider", provider, "error", safeErr(err))
-			auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "the notification could not be verified")
-			return
-		}
-		var pulls, stores []connector.InboundEvent
-		for _, ev := range events {
-			if len(ev.Lines) > 0 {
-				stores = append(stores, ev)
-			} else {
-				pulls = append(pulls, ev)
+		verified := false
+		var lastErr error
+		for _, t := range h.d.pushTargets(provider) {
+			// Each connector reads the request afresh, its parsed form
+			// included.
+			rc := r.Clone(ctx)
+			rc.Form, rc.PostForm, rc.MultipartForm = nil, nil, nil
+			rc.Body = io.NopCloser(bytes.NewReader(body))
+			events, err := t.c.HandleInbound(ctx, rc)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			verified = true
+			var pulls, stores []connector.InboundEvent
+			for _, ev := range events {
+				if len(ev.Lines) > 0 {
+					stores = append(stores, ev)
+				} else {
+					pulls = append(pulls, ev)
+				}
+			}
+			if err := h.storeInbound(ctx, provider, t, stores); err != nil {
+				slog.ErrorContext(ctx, "collect: inbound store", "provider", provider, "error", err)
+				writeInternal(w)
+				return
+			}
+			if err := h.enqueueInbound(ctx, provider, t, pulls); err != nil {
+				slog.ErrorContext(ctx, "collect: inbound enqueue", "provider", provider, "error", err)
+				writeInternal(w)
+				return
 			}
 		}
-		if err := h.storeInbound(ctx, provider, stores); err != nil {
-			slog.ErrorContext(ctx, "collect: inbound store", "provider", provider, "error", err)
-			writeInternal(w)
-			return
-		}
-		if err := h.enqueueInbound(ctx, provider, pulls); err != nil {
-			slog.ErrorContext(ctx, "collect: inbound enqueue", "provider", provider, "error", err)
-			writeInternal(w)
+		if !verified {
+			// Anyone can post here: DEBUG, so junk traffic cannot flood the log.
+			slog.DebugContext(ctx, "collect: inbound refused", "provider", provider, "error", safeErr(lastErr))
+			auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "the notification could not be verified")
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -160,15 +215,17 @@ func inboundWindow(ev connector.InboundEvent, now time.Time) (time.Time, time.Ti
 type inboundOwner struct{ tenant, user uuid.UUID }
 
 // inboundOwners lists the active users with an active connection to provider
-// under providerUserID, across tenants.
+// under providerUserID made with the keys of t: across tenants for the
+// instance's keys, in t's tenant for a tenant's own.
 func inboundOwners(ctx context.Context, q interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}, provider, providerUserID, lock string) ([]inboundOwner, error) {
+}, provider string, t pushTarget, providerUserID, lock string) ([]inboundOwner, error) {
 	rows, err := q.Query(ctx, `
 		SELECT c.tenant_id, c.user_id FROM ohs_sync.connections c
 		JOIN ohs_core.end_users u ON u.tenant_id = c.tenant_id AND u.id = c.user_id AND u.status = 'active'
-		WHERE c.provider = $1 AND c.provider_user_id = $2 AND c.status = 'active'`+lock,
-		provider, providerUserID)
+		WHERE c.provider = $1 AND c.provider_user_id = $2 AND c.status = 'active'
+		  AND c.tenant_keys_id IS NOT DISTINCT FROM $3 AND ($4::uuid IS NULL OR c.tenant_id = $4)`+lock,
+		provider, providerUserID, t.keys, t.tenant)
 	if err != nil {
 		return nil, fmt.Errorf("find connection: %w", err)
 	}
@@ -189,18 +246,21 @@ func inboundOwners(ctx context.Context, q interface {
 // connection as having heard from its provider (touchInbound). The batch name
 // carries the arrival time, so two notifications never share a key; the same
 // bytes delivered twice are stored once (storeRaw skips registered bytes). A
-// user being deleted is skipped.
-func (h *Handlers) storeInbound(ctx context.Context, provider string, events []connector.InboundEvent) error {
+// user being deleted, or a tenant that turned the provider off, is skipped.
+func (h *Handlers) storeInbound(ctx context.Context, provider string, t pushTarget, events []connector.InboundEvent) error {
 	now := h.d.now().UTC()
 	for i, ev := range events {
 		if ev.ProviderUserID == "" || ev.DataType == "" {
 			continue
 		}
-		owners, err := inboundOwners(ctx, h.d.Pool, provider, ev.ProviderUserID, "")
+		owners, err := inboundOwners(ctx, h.d.Pool, provider, t, ev.ProviderUserID, "")
 		if err != nil {
 			return err
 		}
 		for _, o := range owners {
+			if !h.d.allowed(o.tenant, provider) {
+				continue
+			}
 			_, err := storeRaw(ctx, h.d, rawTarget{
 				tenant: o.tenant, user: o.user, provider: provider, dataType: ev.DataType,
 				day: now, batch: fmt.Sprintf("inbound-%d", now.UnixMicro()), part: i,
@@ -221,10 +281,11 @@ func (h *Handlers) storeInbound(ctx context.Context, provider string, events []c
 	return nil
 }
 
-// enqueueInbound queues a pull per notified connection of an active user. The
-// user rows are held FOR SHARE until the transaction ends, so a deletion
-// cannot start between the check and the inserts.
-func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events []connector.InboundEvent) error {
+// enqueueInbound queues a pull per notified connection of an active user,
+// unless the provider is turned off for the user's tenant. The user rows are
+// held FOR SHARE until the transaction ends, so a deletion cannot start
+// between the check and the inserts.
+func (h *Handlers) enqueueInbound(ctx context.Context, provider string, t pushTarget, events []connector.InboundEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -238,7 +299,7 @@ func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events [
 		if ev.ProviderUserID == "" {
 			continue
 		}
-		owners, err := inboundOwners(ctx, tx, provider, ev.ProviderUserID, " FOR SHARE OF u")
+		owners, err := inboundOwners(ctx, tx, provider, t, ev.ProviderUserID, " FOR SHARE OF u")
 		if err != nil {
 			return err
 		}
@@ -248,6 +309,9 @@ func (h *Handlers) enqueueInbound(ctx context.Context, provider string, events [
 			dataType = ev.DataType
 		}
 		for _, o := range owners {
+			if !h.d.allowed(o.tenant, provider) {
+				continue
+			}
 			if err := coalescePull(ctx, tx, queue.PullJob{
 				TenantID: o.tenant, UserID: o.user, Provider: provider, From: from, To: to,
 				DataType: dataType, Inbound: true,

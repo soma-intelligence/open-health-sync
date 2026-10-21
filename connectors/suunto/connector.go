@@ -88,6 +88,7 @@ type Options struct {
 type Connector struct {
 	mu   sync.RWMutex
 	keys connector.Config
+	opts Options // what New was given, for NewInstance
 
 	oauthBase, apiBase string
 	httpc              *http.Client
@@ -112,6 +113,7 @@ var (
 // New returns a Suunto connector.
 func New(o Options) *Connector {
 	c := &Connector{
+		opts:      o,
 		oauthBase: o.OAuthBase,
 		apiBase:   o.APIBase,
 		httpc:     o.HTTPClient,
@@ -183,6 +185,9 @@ func (c *Connector) RequiredKeys() []string {
 	return []string{KeyClientID, KeyClientSecret, KeySubscriptionKey}
 }
 
+// OptionalKeys lists the keys it also reads and runs without: NOTIFICATION_SECRET (notifications).
+func (c *Connector) OptionalKeys() []string { return []string{KeyNotificationSecret} }
+
 // Enabled reports whether cfg holds every required key.
 func (c *Connector) Enabled(cfg connector.Config) bool {
 	return cfg[KeyClientID] != "" && cfg[KeyClientSecret] != "" && cfg[KeySubscriptionKey] != ""
@@ -201,6 +206,16 @@ func (c *Connector) Configure(cfg connector.Config) error {
 		KeySubscriptionKey: cfg[KeySubscriptionKey], KeyNotificationSecret: cfg[KeyNotificationSecret],
 	}
 	return nil
+}
+
+// NewInstance returns a connector like c without keys, sharing its HTTP
+// client, for a tenant's own keys (connector.Instancer).
+func (c *Connector) NewInstance() connector.Connector {
+	o := c.opts
+	o.HTTPClient = c.httpc
+	n := New(o)
+	n.keys = nil
+	return n
 }
 
 // credentials returns the configured client id and secret.

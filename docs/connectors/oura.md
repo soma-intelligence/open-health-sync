@@ -169,7 +169,7 @@ secret, please report it.
 
 | Oura data | Canonical records |
 |---|---|
-| Daily activity | quantity samples per local day: `step_count`, `active_energy_burned`, `distance_walking_running` (Oura's equivalent walking distance); the activity score, total calories and time per intensity in metadata |
+| Daily activity | quantity samples per local day: `step_count`, `active_energy_burned`, `distance_walking_running` (Oura's equivalent walking distance), `moderate_activity_time` and `vigorous_activity_time` (Oura's medium and high activity time, sent in seconds, stored in minutes); the activity score, total calories and time per intensity also in metadata |
 | Sleep | a sleep session per sleep period (nights, naps, rest), with its stages from the 5 minute hypnogram (`deep`, `light`, `rem`, `awake`), average HRV, lowest heart rate (as resting heart rate) and average breathing rate. The main sleep of a day also gives `resting_heart_rate` and `respiratory_rate` samples |
 | Daily readiness | `readiness_score` (0 to 100), `readiness_hrv_balance` (the HRV balance contributor, an index, not milliseconds), `body_temperature_deviation` (degrees Celsius); the other contributors in metadata |
 | Daily SpO2 | `oxygen_saturation`, the night's average in percent; the breathing disturbance index in metadata |

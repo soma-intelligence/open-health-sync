@@ -182,7 +182,9 @@ func doctorConnectors(out io.Writer, report func(string, error, string), o Docto
 			continue
 		}
 		report("connector "+slug, nil, "")
-		if _, ok := connector.AsOAuth(c); ok {
+		if _, pw := connector.AsPassword(c); pw {
+			fmt.Fprintf(out, "      %s sign-in page: %s/oauth/%s/signin (nothing to register)\n", slug, public, slug)
+		} else if _, ok := connector.AsOAuth(c); ok {
 			fmt.Fprintf(out, "      %s callback: %s/oauth/%s/callback\n", slug, public, slug)
 		}
 	}

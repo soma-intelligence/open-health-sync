@@ -5,52 +5,99 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
 <title>Set up Open Health Sync</title>
 <link rel="stylesheet" href="/console/console.css">
 <script type="module" src="/console/setup.mjs"></script>
 </head>
 <body>
-<header class="bar">
-  <span class="brand">Open Health Sync setup</span>
-</header>
-<main id="main">
-  <section id="setup">
-    <h1>Set up this instance</h1>
-    <p id="setup-loading" class="muted">Checking this instance...</p>
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <!-- The frame's scene, as on the connect page: noise for the foliage, the
+       dissolving specks and the grain. -->
+  <filter id="scene-foliage" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.0034 0.011" numOctaves="4" seed="4"/>
+    <feColorMatrix type="matrix" values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0 1"/>
+    <feComponentTransfer>
+      <feFuncR type="table" tableValues="0.04 0.05 0.07 0.13 0.27 0.5 0.8 0.93 0.96"/>
+      <feFuncG type="table" tableValues="0.07 0.08 0.11 0.2 0.36 0.58 0.79 0.91 0.94"/>
+      <feFuncB type="table" tableValues="0.05 0.05 0.07 0.13 0.22 0.38 0.62 0.82 0.88"/>
+    </feComponentTransfer>
+    <feGaussianBlur stdDeviation="2.5"/>
+  </filter>
+  <linearGradient id="scene-fade" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".56" stop-color="#000"/></linearGradient>
+  <filter id="scene-specks-light" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency=".9" seed="2" result="fine"/>
+    <feTurbulence type="fractalNoise" baseFrequency=".007 .018" numOctaves="3" seed="9" result="coarse"/>
+    <feComposite in="fine" in2="coarse" operator="arithmetic" k2=".6" k3=".5" result="n"/>
+    <feComposite in="SourceGraphic" in2="n" operator="arithmetic" k2=".78" k3="1" k4="-.64" result="v"/>
+    <feColorMatrix in="v" type="matrix" values="0 0 0 0 .93  0 0 0 0 .93  0 0 0 0 .91  16 0 0 0 -7.4"/>
+  </filter>
+  <filter id="scene-specks-dark" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency=".85" seed="21" result="fine"/>
+    <feTurbulence type="fractalNoise" baseFrequency=".009 .02" numOctaves="3" seed="13" result="coarse"/>
+    <feComposite in="fine" in2="coarse" operator="arithmetic" k2=".6" k3=".5" result="n"/>
+    <feComposite in="SourceGraphic" in2="n" operator="arithmetic" k2=".64" k3="1" k4="-.64" result="v"/>
+    <feColorMatrix in="v" type="matrix" values="0 0 0 0 .06  0 0 0 0 .07  0 0 0 0 .06  16 0 0 0 -7.2"/>
+  </filter>
+  <filter id="scene-grain" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="2" seed="5" stitchTiles="stitch"/>
+  </filter>
+</svg>
+<main id="main" class="auth">
+  <div class="auth-stage narrow">
+    <div class="guides" aria-hidden="true"><i class="gl"></i><i class="gr"></i><i class="gt"></i><i class="gb"></i><b class="x1"></b><b class="x2"></b><b class="x3"></b><b class="x4"></b></div>
+    <div class="frame single">
+      <div class="scene" aria-hidden="true">
+        <div class="base"></div>
+        <svg class="foliage" focusable="false"><rect width="100%" height="100%" filter="url(#scene-foliage)"/></svg>
+        <div class="mist"></div>
+        <div class="sheen p1"></div>
+        <div class="sheen p2"></div>
+        <svg class="dissolve" focusable="false"><rect width="100%" height="100%" fill="url(#scene-fade)" filter="url(#scene-specks-light)"/><rect width="100%" height="100%" fill="url(#scene-fade)" filter="url(#scene-specks-dark)"/></svg>
+        <svg class="grain" focusable="false"><rect width="100%" height="100%" filter="url(#scene-grain)"/></svg>
+        <div class="shade"></div>
+      </div>
+      <section id="setup" class="glass auth-panel">
+        <div class="auth-brand"><span class="logo"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8.5h3l1.8-4.5 3.4 9 1.8-4.5h3"/></svg></span>Open Health Sync</div>
+        <p class="label">First run</p>
+        <h1>Set up this instance</h1>
+        <p id="setup-loading" class="lead">Checking this instance...</p>
 
-    <div id="setup-done" hidden>
-      <p>This instance is already set up.</p>
-      <p><a href="/console">Open the console</a></p>
+        <div id="setup-done" hidden>
+          <p class="lead">This instance is already set up.</p>
+          <p><a href="/console">Open the console</a></p>
+        </div>
+
+        <div id="setup-off" hidden>
+          <p class="lead">The first-run setup is off on this instance: <code>OHS_SETUP_TOKEN</code> is not set.
+          Create a tenant with <code>ohs admin tenant create</code>, or set the token and restart.</p>
+          <p><a href="/console">Open the console</a></p>
+        </div>
+
+        <form id="setup-form" autocomplete="off" hidden>
+          <p class="lead">This instance has no tenant yet. Enter its setup token (<code>OHS_SETUP_TOKEN</code>; on an
+          app store it is the app's password) to create the first tenant and its API key. This works
+          once, and the first tenant is the instance admin.</p>
+          <label for="setup-token">Setup token</label>
+          <input id="setup-token" name="setup-token" class="mono" type="password" autocomplete="off" spellcheck="false" required>
+          <label for="tenant-name">Tenant name (optional)</label>
+          <input id="tenant-name" name="tenant-name" type="text" autocomplete="off" spellcheck="false" maxlength="100" placeholder="default">
+          <button id="setup-submit" type="submit" class="primary">Create the tenant</button>
+        </form>
+
+        <p id="setup-error" class="form-error" role="alert"></p>
+
+        <div id="setup-result" hidden>
+          <div class="notice warn"><div><strong>Store this API key now: it will not be shown again.</strong></div></div>
+          <p class="muted small">Tenant <code id="result-tenant"></code></p>
+          <p class="key-line"><code id="result-key"></code></p>
+          <p><button id="copy-key" type="button">Copy the key</button> <span id="copy-status" class="muted" role="status"></span></p>
+          <p class="muted">This tab is signed in to the console with it until the tab closes.</p>
+          <p><a href="/console">Open the console</a></p>
+        </div>
+      </section>
     </div>
-
-    <div id="setup-off" hidden>
-      <p>The first-run setup is off on this instance: <code>OHS_SETUP_TOKEN</code> is not set.
-      Create a tenant with <code>ohs admin tenant create</code>, or set the token and restart.</p>
-      <p><a href="/console">Open the console</a></p>
-    </div>
-
-    <form id="setup-form" autocomplete="off" hidden>
-      <p>This instance has no tenant yet. Enter its setup token (<code>OHS_SETUP_TOKEN</code>; on an
-      app store it is the app's password) to create the first tenant and its API key. This works
-      once.</p>
-      <label for="setup-token">Setup token</label>
-      <input id="setup-token" name="setup-token" type="password" autocomplete="off" spellcheck="false" required>
-      <label for="tenant-name">Tenant name (optional)</label>
-      <input id="tenant-name" name="tenant-name" type="text" autocomplete="off" spellcheck="false" maxlength="100" placeholder="default">
-      <button id="setup-submit" type="submit">Create the tenant</button>
-    </form>
-
-    <p id="setup-error" class="bad" role="alert"></p>
-
-    <div id="setup-result" hidden>
-      <p class="warn"><strong>Store this API key now: it will not be shown again.</strong></p>
-      <p>Tenant <code id="result-tenant"></code></p>
-      <p class="key-line"><code id="result-key"></code></p>
-      <p><button id="copy-key" type="button">Copy the key</button> <span id="copy-status" class="muted" role="status"></span></p>
-      <p>This tab is signed in to the console with it until the tab closes.</p>
-      <p><a href="/console">Open the console</a></p>
-    </div>
-  </section>
+  </div>
 </main>
 <noscript><p>The setup page needs JavaScript.</p></noscript>
 </body>

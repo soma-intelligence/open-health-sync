@@ -116,6 +116,328 @@ class ConsentEvent(TypedDict):
     evidence: str
 
 
+class Tenant(TypedDict):
+    id: str
+    name: str
+    # True for the instance admin tenant, whose keys manage the providers. The first tenant of an instance is the admin.
+    admin: bool
+    created_at: str
+    # The key making the call.
+    key: TenantKey
+
+
+class TenantKey(TypedDict):
+    """The key making the call."""
+
+    id: str
+    prefix: str
+
+
+class APIKey(TypedDict):
+    id: str
+    # The start of the key, kept in clear to tell keys apart.
+    prefix: str
+    created_at: str
+    last_used_at: Optional[str]
+    revoked_at: Optional[str]
+    # True for the key making the call.
+    current: bool
+
+
+class CreatedAPIKey(TypedDict):
+    id: str
+    # The start of the key, kept in clear to tell keys apart.
+    prefix: str
+    created_at: str
+    last_used_at: Optional[str]
+    revoked_at: Optional[str]
+    # True for the key making the call.
+    current: bool
+    # The whole key, returned this once.
+    key: str
+
+
+class AdminTenant(TypedDict):
+    id: str
+    name: str
+    # True for an instance admin tenant, whose keys reach the /v1/admin routes.
+    admin: bool
+    created_at: str
+    # The tenant's keys that are not revoked.
+    active_keys: int
+
+
+class CreatedAdminTenant(TypedDict):
+    id: str
+    name: str
+    # True for an instance admin tenant, whose keys reach the /v1/admin routes.
+    admin: bool
+    created_at: str
+    # The tenant's keys that are not revoked.
+    active_keys: int
+    # The tenant's first key, with its secret, returned this once.
+    key: CreatedAPIKey
+
+
+class CreateAdminTenantRequest(TypedDict):
+    # Surrounding spaces are trimmed; what is left must be 1 to 100 characters, none of them a
+    # control character.
+    name: str
+
+
+class DemoUserRequest(TypedDict, total=False):
+    # The user to fill, created when the tenant has none with this reference. By default
+    # `demo-user` for `mix` and `demo-<persona>` for the others, so each persona fills its own.
+    external_ref: str
+    # Days of data, ending yesterday.
+    days: int
+    # The kind of person: `mix` (one person seen through six sources), `runner` (polar, whoop,
+    # apple_health), `sleep` (a short, irregular sleeper: oura, apple_health) or `weight`
+    # (someone watching their weight: withings, fitbit). See docs/demo.md.
+    persona: Literal["mix", "runner", "sleep", "weight"]
+
+
+class DemoUser(TypedDict):
+    user: User
+    days: int
+    # Rows this call stored; 0 when every day was already there.
+    rows_written: int
+    # The persona written.
+    persona: Literal["mix", "runner", "sleep", "weight"]
+
+
+class Pipeline(TypedDict):
+    generated_at: str
+    users: PipelineUser
+    sources: List[PipelineSource]
+    # Sync runs in flight (`queued`, `running`, `retrying` after a failed attempt,
+    # `rate_limited`), and those created in the last 24 hours that ended `failed` or
+    # `succeeded`.
+    sync: PipelineSync
+    # Processing jobs by status, and the records processing rejected and has not recovered (as in the coverage report).
+    processing: PipelineProcessing
+    # Raw payloads stored in the last 24 hours.
+    storage: PipelineStorage
+    # Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done.
+    delivery: PipelineDelivery
+
+
+class PipelineUser(TypedDict):
+    active: int
+    deleting: int
+
+
+class PipelineSync(TypedDict):
+    """Sync runs in flight (`queued`, `running`, `retrying` after a failed attempt,
+    `rate_limited`), and those created in the last 24 hours that ended `failed` or
+    `succeeded`.
+    """
+
+    queued: int
+    running: int
+    retrying: int
+    rate_limited: int
+    failed_24h: int
+    succeeded_24h: int
+
+
+class PipelineProcessing(TypedDict):
+    """Processing jobs by status, and the records processing rejected and has not recovered (as in the coverage report)."""
+
+    pending: int
+    running: int
+    parked: int
+    rejected_records: int
+
+
+class PipelineStorage(TypedDict):
+    """Raw payloads stored in the last 24 hours."""
+
+    raw_objects_24h: int
+    raw_bytes_24h: int
+
+
+class PipelineDelivery(TypedDict):
+    """Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done."""
+
+    endpoints: int
+    endpoints_failing: int
+    endpoints_disabled: int
+    pending: int
+    parked: int
+
+
+class PipelineSource(TypedDict):
+    slug: str
+    name: str
+    kinds: List[Literal["oauth", "push", "device"]]
+    enabled: bool
+    # The tenant's connections by status (active, needs_reauth, disconnected).
+    connections: Dict[str, int]
+    # Active connections whose health is not ok.
+    broken: int
+    # Set while the provider's rate limit pauses every pull.
+    paused_until: Optional[str]
+
+
+class TenantSyncRun(TypedDict):
+    id: int
+    provider: str
+    trigger: Literal["backfill", "scheduled", "notification", "manual"]
+    status: Literal["queued", "running", "retrying", "rate_limited", "succeeded", "failed", "cancelled"]
+    # Set when a notification named the one data type to pull.
+    data_type: Optional[str]
+    window_start: str
+    window_end: str
+    # Failed attempts so far.
+    attempts: int
+    objects_stored: Optional[int]
+    error: Optional[str]
+    created_at: str
+    started_at: Optional[str]
+    finished_at: Optional[str]
+    next_attempt_at: Optional[str]
+    user_id: str
+
+
+class ETLJob(TypedDict):
+    """One processing job, turning a stored raw payload into records."""
+
+    id: int
+    user_id: str
+    provider: str
+    tier: str
+    status: Literal["pending", "running", "parked", "done"]
+    attempts: int
+    # The error of the last failed attempt.
+    error: Optional[str]
+    created_at: str
+    # Set while the job is pending.
+    next_attempt_at: Optional[str]
+
+
+class AdminProvider(TypedDict):
+    slug: str
+    name: str
+    kinds: List[Literal["oauth", "push", "device"]]
+    # `active` runs; `off` was turned off; `not_configured` lacks a required key; `error` has
+    # keys the provider's rules refuse (see `error`); `built_in` needs no key and is always on.
+    status: Literal["active", "off", "not_configured", "error", "built_in"]
+    enabled: bool
+    # Where the keys come from. Environment variables win over the console as a whole.
+    source: Optional[Literal["env", "console"]]
+    keys: List[AdminProviderKey]
+    error: Optional[str]
+    # The addresses to register in the provider's developer portal.
+    urls: AdminProviderUrl
+    updated_at: Optional[str]
+    # The id of the API key that saved the last change.
+    updated_by: Optional[str]
+
+
+class AdminProviderUrl(TypedDict):
+    """The addresses to register in the provider's developer portal."""
+
+    # The OAuth redirect URI, for a provider users connect to.
+    redirect: Optional[str]
+    # Where the provider posts notifications, for a push provider.
+    inbound: Optional[str]
+
+
+class AdminProviderKey(TypedDict):
+    name: str
+    # The environment variable that can set it instead.
+    env: str
+    required: bool
+    secret: bool
+    set: bool
+    # The saved value of a key that is not a secret. Secrets are never served.
+    value: Optional[str]
+
+
+class AdminProviderPatch(TypedDict, total=False):
+    # Key name to its new value; null removes the key.
+    keys: Dict[str, Optional[str]]
+    enabled: bool
+
+
+class AdminTenantProvider(TypedDict):
+    slug: str
+    name: str
+    kinds: List[Literal["oauth", "push", "device"]]
+    # The provider's status on the instance, as `GET /v1/admin/providers` gives it.
+    instance_status: Literal["active", "off", "not_configured", "error", "built_in"]
+    # The tenant's switch, true unless an instance admin turned it off.
+    enabled: bool
+    # True while the tenant has keys of its own for the provider
+    # (`/v1/admin/tenants/{tenant_id}/providers/{provider}/keys`).
+    own_keys: bool
+    # True when the tenant's users can use the provider now: `enabled` is true and either the
+    # tenant's own keys run, or the tenant has none and the instance runs the provider
+    # (`active` or `built_in`).
+    available: bool
+    # The last change of the switch, null when it was never set.
+    updated_at: Optional[str]
+
+
+class _AdminTenantProviderKeysRequired(TypedDict):
+    provider: str
+    # True while the tenant has keys of its own for the provider.
+    set: bool
+    # `active`: the tenant's new connections use these keys. `error`: they do not run (they no
+    # longer open with the configured encryption keys, or the provider refused them, see
+    # `error`); the tenant cannot connect the provider until they are set again or removed.
+    # `not_set`: the tenant uses the instance's keys.
+    status: Literal["active", "error", "not_set"]
+    error: Optional[str]
+    # The first and last four characters of `CLIENT_ID`, never all of it.
+    client_id: Optional[str]
+    # Every key the provider takes. No value is ever served.
+    keys: List[AdminTenantProviderKeysKey]
+    # The addresses to register in the tenant's application at the provider: the instance's,
+    # the same for every tenant.
+    urls: AdminTenantProviderKeysUrl
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    # The id of the admin key that saved the keys.
+    updated_by: Optional[str]
+
+
+class AdminTenantProviderKeys(_AdminTenantProviderKeysRequired, total=False):
+    # Only in the answers of PUT and DELETE: how many connections of the tenant the change
+    # set `needs_reauth`.
+    reauth_required: int
+
+
+class AdminTenantProviderKeysKey(TypedDict):
+    name: str
+    required: bool
+    secret: bool
+    set: bool
+
+
+class AdminTenantProviderKeysUrl(TypedDict):
+    """The addresses to register in the tenant's application at the provider: the instance's,
+    the same for every tenant.
+    """
+
+    # The OAuth redirect URI.
+    redirect: Optional[str]
+    # Where the provider posts notifications, for a push provider.
+    inbound: Optional[str]
+
+
+class AdminTenantProviderKeysPut(TypedDict):
+    # Every key of the tenant's application by name, such as `CLIENT_ID` and
+    # `CLIENT_SECRET`; the provider's `keys` lists them. Replaces the previous ones whole.
+    keys: Dict[str, str]
+
+
+class AdminTenantProviderPatch(TypedDict):
+    # false turns the provider off for the tenant, true turns it back on.
+    enabled: bool
+
+
 class _AuditEventRequired(TypedDict):
     # Increasing; the cursor of the next page.
     id: int
@@ -124,8 +446,9 @@ class _AuditEventRequired(TypedDict):
     # data.read, data.export, data.write, user.create, user.read, user.delete,
     # user.erased, token.create, connection.read, connection.create,
     # connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-    # config.write, tenant.create, key.create, key.revoke, share.create, share.read,
-    # share.revoke, share.access (more may be added).
+    # config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
+    # key.revoke, share.create,
+    # share.read, share.revoke, share.access (more may be added).
     action: str
     # The end user the action concerns.
     user_id: Optional[str]
@@ -152,9 +475,16 @@ class AuditEventActor(TypedDict):
     id: str
 
 
-class Provider(TypedDict):
+class _ProviderRequired(TypedDict):
     slug: str
     kinds: List[Literal["oauth", "push", "device"]]
+
+
+class Provider(_ProviderRequired, total=False):
+    # Display name, the slug when the build has none. Older servers leave it out.
+    name: str
+    # What the connector delivers: first the record kinds it writes (sample, category, sleep, workout, route, nutrition, ecg, heartbeat, daily), then the canonical quantity names it can produce. Read from the connector's source, so a quantity is listed when the connector can write it, not when a given user has it. Older servers leave it out.
+    data_types: List[str]
 
 
 class CreateUserRequest(TypedDict, total=False):
@@ -381,8 +711,11 @@ class _ConnectionRequired(TypedDict):
 class Connection(_ConnectionRequired, total=False):
     scopes: List[str]
     last_sync_at: Optional[str]
+    # When the pull of the user's history was queued.
     initial_backfill_at: Optional[str]
     updated_at: str
+    # Same as created_at, under its earlier name.
+    connected_at: str
     # Whether the connection syncs, and if not why and what fixes it. `reason` is `needs_reauth`
     # (the provider refused the grant: token expired or revoked), `missing_scope` (the grant lacks a
     # permission the data needs), `failing` (the last 3 pulls failed) or `rate_limited` (the provider
@@ -678,6 +1011,7 @@ class _NutritionLogRequired(TypedDict):
 
 class NutritionLog(_NutritionLogRequired, total=False):
     end_date: Optional[str]
+    # breakfast, lunch, dinner or snack.
     meal_type: Optional[str]
     energy_kcal: Optional[float]
     protein_g: Optional[float]
@@ -686,7 +1020,8 @@ class NutritionLog(_NutritionLogRequired, total=False):
     fiber_g: Optional[float]
     sugar_g: Optional[float]
     sodium_mg: Optional[float]
-    # Extended nutrients by name.
+    # Extended nutrients by name (caffeine, vitamin_d, water...), each in its
+    # nutrient's unit (docs/api.md lists them).
     nutrients: Optional[Dict[str, Any]]
     external_id: Optional[str]
 
@@ -1757,6 +2092,37 @@ class IngestActivityFilesResponse(TypedDict):
     duplicate: bool
 
 
+class IngestBluetoothResponse(TypedDict):
+    # Raw object key.
+    key: str
+    duplicate: bool
+
+
+class ListKeysResponse(TypedDict):
+    data: List[APIKey]
+
+
+class ListTenantSyncRunsResponse(TypedDict):
+    data: List[TenantSyncRun]
+    # Null on the last page.
+    next_cursor: Optional[str]
+
+
+class ListETLJobsResponse(TypedDict):
+    data: List[ETLJob]
+    # Null on the last page.
+    next_cursor: Optional[str]
+
+
+class RetryParkedETLJobsRequest(TypedDict, total=False):
+    # Only this provider's parked jobs.
+    provider: str
+
+
+class RetryParkedETLJobsResponse(TypedDict):
+    retried: int
+
+
 class ListAuditEventsResponse(TypedDict):
     data: List[AuditEvent]
     # Null on the last page.
@@ -1772,6 +2138,18 @@ class ReadyzResponse(TypedDict, total=False):
 
 
 __all__ = [
+    "APIKey",
+    "AdminProvider",
+    "AdminProviderKey",
+    "AdminProviderPatch",
+    "AdminProviderUrl",
+    "AdminTenant",
+    "AdminTenantProvider",
+    "AdminTenantProviderKeys",
+    "AdminTenantProviderKeysKey",
+    "AdminTenantProviderKeysPut",
+    "AdminTenantProviderKeysUrl",
+    "AdminTenantProviderPatch",
     "AuditEvent",
     "AuditEventActor",
     "CategorySample",
@@ -1786,11 +2164,14 @@ __all__ = [
     "ConsentSource",
     "Coverage",
     "CoverageDay",
+    "CreateAdminTenantRequest",
     "CreateSelfReportsRequest",
     "CreateShareRequest",
     "CreateTimeTagRequest",
     "CreateUserRequest",
     "CreateWebhookRequest",
+    "CreatedAPIKey",
+    "CreatedAdminTenant",
     "CreatedShare",
     "DailySummary",
     "DailySummaryPage",
@@ -1798,10 +2179,13 @@ __all__ = [
     "DeleteProviderDataResponse",
     "DeleteUserResponse",
     "DeletionJob",
+    "DemoUser",
+    "DemoUserRequest",
     "ECGRecording",
     "ECGRecordingDetail",
     "ECGRecordingPage",
     "ECGSamples",
+    "ETLJob",
     "FHIRBundle",
     "FHIRBundleEntry",
     "FHIRBundleEntrySearch",
@@ -1848,14 +2232,18 @@ __all__ = [
     "HealthzResponse",
     "IngestActivityFilesResponse",
     "IngestAppleHealthResponse",
+    "IngestBluetoothResponse",
     "IngestHealthConnectResponse",
     "IngestXiaomiResponse",
     "ListAuditEventsResponse",
     "ListConnectionsResponse",
     "ListConsentHistoryResponse",
     "ListConsentsResponse",
+    "ListETLJobsResponse",
+    "ListKeysResponse",
     "ListProvidersResponse",
     "ListSyncRunsResponse",
+    "ListTenantSyncRunsResponse",
     "ListUsersResponse",
     "ListWebhookDeliveriesResponse",
     "ListWebhooksResponse",
@@ -1873,6 +2261,13 @@ __all__ = [
     "OMHDataPointPage",
     "PageBase",
     "PasscodeProblem",
+    "Pipeline",
+    "PipelineDelivery",
+    "PipelineProcessing",
+    "PipelineSource",
+    "PipelineStorage",
+    "PipelineSync",
+    "PipelineUser",
     "Problem",
     "Provenance",
     "Provider",
@@ -1880,6 +2275,8 @@ __all__ = [
     "RRInterval",
     "RRIntervalPage",
     "ReadyzResponse",
+    "RetryParkedETLJobsRequest",
+    "RetryParkedETLJobsResponse",
     "RotateWebhookSecretResponse",
     "RoutePoint",
     "RoutePointPage",
@@ -1914,6 +2311,9 @@ __all__ = [
     "StartConnectionResponse",
     "SyncConnectionRequest",
     "SyncRun",
+    "Tenant",
+    "TenantKey",
+    "TenantSyncRun",
     "TestWebhookRequest",
     "TimeTag",
     "TimeTagKind",

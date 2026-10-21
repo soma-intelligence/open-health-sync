@@ -136,8 +136,8 @@ Arguments mirror the REST query parameters. Times take RFC 3339 or `YYYY-MM-DD` 
 | `get_rr_intervals` | `user_id`, `series_id`, `start`, `end`, `cursor`, `limit` | beat-to-beat (RR) intervals, as `GET /v1/users/{id}/rr-intervals` |
 | `get_hrv` | `user_id`, `series_id`, `start`, `end`, `cursor`, `limit` | the HRV derived from each heartbeat series, as `GET /v1/users/{id}/hrv` (see [hrv.md](hrv.md)) |
 | `get_menstrual_cycles` | `user_id`, `start`, `end`, `cursor`, `limit` | menstrual cycles derived from the recorded flow, as `GET /v1/users/{id}/menstrual-cycles`; `start` and `end` select cycles by their start day (see [menstrual-cycles.md](menstrual-cycles.md)) |
-| `get_ecg_recordings` | `user_id`, `recording_id`, `start`, `end`, `cursor`, `limit` | ECG recordings, metadata only, as `GET /v1/users/{id}/ecg`; with `recording_id`, a summary of that recording's stored voltage samples (count, first and last offset, lowest and highest voltage), never the samples themselves. The classification is the recording device's, passed through |
-| `get_sample_stats` | `user_id`, `type`, `start`, `end`, `interval`, `tz`, `provider`, `view` | count, sum, mean, min and max per hour or local day, one series per provider and source |
+| `get_ecg_recordings` | `user_id`, `recording_id`, `start`, `end`, `cursor`, `limit` | ECG recordings, metadata only, as `GET /v1/users/{id}/ecg`; with `recording_id`, a summary of that recording's stored voltage samples (count, first and last offset, lowest and highest voltage), never the samples themselves. The classification is the recording device's, passed through. Next release |
+| `get_sample_stats` | `user_id`, `type`, `start`, `end`, `interval`, `tz`, `provider`, `view` | count, sum, mean, min and max per hour or local day, one series per provider and source. Next release |
 | `get_coverage` | `user_id`, `provider`, `start`, `end` | records per provider per day, plus `pending_jobs`, `parked_jobs` and `rejected_records` (lines not stored) |
 | `get_tags` | `user_id`, `kind`, `start`, `end`, `cursor`, `limit` | the user's [time tags](time-tags.md) that overlap the window, ongoing ones included, as `GET /v1/users/{id}/tags` |
 | `list_connections` | `user_id` | provider connections, status, last sync time and health |
@@ -170,6 +170,8 @@ Refusals (missing `user_id`, another user, a bad cursor or time, an unknown work
 tool errors with a short message, so the agent can correct its call.
 
 ## Prompts
+
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
 
 The server also lists prompts (`prompts/list`): ready-made questions about a person's own
 training, sleep and recovery. An agent that supports MCP prompts shows them by name, asks for the

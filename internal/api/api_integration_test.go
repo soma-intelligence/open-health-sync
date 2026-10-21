@@ -31,8 +31,10 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
+	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 )
 
 type env struct {
@@ -45,6 +47,9 @@ type env struct {
 	tenantB uuid.UUID
 	keyB    string
 	metrics *automation.Metrics
+	// switches are the providers turned off per tenant, as the router
+	// sees them.
+	switches *tenantproviders.Set
 }
 
 // testMetricsToken is the OHS_METRICS_TOKEN of the test router.
@@ -64,11 +69,13 @@ func newEnv(t *testing.T, tweak ...func(*api.Deps)) *env {
 	b, keyB, err := st.CreateTenant(ctx, "Other")
 	require.NoError(t, err)
 	m := &automation.Metrics{}
+	providers, err := providerset.New(ctx, providerset.Options{Connectors: []connector.Connector{applehealth.New()}})
+	require.NoError(t, err)
 	deps := api.Deps{
 		Pool:      pool,
 		Store:     st,
 		Raw:       raw,
-		Providers: []connector.Connector{applehealth.New()},
+		Providers: providers,
 		Device:    applehealth.New(),
 		// The Health Connect route shares the upload handler.
 		HealthConnect: healthconnect.New(),
@@ -76,11 +83,12 @@ func newEnv(t *testing.T, tweak ...func(*api.Deps)) *env {
 		MetricsToken:  testMetricsToken,
 		ETLMetrics:    m,
 	}
+	deps.TenantProviders = tenantproviders.New(ctx, tenantproviders.NewPG(pool))
 	for _, f := range tweak {
 		f(&deps)
 	}
 	return &env{t: t, pool: pool, store: st, handler: api.NewRouter(deps),
-		tenantA: a.ID, keyA: keyA, tenantB: b.ID, keyB: keyB, metrics: m}
+		tenantA: a.ID, keyA: keyA, tenantB: b.ID, keyB: keyB, metrics: m, switches: deps.TenantProviders}
 }
 
 type resp struct {
@@ -666,7 +674,22 @@ func TestProvidersAndOps(t *testing.T) {
 	e := newEnv(t)
 	r := e.do("GET", "/v1/providers", e.keyA, nil)
 	require.Equal(t, http.StatusOK, r.code, string(r.body))
-	assert.JSONEq(t, `{"data":[{"slug":"apple_health","kinds":["device"]}]}`, string(r.body))
+	var providers struct {
+		Data []struct {
+			Slug      string   `json:"slug"`
+			Name      string   `json:"name"`
+			Kinds     []string `json:"kinds"`
+			DataTypes []string `json:"data_types"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(r.body, &providers))
+	require.Len(t, providers.Data, 1)
+	p := providers.Data[0]
+	assert.Equal(t, "apple_health", p.Slug)
+	assert.Equal(t, "Apple Health", p.Name)
+	assert.Equal(t, []string{"device"}, p.Kinds)
+	assert.Equal(t, connector.DataTypesOf(applehealth.New()), p.DataTypes)
+	assert.Subset(t, p.DataTypes, []string{"sample", "sleep", "workout", "heart_rate", "step_count"})
 	r = e.do("GET", "/v1/providers", "", nil)
 	assert.Equal(t, http.StatusUnauthorized, r.code)
 

@@ -25,7 +25,8 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
-const adminUsage = "usage: ohs admin tenant create --name <name> | tenant list | " +
+const adminUsage = "usage: ohs admin tenant create --name <name> [--admin] | tenant list | " +
+	"tenant admin --tenant <id> [--off] | " +
 	"key create --tenant <id> | key list --tenant <id> | key revoke --tenant <id> --key <key or prefix> | " +
 	"personal setup [--person <name>] [--url <url>] | rekey [--batch <rows>]"
 
@@ -48,6 +49,7 @@ func runAdmin(rest []string, out io.Writer) error {
 	fs := flag.NewFlagSet("admin "+rest[0]+" "+rest[1], flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var name, tenantFlag, key, person, publicURL *string
+	var admin, off *bool
 	cmd := rest[0] + " " + rest[1]
 	switch cmd {
 	case "personal setup":
@@ -55,6 +57,10 @@ func runAdmin(rest []string, out io.Writer) error {
 		publicURL = fs.String("url", "", "address the tools call (default OHS_PUBLIC_URL)")
 	case "tenant create":
 		name = fs.String("name", "", "tenant name")
+		admin = fs.Bool("admin", false, "make it an instance admin tenant")
+	case "tenant admin":
+		tenantFlag = fs.String("tenant", "", "tenant id")
+		off = fs.Bool("off", false, "clear the admin mark instead")
 	case "tenant list":
 	case "key create", "key list":
 		tenantFlag = fs.String("tenant", "", "tenant id")
@@ -86,10 +92,43 @@ func runAdmin(rest []string, out io.Writer) error {
 			if err != nil {
 				return err
 			}
-			if err := record(ctx, t.ID, audit.TenantCreate, map[string]any{"key_prefix": shortKey(k)}); err != nil {
+			if *admin && !t.Admin {
+				if err := s.SetAdmin(ctx, t.ID, true); err != nil {
+					return err
+				}
+				t.Admin = true
+			}
+			if err := record(ctx, t.ID, audit.TenantCreate, map[string]any{"key_prefix": shortKey(k), "admin": t.Admin}); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(out, "tenant %s created (id %s)\nAPI key, shown only this once, store it now:\n%s\n", t.Name, t.ID, k)
+			role := ""
+			if t.Admin {
+				role = ", instance admin"
+			}
+			_, err = fmt.Fprintf(out, "tenant %s created (id %s%s)\nAPI key, shown only this once, store it now:\n%s\n", t.Name, t.ID, role, k)
+			return err
+		}
+	case "tenant admin":
+		id, err := uuid.Parse(*tenantFlag)
+		if err != nil {
+			return fmt.Errorf("--tenant %q is not a tenant id (ohs admin tenant list shows them)", *tenantFlag)
+		}
+		do = func(ctx context.Context, s *tenant.Store) error {
+			err := s.SetAdmin(ctx, id, !*off)
+			if errors.Is(err, tenant.ErrNotFound) {
+				return fmt.Errorf("no tenant with id %s", id)
+			}
+			if err != nil {
+				return err
+			}
+			if err := record(ctx, id, audit.TenantAdmin, map[string]any{"admin": !*off}); err != nil {
+				return err
+			}
+			state := "is now an instance admin: its API keys may change instance settings (/v1/admin)"
+			if *off {
+				state = "is no longer an instance admin"
+			}
+			_, err = fmt.Fprintf(out, "tenant %s %s\n", id, state)
 			return err
 		}
 	case "personal setup":
@@ -148,6 +187,13 @@ func personalSetup(ctx context.Context, s *tenant.Store, person, publicURL strin
 	t, key, err := s.EnsureTenant(ctx, personalTenant)
 	if err != nil {
 		return err
+	}
+	// A one person install runs its own instance: the personal tenant
+	// manages it from the console.
+	if !t.Admin {
+		if err := s.SetAdmin(ctx, t.ID, true); err != nil {
+			return err
+		}
 	}
 	action := audit.TenantCreate
 	if key == "" {
@@ -251,9 +297,13 @@ func listTenants(ctx context.Context, s *tenant.Store, out io.Writer) error {
 		return err
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tCREATED\tACTIVE KEYS")
+	fmt.Fprintln(w, "ID\tNAME\tCREATED\tACTIVE KEYS\tADMIN")
 	for _, t := range ts {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", t.ID, t.Name, t.CreatedAt.UTC().Format(time.RFC3339), t.ActiveKeys)
+		admin := "-"
+		if t.Admin {
+			admin = "yes"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n", t.ID, t.Name, t.CreatedAt.UTC().Format(time.RFC3339), t.ActiveKeys, admin)
 	}
 	return w.Flush()
 }
@@ -324,7 +374,7 @@ func runRekey(args []string, out io.Writer) error {
 	if total.Failed > 0 {
 		return fmt.Errorf("%d sealed value(s) open with no configured key and were left as they are: "+
 			"add the key that sealed them to OHS_PREVIOUS_ENCRYPTION_KEYS and run again, "+
-			"or reconnect those providers and rotate those webhook secrets", total.Failed)
+			"or reconnect those providers, rotate those webhook secrets and save those provider keys again in the console", total.Failed)
 	}
 	return nil
 }

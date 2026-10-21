@@ -32,6 +32,7 @@ func TestNormalizeUnit(t *testing.T) {
 		{"km to m", "km", "m"},
 		{"lb to kg", "lb", "kg"},
 		{"cal to kcal", "cal", "kcal"},
+		{"Cal is a kilocalorie", "Cal", "kcal"},
 		{"unknown passthrough", "unknown_unit", "unknown_unit"},
 		{"dBASPL passthrough", "dBASPL", "dBASPL"},
 		{"W passthrough", "W", "W"},
@@ -58,6 +59,7 @@ func TestConvertValue(t *testing.T) {
 		{"km to m", 1.0, "km", 1000.0, "m", 0.001},
 		{"lb to kg", 150.0, "lb", 68.0388555, "kg", 0.001},
 		{"cal to kcal", 500.0, "cal", 0.5, "kcal", 0.0001},
+		{"Cal no conversion", 1.2, "Cal", 1.2, "kcal", 0.0001},
 		{"count/min no conversion", 72.5, "count/min", 72.5, "bpm", 0.001},
 		{"kg no conversion", 70.0, "kg", 70.0, "kg", 0.001},
 		{"m no conversion", 1500.0, "m", 1500.0, "m", 0.001},
@@ -184,4 +186,36 @@ func TestConvertValueForTypeLeavesOtherProviderSpellingsAlone(t *testing.T) {
 	val, unit = ConvertValueForType("blood_alcohol_content", 0.02, "%")
 	assert.Equal(t, "fraction", unit)
 	assert.Equal(t, 0.02, val)
+}
+
+// An export written with Calories as the energy unit spells every energy
+// record "Cal", HealthKit's large calorie. The full path, mapper then
+// pipeline choke point, must keep the number: the choke point lowercases
+// units, and "cal" (the small calorie) is a thousandth of a kilocalorie.
+func TestLargeCalorieKeepsItsValue(t *testing.T) {
+	m := newMapper()
+	for _, qt := range []string{
+		"HKQuantityTypeIdentifierBasalEnergyBurned",
+		"HKQuantityTypeIdentifierActiveEnergyBurned",
+	} {
+		res, err := m.mapRecord(map[string]any{
+			"quantityType": qt, "value": 1.2, "unit": "Cal", "sourceName": "Apple Watch",
+			"startDate": "2026-09-01T12:00:00Z", "endDate": "2026-09-01T12:01:00Z",
+		}, "user-1")
+		require.NoError(t, err, qt)
+		require.Len(t, res.QuantitySamples, 1, qt)
+		require.Empty(t, model.CanonicalizeUnits(res), qt)
+		s := res.QuantitySamples[0]
+		assert.Equal(t, "kcal", s.Unit, qt)
+		assert.InDelta(t, 1.2, s.Value, 1e-12, qt)
+	}
+
+	res, err := m.mapRecord(map[string]any{
+		"quantityType": "HKQuantityTypeIdentifierDietaryEnergyConsumed", "value": 640.0, "unit": "Cal",
+		"startDate": "2026-09-01T12:00:00Z", "endDate": "2026-09-01T12:00:00Z",
+	}, "user-1")
+	require.NoError(t, err)
+	require.Len(t, res.NutritionLogs, 1)
+	require.NotNil(t, res.NutritionLogs[0].EnergyKcal)
+	assert.Equal(t, 640.0, *res.NutritionLogs[0].EnergyKcal)
 }

@@ -12,8 +12,13 @@ import (
 
 func serveConsole(t *testing.T, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
+	return serveMode(t, false, method, path)
+}
+
+func serveMode(t *testing.T, readOnly bool, method, path string) *httptest.ResponseRecorder {
+	t.Helper()
 	mux := http.NewServeMux()
-	Mount(mux)
+	Mount(mux, readOnly)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec
@@ -73,6 +78,7 @@ func TestHeadFollowsGet(t *testing.T) {
 func TestAssetsServed(t *testing.T) {
 	for path, ct := range map[string]string{
 		"/console/app.mjs":     "text/javascript; charset=utf-8",
+		"/console/lib.mjs":     "text/javascript; charset=utf-8",
 		"/console/console.css": "text/css; charset=utf-8",
 	} {
 		rec := serveConsole(t, "GET", path)
@@ -133,27 +139,55 @@ func TestPageHasNoInlineCode(t *testing.T) {
 	}
 }
 
-// The script builds the page from API data with textContent and created
-// elements only, and never issues a request other than through its GET-only
-// wrapper.
+// The scripts build the page from API data with textContent and created
+// elements only, and every request goes through the one wrapper of lib.mjs,
+// whose read-only mode refuses any method but GET.
 func TestScriptAvoidsUnsafeSinks(t *testing.T) {
-	js, err := static.ReadFile("static/app.mjs")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(js)
-	for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "XMLHttpRequest"} {
-		if strings.Contains(src, bad) {
-			t.Errorf("app.mjs uses %s", bad)
+	for _, name := range []string{"app.mjs", "lib.mjs"} {
+		js, err := static.ReadFile("static/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(js)
+		for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "XMLHttpRequest", "console.log"} {
+			if strings.Contains(src, bad) {
+				t.Errorf("%s uses %s", name, bad)
+			}
 		}
 	}
-	if n := strings.Count(src, "fetch("); n != 1 {
-		t.Errorf("app.mjs calls fetch %d times; every request goes through makeGet", n)
+	app, _ := static.ReadFile("static/app.mjs")
+	lib, _ := static.ReadFile("static/lib.mjs")
+	if n := strings.Count(string(app), "fetch("); n != 1 {
+		t.Errorf("app.mjs calls fetch %d times; every request goes through makeApi", n)
 	}
-	for _, m := range []string{`"POST"`, `"PUT"`, `"PATCH"`, `"DELETE"`} {
-		if strings.Contains(src, m) {
-			t.Errorf("app.mjs mentions method %s", m)
+	if strings.Contains(string(lib), "fetch(") {
+		t.Error("lib.mjs calls fetch itself; it takes the fetch to use")
+	}
+	if !strings.Contains(string(app), "makeApi((u, o) => window.fetch(u, o), getKey, { readOnly })") {
+		t.Error("app.mjs does not build its one request wrapper in the page's mode")
+	}
+	for _, want := range []string{`credentials: "omit"`, `redirect: "error"`, `referrerPolicy: "no-referrer"`} {
+		if !strings.Contains(string(lib), want) {
+			t.Errorf("lib.mjs requests lack %s", want)
 		}
+	}
+}
+
+func TestModeInPage(t *testing.T) {
+	for readOnly, want := range map[bool]string{false: ModeManage, true: ModeReadOnly} {
+		rec := serveMode(t, readOnly, "GET", "/console")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("readOnly %v: %d", readOnly, rec.Code)
+		}
+		tag := `<meta name="ohs-console-mode" content="` + want + `">`
+		if !strings.Contains(rec.Body.String(), tag) {
+			t.Errorf("readOnly %v: the page lacks %s", readOnly, tag)
+		}
+	}
+	// The script treats a page without the manage tag as read only.
+	app, _ := static.ReadFile("static/app.mjs")
+	if !strings.Contains(string(app), `readOnly = !meta || meta.getAttribute("content") !== "manage"`) {
+		t.Error("app.mjs does not default to read only")
 	}
 }
 

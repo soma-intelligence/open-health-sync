@@ -18,13 +18,15 @@ jobs:
           go-version: "1.26"
       - run: go vet ./...
       - run: go test ./...
+      - name: Release tag check self-test
+        run: scripts/check-release-tag_test.sh
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: Console and share viewer script helpers (node --test, no dependency)
         run: make test-js
-      - name: Fuzz the Apple Health upload parser
-        run: go test ./connectors/applehealth/ -run '^$' -fuzz FuzzParseUpload -fuzztime=30s
+      # go test ./... above already runs FuzzParseUpload on its seed corpus,
+      # deterministically. Coverage-guided fuzzing runs nightly (fuzz.yml).
       - name: Integration and API contract (Docker available on the runner)
         run: make integration
 

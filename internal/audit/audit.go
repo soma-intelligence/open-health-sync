@@ -30,7 +30,10 @@ const (
 	APIKey ActorType = "api_key"
 	// UserToken is a user token; the actor id is TokenID of its hash.
 	UserToken ActorType = "user_token"
-	// Admin is the `ohs admin` command line, run by the instance operator.
+	// Admin is the instance operator acting on a tenant: the `ohs admin`
+	// command line (actor id "ohs admin"), or a key of an instance admin
+	// tenant through /v1/admin/tenants (actor id "api_key:" and the key's
+	// id), recorded on the tenant it changed.
 	Admin ActorType = "admin"
 	// System is the instance itself (the deletion worker, for example).
 	System ActorType = "system"
@@ -62,6 +65,7 @@ const (
 	ConfigRead       = "config.read"
 	ConfigWrite      = "config.write"
 	TenantCreate     = "tenant.create"
+	TenantAdmin      = "tenant.admin"
 	KeyCreate        = "key.create"
 	KeyRevoke        = "key.revoke"
 	ShareCreate      = "share.create"
@@ -70,6 +74,14 @@ const (
 	// ShareAccess is a manifest request on a known share link, or a file
 	// download; detail has the share id and the outcome.
 	ShareAccess = "share.access"
+	// TenantProvider is a provider turned off or back on for one tenant by
+	// an instance admin; detail has the provider and enabled.
+	TenantProvider = "tenant.provider"
+	// TenantProviderKeys is a tenant's own keys for a provider set,
+	// replaced or removed by an instance admin; detail has the provider,
+	// whether keys are set after the change and how many connections were
+	// set needs_reauth, never a key.
+	TenantProviderKeys = "tenant.provider_keys"
 )
 
 // Event is one entry to record.
@@ -131,6 +143,10 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 	return nil
 }
 
+// adminTenantAreas are the tenant route areas an instance admin also reaches
+// under /v1/admin/tenants/{tenant_id} (the API's admin tenant routes).
+var adminTenantAreas = []string{"users", "deletions", "pipeline", "webhooks", "audit"}
+
 // Classify names the action of an authenticated API request from its method
 // and matched route pattern ("GET /v1/users/{id}/samples").
 func Classify(method, pattern string) string {
@@ -139,6 +155,15 @@ func Classify(method, pattern string) string {
 		path = pattern
 	}
 	const userPrefix = "/v1/users/{id}"
+	// An instance admin running one tenant's API: the action of the tenant
+	// route it stands for.
+	if rest, ok := strings.CutPrefix(path, "/v1/admin/tenants/{tenant_id}/"); ok {
+		for _, area := range adminTenantAreas {
+			if rest == area || strings.HasPrefix(rest, area+"/") {
+				return Classify(method, "/v1/"+rest)
+			}
+		}
+	}
 	switch {
 	case path == "/mcp":
 		return DataRead // the MCP server is read only
@@ -146,6 +171,26 @@ func Classify(method, pattern string) string {
 		return DataWrite
 	case path == "/v1/audit":
 		return AuditRead
+	case path == "/v1/admin/tenants" && method == "POST":
+		return TenantCreate
+	case path == "/v1/admin/tenants/{tenant_id}/keys" && method == "POST":
+		return KeyCreate
+	case path == "/v1/admin/tenants/{tenant_id}/keys/{key_id}" && method == "DELETE":
+		return KeyRevoke
+	case path == "/v1/admin/tenants/{tenant_id}/demo-user":
+		return DataWrite // synthetic data for one of the tenant's users
+	case path == "/v1/admin/tenants/{tenant_id}/providers/{provider}" && method == "PATCH":
+		return TenantProvider
+	case path == "/v1/admin/tenants/{tenant_id}/providers/{provider}/keys" && (method == "PUT" || method == "DELETE"):
+		return TenantProviderKeys
+	case strings.HasPrefix(path, "/v1/keys"):
+		switch method {
+		case "POST":
+			return KeyCreate
+		case "DELETE":
+			return KeyRevoke
+		}
+		return ConfigRead
 	case strings.HasPrefix(path, "/v1/webhooks"):
 		if method == "GET" {
 			return WebhookRead

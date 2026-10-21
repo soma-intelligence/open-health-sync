@@ -351,13 +351,15 @@ func (g *gen) route(w *workoutPlan, parent string) []model.RoutePoint {
 }
 
 // appleHealth: the phone in a pocket. Hourly steps, distance and floors (it
-// stays home during runs), and a weight typed in by hand on Sundays.
+// stays home during runs, unless the persona takes it), and a weight typed
+// in by hand on Sundays.
 func (g *gen) appleHealth(d *day, mr *model.MapResult) {
 	r := g.dayRNG(AppleHealth, d.date)
-	carried := norm(r, 0.82, 0.05)
+	habits := g.persona.habits
+	carried := norm(r, habits.carried, 0.05)
 	for h, steps := range d.steps {
 		start := time.Date(d.date.Year(), d.date.Month(), d.date.Day(), h, 0, 0, 0, g.loc)
-		if w := d.workout; w != nil && w.kind == "running" {
+		if w := d.workout; w != nil && w.kind == "running" && !habits.phoneOnRuns {
 			steps -= w.cadence() * w.minutesIn(g.loc, h)
 		}
 		n := math.Round(steps * carried)

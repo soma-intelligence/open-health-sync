@@ -90,6 +90,15 @@ public enum RFC3339 {
             + pad(secOfDay % 60, 2) + "." + pad(ms, 3) + "Z"
     }
 
+    /// Formats with milliseconds and the UTC offset `timeZone` has at `date`:
+    /// `2026-10-16T21:04:05.120+02:00` (`+00:00` for UTC).
+    public static func format(_ date: Date, timeZone: TimeZone) -> String {
+        let offset = timeZone.secondsFromGMT(for: date)
+        let local = format(date.addingTimeInterval(TimeInterval(offset)))
+        let minutes = abs(offset) / 60
+        return String(local.dropLast()) + (offset < 0 ? "-" : "+") + pad(minutes / 60, 2) + ":" + pad(minutes % 60, 2)
+    }
+
     /// The calendar day (`YYYY-MM-DD`) of `date` in `timeZone`.
     public static func localDay(_ date: Date, timeZone: TimeZone) -> String {
         let offset = Int64(timeZone.secondsFromGMT(for: date))

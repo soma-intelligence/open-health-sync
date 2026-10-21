@@ -42,7 +42,7 @@ There are two ways data arrives, and a connector can do both.
   </Card>
   <Card title="Fitbit" href="/documentation/connectors/fitbit">
     Cloud, through the Google Health API. Activity, heart rate, HRV, SpO2, sleep, workouts and
-    body, with signed webhooks. Google is not onboarding new projects yet.
+    body, with signed webhooks. You bring your own Google project.
   </Card>
   <Card title="Suunto" href="/documentation/connectors/suunto">
     Cloud, partner program. Workouts, with signed notifications.
@@ -68,7 +68,9 @@ There are two ways data arrives, and a connector can do both.
 Something differs from what you see with your account? Open an
 [issue](https://github.com/soma-intelligence/open-health-sync/issues).
 
-Garmin, Coros and more are planned. FreeStyle Libre has no public API; its readings arrive
+[Garmin](/documentation/connectors/garmin) is on main for the next release, for operators with
+their own Garmin app, and so is [Eight Sleep](/documentation/connectors/eight-sleep), through the sign-in
+the Eight Sleep app uses. Coros and more are planned. FreeStyle Libre has no public API; its readings arrive
 through Health Connect or Apple Health ([notes](/documentation/connectors/freestyle-libre)). The
 [sources page](/documentation/connectors/sources) has the status, integration path and tracking issue of
 each one.

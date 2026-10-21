@@ -10,6 +10,7 @@ since the last run. It follows the shape every SDK shares ([overview](README.md)
 |---|---|---|
 | `OpenHealthSync` | iOS 15+, macOS 12+, watchOS 8+, Linux | the client, the models, the part builder, the upload line types |
 | `OpenHealthSyncHealthKit` | iOS 15+, watchOS 8+, macOS 13+ | `HealthKitSync` ([below](#healthkit-sync)); empty on Linux |
+| `OpenHealthSyncBluetooth` | iOS 15+, macOS 12+ | `BluetoothConnector` for standard Bluetooth health devices ([below](#bluetooth-devices)); empty on Linux |
 
 ## Install
 
@@ -222,6 +223,67 @@ round, uploads them under a fresh batch id, and saves the new anchor only after 
 round is uploaded. If the app is killed or an upload fails, the next sync reads the same samples
 again; the server keeps each record once, so nothing is doubled. `resetAnchor(for:)` makes the next
 sync send a type's whole history. Calls to `sync` run one after the other.
+
+## Bluetooth devices
+
+Heart rate straps, blood pressure cuffs, scales, glucose meters, thermometers and pulse oximeters
+that use the standard Bluetooth health profiles upload straight from the app, with no vendor app
+in between ([devices and mapping](../connectors/bluetooth.md)). The app forwards what each device
+sends as bytes; the server decodes it.
+
+**Set up the app.** Add the `OpenHealthSyncBluetooth` product to the target and
+`NSBluetoothAlwaysUsageDescription` to `Info.plist`, the sentence iOS shows when it asks for
+Bluetooth. To keep receiving from connected devices while the app is in the background, add
+`bluetooth-central` to `UIBackgroundModes`.
+
+```swift
+import OpenHealthSync
+import OpenHealthSyncBluetooth
+
+let connector = try BluetoothConnector(deviceUser: 1) { event in
+    switch event {
+    case .connected(let name): print("\(name) connected")
+    case .note(let name, let text): print("\(name): \(text)")  // for example, pair the device first
+    default: break
+    }
+}
+connector.start()
+
+// Later, for example when the app moves to the background:
+if let part = try connector.takePart() {
+    _ = try await uploads.uploadBluetoothPart(part)
+}
+```
+
+`BluetoothConnector` scans for devices that advertise a health service (or, with `deviceNames`,
+for names containing one of them), connects, reads Device Information, sets the device clock
+through the Current Time service when the device allows it, subscribes to every measurement, and
+asks a glucose meter for the records after the last one recorded (all of them the first time). It
+reconnects when a device comes back in range. `deviceUser` is this person's user index on a shared
+scale or cuff, so the server stores only their readings. Events arrive on the connector's own
+queue: `.value` carries each value as received, for a live view. Cuffs and meters usually need
+pairing: iOS shows its prompt on the first subscription.
+
+`takePart()` returns what was recorded since the last call as one `BluetoothPart`, or nil. Keep
+the part until `uploadBluetoothPart` succeeds: it is `Codable`, so it can wait on disk, and the
+same part sent again is answered `duplicate: true`.
+
+To feed values from code of your own, record them in a `BluetoothRecorder`; it does not decode
+either:
+
+```swift
+var recorder = try BluetoothRecorder()
+let session = BluetoothRecorder.newSession()  // one per connection to one device
+try recorder.record(
+    characteristic: BluetoothGATT.heartRateMeasurement, value: Data([0x00, 72]),
+    session: session, device: BluetoothDevice(name: BluetoothGATT.publicName(advertisedName)))
+let part = try recorder.makePart()
+```
+
+`BluetoothGATT` holds the service and characteristic numbers, `publicName` (an advertised name
+without a serial-like last word), and the bytes to write: `reportStoredRecords(after:)` for a
+glucose meter and `currentTimeValue(_:)` for a device clock. Never send a device address or a
+serial number: the format has no field for them.
 
 ## Errors and retries
 

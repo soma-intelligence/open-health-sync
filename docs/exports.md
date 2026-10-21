@@ -42,9 +42,8 @@ curl -sOJ "$OHS/v1/users/$USER_ID/exports/samples?type=heart_rate&start=2026-03-
   -H "Authorization: Bearer $KEY"
 ```
 
-```python
-import pandas as pd
-df = pd.read_parquet("samples-3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11.parquet")
+```sh
+duckdb -c "SELECT * FROM 'samples-3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11.parquet' LIMIT 10"
 ```
 
 ## Columns

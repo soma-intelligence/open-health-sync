@@ -68,10 +68,10 @@ func TestWithingsPullLands(t *testing.T) {
 		`SELECT count(*) FROM ohs_data.failed_records WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&failed))
 	assert.Equal(t, 0, failed)
 
-	// measure 5 (the objective is dropped), activity 2 days x 3, ECG
+	// measure 5 (the objective is dropped), activity 2 days x 5, ECG
 	// classification 1, intraday 4 + 3 (no heart rate at 0 bpm).
 	counts := map[string]int{
-		"quantity_samples": 19,
+		"quantity_samples": 23,
 		"observations":     0,
 		"sleep_sessions":   2,
 		"sleep_phases":     7,

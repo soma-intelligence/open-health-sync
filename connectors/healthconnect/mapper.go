@@ -43,6 +43,9 @@ type record struct {
 	HeightMeters        *float64 `json:"heightMeters"`
 	EnergyKilocalories  *float64 `json:"energyKilocalories"`
 	DistanceMeters      *float64 `json:"distanceMeters"`
+	VolumeLiters        *float64 `json:"volumeLiters"`
+	BasalMetabolicRate  *float64 `json:"basalMetabolicRateKilocaloriesPerDay"`
+	EnergyFromFat       *float64 `json:"energyFromFatKilocalories"`
 	MeasurementLocation string   `json:"measurementLocation"`
 	BodyPosition        string   `json:"bodyPosition"`
 	SpecimenSource      string   `json:"specimenSource"`
@@ -56,6 +59,7 @@ type record struct {
 	} `json:"samples"`
 
 	Title        string `json:"title"`
+	Name         string `json:"name"`
 	ExerciseType string `json:"exerciseType"`
 	Stages       []struct {
 		StartTime string `json:"startTime"`
@@ -97,6 +101,7 @@ var instants = map[string]instant{
 	"Weight":                    {"body_mass", "kg", func(r *record) *float64 { return r.WeightKilograms }},
 	"Height":                    {"height", "m", func(r *record) *float64 { return r.HeightMeters }},
 	"BodyFat":                   {"body_fat_percentage", "percent", func(r *record) *float64 { return r.Percentage }},
+	"BasalMetabolicRate":        {model.QTBasalMetabolicRate, "kcal/d", func(r *record) *float64 { return r.BasalMetabolicRate }},
 }
 
 // intervals are the interval record types that give one quantity sample.
@@ -104,6 +109,53 @@ var intervals = map[string]instant{
 	"Steps":                {model.QTStepCount, "count", func(r *record) *float64 { return r.Count }},
 	"ActiveCaloriesBurned": {model.QTActiveEnergyBurned, "kcal", func(r *record) *float64 { return r.EnergyKilocalories }},
 	"Distance":             {model.QTDistanceWalkingRunning, "m", func(r *record) *float64 { return r.DistanceMeters }},
+	"TotalCaloriesBurned":  {model.QTTotalEnergyBurned, "kcal", func(r *record) *float64 { return r.EnergyKilocalories }},
+}
+
+// nutritionMasses maps the mass fields of a Nutrition line, each in grams
+// (Mass.inGrams), to the canonical nutrient names. The value is converted to
+// the nutrient's unit (model.Nutrients).
+var nutritionMasses = map[string]string{
+	"biotinGrams":             "biotin",
+	"caffeineGrams":           "caffeine",
+	"calciumGrams":            "calcium",
+	"chlorideGrams":           "chloride",
+	"cholesterolGrams":        "cholesterol",
+	"chromiumGrams":           "chromium",
+	"copperGrams":             "copper",
+	"dietaryFiberGrams":       "fiber",
+	"folateGrams":             "folate",
+	"folicAcidGrams":          "folic_acid",
+	"iodineGrams":             "iodine",
+	"ironGrams":               "iron",
+	"magnesiumGrams":          "magnesium",
+	"manganeseGrams":          "manganese",
+	"molybdenumGrams":         "molybdenum",
+	"monounsaturatedFatGrams": "fat_monounsaturated",
+	"niacinGrams":             "niacin",
+	"pantothenicAcidGrams":    "pantothenic_acid",
+	"phosphorusGrams":         "phosphorus",
+	"polyunsaturatedFatGrams": "fat_polyunsaturated",
+	"potassiumGrams":          "potassium",
+	"proteinGrams":            "protein",
+	"riboflavinGrams":         "riboflavin",
+	"saturatedFatGrams":       "fat_saturated",
+	"seleniumGrams":           "selenium",
+	"sodiumGrams":             "sodium",
+	"sugarGrams":              "sugar",
+	"thiaminGrams":            "thiamin",
+	"totalCarbohydrateGrams":  "carbohydrates",
+	"totalFatGrams":           "fat_total",
+	"transFatGrams":           "fat_trans",
+	"unsaturatedFatGrams":     "fat_unsaturated",
+	"vitaminAGrams":           "vitamin_a",
+	"vitaminB12Grams":         "vitamin_b12",
+	"vitaminB6Grams":          "vitamin_b6",
+	"vitaminCGrams":           "vitamin_c",
+	"vitaminDGrams":           "vitamin_d",
+	"vitaminEGrams":           "vitamin_e",
+	"vitaminKGrams":           "vitamin_k",
+	"zincGrams":               "zinc",
 }
 
 // MetadataSpecimen is the metadata key naming what a glucose value was
@@ -130,7 +182,8 @@ func mapRecord(fields map[string]any, userID string) (*model.MapResult, error) {
 	_, isInterval := intervals[r.RecordType]
 	known := isInstant || isInterval || r.RecordType == "BloodPressure" || r.RecordType == "HeartRate" ||
 		r.RecordType == "SleepSession" || r.RecordType == "ExerciseSession" ||
-		r.RecordType == "MenstruationFlow" || r.RecordType == "IntermenstrualBleeding"
+		r.RecordType == "MenstruationFlow" || r.RecordType == "IntermenstrualBleeding" ||
+		r.RecordType == "Nutrition" || r.RecordType == "Hydration"
 	if !known {
 		noteUnknown(r.RecordType)
 		return nil, nil
@@ -154,6 +207,10 @@ func mapRecord(fields map[string]any, userID string) (*model.MapResult, error) {
 		return b.sleep()
 	case "MenstruationFlow", "IntermenstrualBleeding":
 		return b.menstruation()
+	case "Nutrition":
+		return b.nutrition(fields)
+	case "Hydration":
+		return b.hydration()
 	default:
 		return b.exercise()
 	}
@@ -373,6 +430,108 @@ func (b *builder) menstruation() (*model.MapResult, error) {
 		"start_date": at.UTC().Format(time.RFC3339Nano),
 	})
 	return &model.MapResult{CategorySamples: []model.CategorySample{s}}, nil
+}
+
+// mealTypes are the Health Connect meal types (MEAL_TYPE_ dropped,
+// lowercased) a nutrition log keeps; unknown, or none, is no meal type.
+var mealTypes = map[string]bool{"breakfast": true, "lunch": true, "dinner": true, "snack": true}
+
+// nutritionLog starts the nutrition log of a Nutrition or Hydration record.
+// Like the samples, it is identified by the record id: a re-sent record
+// replaces the stored figures, and a record whose start moved replaces its
+// older copy.
+func (b *builder) nutritionLog() (model.NutritionLog, error) {
+	start, end, err := b.span()
+	if err != nil {
+		return model.NutritionLog{}, err
+	}
+	nl := model.NutritionLog{
+		UserID:         b.userID,
+		Provider:       Slug,
+		ExternalID:     b.r.Metadata.ID,
+		StartDate:      start,
+		EndDate:        &end,
+		Metadata:       maps.Clone(b.md),
+		Replaceable:    true,
+		SupersedeMoved: true,
+	}
+	nl.ContentHash = model.ComputeContentHash(map[string]string{
+		"user_id": b.userID, "provider": Slug, "data_type": b.r.RecordType, "external_id": b.r.Metadata.ID,
+	})
+	return nl, nil
+}
+
+// setNutrient converts a value to its nutrient's unit and sets it.
+func (b *builder) setNutrient(nl *model.NutritionLog, name string, v float64, unit string) error {
+	v, err := model.ToNutrientUnit(name, v, unit)
+	if err != nil {
+		return fmt.Errorf("health_connect: %s %s: %w", b.r.RecordType, b.r.Metadata.ID, err)
+	}
+	nl.SetNutrient(name, v)
+	return nil
+}
+
+// nutrition gives one nutrition log: the energies in kilocalories, every
+// mass field in grams, the food name in metadata.food_name. A record with no
+// figure is still a meal the person logged, so it is kept.
+func (b *builder) nutrition(fields map[string]any) (*model.MapResult, error) {
+	nl, err := b.nutritionLog()
+	if err != nil {
+		return nil, err
+	}
+	if mt := strings.ToLower(strings.TrimSpace(b.r.MealType)); mealTypes[mt] {
+		nl.MealType = mt
+	}
+	if n := strings.TrimSpace(b.r.Name); n != "" {
+		nl.Metadata["food_name"] = n
+	}
+	if v := b.r.EnergyKilocalories; v != nil {
+		if err := b.setNutrient(&nl, "energy_consumed", *v, "kcal"); err != nil {
+			return nil, err
+		}
+	}
+	if v := b.r.EnergyFromFat; v != nil {
+		if err := b.setNutrient(&nl, "energy_from_fat", *v, "kcal"); err != nil {
+			return nil, err
+		}
+	}
+	for field, name := range nutritionMasses {
+		v, ok := number(fields[field])
+		if !ok {
+			continue
+		}
+		if err := b.setNutrient(&nl, name, v, "g"); err != nil {
+			return nil, err
+		}
+	}
+	return &model.MapResult{NutritionLogs: []model.NutritionLog{nl}}, nil
+}
+
+// number reads a JSON number of a decoded line.
+func number(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	return 0, false
+}
+
+// hydration gives one nutrition log of water, in millilitres.
+func (b *builder) hydration() (*model.MapResult, error) {
+	if b.r.VolumeLiters == nil {
+		return nil, fmt.Errorf("health_connect: Hydration %s: no value", b.r.Metadata.ID)
+	}
+	nl, err := b.nutritionLog()
+	if err != nil {
+		return nil, err
+	}
+	if err := b.setNutrient(&nl, "water", *b.r.VolumeLiters, "L"); err != nil {
+		return nil, err
+	}
+	return &model.MapResult{NutritionLogs: []model.NutritionLog{nl}}, nil
 }
 
 // sleepStages maps Health Connect sleep stages to the canonical phases.

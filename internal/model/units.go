@@ -74,6 +74,8 @@ var storageUnits = map[string]string{
 	QTActiveEnergyBurned:     "kcal",
 	QTActiveEnergyIntraday:   "kcal",
 	QTBasalEnergyBurned:      "kcal",
+	QTTotalEnergyBurned:      "kcal",
+	QTBasalMetabolicRate:     "kcal/d",
 	QTDistanceWalkingRunning: "m",
 	QTDistanceWalkRunIntday:  "m",
 
@@ -138,6 +140,10 @@ var storageUnits = map[string]string{
 	QTStressHighTime:   "min",
 	QTRecoveryHighTime: "min",
 
+	// Activity intensity, in minutes of the day.
+	QTModerateActivityTime: "min",
+	QTVigorousActivityTime: "min",
+
 	// A person's own ratings (SelfReportScales).
 	QTReportedFeeling:        "score",
 	QTReportedMood:           "score",
@@ -170,6 +176,7 @@ var unitAliases = map[string]string{
 	"{flights}": "count",
 	"flights":   "count",
 	"kcal":      "kcal",
+	"kcal/day":  "kcal/d",
 	"m":         "m",
 	"meters":    "m",
 	"metres":    "m",
@@ -259,6 +266,10 @@ var metricUnitConversions = map[string]conversion{
 	"distance_walking_running|cm":          {Factor: 0.01, To: "m"},
 	"distance_walking_running_intraday|cm": {Factor: 0.01, To: "m"},
 	"blood_glucose|mmol/l":                 {Factor: 18.0182, To: "mg/dL"},
+	// Blood pressure cuffs on the Bluetooth Blood Pressure profile may report
+	// kPa. Scoped to the two pressures: kPa means nothing for other metrics.
+	"blood_pressure_systolic|kpa":  {Factor: 7.50062, To: "mmHg"},
+	"blood_pressure_diastolic|kpa": {Factor: 7.50062, To: "mmHg"},
 	// Withings visceral fat arrives as "count" and is stored as "index", one
 	// dimensionless rating under two names. Unconverted, every reading was a
 	// unit error and nothing was ever stored.
@@ -292,6 +303,9 @@ var metricUnitConversions = map[string]conversion{
 	// Oura daily_stress reports seconds.
 	"stress_high_time|s":   {Factor: 1.0 / 60, To: "min"},
 	"recovery_high_time|s": {Factor: 1.0 / 60, To: "min"},
+	// Oura daily_activity and Withings getactivity report seconds.
+	"moderate_activity_time|s": {Factor: 1.0 / 60, To: "min"},
+	"vigorous_activity_time|s": {Factor: 1.0 / 60, To: "min"},
 	// Strain: Whoop and some aggregators call the same dimensionless index a "score". Scoped
 	// to the two strain types because readiness_score IS stored as "score", so a
 	// global score -> index rule would be wrong for it. Without these, every

@@ -85,6 +85,7 @@ type Options struct {
 type Connector struct {
 	mu   sync.RWMutex
 	keys connector.Config
+	opts Options // what New was given, for NewInstance
 
 	authBase, tokenBase, apiBase string
 	httpc                        *http.Client
@@ -107,6 +108,7 @@ var (
 // New returns a Polar connector.
 func New(o Options) *Connector {
 	c := &Connector{
+		opts:       o,
 		authBase:   o.AuthBase,
 		tokenBase:  o.TokenBase,
 		apiBase:    o.APIBase,
@@ -179,6 +181,9 @@ func (c *Connector) Enabled(cfg connector.Config) bool {
 	return cfg[KeyClientID] != "" && cfg[KeyClientSecret] != ""
 }
 
+// OptionalKeys lists the keys it also reads and runs without: WEBHOOK_SECRET (notifications).
+func (c *Connector) OptionalKeys() []string { return []string{KeyWebhookSecret} }
+
 // Configure hands the connector its keys (the OHS_POLAR_* values of the
 // process configuration). It may be called again; the last call wins. The
 // client id and secret are required, the webhook secret is optional.
@@ -194,6 +199,16 @@ func (c *Connector) Configure(cfg connector.Config) error {
 		KeyWebhookSecret: cfg[KeyWebhookSecret],
 	}
 	return nil
+}
+
+// NewInstance returns a connector like c without keys, sharing its HTTP
+// client, for a tenant's own keys (connector.Instancer).
+func (c *Connector) NewInstance() connector.Connector {
+	o := c.opts
+	o.HTTPClient = c.httpc
+	n := New(o)
+	n.keys = nil
+	return n
 }
 
 // credentials returns the configured client id and secret.

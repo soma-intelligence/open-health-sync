@@ -1,4 +1,13 @@
-.git
-.env
-bin
-docs
+# The build context is an allowlist: only what deploy/Dockerfile needs for
+# `go build ./cmd/ohs`. A .env, a dump in backups/, a health export or any
+# other file in the checkout never reaches a builder, local or remote (fly
+# deploy, Render and Railway upload the context).
+*
+!go.mod
+!go.sum
+!api
+!cmd
+!connectors
+!internal
+**/testdata
+**/*_test.go

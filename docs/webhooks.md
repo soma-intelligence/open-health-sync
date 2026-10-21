@@ -109,22 +109,35 @@ Each request carries three headers:
 
 The HMAC key is the secret after `whsec_`, base64-decoded. Compute it over the raw body bytes, as
 received, compare in constant time, and refuse a timestamp more than 5 minutes from your clock.
-In Python, without a library:
+In Go, with the standard library (`crypto/hmac`, `crypto/sha256`, `encoding/base64`, `strconv`,
+`strings`, `time`):
 
-```python
-import base64, hashlib, hmac, time
-
-def verify(secret: str, headers, body: bytes) -> bool:
-    key = base64.b64decode(secret.removeprefix("whsec_"))
-    msg_id, ts = headers["webhook-id"], headers["webhook-timestamp"]
-    if abs(time.time() - int(ts)) > 300:
-        return False
-    expected = base64.b64encode(hmac.new(key, f"{msg_id}.{ts}.".encode() + body, hashlib.sha256).digest()).decode()
-    return any(hmac.compare_digest(expected, sig.removeprefix("v1,"))
-               for sig in headers["webhook-signature"].split() if sig.startswith("v1,"))
+```go
+func verify(secret string, h http.Header, body []byte) bool {
+	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(secret, "whsec_"))
+	if err != nil {
+		return false
+	}
+	id, ts := h.Get("webhook-id"), h.Get("webhook-timestamp")
+	sent, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil || time.Since(time.Unix(sent, 0)).Abs() > 5*time.Minute {
+		return false
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(id + "." + ts + "."))
+	mac.Write(body)
+	want := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	for _, sig := range strings.Fields(h.Get("webhook-signature")) {
+		if hmac.Equal([]byte(sig), []byte(want)) {
+			return true
+		}
+	}
+	return false
+}
 ```
 
-With the `standardwebhooks` package: `Webhook(secret).verify(body, headers)`.
+In other languages, the `standardwebhooks` packages verify the same headers:
+`Webhook(secret).verify(body, headers)`.
 
 ## Delivery and retries
 
@@ -140,8 +153,8 @@ original id. An endpoint that has accepted nothing for 5 days is disabled when o
 runs out of attempts; its pending deliveries are parked and `disabled_reason` says why. Fix the
 receiver, then `PATCH` it with `{"enabled": true}` and retry what you need.
 
-Finished deliveries are kept 30 days. When a user is deleted, the events not yet sent about them
-are dropped and `user.deleted` is queued.
+Finished deliveries are kept 30 days. When a user is deleted, every delivery about them, sent or
+not, is deleted and `user.deleted` is queued.
 
 Deliveries are posted by the `etl` role, so an instance split into roles needs outbound network
 access from its `etl` processes. The signing secrets are sealed with `OHS_ENCRYPTION_KEY`;
@@ -201,28 +214,35 @@ subscribing to it.
 ### Walkthrough with a local receiver
 
 Run an instance with `OHS_WEBHOOK_ALLOW_PRIVATE=true` so it may post to `localhost`, then start a
-receiver that refuses the first request and accepts the next ones. Python's standard library is
+receiver that refuses the first request and accepts the next ones. Go's standard library is
 enough:
 
-```python
-# receiver.py: python3 receiver.py
-from http.server import BaseHTTPRequestHandler, HTTPServer
+```go
+// receiver.go: go run receiver.go
+package main
 
-seen = 0
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"sync/atomic"
+)
 
-class Hook(BaseHTTPRequestHandler):
-    def do_POST(self):
-        global seen
-        seen += 1
-        body = self.rfile.read(int(self.headers["Content-Length"]))
-        print(self.headers["webhook-id"], body.decode())
-        code = 503 if seen == 1 else 200
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(b'{"ok": %s}' % (b"false" if code == 503 else b"true"))
-
-HTTPServer(("127.0.0.1", 3000), Hook).serve_forever()
+func main() {
+	var seen atomic.Int64
+	http.HandleFunc("POST /", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		fmt.Println(r.Header.Get("webhook-id"), string(body))
+		w.Header().Set("Content-Type", "application/json")
+		if seen.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprint(w, `{"ok": false}`)
+			return
+		}
+		fmt.Fprint(w, `{"ok": true}`)
+	})
+	fmt.Println(http.ListenAndServe("127.0.0.1:3000", nil))
+}
 ```
 
 Register it and send a sample `data.written`:

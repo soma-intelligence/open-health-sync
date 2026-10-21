@@ -1,5 +1,7 @@
 # Activity files (FIT, GPX, TCX)
 
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
+
 Slug `activity_files`. Sports watches, bike computers and training apps record each workout as
 a file: FIT, the binary format Garmin, COROS, Wahoo, Suunto, Polar, Zwift, Hammerhead and Bryton
 devices write, or the XML formats GPX and TCX. Every one of these vendors lets a person download

@@ -20,7 +20,7 @@ import (
 const (
 	// RecordTypeSystem codes the kind of record an Observation was made
 	// from: blood_pressure, sleep_session, workout, daily_summary,
-	// ecg_recording.
+	// ecg_recording, nutrition_log.
 	RecordTypeSystem = Namespace + "/CodeSystem/record-type"
 	// ComponentSystem codes the components: the REST field each one comes
 	// from (deep_sleep_seconds, distance_m...).
@@ -47,6 +47,9 @@ const (
 	LOINCExerciseDuration   = "55411-3" // Exercise duration
 	LOINCExerciseActivity   = "73985-4" // Exercise activity
 	loincCaloriesBurned     = "41981-2" // Calories burned
+	loincCalories24h        = "41979-6" // Calories burned in 24 hour Calculated
+	loincActivityMeanHR     = "55425-3" // Heart rate unspecified time mean by Pedometer
+	loincActivityMaxHR      = "55426-1" // Heart rate unspecified time maximum by Pedometer
 	loincSteps24h           = "41950-7" // Number of steps in 24 hour Measured
 	loincHRV                = "80404-7" // R-R interval.standard deviation (Heart rate variability)
 	loincRestingHR          = "40443-4" // Heart rate --resting
@@ -73,6 +76,7 @@ var idPrefixes = []struct {
 	{WorkoutIDPrefix, read.KindWorkout, false},
 	{DailyIDPrefix, read.KindDaily, false},
 	{ECGIDPrefix, read.KindECG, false},
+	{NutritionIDPrefix, read.KindNutrition, false},
 }
 
 // RecordID is the stable id of the Observation made from r.
@@ -91,6 +95,8 @@ func RecordID(r read.ObservationRecord) string {
 		return DailyIDPrefix + strconv.FormatInt(r.Daily.ID, 10)
 	case read.KindECG:
 		return ECGIDPrefix + strconv.FormatInt(r.ECG.ID, 10)
+	case read.KindNutrition:
+		return NutritionIDPrefix + strconv.FormatInt(r.Nutrition.ID, 10)
 	}
 	return ""
 }
@@ -135,6 +141,8 @@ func FromRecord(user uuid.UUID, r read.ObservationRecord) Observation {
 		return FromDailySummary(user, *r.Daily)
 	case read.KindECG:
 		return FromECG(user, *r.ECG)
+	case read.KindNutrition:
+		return FromNutritionLog(user, *r.Nutrition)
 	}
 	if r.Partner != nil {
 		return FromBloodPressure(user, *r.Sample, *r.Partner)
@@ -329,7 +337,9 @@ func FromWorkout(user uuid.UUID, w read.Workout) Observation {
 		text = strings.ReplaceAll(w.ActivityType, "_", " ") + " workout"
 	}
 	o.Code = recordCode(LOINCExerciseDuration, RecordWorkout, text)
-	o.Category = categories(CategoryActivity)
+	// A workout is an activity measure of the Physical Activity IG (its
+	// duration, 55411-3), so it carries the IG's category too.
+	o.Category = append(categories(CategoryActivity), physicalActivityCategory())
 	o.effective(w.StartDate, w.EndDate)
 	if w.DurationS != nil {
 		o.ValueQuantity, _ = value(float64(*w.DurationS), "s", "s")
@@ -351,8 +361,8 @@ func FromWorkout(user uuid.UUID, w read.Workout) Observation {
 	o.Component = append(o.Component, components(
 		field{name: "active_energy_kcal", loinc: loincCaloriesBurned, text: "active energy", unit: "kcal", ucum: "kcal", v: w.ActiveEnergyKcal},
 		field{name: "distance_m", text: "distance", unit: "m", ucum: "m", v: w.DistanceM},
-		field{name: "avg_heart_rate", text: "average heart rate", unit: "bpm", ucum: "/min", v: w.AvgHeartRate},
-		field{name: "max_heart_rate", text: "maximum heart rate", unit: "bpm", ucum: "/min", v: w.MaxHeartRate},
+		field{name: "avg_heart_rate", loinc: loincActivityMeanHR, text: "average heart rate", unit: "bpm", ucum: "/min", v: w.AvgHeartRate},
+		field{name: "max_heart_rate", loinc: loincActivityMaxHR, text: "maximum heart rate", unit: "bpm", ucum: "/min", v: w.MaxHeartRate},
 		field{name: "avg_speed_mps", text: "average speed", unit: "m/s", ucum: "m/s", v: w.AvgSpeedMps},
 		field{name: "elevation_gain_m", text: "elevation gain", unit: "m", ucum: "m", v: w.ElevationGainM},
 		field{name: "vo2_max", text: "VO2 max", unit: "mL/kg/min", ucum: "mL/kg/min", v: w.VO2Max},
@@ -372,7 +382,7 @@ func FromDailySummary(user uuid.UUID, d read.DailySummary) Observation {
 	o.Component = components(
 		intField("step_count", loincSteps24h, "steps", "steps", "{steps}", d.StepCount),
 		field{name: "active_kcal", loinc: loincCaloriesBurned, text: "active energy", unit: "kcal", ucum: "kcal", v: d.ActiveKcal},
-		field{name: "total_kcal", text: "total energy", unit: "kcal", ucum: "kcal", v: d.TotalKcal},
+		field{name: "total_kcal", loinc: loincCalories24h, text: "total energy", unit: "kcal", ucum: "kcal", v: d.TotalKcal},
 		field{name: "distance_m", text: "distance", unit: "m", ucum: "m", v: d.DistanceM},
 		intField("floors_climbed", "", "floors climbed", "floors", "{floors}", d.FloorsClimbed),
 		field{name: "resting_hr", loinc: loincRestingHR, text: "resting heart rate", unit: "bpm", ucum: "/min", v: d.RestingHR},

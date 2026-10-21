@@ -71,26 +71,21 @@ var sleepFigures = []string{
 	"hrv_avg_ms", "resting_hr", "respiratory_rate", "spo2_avg",
 }
 
-// writeSleepWithPhases inserts sleep sessions, then their phases.
+// writeSleepWithPhases inserts sleep sessions, then their phases. Stages that
+// name no session, and the nights of sessions without figures, go through
+// writeSleepNights (sleep_sessionize.go).
 func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, sessions []model.SleepSession, phases []model.SleepPhase, c Counts) error {
-	// Modern watchOS reports sleep as stage segments with no in_bed record, so
-	// the mapper yields phases and no session. Only then, synthesize one session
-	// per night from those phases (it also stamps their ParentContentHash) so the
-	// per-session phase writer below persists them instead of dropping them.
-	if len(sessions) == 0 {
-		sessions = synthesizeSleepSessions(sc.provider, phases)
-	}
-
-	// Group once instead of rescanning every phase per session, AFTER the
-	// synthesis, which stamps ParentContentHash.
+	// Group once instead of rescanning every phase per session.
 	attached := make([]bool, len(phases))
 	byParent := make(map[string][]int, len(sessions)+1)
 	for i, p := range phases {
 		byParent[p.ParentContentHash] = append(byParent[p.ParentContentHash], i)
 	}
-	// windows records where each in-batch session landed, so phases the mapper
-	// left unstamped can be attached by time containment after the loop.
+	// windows records where each in-batch session landed, so phases stamped for
+	// a session missing from the batch can be attached by time containment
+	// after the loop. nights holds the sessions without figures.
 	windows := make([]sleepWindow, 0, len(sessions))
+	var nights []nightSession
 
 	for _, s := range sessions {
 		p := sc.providerOr(s.Provider)
@@ -114,21 +109,15 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 			c.add(tSleep, 0, 1)
 		}
 		windows = append(windows, sleepWindow{id: parentID, hash: s.ContentHash, start: s.BedtimeStart, end: s.BedtimeEnd})
+		if s.TotalSleepSeconds == nil && p == sc.provider {
+			nights = append(nights, nightSession{id: parentID, hash: s.ContentHash, start: s.BedtimeStart, end: s.BedtimeEnd, inBatch: true})
+		}
 
 		var own []model.SleepPhase
 		for _, i := range byParent[s.ContentHash] {
 			if !attached[i] {
 				own = append(own, phases[i])
 				attached[i] = true
-			}
-		}
-		// Single-parent fallback: with only one session, orphan phases are its.
-		if len(sessions) == 1 {
-			for _, i := range byParent[""] {
-				if !attached[i] {
-					own = append(own, phases[i])
-					attached[i] = true
-				}
 			}
 		}
 		if s.Replaceable {
@@ -145,12 +134,22 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 		}
 	}
 
-	// Phases still unattached: unstamped stage segments in a file with two or
-	// more sessions. Attach them by time containment, or count them skipped.
-	var orphans []model.SleepPhase
-	for i := range phases {
-		if !attached[i] {
-			orphans = append(orphans, phases[i])
+	// Phases still unattached: stages that name no session make nights; a
+	// phase stamped for a session missing from the batch is attached by time
+	// containment, or counted skipped.
+	var stages, orphans []model.SleepPhase
+	for i, p := range phases {
+		switch {
+		case attached[i]:
+		case p.ParentContentHash == "" && p.Phase != "in_bed":
+			stages = append(stages, p)
+		default:
+			orphans = append(orphans, p)
+		}
+	}
+	if len(stages) > 0 || len(nights) > 0 {
+		if err := w.writeSleepNights(ctx, tx, sc, stages, nights, c); err != nil {
+			return err
 		}
 	}
 	if len(orphans) > 0 {
@@ -213,9 +212,10 @@ type sleepWindow struct {
 // the session boundary a provider reports for the same night.
 const sleepPhaseAttachTolerance = 5 * time.Minute
 
-// writeOrphanSleepPhases attaches unstamped phases to the in-batch session
-// whose interval contains them. A phase no session covers is counted skipped;
-// reprocessing the object once the parent lands re-attaches it.
+// writeOrphanSleepPhases attaches phases stamped for a session missing from
+// the batch to the in-batch session whose interval contains them. A phase no
+// session covers is counted skipped; reprocessing the object once the parent
+// lands re-attaches it.
 func (w *Writer) writeOrphanSleepPhases(ctx context.Context, tx TxLike, sc scope, phases []model.SleepPhase, windows []sleepWindow, c Counts) error {
 	byID := make(map[int64][]model.SleepPhase)
 	hashByID := make(map[int64]string, len(windows))

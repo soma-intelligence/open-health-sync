@@ -169,3 +169,13 @@ func TestDefaultRegistryDelegates(t *testing.T) {
 	require.False(t, ok)
 	require.Empty(t, Enabled(nil))
 }
+
+func TestSecretKey(t *testing.T) {
+	for _, k := range []string{"CLIENT_ID", "REGION", "ENVIRONMENT", "WEBHOOK_SIGNATURE", "SUBSCRIPTION_ID"} {
+		require.False(t, SecretKey(k), k)
+	}
+	for _, k := range []string{"CLIENT_SECRET", "WEBHOOK_SECRET", "VERIFICATION_TOKEN", "VERIFY_TOKEN",
+		"SUBSCRIPTION_KEY", "NOTIFICATION_SECRET", "SOMETHING_NEW", ""} {
+		require.True(t, SecretKey(k), "%q is a secret unless known otherwise", k)
+	}
+}

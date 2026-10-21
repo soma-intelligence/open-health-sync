@@ -70,6 +70,9 @@ func walk(t *testing.T, root string) (Stats, []File) {
 // TestGarminLayout walks a zip laid out like a Garmin account export: the
 // activity files sit in a zip inside the export zip, next to JSON files.
 func TestGarminLayout(t *testing.T) {
+	// Nested zips are copied to the temporary directory. Other packages
+	// tested at the same time do the same, so this test gets its own.
+	t.Setenv("TMPDIR", t.TempDir())
 	ride, run := fixture(t, "garmin_ride.fit"), fixture(t, "garmin_run.gpx")
 	inner := zipOf(t,
 		"someone@example.com_1001.fit", ride,

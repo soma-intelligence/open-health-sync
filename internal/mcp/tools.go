@@ -200,7 +200,8 @@ func addTools(s *sdk.Server, t *tools) {
 		func(ctx context.Context, a routeArgs) (any, error) {
 			return childTool(ctx, t, a.userArgs, a.WorkoutID, a.windowArgs, a.pageArgs, read.WorkoutRoute, "workout not found")
 		})
-	add(s, "get_nutrition", "Nutrition logs (meals and their macronutrients), oldest first.",
+	add(s, "get_nutrition", "Nutrition logs (meals and drinks with their nutrients), oldest first. Energy is in kcal, "+
+		"the macronutrients in g, sodium in mg; in nutrients, minerals and vitamins in mg or mcg and water in mL.",
 		func(ctx context.Context, a listArgs) (any, error) {
 			return listTool(ctx, t, a.userArgs, read.Query{}, a.windowArgs, a.pageArgs, read.Nutrition)
 		})

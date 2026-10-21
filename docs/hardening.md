@@ -15,12 +15,14 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 - **Set `OHS_PUBLIC_URL` to the https address** clients and providers use, for example
   `OHS_PUBLIC_URL=https://health.example.org`. OAuth callbacks and notification URLs are built
   from it.
-- **Publish the API on loopback only** when the proxy runs on the same host:
-  `OHS_HTTP_PORT=127.0.0.1:8080` in `.env` (compose then maps `127.0.0.1:8080:8080`).
+- **Publish the API on loopback only** when the proxy runs on the same host. The compose file
+  already does (`127.0.0.1:8080:8080`): leave `OHS_HTTP_BIND` unset, and set `OHS_HTTP_PORT` to
+  a port number only.
 - **Never expose Postgres.** The bundled compose file publishes no database port; keep it
   that way. A database elsewhere belongs on a private network, reached with `sslmode=verify-full`
   in `OHS_DATABASE_URL`.
-- **Keep the rate limits on, and rate limit at the proxy too.** The application limits only
+- **Keep the rate limits on, and rate limit at the proxy too.** From the next release, the
+  application limits only
   the provider-facing routes, per instance (`OHS_RATE_LIMIT_*`, see
   [self-hosting.md](self-hosting.md#rate-limits)). Behind a reverse proxy, list it in
   `OHS_TRUSTED_PROXIES` so limits apply to client addresses, not to the proxy's.
@@ -34,8 +36,8 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 
 - **Generate `OHS_ENCRYPTION_KEY`** with `openssl rand -base64 32`. Store it in a secret
   manager and with your backups, not in the repository. Losing it makes stored OAuth tokens and
-  webhook secrets unreadable. To replace it, follow [key-rotation.md](key-rotation.md): the old
-  key goes to `OHS_PREVIOUS_ENCRYPTION_KEYS` until `ohs admin rekey` has run.
+  webhook secrets unreadable. To replace it, follow [key-rotation.md](key-rotation.md) (next
+  release): the old key goes to `OHS_PREVIOUS_ENCRYPTION_KEYS` until `ohs admin rekey` has run.
 - **Set a strong `POSTGRES_PASSWORD`** before the first `up` (it only applies when the volume
   is created; afterwards use `ALTER USER ohs PASSWORD '...'`, see
   [self-hosting.md](self-hosting.md#rotating-secrets)).
@@ -104,8 +106,9 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 ## Logs
 
 - **Keep `OHS_LOG_LEVEL=info`** (the default) in production. Logs are JSON on stderr.
-- **Ship logs to a store with access control and a retention limit.** They never hold keys,
-  tokens or health values, but they hold tenant and user ids.
+- **Ship logs to a store with access control and a retention limit.** They never hold tokens or
+  health values, and hold one key only: the `OHS_BOOTSTRAP_TENANT` key, logged once when that
+  tenant is created. They hold tenant and user ids.
 - **Use the request id** to investigate: every response carries `X-Request-Id`, and the
   matching log lines carry `request_id`.
 
@@ -115,7 +118,7 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
   [changelog](../CHANGELOG.md) and [SECURITY.md](../SECURITY.md) before upgrading. Only the latest
   0.x release gets fixes.
 - **Watch the repository's releases and security advisories** on GitHub.
-- **Verify the image signature before deploying.** Images released after 0.0.2 are signed
+- **Verify the image signature before deploying.** Images released after 0.1.0 are signed
   keylessly by the release workflow. Find the digest of a tag, then verify it:
 
   ```sh

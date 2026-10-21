@@ -1,5 +1,7 @@
 # Self reports
 
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
+
 A self report is a person's own rating: how they feel this morning, their mood, their stress,
 their energy, how well they slept, how sore their muscles are, how hard a session was, how much
 something hurts. Sensors say what the body did; a self report says how the person experienced

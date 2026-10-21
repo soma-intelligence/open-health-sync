@@ -113,7 +113,7 @@ func TestConnectPageFlowToRedirect(t *testing.T) {
 	// The session still serves the page, now showing the connection.
 	rec = e.do(t, http.MethodGet, "/connect/"+fakeSlug+"?session="+token, "", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `class="status connected">Connected<`)
+	assert.Contains(t, rec.Body.String(), `class="pill connected">Connected<`)
 	assert.Contains(t, rec.Body.String(), "Reconnect")
 	assert.Equal(t, 1, strings.Count(rec.Body.String(), "<form"))
 	again := e.consentState(t, e.postConnect(t, fakeSlug, token))

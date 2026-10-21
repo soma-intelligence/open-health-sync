@@ -69,6 +69,7 @@ var activity = map[string]bool{
 	"step_count_intraday":               true,
 	"active_energy_burned":              true,
 	"active_energy_burned_intraday":     true,
+	"total_energy_burned":               true,
 	"distance_walking_running":          true,
 	"distance_walking_running_intraday": true,
 	"distance_cycling":                  true,
@@ -78,6 +79,8 @@ var activity = map[string]bool{
 	"flights_climbed":                   true,
 	"push_count":                        true,
 	"apple_exercise_time":               true,
+	"moderate_activity_time":            true,
+	"vigorous_activity_time":            true,
 	"apple_move_time":                   true,
 	"apple_stand_time":                  true,
 	"physical_effort":                   true,
@@ -91,6 +94,14 @@ var activity = map[string]bool{
 	"nike_fuel":                         true,
 	"strain":                            true,
 	"workout_strain":                    true,
+}
+
+// physicalActivityMeasures are the quantity types whose LOINC code is one of
+// the HL7 Physical Activity IG's measures: their Observations also carry the
+// IG's PhysicalActivity category.
+var physicalActivityMeasures = map[string]bool{
+	model.QTModerateActivityTime: true,
+	model.QTVigorousActivityTime: true,
 }
 
 // survey are the quantity types a person answers about themselves (the self
@@ -143,6 +154,7 @@ var ucumUnits = map[string]string{
 	"m":         "m",
 	"mg/dL":     "mg/dL",
 	"kcal":      "kcal",
+	"kcal/d":    "kcal/d",
 	"kcal/kg/h": "kcal/kg/h",
 	"min":       "min",
 	"W":         "W",

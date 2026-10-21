@@ -19,6 +19,9 @@ type Scope string
 const (
 	// TenantKey demands a tenant API key (ohs_sk_). User tokens are refused.
 	TenantKey Scope = "tenant"
+	// TenantAdmin demands an API key of the instance admin tenant: the
+	// routes that change instance-wide settings (/v1/admin).
+	TenantAdmin Scope = "admin"
 	// The user scopes demand a user token (ohs_ut_) holding that scope. Tenant keys are refused.
 	UserUpload  Scope = "upload"
 	UserConnect Scope = "connect"
@@ -33,6 +36,8 @@ type Principal struct {
 	// KeyID names the credential in the audit log without revealing it: the
 	// API key's id, or the first characters of a user token's hash.
 	KeyID string
+	// Admin is true for an API key of the instance admin tenant.
+	Admin bool
 }
 
 // ErrUnauthenticated is what a Lookup returns for an unknown, revoked or expired
@@ -66,6 +71,14 @@ func (s *Slot) Principal() (Principal, bool) { return s.p, s.ok }
 func From(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(ctxKey{}).(Principal)
 	return p, ok
+}
+
+// WithPrincipal returns ctx carrying p as the caller that handlers further
+// in see, for a route that serves a tenant route's handler on behalf of
+// another tenant (an instance admin reading one tenant's data). The Slot is
+// left as it is: the request stays recorded as the one who authenticated.
+func WithPrincipal(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, ctxKey{}, p)
 }
 
 // Middleware authenticates the bearer secret with lookup and enforces want.
@@ -117,9 +130,12 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 func forbiddenDetail(wants []Scope) string {
 	parts := make([]string, 0, len(wants))
 	for _, w := range wants {
-		if w == TenantKey {
+		switch w {
+		case TenantKey:
 			parts = append(parts, "a tenant API key ("+PrefixSecretKey+")")
-		} else {
+		case TenantAdmin:
+			parts = append(parts, "an API key of the instance admin tenant (ohs admin tenant list shows it)")
+		default:
 			parts = append(parts, "a user token ("+PrefixUserToken+") with scope "+string(w))
 		}
 	}
@@ -127,8 +143,11 @@ func forbiddenDetail(wants []Scope) string {
 }
 
 func allowed(p Principal, want Scope) bool {
-	if want == TenantKey {
+	switch want {
+	case TenantKey:
 		return p.UserID == nil
+	case TenantAdmin:
+		return p.UserID == nil && p.Admin
 	}
 	return p.UserID != nil && slices.Contains(p.Scopes, string(want))
 }

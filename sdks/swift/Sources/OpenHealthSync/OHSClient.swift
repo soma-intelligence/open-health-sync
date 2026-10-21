@@ -31,7 +31,7 @@ public struct OHSTime: Sendable, Equatable, ExpressibleByStringLiteral, CustomSt
 /// token provider called before every request. Every route but the upload takes the tenant
 /// key (`ohs_sk_`), which belongs on your server only. An app on a phone holds a user token
 /// (`ohs_ut_`) with the `upload` scope, minted by your server, and calls only
-/// `uploadAppleHealthPart` and `uploadParts` with it.
+/// `uploadAppleHealthPart`, `uploadParts` and `uploadBluetoothPart` with it.
 public final class OHSClient: Sendable {
     public static let version = "0.1.0"
     public static let defaultUserAgent = "open-health-sync-swift/0.1.0"
@@ -354,6 +354,35 @@ public final class OHSClient: Sendable {
         }
         var spec = Spec(method: "POST", path: "/v1/ingest/apple-health")
         spec.headers.append(("X-OHS-Type", part.type))
+        spec.headers.append(("X-OHS-Day", part.day))
+        spec.headers.append(("X-OHS-Batch", part.batch))
+        spec.headers.append(("X-OHS-Part", String(part.partNumber)))
+        spec.contentType = "application/gzip"
+        spec.body = part.body
+        spec.retry = true
+        return try decode(UploadResult.self, from: try await send(spec))
+    }
+
+    // MARK: - Bluetooth upload
+
+    /// Uploads one part of Bluetooth device values (`BluetoothRecorder`) with a user token
+    /// holding the `upload` scope, with the retries of `uploadAppleHealthPart`. Send the
+    /// same part again until it is stored: a retry is answered `duplicate: true`.
+    public func uploadBluetoothPart(_ part: BluetoothPart) async throws -> UploadResult {
+        guard AppleHealthPartBuilder.isValidToken(part.batch) else {
+            throw OHSError.invalidArgument("part batch must be 1 to 128 letters, digits, '_' or '-'")
+        }
+        guard RFC3339.isValidDay(part.day) else {
+            throw OHSError.invalidArgument("part day must be a YYYY-MM-DD date")
+        }
+        guard part.partNumber >= 0 && part.partNumber <= 1_000_000 else {
+            throw OHSError.invalidArgument("part number must be between 0 and 1000000")
+        }
+        guard !part.body.isEmpty else {
+            throw OHSError.invalidArgument("part body is empty")
+        }
+        var spec = Spec(method: "POST", path: "/v1/ingest/bluetooth")
+        spec.headers.append(("X-OHS-Type", BluetoothPart.type))
         spec.headers.append(("X-OHS-Day", part.day))
         spec.headers.append(("X-OHS-Batch", part.batch))
         spec.headers.append(("X-OHS-Part", String(part.partNumber)))

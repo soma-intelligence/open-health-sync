@@ -88,6 +88,7 @@ type Options struct {
 type Connector struct {
 	mu   sync.RWMutex
 	keys connector.Config
+	opts Options // what New was given, for NewInstance
 
 	accountBase, apiBase string
 	httpc                *http.Client
@@ -111,6 +112,7 @@ var (
 // New returns an Oura connector.
 func New(o Options) *Connector {
 	c := &Connector{
+		opts:        o,
 		accountBase: o.AccountBase,
 		apiBase:     o.APIBase,
 		httpc:       o.HTTPClient,
@@ -180,6 +182,9 @@ func (c *Connector) Enabled(cfg connector.Config) bool {
 	return cfg[KeyClientID] != "" && cfg[KeyClientSecret] != ""
 }
 
+// OptionalKeys lists the keys it also reads and runs without: VERIFICATION_TOKEN (webhooks).
+func (c *Connector) OptionalKeys() []string { return []string{KeyVerificationToken} }
+
 // Configure hands the connector its keys (the OHS_OURA_* values of the
 // process configuration). It may be called again; the last call wins. Both
 // keys are required; VERIFICATION_TOKEN turns webhooks on.
@@ -194,6 +199,16 @@ func (c *Connector) Configure(cfg connector.Config) error {
 		KeyVerificationToken: cfg[KeyVerificationToken],
 	}
 	return nil
+}
+
+// NewInstance returns a connector like c without keys, sharing its HTTP
+// client, for a tenant's own keys (connector.Instancer).
+func (c *Connector) NewInstance() connector.Connector {
+	o := c.opts
+	o.HTTPClient = c.httpc
+	n := New(o)
+	n.keys = nil
+	return n
 }
 
 // credentials returns the configured client id and secret.

@@ -56,9 +56,14 @@
       "description": "The `job_id` returned by `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`\nor `DELETE /v1/users/{id}/connections/{provider}?delete_data=true`."
     },
     {
+      "key": "keyId",
+      "value": "",
+      "description": "The key id."
+    },
+    {
       "key": "observationId",
       "value": "qs-1234",
-      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-` or `ecg-`, then the stored row id."
+      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id."
     },
     {
       "key": "patientId",
@@ -119,7 +124,7 @@
           "name": "Connectors enabled on this instance",
           "request": {
             "method": "GET",
-            "description": "Connectors enabled on this instance.\n\n`GET /v1/providers`",
+            "description": "Connectors enabled on this instance.\n\n`GET /v1/providers`\n\nThe connectors enabled on this instance, less those an instance admin turned off for the\ncaller's tenant.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/providers",
@@ -770,7 +775,7 @@
           "name": "Start connecting a provider",
           "request": {
             "method": "POST",
-            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done.",
+            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done. 403 when an\ninstance admin turned the provider off for the tenant. For a provider without a consent\npage for other apps (Eight Sleep) the URL is this server's own sign-in page,\n`/oauth/{provider}/signin`, which asks for the account email and password; it ends the\nsame way.",
             "header": [
               {
                 "key": "Content-Type",
@@ -896,7 +901,7 @@
           "name": "Sync a connection now",
           "request": {
             "method": "POST",
-            "description": "Sync a connection now.\n\n`POST /v1/users/{id}/connections/{provider}/sync`\n\nQueues a pull of the connection ahead of routine work and answers with the sync run; follow it\nat the `Location` header. The window ends now and starts where the connection's data ends\n(minus an hour of overlap), a day back for a connection that never synced, or at `from`\n(at most 30 days back). While a manual run of the connection is still queued or running, the\nanswer is 200 with that run and nothing new is queued. 409 when the connection does not sync\n(`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.",
+            "description": "Sync a connection now.\n\n`POST /v1/users/{id}/connections/{provider}/sync`\n\nQueues a pull of the connection ahead of routine work and answers with the sync run; follow it\nat the `Location` header. The window ends now and starts where the connection's data ends\n(minus an hour of overlap), a day back for a connection that never synced, or at `from`\n(at most 30 days back). While a manual run of the connection is still queued or running, the\nanswer is 200 with that run and nothing new is queued. 409 when the connection does not sync\n(`needs_reauth`, `disconnected`: connect the user again), its provider is not enabled here,\nor an instance admin turned the provider off for the tenant.",
             "header": [
               {
                 "key": "Content-Type",
@@ -1608,7 +1613,7 @@
           "name": "Nutrition logs",
           "request": {
             "method": "GET",
-            "description": "Nutrition logs.\n\n`GET /v1/users/{id}/nutrition`",
+            "description": "Nutrition logs.\n\n`GET /v1/users/{id}/nutrition`\n\nFood and drink entries from Apple Health and Health Connect. Each nutrient has one\nunit whatever the source: kcal for energy, g for the macronutrients, mg or mcg for\nthe others, mL for water (the table is in docs/api.md).",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/users/:id/nutrition",
@@ -2502,7 +2507,7 @@
           "name": "The user's records as FHIR R4 Observations",
           "request": {
             "method": "GET",
-            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`), daily summaries (`daily-`) and ECG recordings with their\nvoltage samples (`ecg-`), merged in time order (a sample's start, a bedtime, a\nworkout's start, a day at midnight UTC, a recording's start), then by kind and id.\nPaged like every list: the Bundle's `next` link carries the cursor, and there is no\n`next` link on the last page; `total` is left out. A blood pressure pair is never\nsplit across pages, and its two samples are not listed on their own. A page holds at\nmost 100 ECG recordings: one that reaches them ends there, with a `next` link.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
+            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`), daily summaries (`daily-`), ECG recordings with their\nvoltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a\nsample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or\na meal's start), then by kind and id.\nPaged like every list: the Bundle's `next` link carries the cursor, and there is no\n`next` link on the last page; `total` is left out. A blood pressure pair is never\nsplit across pages, and its two samples are not listed on their own. A page holds at\nmost 100 ECG recordings: one that reaches them ends there, with a `next` link.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/users/:id/fhir/Observation",
@@ -2526,7 +2531,7 @@
                 {
                   "key": "code",
                   "value": "http://loinc.org|8867-4",
-                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG\nrecordings), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout`, `daily_summary` or `ecg_recording`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
+                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG\nrecordings), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
                   "disabled": true
                 },
                 {
@@ -2609,7 +2614,7 @@
                 {
                   "key": "observation_id",
                   "value": "{{observationId}}",
-                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-` or `ecg-`, then the stored row id."
+                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id."
                 }
               ]
             }
@@ -3271,6 +3276,332 @@
               "file": {
                 "src": ""
               }
+            }
+          }
+        },
+        {
+          "name": "Upload one part of Bluetooth device values",
+          "request": {
+            "method": "POST",
+            "description": "Upload one part of Bluetooth device values.\n\n`POST /v1/ingest/bluetooth`\n\nOne gzip NDJSON part (at most 64 MiB, never truncated), one characteristic value a\nstandard Bluetooth health device sent per line: `{\"at\": \"<RFC 3339 arrival time with\noffset>\", \"char\": \"2a37\", \"value\": \"<hex>\", \"session\": \"<id of the connection>\",\n\"device\": {\"name\", \"manufacturer\", \"model\", \"firmware\"}, \"device_user\": <index>}`\n(`device` and `device_user` optional; the line format is in docs/connectors/bluetooth.md;\n`ohs-bridge` and the Swift and Kotlin SDKs write it). The server decodes heart rate with\nRR intervals, blood pressure, weight, body composition, glucose, temperature and pulse\noximetry; other characteristics are stored and not mapped. The part is refused with\n400, and nothing is stored, when a line breaks the format; a value that does not decode\nis a failed record of its line only. Same headers, limits and answers as the Apple\nHealth upload.\nRe-sending the same part is safe: the answer is 200 with `duplicate: true`. Other\nbytes under a (day, batch, part) already stored are a 409, and so is a part sent while\nthis provider's data is being deleted for the user (nothing is kept; send it again\nonce the deletion job is done). Each instance processes a\nbounded number of uploads at once; above it the answer is 503 with `Retry-After`.\n\nNeeds a user token (ohs_ut_) as the client's apiKey.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "X-OHS-Type",
+                "value": "gatt",
+                "description": "Always `gatt`."
+              },
+              {
+                "key": "X-OHS-Day",
+                "value": "2026-01-01",
+                "description": "UTC day of the part's first line (the server does not check it)."
+              },
+              {
+                "key": "X-OHS-Batch",
+                "value": ""
+              },
+              {
+                "key": "X-OHS-Part",
+                "value": "0"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/gzip"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/ingest/bluetooth",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "ingest",
+                "bluetooth"
+              ]
+            },
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": ""
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tenant",
+      "item": [
+        {
+          "name": "The tenant of the calling key",
+          "request": {
+            "method": "GET",
+            "description": "The tenant of the calling key.\n\n`GET /v1/tenant`\n\nThe tenant the key belongs to, whether it is the instance admin (the one tenant whose keys\nmanage the providers, see /v1/admin/providers) and which key is calling.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/tenant",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tenant"
+              ]
+            }
+          }
+        },
+        {
+          "name": "The tenant's API keys",
+          "request": {
+            "method": "GET",
+            "description": "The tenant's API keys.\n\n`GET /v1/keys`\n\nEvery key of the tenant, revoked ones included, newest first. Only the prefix of a key is\nstored in clear; the secret itself was shown once, when the key was created.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "keys"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create an API key for the tenant",
+          "request": {
+            "method": "POST",
+            "description": "Create an API key for the tenant.\n\n`POST /v1/keys`\n\nA new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in\nthis answer only. To rotate: deploy the new key, then revoke the old one. Recorded in the\naudit log as `key.create`.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "keys"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Revoke an API key",
+          "request": {
+            "method": "DELETE",
+            "description": "Revoke an API key.\n\n`DELETE /v1/keys/{key_id}`\n\nEvery call with the key is refused from now on. A key cannot revoke itself (409): revoke it\nwith another key of the tenant. Revoking a revoked key changes nothing. Recorded in the\naudit log as `key.revoke`.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/keys/:key_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "keys",
+                ":key_id"
+              ],
+              "variable": [
+                {
+                  "key": "key_id",
+                  "value": "{{keyId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "pipeline",
+      "item": [
+        {
+          "name": "The tenant's pipeline, stage by stage",
+          "request": {
+            "method": "GET",
+            "description": "The tenant's pipeline, stage by stage.\n\n`GET /v1/pipeline`\n\nCounts of the tenant's work at each stage, in the order data flows: the sources (providers\nthat are on, and any provider still holding the tenant's connections), the sync runs, the\nprocessing jobs, the raw archive and the webhook deliveries. Counts only, never a health\nvalue. The console's overview is this answer.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/pipeline",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "pipeline"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Sync runs of every user of the tenant",
+          "request": {
+            "method": "GET",
+            "description": "Sync runs of every user of the tenant.\n\n`GET /v1/pipeline/sync-runs`\n\nThe sync runs of all the tenant's users, newest first, each with its user. Filter by\n`status` (for example `failed`, the runs that gave up) and by provider.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/pipeline/sync-runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "pipeline",
+                "sync-runs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "queued",
+                  "disabled": true
+                },
+                {
+                  "key": "provider",
+                  "value": "",
+                  "description": "Only this provider's runs.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Processing jobs of the tenant",
+          "request": {
+            "method": "GET",
+            "description": "Processing jobs of the tenant.\n\n`GET /v1/pipeline/etl-jobs`\n\nThe jobs that turn stored raw payloads into records, newest first. `parked` (the default)\nlists the jobs that failed 5 times and wait for a retry; `pending` and `running` list the\nwork in flight. Done jobs are summed up by each user's coverage report.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/pipeline/etl-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "pipeline",
+                "etl-jobs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "parked",
+                  "disabled": true
+                },
+                {
+                  "key": "provider",
+                  "value": "",
+                  "description": "Only this provider's jobs.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retry every parked processing job",
+          "request": {
+            "method": "POST",
+            "description": "Retry every parked processing job.\n\n`POST /v1/pipeline/etl-jobs/retry`\n\nQueues every parked job of the tenant again with fresh attempts, or only one provider's. A\njob that fails for the same reason parks again after 5 attempts.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/pipeline/etl-jobs/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "pipeline",
+                "etl-jobs",
+                "retry"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retry one parked processing job",
+          "request": {
+            "method": "POST",
+            "description": "Retry one parked processing job.\n\n`POST /v1/pipeline/etl-jobs/{job_id}/retry`\n\nQueues the job again with fresh attempts. Only a parked job can be retried (409 otherwise).",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/pipeline/etl-jobs/:job_id/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "pipeline",
+                "etl-jobs",
+                ":job_id",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "job_id",
+                  "value": "{{jobId}}"
+                }
+              ]
             }
           }
         }

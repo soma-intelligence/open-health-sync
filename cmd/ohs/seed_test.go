@@ -18,15 +18,30 @@ func TestParseSeedArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.tenant != uuid.Nil || o.days != 90 || o.externalRef != "demo-user" || o.seed != 1 {
+	if o.tenant != uuid.Nil || o.days != 90 || o.externalRef != "demo-user" || o.seed != 1 || o.persona != "mix" {
 		t.Fatalf("defaults: %+v", o)
+	}
+	// A persona brings its own person and user, unless told otherwise.
+	o, err = parseSeedArgs([]string{"--demo", "--persona", "runner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.persona != "runner" || o.seed != 2 || o.externalRef != "demo-runner" {
+		t.Fatalf("runner: %+v", o)
+	}
+	o, err = parseSeedArgs([]string{"--demo", "--persona", "weight", "--seed", "0", "--external-ref", "demo-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.persona != "weight" || o.seed != 0 || o.externalRef != "demo-user" {
+		t.Fatalf("weight with flags: %+v", o)
 	}
 	id := uuid.New()
 	o, err = parseSeedArgs([]string{"--demo", "--tenant", id.String(), "--days", "30", "--external-ref", "alice", "--seed", "9"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.tenant != id || o.days != 30 || o.externalRef != "alice" || o.seed != 9 {
+	if o.tenant != id || o.days != 30 || o.externalRef != "alice" || o.seed != 9 || o.persona != "mix" {
 		t.Fatalf("flags: %+v", o)
 	}
 }
@@ -41,7 +56,10 @@ func TestParseSeedArgsRefuses(t *testing.T) {
 		{"--demo", "--days", "0"},
 		{"--demo", "--days", "366"},
 		{"--demo", "--external-ref", " "},
+		{"--demo", "--external-ref", ""},
 		{"--demo", "--nope"},
+		{"--demo", "--persona", "athlete"},
+		{"--demo", "--persona", ""},
 	} {
 		_, err := parseSeedArgs(args)
 		var ue usageError

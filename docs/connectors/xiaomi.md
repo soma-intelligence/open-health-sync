@@ -1,5 +1,7 @@
 # Xiaomi connector
 
+> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
+
 Slug `xiaomi`. Xiaomi bands and watches (Xiaomi Smart Band, Redmi Watch, Xiaomi Watch) sync to
 the **Mi Fitness** app (formerly Xiaomi Wear), and older Mi Bands to **Zepp Life** (formerly Mi
 Fit). Xiaomi publishes no health API for third parties, so Open Health Sync reads Xiaomi data in

@@ -1,0 +1,14 @@
+[
+  {
+    "userId": "a1b2c3d4-0000-4000-8000-000000000001",
+    "summaryId": "x1a2b3c-69a53370",
+    "measurementTimeInSeconds": 1772434800,
+    "measurementTimeOffsetInSeconds": 3600,
+    "weightInGrams": 72500,
+    "bodyFatInPercent": 18.5,
+    "muscleMassInGrams": 33000,
+    "boneMassInGrams": 3100,
+    "bodyWaterInPercent": 55.2,
+    "bodyMassIndex": 22.4
+  }
+]

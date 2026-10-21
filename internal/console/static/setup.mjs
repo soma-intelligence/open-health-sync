@@ -7,7 +7,7 @@
 // origin, and shows the key with textContent. The helpers above main() are
 // pure and tested with `node --test`.
 
-// KEY_STORAGE is the console's sessionStorage key (app.mjs): the new key is
+// KEY_STORAGE is the console's sessionStorage key (lib.mjs): the new key is
 // kept there so /console opens signed in, in this tab only.
 export const KEY_STORAGE = "ohs.console.key";
 

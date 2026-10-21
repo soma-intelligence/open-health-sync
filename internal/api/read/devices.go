@@ -36,7 +36,8 @@ func SampleDevice(s Sample) Device {
 }
 
 // ProvenanceDevice is the device of a record whose table keeps only a device
-// id (sleep sessions, workouts, ECG recordings; daily summaries have none).
+// id (sleep sessions, workouts, ECG recordings, nutrition logs; daily
+// summaries have none).
 func ProvenanceDevice(p Provenance) Device {
 	return Device{Provider: p.Provider, Source: deref(p.Source), DeviceID: deref(p.Device)}
 }
@@ -50,8 +51,9 @@ func deref(p *string) string {
 
 // Devices lists, sorted and each once, the devices of the user's records
 // that are FHIR Observations (quantity samples, sleep sessions, workouts,
-// ECG recordings) whose time is in [q.Start, q.End); a zero bound is open. Cursor and Limit
-// are ignored: a user has a handful of devices.
+// ECG recordings, nutrition logs) whose time is in [q.Start, q.End); a zero
+// bound is open. Cursor and Limit are ignored: a user has a handful of
+// devices.
 //
 // It reads the provenance columns of every record in the window once (each
 // branch on its (tenant_id, user_id, time) index, so a window reads only its
@@ -91,6 +93,7 @@ func Devices(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Quer
 		{"ohs_data.sleep_sessions", "bedtime_start"},
 		{"ohs_data.workouts", "start_date"},
 		{"ohs_data.ecg_recordings", "start_date"},
+		{"ohs_data.nutrition_logs", "start_date"},
 	} {
 		branches = append(branches, `SELECT provider, coalesce(source_slug, ''), device_id, '', ''
 		FROM `+t.table+` WHERE tenant_id = $1 AND user_id = $2 AND device_id <> ''`+window(t.timeCol))

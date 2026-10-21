@@ -239,6 +239,15 @@ var rangeRules = map[string]rangeRule{
 		Unit:    "kcal",
 		HardMin: 0, HardMax: unbounded, SoftMin: 0, SoftMax: 20000,
 	},
+	model.QTTotalEnergyBurned: {
+		Unit:    "kcal",
+		HardMin: 0, HardMax: unbounded, SoftMin: 0, SoftMax: 30000,
+	},
+	// Health Connect caps a basal metabolic rate at 10,000 kcal a day.
+	model.QTBasalMetabolicRate: {
+		Unit:    "kcal/d",
+		HardMin: 0, HardMax: 10000, SoftMin: 500, SoftMax: 5000,
+	},
 	model.QTDistanceWalkingRunning: {
 		Unit:    "m",
 		HardMin: 0, HardMax: unbounded, SoftMin: 0, SoftMax: 300000,
@@ -438,6 +447,16 @@ var rangeRules = map[string]rangeRule{
 	model.QTRecoveryHighTime: {
 		Unit:    "min",
 		HardMin: 0, HardMax: 1440, SoftMin: 0, SoftMax: 960,
+	},
+	// Minutes of one day at an intensity. Ten hours of moderate or vigorous
+	// activity is rare enough to flag.
+	model.QTModerateActivityTime: {
+		Unit:    "min",
+		HardMin: 0, HardMax: 1440, SoftMin: 0, SoftMax: 600,
+	},
+	model.QTVigorousActivityTime: {
+		Unit:    "min",
+		HardMin: 0, HardMax: 1440, SoftMin: 0, SoftMax: 600,
 	},
 
 	// A person's own ratings. The scale is the contract (model.SelfReportScales):

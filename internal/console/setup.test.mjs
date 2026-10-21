@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { KEY_STORAGE as CONSOLE_KEY_STORAGE } from "./static/app.mjs";
+import { KEY_STORAGE as CONSOLE_KEY_STORAGE } from "./static/lib.mjs";
 import {
   KEY_STORAGE,
   SETUP_PATH,

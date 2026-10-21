@@ -29,9 +29,10 @@ type Config struct {
 	PreviousEncryptionKeys [][]byte
 	Roles                  map[string]bool // "api", "collect", "etl"
 	Metrics                bool
-	// Console serves the read-only admin console at /console (OHS_CONSOLE,
-	// default false).
-	Console bool
+	// Console serves the admin console at /console (OHS_CONSOLE true or
+	// read-only, default false). ConsoleReadOnly (read-only) hides its write
+	// actions.
+	Console, ConsoleReadOnly bool
 	// MetricsToken (OHS_METRICS_TOKEN) is the bearer secret a scrape of
 	// /metrics presents. MetricsListen (OHS_METRICS_LISTEN) serves /metrics
 	// on an address of its own instead of the API listener.
@@ -123,6 +124,10 @@ type RateLimit struct {
 	Rate  float64
 	Burst int
 }
+
+// ConsoleReadOnly is the OHS_CONSOLE value of the console without write
+// actions.
+const ConsoleReadOnly = "read-only"
 
 // MinMetricsToken is the shortest OHS_METRICS_TOKEN accepted.
 const MinMetricsToken = 16
@@ -300,11 +305,15 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	}
 
 	if v := get("OHS_CONSOLE", ""); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("OHS_CONSOLE: %q is not a boolean", v)
+		if strings.EqualFold(v, ConsoleReadOnly) {
+			c.Console, c.ConsoleReadOnly = true, true
+		} else {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return Config{}, fmt.Errorf("OHS_CONSOLE: %q is not true, false or %s", v, ConsoleReadOnly)
+			}
+			c.Console = b
 		}
-		c.Console = b
 	}
 
 	if v := get("OHS_RETENTION_DAYS", ""); v != "" {

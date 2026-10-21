@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Coverage-guided fuzzing of the Apple Health upload parser. Pull requests run
+# the seed corpus only (go test ./... in ci.yml), which is deterministic; the
+# mutation search runs here, nightly and on demand. A failing input is kept
+# as an artifact: copy it into connectors/applehealth/testdata/fuzz/ to turn
+# it into a regression test.
+name: fuzz
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  applehealth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: "1.26"
+      - name: Fuzz the Apple Health upload parser
+        run: go test ./connectors/applehealth/ -run '^$' -fuzz FuzzParseUpload -fuzztime=10m
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-applehealth-failure
+          path: connectors/applehealth/testdata/fuzz/
+          if-no-files-found: ignore

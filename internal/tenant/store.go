@@ -66,6 +66,10 @@ type Tenant struct {
 	ID        uuid.UUID
 	Name      string
 	CreatedAt time.Time
+	// Admin marks the instance admin tenant: its API keys may change
+	// instance-wide settings (the /v1/admin routes). The first tenant of an
+	// instance is the admin.
+	Admin bool
 }
 
 // User is an end user of a tenant.
@@ -96,7 +100,7 @@ func (s *Store) CreateTenant(ctx context.Context, name string) (Tenant, string, 
 		return Tenant{}, "", fmt.Errorf("tenant: begin: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	t, full, err := insertTenant(ctx, tx, name)
+	t, full, _, err := insertTenant(ctx, tx, name)
 	if err != nil {
 		return Tenant{}, "", err
 	}
@@ -104,6 +108,30 @@ func (s *Store) CreateTenant(ctx context.Context, name string) (Tenant, string, 
 		return Tenant{}, "", err
 	}
 	return t, full, nil
+}
+
+// CreateTenantAudited is CreateTenant that also describes the first key and
+// records ev in the audit log in the same transaction, for the new tenant and
+// with the key's id and prefix added to its detail: a failed audit write
+// leaves no tenant behind. The new tenant is an instance admin only when it
+// is the instance's first.
+func (s *Store) CreateTenantAudited(ctx context.Context, name string, ev audit.Event) (Tenant, string, APIKey, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Tenant{}, "", APIKey{}, fmt.Errorf("tenant: begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	t, full, k, err := insertTenant(ctx, tx, name)
+	if err != nil {
+		return Tenant{}, "", APIKey{}, err
+	}
+	if err := audit.Record(ctx, tx, keyEvent(ev, t.ID, k)); err != nil {
+		return Tenant{}, "", APIKey{}, err
+	}
+	if err := commit(ctx, tx); err != nil {
+		return Tenant{}, "", APIKey{}, err
+	}
+	return t, full, k, nil
 }
 
 // EnsureTenant returns the oldest tenant named name, creating it with a first
@@ -122,15 +150,15 @@ func (s *Store) EnsureTenant(ctx context.Context, name string) (Tenant, string, 
 	}
 	var t Tenant
 	err = tx.QueryRow(ctx,
-		`SELECT id, name, created_at FROM ohs_core.tenants WHERE name = $1 ORDER BY created_at, id LIMIT 1`, name,
-	).Scan(&t.ID, &t.Name, &t.CreatedAt)
+		`SELECT id, name, created_at, admin FROM ohs_core.tenants WHERE name = $1 ORDER BY created_at, id LIMIT 1`, name,
+	).Scan(&t.ID, &t.Name, &t.CreatedAt, &t.Admin)
 	if err == nil {
 		return t, "", nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Tenant{}, "", fmt.Errorf("tenant: find tenant: %w", err)
 	}
-	t, full, err := insertTenant(ctx, tx, name)
+	t, full, _, err := insertTenant(ctx, tx, name)
 	if err != nil {
 		return Tenant{}, "", err
 	}
@@ -169,7 +197,7 @@ func (s *Store) CreateFirstTenant(ctx context.Context, name string, ev *audit.Ev
 	if exists {
 		return Tenant{}, "", ErrSetupDone
 	}
-	t, full, err := insertTenant(ctx, tx, name)
+	t, full, _, err := insertTenant(ctx, tx, name)
 	if err != nil {
 		return Tenant{}, "", err
 	}
@@ -185,6 +213,33 @@ func (s *Store) CreateFirstTenant(ctx context.Context, name string, ev *audit.Ev
 		return Tenant{}, "", err
 	}
 	return t, full, nil
+}
+
+// SetAdmin marks the tenant as the instance admin, or clears the mark. An
+// unknown tenant is ErrNotFound. Several tenants may be admins.
+func (s *Store) SetAdmin(ctx context.Context, tenantID uuid.UUID, admin bool) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE ohs_core.tenants SET admin = $2 WHERE id = $1`, tenantID, admin)
+	if err != nil {
+		return fmt.Errorf("tenant: set admin: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetTenant returns one tenant. An unknown id is ErrNotFound.
+func (s *Store) GetTenant(ctx context.Context, tenantID uuid.UUID) (Tenant, error) {
+	var t Tenant
+	err := s.pool.QueryRow(ctx, `SELECT id, name, created_at, admin FROM ohs_core.tenants WHERE id = $1`, tenantID).
+		Scan(&t.ID, &t.Name, &t.CreatedAt, &t.Admin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Tenant{}, ErrNotFound
+	}
+	if err != nil {
+		return Tenant{}, fmt.Errorf("tenant: get tenant: %w", err)
+	}
+	return t, nil
 }
 
 // HasTenants reports whether the instance has at least one tenant.
@@ -205,27 +260,33 @@ func lockTenantCreation(ctx context.Context, tx pgx.Tx) error {
 	return nil
 }
 
-func insertTenant(ctx context.Context, tx pgx.Tx, name string) (Tenant, string, error) {
+// insertTenant creates a tenant and its first API key, and describes the
+// key. The first tenant of the instance is its admin: creations are
+// serialized by the tenant creation lock, so exactly one tenant is ever
+// created first.
+func insertTenant(ctx context.Context, tx pgx.Tx, name string) (Tenant, string, APIKey, error) {
 	if err := lockTenantCreation(ctx, tx); err != nil {
-		return Tenant{}, "", err
+		return Tenant{}, "", APIKey{}, err
 	}
 	full, hash, err := auth.NewSecret(auth.PrefixSecretKey)
 	if err != nil {
-		return Tenant{}, "", err
+		return Tenant{}, "", APIKey{}, err
 	}
 	var t Tenant
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO ohs_core.tenants (name) VALUES ($1) RETURNING id, name, created_at`, name,
-	).Scan(&t.ID, &t.Name, &t.CreatedAt); err != nil {
-		return Tenant{}, "", fmt.Errorf("tenant: insert tenant: %w", err)
+		`INSERT INTO ohs_core.tenants (name, admin) VALUES ($1, NOT EXISTS (SELECT 1 FROM ohs_core.tenants))
+		 RETURNING id, name, created_at, admin`, name,
+	).Scan(&t.ID, &t.Name, &t.CreatedAt, &t.Admin); err != nil {
+		return Tenant{}, "", APIKey{}, fmt.Errorf("tenant: insert tenant: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash) VALUES ($1, $2, $3)`,
-		t.ID, full[:keyPrefixLen], hash,
-	); err != nil {
-		return Tenant{}, "", fmt.Errorf("tenant: insert key: %w", err)
+	k := APIKey{Prefix: full[:keyPrefixLen]}
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash) VALUES ($1, $2, $3) RETURNING id, created_at`,
+		t.ID, k.Prefix, hash,
+	).Scan(&k.ID, &k.CreatedAt); err != nil {
+		return Tenant{}, "", APIKey{}, fmt.Errorf("tenant: insert key: %w", err)
 	}
-	return t, full, nil
+	return t, full, k, nil
 }
 
 // CreateUser adds an end user. An empty externalRef is stored as NULL, so
@@ -455,13 +516,15 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 		tenantID uuid.UUID
 		keyID    uuid.UUID
 		stale    bool
+		admin    bool
 	)
 	err := s.pool.QueryRow(ctx,
-		`SELECT tenant_id, id,
-		        last_used_at IS NULL OR last_used_at < now() - $2::interval
-		 FROM ohs_core.api_keys WHERE key_hash = $1 AND revoked_at IS NULL`,
+		`SELECT k.tenant_id, k.id,
+		        k.last_used_at IS NULL OR k.last_used_at < now() - $2::interval, t.admin
+		 FROM ohs_core.api_keys k JOIN ohs_core.tenants t ON t.id = k.tenant_id
+		 WHERE k.key_hash = $1 AND k.revoked_at IS NULL`,
 		hash, fmt.Sprintf("%d microseconds", touchEvery.Microseconds()),
-	).Scan(&tenantID, &keyID, &stale)
+	).Scan(&tenantID, &keyID, &stale, &admin)
 	if err == nil {
 		if stale {
 			// Best effort, and at most once a minute per key.
@@ -469,7 +532,7 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 				slog.DebugContext(ctx, "tenant: touch api key", "error", terr)
 			}
 		}
-		return auth.Principal{TenantID: tenantID, KeyID: keyID.String()}, nil
+		return auth.Principal{TenantID: tenantID, KeyID: keyID.String(), Admin: admin}, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return auth.Principal{}, fmt.Errorf("tenant: lookup key: %w", err)

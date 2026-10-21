@@ -1,0 +1,66 @@
+name: bridge
+
+# ohs-bridge, the Rust desktop bridge in bridge/ (docs/bridge.md).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bridge/**"
+      - "connectors/bluetooth/**"
+      - "connectors/activityfiles/**"
+      - "test/e2e/bridge.sh"
+      - "test/e2e/lib.sh"
+      - ".github/workflows/bridge.yml"
+  pull_request:
+    paths:
+      - "bridge/**"
+      - "connectors/bluetooth/**"
+      - "connectors/activityfiles/**"
+      - "test/e2e/bridge.sh"
+      - "test/e2e/lib.sh"
+      - ".github/workflows/bridge.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: D-Bus headers (BlueZ is reached through D-Bus)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt --no-self-update
+          rustup default stable
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --locked --release
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: D-Bus headers
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Spooled values and FIT files to the compose stack
+        run: test/e2e/bridge.sh

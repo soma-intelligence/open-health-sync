@@ -1,3 +1,10 @@
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/koi-hero-dark.gif">
+  <img src="docs/assets/readme/koi-hero-light.gif" width="100%" alt="Sync health data in peace. Koi drawn in characters swim around the line, in a seamless loop.">
+</picture>
+</p>
+
 <a href="#quickstart">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.png">
@@ -13,7 +20,8 @@
 
 Apple Health, Withings, Oura, WHOOP, Fitbit, Health Connect, Dexcom, OMRON and five more.<br>
 One clean model out, over REST, FHIR R4 and a read-only MCP server for AI agents.<br>
-Free, one Go binary plus Postgres, runs on a Raspberry Pi.
+Free, one Go binary plus Postgres, runs on a Raspberry Pi.<br>
+An open source, self-hosted alternative to hosted wearable APIs such as Terra.
 
 [![CI](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/soma-intelligence/open-health-sync?color=0e9f8e)](https://github.com/soma-intelligence/open-health-sync/releases)
@@ -21,6 +29,7 @@ Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 ![amd64 and arm64](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-555)
 [![Go version](https://img.shields.io/github/go-mod/go-version/soma-intelligence/open-health-sync?color=555)](go.mod)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-555)](LICENSE)
+[![Hosted beta: sign up free](https://img.shields.io/badge/hosted_beta-sign_up_free-0e9f8e)](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=badge)
 
 <p>
 <a href="docs/connectors/apple-health.md"><img alt="Apple Health: available" src="https://img.shields.io/badge/Apple_Health-available-0e9f8e?style=flat-square"></a>
@@ -36,14 +45,17 @@ Free, one Go binary plus Postgres, runs on a Raspberry Pi.
 <a href="docs/connectors/health-connect.md"><img alt="Health Connect: available" src="https://img.shields.io/badge/Health_Connect-available-0e9f8e?style=flat-square"></a>
 <a href="docs/connectors/dexcom.md"><img alt="Dexcom: available" src="https://img.shields.io/badge/Dexcom-available-0e9f8e?style=flat-square"></a>
 <a href="docs/connectors/omron.md"><img alt="OMRON: available" src="https://img.shields.io/badge/OMRON-available-0e9f8e?style=flat-square"></a>
-<a href="docs/connectors/README.md"><img alt="Garmin: planned" src="https://img.shields.io/badge/Garmin-planned-8a8f98?style=flat-square"></a>
+<a href="docs/connectors/garmin.md"><img alt="Garmin: next release" src="https://img.shields.io/badge/Garmin-next_release-3d7ea6?style=flat-square"></a>
 </p>
 
 ```bash
 docker pull ghcr.io/soma-intelligence/open-health-sync:0.1.0
 ```
 
-[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
+**Rather not run a server?** The hosted beta is the same API with nothing to operate: a key in a minute, demo data on the first call.<br>
+[**Get started for free →**](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=hero) &nbsp;&middot;&nbsp; [Sign in to the developer portal](https://app.openhealthsync.com/portal) &nbsp;&middot;&nbsp; [▶ Watch the 75-second tour](#hosted-beta)
+
+[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Hosted beta](#hosted-beta) &nbsp;&middot;&nbsp; [Compare](#open-health-sync-vs-terra-and-other-health-data-apis) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
 <sub>If it saves you one more parser, a <a href="https://github.com/soma-intelligence/open-health-sync/stargazers">⭐ star</a> helps other developers find it. Questions and ideas: <a href="https://github.com/soma-intelligence/open-health-sync/discussions">Discussions</a>.</sub>
 
@@ -61,8 +73,8 @@ docker pull ghcr.io/soma-intelligence/open-health-sync:0.1.0
 Open Health Sync (`ohs`) is a self-hosted ingestion and normalization layer for health data. It
 pulls from providers, accepts uploads from phones, stores each payload verbatim, maps it to one
 canonical model with one set of units, and serves it over a REST API and a read-only MCP server.
-It is not a dashboard, a coaching app or a hosted service, and it is not a medical device or
-clinical software.
+It is not a dashboard or a coaching app, and it is not a medical device or clinical software.
+Run it yourself, or let us run it for you in the [hosted beta](#hosted-beta).
 
 <table>
 <tr>
@@ -112,6 +124,44 @@ Provider deletions are honored too.
 </tr>
 </table>
 
+## Hosted beta
+
+The same server, run for you. The hosted beta is Open Health Sync without a Postgres, a raw
+store or workers to operate: you sign in, create a key and read data on your first call.
+
+<a href="docs/demo/platform-tour.mp4">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/platform-tour-dark.jpg">
+  <img src="docs/assets/readme/platform-tour-light.jpg" width="100%" alt="Play the 75-second tour of the developer portal. The poster shows the Data page of a test project named Sleep Coach: one user, 11k records over 30 days from six sources, and a bar chart of records per day stacked by source (WHOOP, Fitbit, Oura, Polar, Apple Health, Withings).">
+</picture>
+</a>
+
+<sub>A 75-second tour on test data: create an account and a project, connect a coding agent over MCP, load sample data, see it charted, call the API from the explorer, then Ctrl K. <a href="docs/demo/platform-tour.mp4">Play the video</a> (MP4, 9 MB).</sub>
+
+- **A key in a minute.** Create a project and get its API key. During the beta: three projects
+  per account, five keys per project.
+- **Data on the first call.** One click adds a synthetic user with 30 days from six sources, so
+  your first request already returns sleep, heart rate and steps.
+- **Every output.** REST with the OpenAPI file, FHIR R4, Open mHealth, CSV and Parquet, signed
+  webhooks and the read-only MCP server, as documented here.
+- **A quickstart with your values.** curl, TypeScript and Python filled in with your instance's
+  address, plus the [example apps](examples) and an AI agent over MCP.
+- **Nothing to migrate.** It runs this open source server. Code written for it moves to your own
+  instance with a new base URL and key, and back.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/platform-read-back-dark.png">
+  <img src="docs/assets/readme/platform-read-back-light.png" width="100%" alt="The web example app reading one user back with a project key. Four counters: no pending jobs, 15 days with data, no rejected lines, source apple_health. A bar chart of daily steps from 3 to 16 October, between about 4,600 and 10,700 a day, with the table of days below it. A resting heart rate chart at 54 bpm latest and 56 on average over 14 days, and the latest night: 7 h 46 min asleep, split into deep, light, REM and awake, labelled synthetic.">
+</picture>
+
+<sub>The <a href="examples/web">web example</a> reading a user back with a project key: daily steps, resting heart rate and sleep stages, all synthetic data.</sub>
+
+It is a free beta with open sign-up, on shared capacity. For now it takes test data
+only: demo and synthetic users, no real people's health data. Self-hosting stays first class,
+and the server stays free under the AGPL.
+
+<p><a href="https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=section"><b>Get started for free →</b></a> &nbsp;Sign up with an email and confirm it. Already have an account? <a href="https://app.openhealthsync.com/portal">Sign in to the developer portal</a>.</p>
+
 ## Roadmap at a glance
 
 ✅ in v0.1.0 &nbsp;·&nbsp; 🔜 on `main`, ships in the next release &nbsp;·&nbsp; 🛠 planned
@@ -126,7 +176,7 @@ Provider deletions are honored too.
 | ✅ | Background sync and `/freshness` | ✅ | Health app export import |
 | ✅ | Prometheus metrics and OpenTelemetry traces, off by default ([docs](docs/observability.md)) | | |
 | ✅ | A merged view across sources, with priorities per user and metric ([docs](docs/api.md#several-sources-of-one-metric-the-merged-view)) | | |
-| ✅ | Read-only admin console at `/console` ([docs](docs/console.md)) | | |
+| ✅ | Admin console at `/console`: run the pipeline and turn providers on from the browser ([docs](docs/console.md)) | | |
 | ✅ | Consent per user, source and category, with a revocation webhook ([docs](docs/consent.md)) | | |
 | ✅ | Complete per-user archive for data portability ([docs](docs/exports.md#complete-user-archive-data-portability)) | | |
 | ✅ | Append-only audit log of every authenticated request, read with `GET /v1/audit` ([docs](docs/audit-log.md)) | | |
@@ -143,12 +193,14 @@ Provider deletions are honored too.
 | 🔜 | Hourly and daily statistics per quantity type, in any time zone, over REST and MCP ([docs](docs/api.md#reading-data)) | | |
 | 🔜 | First-run setup in the browser with a one-shot token, rate limited, so app stores need no terminal step ([docs](docs/setup.md)) | | |
 | 🔜 | Xiaomi: Mi Fitness data import, and Health Connect attribution for Xiaomi, Amazfit and RingConn ([guide](docs/connectors/xiaomi.md)) | | |
+| 🔜 | Garmin: Health API connector (daily summaries, sleep, activities, HRV, body composition and more) for operators with their own Garmin app ([guide](docs/connectors/garmin.md)) | | |
 | 🔜 | Activity files: FIT, GPX and TCX, and the exports of Garmin, COROS, Wahoo, Suunto, Zwift and Strava, with `ohs import files` ([guide](docs/connectors/activity-files.md)) | | |
 | 🔜 | ECG recordings over REST, FHIR (waveform as SampledData), MCP and exports ([docs](docs/api.md#ecg-recordings)) | | |
 | 🔜 | Self reports: a person's own ratings (feeling, mood, stress, energy, sleep quality and more) next to their synced data ([docs](docs/self-reports.md)) | | |
 | 🔜 | Share links (SMART Health Links): an encrypted FHIR bundle for a doctor or coach, with expiry, passcode and a built-in viewer ([docs](docs/share-links.md)) | | |
-| ✅ | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
-| ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Garmin, Coros |
+| 🔜 | Tenants and their API keys managed over HTTP with an instance admin key, for one instance serving several teams ([docs](docs/admin-api.md)) | | |
+| ✅ | Personal mode (`ohs admin personal setup`) and [eight small Go recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
+| ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Coros |
 
 A line moves up only when its release is published. Details per source:
 [docs/connectors](docs/connectors/README.md).
@@ -166,7 +218,7 @@ A line moves up only when its release is published. Details per source:
   and keep it on a machine you own.
 - **Small tools on your own data.** `ohs admin personal setup` gives you one instance for
   yourself, and the [recipes](docs/recipes/README.md) add a sleep report, a heart trend, a weekly
-  digest, a dashboard and more, each a single Python file with no dependency.
+  digest, a dashboard and more, each a single Go file with no dependency.
 
 ## Why
 
@@ -260,7 +312,7 @@ Open Health Sync is that layer, written once, with the boring parts done properl
 
 ### Sources and outputs
 
-Thirteen sources are in v0.1.0. Xiaomi, and Amazfit and RingConn through Health Connect, are on `main` for the next release.
+Thirteen sources are in v0.1.0. Garmin, Eight Sleep, Xiaomi, and Amazfit and RingConn through Health Connect, are on `main` for the next release.
 Every other one is planned: on the roadmap, not built yet.
 Integration paths, vendor programs and tracking issues for each:
 [docs/connectors](docs/connectors/README.md).
@@ -273,8 +325,8 @@ Integration paths, vendor programs and tracking issues for each:
 | Whoop | ✅ Available | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/whoop.md)) |
 | Strava | ✅ Available | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
 | Polar | ✅ Available | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
-| Garmin | 🛠 Planned ([#9](https://github.com/soma-intelligence/open-health-sync/issues/9)) | partner program; Garmin has paused new applications ([research notes](docs/connectors/garmin.md)) |
-| Fitbit | ✅ Available | Google Health API: OAuth, scheduled pulls, signed webhooks ([guide](docs/connectors/fitbit.md)). Google is not onboarding new projects yet |
+| Garmin | 🔜 Next release | partner program: OAuth with PKCE, scheduled pulls, Garmin's notifications; bring your own Garmin app, and Garmin has paused new applications ([guide](docs/connectors/garmin.md)) |
+| Fitbit | ✅ Available | Google Health API: OAuth, scheduled pulls, signed webhooks ([guide](docs/connectors/fitbit.md)). Unverified Google projects serve at most 100 users |
 | Suunto | ✅ Available | partner program: OAuth, scheduled pulls, signed notifications ([guide](docs/connectors/suunto.md)) |
 | Ultrahuman | ✅ Available | Partnership API: OAuth, daily pulls; ring data and M1 glucose ([guide](docs/connectors/ultrahuman.md)) |
 | intervals.icu | ✅ Available | OAuth, scheduled pulls, webhooks; activities from Garmin, Wahoo, Zwift, Coros and more, plus daily wellness ([guide](docs/connectors/intervals-icu.md)) |
@@ -282,13 +334,14 @@ Integration paths, vendor programs and tracking issues for each:
 | Dexcom | ✅ Available | CGM glucose: OAuth, scheduled pulls ([guide](docs/connectors/dexcom.md)) |
 | OMRON | ✅ Available | blood pressure and weight: partner API, OAuth, scheduled pulls ([guide](docs/connectors/omron.md)) |
 | Xiaomi | 🔜 Next release | `ohs import mi-fitness` loads the Mi Fitness data copy (full history); ongoing data through Health Connect or Apple Health ([guide](docs/connectors/xiaomi.md)) |
+| Bluetooth devices | 🔜 Next release | heart rate straps, blood pressure cuffs, scales, glucose meters, thermometers and pulse oximeters on the standard Bluetooth health profiles, through the [`ohs-bridge`](docs/bridge.md) desktop bridge (macOS, Linux, Raspberry Pi, Windows) or the Swift and Kotlin SDKs; no vendor account ([guide](docs/connectors/bluetooth.md)) |
 | Activity files | 🔜 Next release | `ohs import files` loads FIT, GPX and TCX files, and Garmin, COROS, Wahoo, Suunto, Zwift and Strava exports ([guide](docs/connectors/activity-files.md)) |
 | FreeStyle Libre | No public API | through Health Connect or Apple Health ([notes](docs/connectors/freestyle-libre.md)) |
 | Coros | 🛠 Planned | cloud API, OAuth |
 | Zepp / Amazfit, RingConn | 🔜 Next release, via Health Connect | their apps write to Health Connect on Android; records keep their own source (`zepp`, `ringconn`) ([details](docs/connectors/README.md)) |
 | Samsung Health | 🛠 Planned, via Health Connect | its app writes to Health Connect on Android |
 | Google Fit | Deprecated by Google | use Health Connect |
-| Eight Sleep | No public API | nothing official to build on |
+| Eight Sleep | 🔜 Next release | no public API: the sign-in the Eight Sleep app uses, scheduled pulls of sleep stages, heart rate, HRV, breathing and bed temperature ([guide](docs/connectors/eight-sleep.md)) |
 
 Want one sooner? Connectors are self-contained: read
 [writing a connector](docs/writing-a-connector.md) and pick a
@@ -429,6 +482,21 @@ flowchart LR
 
 Details: [architecture](docs/architecture.md), [API guide](docs/api.md).
 
+### A provider is turned on, then a user connects
+
+In the admin console you paste the keys of your Oura app and Oura is on, with no restart. Your
+app then creates a connection link and sends its user to it. The user picks Oura, then Withings,
+and allows access at each. `ohs` exchanges the code, stores the grant encrypted, pulls the history
+in the background and normalizes it. Back in the console, the pipeline shows the data moving
+through and the user's page shows each source active and fresh.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/demo/flow-dark.gif">
+  <img src="docs/demo/flow-light.gif" width="100%" alt="Browser recording. In the admin console of a fresh instance, the overview shows the pipeline as five stages, all at zero. On the Oura page, not set up yet, the operator pastes a client ID and secret and saves them: Oura is on. The app Sleep Diary then opens a connection link for its user: a page in frosted glass panels lists Oura, WHOOP, Withings, Polar and Strava, with 0 of 5 connected and 30 minutes left on the link. The user connects Oura: a consent screen marked as a test server lists the scopes, Allow leads to Oura is connected, and back on the page Oura shows as connected. Withings follows. Back in the console, the overview counts 2 connections, the sync runs and the raw data stored, and the user's page shows both connections active and healthy, with 51 records over 3 days.">
+</picture>
+
+<sub>Recorded on this repository with synthetic data. The console, the connect page, the code exchange, the encrypted grant, the background pulls and the normalization are the real ones; the provider side (consent screen and API) is played by the test servers of the connector tests. How it was made: <a href="docs/demo/README.md#provider-flow">docs/demo</a>.</sub>
+
 ### See it run
 
 These are real captures, not mockups: `ohs` 0.0.1 built from this repository, run natively
@@ -543,15 +611,39 @@ and units):
   `deploy/docker-compose.build.yml`, which needs `docker buildx`; without it, see
   [build from source](docs/self-hosting.md#build-from-source).
 
+## Open Health Sync vs Terra and other health data APIs
+
+Looking for a Terra API alternative, or an open source health data aggregator? Here is how Open
+Health Sync compares with the hosted wearable APIs. Facts about
+other products come from their own sites and pricing pages, checked on 2026-10-17; each row links
+to a full comparison, with how to move.
+
+| | Open source | Starting price | FHIR R4 | MCP server for AI agents | Where the data lives |
+|---|---|---|---|---|---|
+| **Open Health Sync** | Yes, AGPL-3.0 | Free, you pay for your server | Yes, checked with the official HL7 validator | Read-only, stdio and HTTP | Your server |
+| [Terra](docs/compare/terra.md) | No | $399 a month billed annually | A FHIR option, no version named | Read-only | Terra's cloud, then your destination |
+| [Junction](docs/compare/junction.md) | No | $300 a month for up to 500 users | Not in its documentation | Not in its documentation | Junction's cloud, US or EU |
+| [Thryve](docs/compare/thryve.md) | No | 499 EUR a month for up to 500 users | Not found on its site | Not found on its site | Thryve's servers in Germany |
+| [Spike API](docs/compare/spike.md) | No | From $450 a month | Not found in its documentation | Yes | Spike's cloud |
+| [Sahha](docs/compare/sahha.md) | No | From $299 a month billed annually | Not found on its site | Yes | Sahha's cloud |
+| [ROOK](docs/compare/rook.md) | No | $399 a month for up to 750 users | An add-on, included from Business | Not found on its site | ROOK's cloud |
+
+Pick a hosted API when you need Garmin or a long tail of devices today, do not want to run a
+server, or need your vendor's SOC 2 and HIPAA attestations. Pick Open Health Sync when the data
+has to stay on your infrastructure, per-user fees do not fit, or you need standard output (FHIR R4,
+Open mHealth) and every raw payload kept. Every option, side by side:
+[health data aggregators compared](docs/compare/README.md).
+
 ## FAQ
 
 <details>
 <summary><b>Who sees my data?</b></summary>
 
-Only whoever runs the instance. Open Health Sync is self-hosted software, not a service: there
-is no account to create with us, no analytics and no call home. The server talks to the
-providers you enable (the ones whose keys you set) and to your own database and raw store.
-Logs never contain tokens, keys or health values.
+Only whoever runs the instance. Self-hosted, there is no account to create with us, no
+analytics and no call home. The server talks to the providers you enable (the ones whose keys
+you set) and to your own database and raw store. Logs never contain tokens, keys or health
+values. On the [hosted beta](#hosted-beta) we run the instance, which is why it takes test data
+only for now.
 
 </details>
 
@@ -588,7 +680,29 @@ other rule depends on how you run it.
 
 Nothing. The server is free and open source. You pay for wherever you run it, which can be a
 Raspberry Pi 5 with 4 GB. Each cloud provider (Withings, Oura, WHOOP, Fitbit and the others) needs your
-own developer application, registered with the vendor.
+own developer application, registered with the vendor. The hosted beta is free while it is a
+beta.
+
+</details>
+
+<details>
+<summary><b>Is there a hosted version?</b></summary>
+
+Yes, in free beta with open sign-up: the same API, run for you on shared capacity, for test and
+demo data only for now.
+[Sign up free](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=faq); the [hosted beta](#hosted-beta) section says what it gives you.
+
+</details>
+
+<details>
+<summary><b>How does it compare to Terra?</b></summary>
+
+Terra is a hosted API: it advertises 500+ integrations, Garmin included, starts at $399 a month
+billed annually, and your users' data passes through its cloud. Open Health Sync is
+free and puts standards first: FHIR R4 and Open mHealth output checked against the official
+validators, every raw payload kept, and one Go binary that runs on a Raspberry Pi. See the
+[comparison table](#open-health-sync-vs-terra-and-other-health-data-apis), or side by side:
+[Terra API alternative](docs/compare/terra.md).
 
 </details>
 
@@ -606,8 +720,10 @@ intervals.icu accounts, Dexcom CGMs and OMRON blood pressure monitors and scales
 the user's own account with each. Fitbit, Suunto, Ultrahuman and OMRON need keys their vendor gives to approved
 developers only. On Android, anything that writes to Health Connect (Samsung Health, CGM apps
 such as FreeStyle Libre) arrives through an app that uploads it
-([contract](docs/connectors/health-connect.md)). Garmin and more are
-[planned](docs/connectors/README.md), not available yet, and the
+([contract](docs/connectors/health-connect.md)). Garmin watches work through the user's Garmin
+Connect account on `main` for the next release, with keys Garmin gives approved businesses only
+([guide](docs/connectors/garmin.md)). More sources are
+[planned](docs/connectors/README.md), and the
 [connector request form](https://github.com/soma-intelligence/open-health-sync/issues/new/choose)
 is open.
 
@@ -657,6 +773,8 @@ Known limitations:
 - The client SDKs are 0.1.0 and not on package registries yet; install them from this
   repository. Reading Health Connect from the Kotlin SDK is planned.
 
+The hosted beta is a free beta with open sign-up (shared capacity, test and demo data only): [sign up free](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=status).
+
 Next: more connectors, standard outputs (more FHIR R4 resources), then
 Health Connect reading in the Kotlin SDK, then health records (EHR) through SMART on FHIR. Requests are welcome as GitHub issues, including the connector request form.
 
@@ -674,7 +792,10 @@ Health Connect reading in the Kotlin SDK, then health records (EHR) through SMAR
   [React Native](docs/sdks/react-native.md), [Flutter](docs/sdks/flutter.md).
 - [Server SDKs](docs/server-sdks.md): TypeScript and Python clients for your backend, and a
   [Postman collection](docs/api-collections.md) (next release).
-- [Example apps](examples/README.md): iOS (HealthKit), Android and React Native, built on the SDKs.
+- [Example apps](examples/README.md): iOS (HealthKit), Android and React Native, built on the SDKs,
+  and a Next.js web app that goes from the first user to webhooks with the server SDK.
+- [Desktop bridge](docs/bridge.md): `ohs-bridge` sends what Bluetooth health devices and
+  USB-mounted watches record, from a computer or a Raspberry Pi (next release).
 - [Architecture](docs/architecture.md): roles, pipeline, storage, reliability.
 - Connectors: [supported and planned sources](docs/connectors/README.md),
   [Apple Health](docs/connectors/apple-health.md),
@@ -684,7 +805,8 @@ Health Connect reading in the Kotlin SDK, then health records (EHR) through SMAR
 - [Background sync](docs/background-sync.md): webhooks, backstop pulls, freshness.
 - [Backup and restore](docs/backup-and-restore.md): one archive with the database and raw store, and how to put it back.
 - [Connect page](docs/connect-page.md): a hosted page where your users connect their sources, then return to your app.
-- [Admin console](docs/console.md): a read-only page for users, connections, freshness and webhook deliveries.
+- [Admin console](docs/console.md): run the pipeline from the browser: providers and their keys, users and connections, sync and processing jobs, webhooks, API keys and the audit log.
+- [Admin API](docs/admin-api.md): run one instance for several teams: create tenants, manage their keys and fill a demo user over HTTP (next release).
 - [Recipes](docs/recipes/README.md): personal setup and small tools on your own data.
 - [RR intervals and HRV](docs/hrv.md): beat-to-beat intervals and the HRV derived from them.
 - [Menstrual cycles](docs/menstrual-cycles.md): cycles derived from recorded flow, without predictions.

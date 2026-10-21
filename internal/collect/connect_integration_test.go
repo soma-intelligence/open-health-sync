@@ -32,6 +32,8 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 )
 
 // connEnv is a database, a raw store, the fake provider in a private
@@ -46,6 +48,11 @@ type connEnv struct {
 	mux   *http.ServeMux
 	sched *collect.Scheduler
 	clock atomic.Pointer[time.Time]
+	// switches are the providers turned off per tenant, read by deps.Allowed.
+	switches *tenantproviders.Set
+	// tenantKeys are the provider keys tenants brought, read by
+	// deps.TenantKeys.
+	tenantKeys *tenantkeys.Set
 
 	tenantA, tenantB uuid.UUID
 	keyA, keyB       string
@@ -64,6 +71,14 @@ func newConnEnvWith(t *testing.T, cfg collect.SchedulerConfig) *connEnv {
 // newConnEnvWrapped registers wrap(fake) as the provider, so a test can add
 // optional connector interfaces.
 func newConnEnvWrapped(t *testing.T, cfg collect.SchedulerConfig, wrap func(fakeConnector) connector.Connector) *connEnv {
+	t.Helper()
+	return newConnEnvTweaked(t, cfg, wrap, nil)
+}
+
+// newConnEnvTweaked is newConnEnvWrapped with tweak, when set, applied to the
+// Deps before the routes and the scheduler are built.
+func newConnEnvTweaked(t *testing.T, cfg collect.SchedulerConfig, wrap func(fakeConnector) connector.Connector,
+	tweak func(*collect.Deps)) *connEnv {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := db.Open(ctx, db.TestDB(t))
@@ -88,16 +103,24 @@ func newConnEnvWrapped(t *testing.T, cfg collect.SchedulerConfig, wrap func(fake
 	ua, err := e.store.CreateUser(ctx, ta.ID, "a-1")
 	require.NoError(t, err)
 	e.tenantA, e.tenantB, e.keyA, e.keyB, e.userA = ta.ID, tb.ID, keyA, keyB, ua.ID
+	e.switches = tenantproviders.New(ctx, tenantproviders.NewPG(pool))
+	e.tenantKeys = tenantkeys.New(ctx, tenantkeys.Options{Connectors: reg.All(),
+		Store: tenantkeys.NewPG(pool, box, collect.RetireTenantKeys)})
 
 	e.deps = collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: e.store, Lookup: reg.Get,
-		PublicURL: "https://ohs.example.test",
+		Allowed:    e.switches.Allowed,
+		TenantKeys: e.tenantKeys,
+		PublicURL:  "https://ohs.example.test",
 		Now: func() time.Time {
 			if p := e.clock.Load(); p != nil {
 				return *p
 			}
 			return time.Now()
 		},
+	}
+	if tweak != nil {
+		tweak(&e.deps)
 	}
 	h := collect.NewHandlers(e.deps)
 	tk := auth.Middleware(e.store.LookupKey, auth.TenantKey)
@@ -265,6 +288,17 @@ func TestConnectFlowStoresSealedTokensAndBackfill(t *testing.T) {
 	assert.Equal(t, fakeSlug, got.Data[0].Provider)
 	assert.Equal(t, collect.StatusActive, got.Data[0].Status)
 	assert.Nil(t, got.Data[0].LastSyncAt)
+	require.NotNil(t, got.Data[0].InitialBackfillAt)
+	assert.Equal(t, now, *got.Data[0].InitialBackfillAt)
+	assert.False(t, got.Data[0].CreatedAt.IsZero())
+	assert.Equal(t, got.Data[0].CreatedAt, got.Data[0].ConnectedAt)
+	// Under the names api/openapi.yaml gives them, which the SDKs and the
+	// console decode.
+	var raw struct{ Data []map[string]any }
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &raw))
+	for _, k := range []string{"scopes", "initial_backfill_at", "created_at", "updated_at"} {
+		assert.Contains(t, raw.Data[0], k)
+	}
 }
 
 func TestStateIsSingleUse(t *testing.T) {

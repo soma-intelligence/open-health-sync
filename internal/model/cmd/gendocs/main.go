@@ -69,6 +69,7 @@ var notes = map[string]string{
 	"DailySummary.Replaceable":           "Writer instruction, not a column: the latest summary for the day wins.",
 	"DailySummary.RecordID":              "Writer instruction, not a column: the provider record whose figures the summary carries; not written once that record is deleted.",
 	"NutritionLog.Replaceable":           "Writer instruction, not a column.",
+	"NutritionLog.SupersedeMoved":        "Writer instruction, not a column: a stored copy of the log under another start is deleted.",
 	"Workout.Replaceable":                "Writer instruction, not a column: an edited workout replaces the stored figures.",
 	"Workout.SourceSlug":                 "The vendor that recorded the workout. Empty means the provider; the column is never null.",
 	"Workout.DeviceID":                   "The device that recorded the workout (`Garmin edge_530`). Null when the provider does not say.",

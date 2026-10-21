@@ -6,30 +6,48 @@
 <meta name="robots" content="noindex">
 <title>{{if .Connected}}Connected{{else}}Connection failed{{end}}</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f7f7f5; --card: #ffffff; --ink: #1c1c1e; --muted: #6b6b70; --ok: #1f7a4d; --err: #b3261e; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #111113; --card: #1c1c1f; --ink: #f2f2f4; --muted: #a0a0a8; --ok: #5fd39a; --err: #ff8a80; } }
-  * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
-         background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { width: 100%; max-width: 420px; background: var(--card); border-radius: 16px; padding: 32px 24px; text-align: center;
-         box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 6%); }
-  .mark { width: 48px; height: 48px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center;
-          font-size: 24px; font-weight: 700; color: var(--card); background: {{if .Connected}}var(--ok){{else}}var(--err){{end}}; }
-  h1 { margin: 0 0 8px; font-size: 20px; }
-  p { margin: 0; color: var(--muted); }
-  a { color: inherit; font-weight: 600; }
+{{template "frame-style"}}
+  :root { --frame-max: 620px; --state: {{if .Connected}}var(--ok){{else}}var(--err){{end}}; }
+  main { max-width: 420px; margin: 28px auto; padding: 22px 26px 26px; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .state { display: inline-flex; align-items: center; gap: 7px; color: var(--state); }
+  .state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+  .mark { width: 72px; height: 72px; margin: 34px 0 26px; border-radius: 22px; display: grid; place-items: center; color: var(--state);
+          background: rgb(255 255 255 / 8%); box-shadow: inset 0 0 0 1px var(--glass-edge), 0 0 40px -6px var(--state); }
+  @media (prefers-reduced-motion: no-preference) {
+    .mark { animation: pop .55s .15s cubic-bezier(.2, .9, .3, 1.3) both; }
+    @keyframes pop { from { opacity: 0; transform: scale(.6); } }
+  }
+  p { margin: 12px 0 0; color: var(--muted); max-width: 34ch; text-wrap: pretty; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-top: 28px; width: 100%;
+         height: 44px; border-radius: 999px; font-weight: 600; font-size: 15px; text-decoration: none;
+         background: var(--cta); color: var(--on-cta); transition: background-color .15s, transform .1s; }
+  .btn:hover { background: var(--cta-hover); }
+  .btn:active { transform: scale(.98); }
+  .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--ring); }
+  @media (max-width: 760px) { main { margin: 40px 0; padding: 20px 20px 22px; } }
 </style>
 </head>
 <body>
-<main>
-  <div class="mark" aria-hidden="true">{{if .Connected}}&#10003;{{else}}!{{end}}</div>
+<div class="page">
+<div class="stage">
+{{template "frame-guides"}}
+<div class="frame">
+{{template "frame-scene"}}
+<main class="glass">
+  <div class="top"><span class="label">Connection</span><span class="label state">{{if .Connected}}Sync started{{else}}Not completed{{end}}</span></div>
+  <div class="mark" aria-hidden="true">{{if .Connected}}<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>{{else}}<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16.2h.01"/></svg>{{end}}</div>
   {{if .Connected}}
   <h1>{{.Provider}} is connected</h1>
-  {{if .Back}}<p><a href="{{.Back}}">Back to your sources</a></p>{{else}}<p>You can close this window.</p>{{end}}
+  <p>Your {{.Provider}} data now syncs in the background, starting with your recent history.</p>
+  {{if .Back}}<a class="btn" href="{{.Back}}">Back to your sources</a>{{else}}<p>You can close this window.</p>{{end}}
   {{else}}
   <h1>The connection did not complete</h1>
-  {{if .Back}}<p><a href="{{.Back}}">Back to your sources</a> to try again.</p>{{else}}<p>Close this window and start again from the app.</p>{{end}}
+  {{if .Back}}<p>You can try again from your sources.</p><a class="btn" href="{{.Back}}">Back to your sources</a>{{else}}<p>Close this window and start again from the app.</p>{{end}}
   {{end}}
 </main>
+</div>
+</div>
+</div>
 </body>
 </html>

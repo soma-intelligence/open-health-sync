@@ -24,6 +24,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/connectors/activityfiles"
 	"github.com/soma-intelligence/open-health-sync/connectors/applehealth"
+	"github.com/soma-intelligence/open-health-sync/connectors/bluetooth"
 	"github.com/soma-intelligence/open-health-sync/connectors/healthconnect"
 	"github.com/soma-intelligence/open-health-sync/connectors/selfreport"
 	"github.com/soma-intelligence/open-health-sync/connectors/xiaomi"
@@ -37,10 +38,13 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
+	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
@@ -111,10 +115,6 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	logger := newLogger(logOut, level)
 	slog.SetDefault(logger)
 
-	providers, err := configureProviders(cfg.Providers)
-	if err != nil {
-		return err
-	}
 	// Seals with OHS_ENCRYPTION_KEY, still opens what the previous keys sealed.
 	box, err := crypto.NewKeyring(cfg.EncryptionKey, cfg.PreviousEncryptionKeys...)
 	if err != nil {
@@ -172,11 +172,25 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		pool.Close()
 	}()
 	store := tenant.New(pool)
+	// The enabled connectors: the environment's keys, then what the console
+	// saved. Every role reads the set through Lookup, so a provider turned on
+	// or off applies without a restart.
+	providers, err := providerset.New(ctx, providerset.Options{Env: cfg.Providers, Store: providerset.NewPG(pool, box)})
+	if err != nil {
+		return err
+	}
+	// The providers an instance admin turned off for one tenant, read the
+	// same way: every role asks Allowed, which does no I/O.
+	tenantProviders := tenantproviders.New(ctx, tenantproviders.NewPG(pool))
+	// The provider keys tenants brought for themselves, read the same way.
+	// Removing them sets the connections made with them needs_reauth.
+	tenantKeys := tenantkeys.New(ctx, tenantkeys.Options{Store: tenantkeys.NewPG(pool, box, collect.RetireTenantKeys)})
 	collectDeps := collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: store,
-		Lookup:    providers.lookup,
-		PublicURL: cfg.PublicURL,
-		Slugs:     providers.slugs,
+		Lookup:     providers.Lookup,
+		Allowed:    tenantProviders.Allowed,
+		TenantKeys: tenantKeys,
+		PublicURL:  cfg.PublicURL,
 	}
 
 	if cfg.BootstrapTenant != "" {
@@ -206,6 +220,11 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			fail(role, fn())
 		}()
 	}
+
+	// Reload what other processes saved in the console.
+	goRole("providers", func() error { return providers.Run(ctx, providerset.ReloadEvery) })
+	goRole("tenant providers", func() error { return tenantProviders.Run(ctx, tenantproviders.ReloadEvery) })
+	goRole("tenant keys", func() error { return tenantKeys.Run(ctx, tenantkeys.ReloadEvery) })
 
 	etlMetrics := &automation.Metrics{}
 	if cfg.Roles["etl"] {
@@ -247,12 +266,18 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			Pool:      pool,
 			Store:     store,
 			Raw:       raw,
-			Providers: providers.list,
+			Providers: providers,
 			Metrics:   cfg.Metrics,
 			Console:   cfg.Console,
-			Collect:   collect.NewHandlers(collectDeps),
-			PublicURL: cfg.PublicURL,
-			Webhooks:  webhook.NewStore(pool, box),
+			// read-only hides the console's write actions.
+			ConsoleReadOnly: cfg.ConsoleReadOnly,
+			Collect:         collect.NewHandlers(collectDeps),
+			// Providers turned off per tenant, and their admin routes.
+			TenantProviders: tenantProviders,
+			// Provider keys of one tenant, and their admin routes.
+			TenantKeys: tenantKeys,
+			PublicURL:  cfg.PublicURL,
+			Webhooks:   webhook.NewStore(pool, box),
 			// WebhookAllowPrivate relaxes the endpoint URL checks.
 			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.
@@ -269,19 +294,22 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		if cfg.Roles["etl"] {
 			deps.ETLMetrics = etlMetrics
 		}
-		if c, ok := providers.lookup(applehealth.Slug); ok {
+		if c, ok := providers.Lookup(applehealth.Slug); ok {
 			deps.Device, _ = connector.AsDevice(c)
 		}
-		if c, ok := providers.lookup(healthconnect.Slug); ok {
+		if c, ok := providers.Lookup(healthconnect.Slug); ok {
 			deps.HealthConnect, _ = connector.AsDevice(c)
 		}
-		if c, ok := providers.lookup(xiaomi.Slug); ok {
+		if c, ok := providers.Lookup(xiaomi.Slug); ok {
 			deps.Xiaomi, _ = connector.AsDevice(c)
 		}
-		if c, ok := providers.lookup(activityfiles.Slug); ok {
+		if c, ok := providers.Lookup(activityfiles.Slug); ok {
 			deps.ActivityFiles, _ = connector.AsDevice(c)
 		}
-		if c, ok := providers.lookup(selfreport.Slug); ok {
+		if c, ok := providers.Lookup(bluetooth.Slug); ok {
+			deps.Bluetooth, _ = connector.AsDevice(c)
+		}
+		if c, ok := providers.Lookup(selfreport.Slug); ok {
 			deps.SelfReport, _ = connector.AsDevice(c)
 		}
 		if cfg.Metrics && cfg.MetricsListen != "" {
@@ -390,61 +418,19 @@ func serveMetrics(ctx context.Context, addr string, mux *http.ServeMux, grace ti
 	return nil
 }
 
-// enabledProviders are the connectors enabled on this instance.
-type enabledProviders struct {
-	list   []connector.Connector
-	slugs  []string
-	bySlug map[string]connector.Connector
-}
-
-// lookup only answers for enabled connectors.
-func (p enabledProviders) lookup(slug string) (connector.Connector, bool) {
-	c, ok := p.bySlug[slug]
-	return c, ok
-}
-
-// configureProviders lists the enabled connectors and hands each one that
-// takes keys its OHS_<PROVIDER>_* values. A refused configuration stops
-// startup. It logs the enabled slugs, and warns about a provider given some
-// of its keys but not all (naming the missing variables, never a value).
-func configureProviders(keys map[string]config.ProviderKeys) (enabledProviders, error) {
-	for _, c := range connector.All() {
-		k, ok := c.(connector.KeyedConnector)
-		if !ok {
-			continue
-		}
-		var missing []string
-		for _, f := range k.RequiredKeys() {
-			if keys[c.Slug()][f] == "" {
-				missing = append(missing, "OHS_"+strings.ToUpper(c.Slug())+"_"+f)
-			}
-		}
-		if len(missing) > 0 && len(missing) < len(k.RequiredKeys()) {
-			slog.Warn("provider partially configured, left disabled", "provider", c.Slug(),
-				"missing", strings.Join(missing, ","))
-		}
-	}
-	p := enabledProviders{list: connector.Enabled(keys), bySlug: map[string]connector.Connector{}}
-	for _, c := range p.list {
-		slug := c.Slug()
-		if cc, ok := c.(connector.Configurable); ok {
-			if err := cc.Configure(keys[slug]); err != nil {
-				return enabledProviders{}, fmt.Errorf("provider %s: configuration refused: %w", slug, err)
-			}
-		}
-		p.slugs = append(p.slugs, slug)
-		p.bySlug[slug] = c
-	}
-	slog.Info("providers enabled", "providers", strings.Join(p.slugs, ","))
-	return p, nil
-}
-
 // bootstrap creates the OHS_BOOTSTRAP_TENANT tenant on first start and logs
-// its key once. This is the only place an API key is ever logged.
+// its key once, and makes it an instance admin at every start. This is the
+// only place an API key is ever logged.
 func bootstrap(ctx context.Context, store *tenant.Store, name string) error {
 	t, key, err := store.EnsureTenant(ctx, name)
 	if err != nil {
 		return fmt.Errorf("bootstrap tenant: %w", err)
+	}
+	// The operator named it: it manages the instance from the console.
+	if !t.Admin {
+		if err := store.SetAdmin(ctx, t.ID, true); err != nil {
+			return fmt.Errorf("bootstrap tenant: %w", err)
+		}
 	}
 	if key == "" {
 		slog.Info("bootstrap tenant present", "tenant_id", t.ID, "name", t.Name)

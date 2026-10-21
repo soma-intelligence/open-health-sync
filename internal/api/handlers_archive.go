@@ -39,7 +39,7 @@ var archiveFolders = map[string]string{
 		"GET /v1/users/{id}/ecg/{ecg_id} returns it). Times are RFC 3339 in UTC, values in canonical units.",
 	"fhir/": "bundle.json: a FHIR R4 Bundle of type collection holding every Observation the FHIR " +
 		"endpoints serve for the user (quantity samples, blood pressure panels, sleep sessions, " +
-		"workouts, daily summaries, ECG recordings).",
+		"workouts, daily summaries, ECG recordings, nutrition logs).",
 	"omh/": "data-points.ndjson: the records that have an Open mHealth schema, as Open mHealth data " +
 		"points, one per line.",
 	"raw/": "Every raw payload providers and devices sent for the user, byte for byte as stored, " +

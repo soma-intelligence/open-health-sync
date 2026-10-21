@@ -25,7 +25,9 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/connectors/applehealth"
 	"github.com/soma-intelligence/open-health-sync/connectors/dexcom"
+	"github.com/soma-intelligence/open-health-sync/connectors/eightsleep"
 	"github.com/soma-intelligence/open-health-sync/connectors/fitbit"
+	"github.com/soma-intelligence/open-health-sync/connectors/garmin"
 	"github.com/soma-intelligence/open-health-sync/connectors/healthconnect"
 	"github.com/soma-intelligence/open-health-sync/connectors/intervalsicu"
 	"github.com/soma-intelligence/open-health-sync/connectors/omron"
@@ -108,6 +110,14 @@ var Providers = []Provider{
 	{Slug: fitbit.Slug, Name: "Fitbit", APIVersion: "Google Health API v4", Kind: cassette.KindHTTP, Doc: "fitbit.md",
 		New: func(b Build) connector.Connector {
 			return fitbit.New(fitbit.Options{HTTPClient: b.HTTPClient, Now: b.Now, Sleep: b.Sleep, PageDelay: delay(b.Fast)})
+		}},
+	{Slug: garmin.Slug, Name: "Garmin", APIVersion: "Health API (wellness-api)", Kind: cassette.KindHTTP, Doc: "garmin.md",
+		New: func(b Build) connector.Connector {
+			return garmin.New(garmin.Options{HTTPClient: b.HTTPClient, Now: b.Now, Sleep: b.Sleep, ChunkDelay: delay(b.Fast)})
+		}},
+	{Slug: eightsleep.Slug, Name: "Eight Sleep", APIVersion: "client API v1 (trends)", Kind: cassette.KindHTTP, Doc: "eight-sleep.md",
+		New: func(b Build) connector.Connector {
+			return eightsleep.New(eightsleep.Options{HTTPClient: b.HTTPClient, Now: b.Now, Sleep: b.Sleep, ChunkDelay: delay(b.Fast)})
 		}},
 	{Slug: suunto.Slug, Name: "Suunto", APIVersion: "Cloud API (workouts v3)", Kind: cassette.KindHTTP, Doc: "suunto.md",
 		New: func(b Build) connector.Connector {

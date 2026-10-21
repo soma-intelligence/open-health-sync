@@ -99,7 +99,21 @@ func goldenCases() map[string]read.CodedSample {
 	feeling := sample(8009, "reported_feeling", 4, "score", "", "{score}")
 	feeling.Provider, feeling.Source, feeling.Device = "self_report", ptr("self_report"), nil
 
+	// The day's minutes at an intensity (Oura, Withings): Physical Activity
+	// IG measures, over the provider's local day.
+	dayStart := time.Date(2026, 2, 28, 23, 0, 0, 0, time.UTC)
+	moderate := sample(9010, "moderate_activity_time", 42, "min", "77592-4", "min")
+	moderate.Provider, moderate.Source, moderate.Device = "oura", ptr("oura"), nil
+	moderate.StartDate, moderate.EndDate = dayStart, ptr(dayStart.Add(24*time.Hour-time.Second))
+	moderate.ExternalID = ptr("2026-03-01_moderate_activity_time")
+	vigorous := sample(9011, "vigorous_activity_time", 15, "min", "77593-2", "min")
+	vigorous.Provider, vigorous.Source, vigorous.Device = "withings", ptr("withings"), ptr("fake-watch-0001")
+	vigorous.StartDate, vigorous.EndDate = dayStart, ptr(dayStart.Add(24*time.Hour-time.Second))
+	vigorous.ExternalID = ptr("2026-03-01_vigorous_activity_time_fake-watch-0001")
+
 	return map[string]read.CodedSample{
+		"observation-activity-moderate-time":    moderate,
+		"observation-activity-vigorous-time":    vigorous,
 		"observation-survey-reported-pain":      pain,
 		"observation-survey-reported-feeling":   feeling,
 		"observation-ecg-afib-classification":   afib,

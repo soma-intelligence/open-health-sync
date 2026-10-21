@@ -6,8 +6,8 @@ in) over Google OAuth; Open Health Sync pulls their data from the
 schedule and when Google sends a webhook notification. You create your own Google Cloud project
 and OAuth client: nothing is shared between instances.
 
-Status: **available.** Google is **not onboarding new Google Health API projects yet**, so most
-operators cannot get keys today (see [Access](#access-read-this-first)). Field names follow the
+Status: **available.** You set up your own Google Health API project; until Google verifies it,
+it serves at most 100 users (see [Access](#access-read-this-first)). Field names follow the
 API's public reference and discovery document, checked on 2026-10-12; points marked
 **(to confirm)** are the ones to check first against a live project.
 
@@ -17,9 +17,8 @@ legacy Fitbit tokens cannot be carried over (every user consents again).
 
 ## Access: read this first
 
-- **No new projects for now.** Google's page says "we are not onboarding new projects at this
-  time" with no date. Until your Cloud project is admitted, the API refuses it and the connector
-  cannot be used. Watch the [Google Health API page](https://developers.google.com/health).
+- **Your own project.** You enable the API and create the OAuth client yourself, as Google's
+  [setup page](https://developers.google.com/health/setup) describes (checked on 2026-10-17).
 - **100 users while unverified.** All Google Health API scopes are *restricted*. An app that has
   not passed Google's OAuth app verification "is limited to 100 users". More needs verification
   plus an annual third-party security assessment (CASA), quoted at USD 500 to 4,500 and 2 to 6
@@ -36,7 +35,7 @@ A self-hosted instance for a person or a family fits well within the unverified 
 
 ## 1. Get your keys
 
-When your project is admitted ([setup](https://developers.google.com/health/setup)):
+To set up your project ([setup](https://developers.google.com/health/setup)):
 
 1. Create a Google Cloud project (one per environment) and enable the **Google Health API**
    (`health.googleapis.com`).

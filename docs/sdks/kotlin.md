@@ -128,6 +128,51 @@ The builder makes one part per type and local day, at most 8 MiB of NDJSON each,
 compressed and numbered across the batch. On your backend, poll `getCoverage(userId).pendingJobs` until
 it is 0 to know the server has processed everything.
 
+## Bluetooth devices
+
+Heart rate straps, blood pressure cuffs, scales, glucose meters, thermometers and pulse oximeters
+that use the standard Bluetooth health profiles upload straight from the app, with no vendor app
+in between ([devices and mapping](../connectors/bluetooth.md)). The app forwards what each device
+sends as bytes; the server decodes it.
+
+The SDK is plain JVM, so it holds what does not need Android: `BluetoothRecorder` turns values
+into upload parts, `GattUuids` has the service and characteristic UUIDs and the bytes to write,
+and `uploadBluetoothPart` sends a part. Feed the recorder from your `BluetoothGattCallback`:
+
+```kotlin
+import org.openhealthsync.sdk.BluetoothDevice
+import org.openhealthsync.sdk.BluetoothRecorder
+import org.openhealthsync.sdk.GattUuids
+
+val recorder = BluetoothRecorder(deviceUser = 1) // or no argument, on a device of your own
+val session = BluetoothRecorder.newSession()      // one per connection to one device
+val device = BluetoothDevice(name = GattUuids.publicName(advertisedName))
+
+// In onCharacteristicChanged(gatt, characteristic, value):
+recorder.record(characteristic.uuid, value, session, device)
+
+// Later, for example from a WorkManager job:
+recorder.makePart()?.let { part -> uploads.uploadBluetoothPart(part) }
+```
+
+`record` returns false and keeps nothing for a characteristic that is not a measurement (battery
+level, a vendor service). `deviceUser` is this person's user index on a shared scale or cuff, so
+the server stores only their readings. The recorder is not thread safe: call it from one thread
+or under a lock. Keep a part until `uploadBluetoothPart` succeeds; the same part sent again is
+answered `duplicate: true`.
+
+What to do on each connection: subscribe to every characteristic in `GattUuids.MEASUREMENTS` the
+device serves (write `ENABLE_NOTIFICATION_VALUE` or `ENABLE_INDICATION_VALUE` to its
+`CLIENT_CHARACTERISTIC_CONFIG` descriptor), read the Device Information strings into
+`BluetoothDevice` with `GattUuids.deviceText`, write `GattUuids.currentTime(Instant.now())` to
+`CURRENT_TIME` when the device allows it, and for a glucose meter write
+`GattUuids.reportStoredRecords(lastSequence)` to `RECORD_ACCESS_CONTROL_POINT` once its
+indications are on (`glucoseSequenceNumber` reads the sequence number of each record). Android
+runs one GATT operation at a time per device, so queue them. The
+[Android example](../../examples/android/README.md#bluetooth-devices) does all of it in
+`BluetoothSync.kt`, with the permissions, and is the code to start from. Never send a device
+address or a serial number: the format has no field for them.
+
 ## Errors and retries
 
 A non-2xx answer throws `OhsApiException` with `status`, `title`, `detail`, `type`, `requestId`

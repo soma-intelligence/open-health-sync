@@ -458,6 +458,14 @@
               }
             ],
             "text": "Activity"
+          },
+          {
+            "coding": [
+              {
+                "system": "http://hl7.org/fhir/us/physical-activity/CodeSystem/pa-temporary-codes",
+                "code": "PhysicalActivity"
+              }
+            ]
           }
         ],
         "code": {
@@ -558,6 +566,10 @@
             "code": {
               "coding": [
                 {
+                  "system": "http://loinc.org",
+                  "code": "55425-3"
+                },
+                {
                   "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
                   "code": "avg_heart_rate"
                 }
@@ -574,6 +586,10 @@
           {
             "code": {
               "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "55426-1"
+                },
                 {
                   "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
                   "code": "max_heart_rate"
@@ -735,6 +751,10 @@
           {
             "code": {
               "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "41979-6"
+                },
                 {
                   "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
                   "code": "total_kcal"

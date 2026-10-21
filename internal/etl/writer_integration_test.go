@@ -180,23 +180,30 @@ func TestWriter_SleepWithPhases(t *testing.T) {
 		SleepPhases: []model.SleepPhase{
 			phase("deep", n1, 30, "s1"),
 			phase("rem", n2, 30, "s2"),
-			phase("light", n2.Add(time.Hour), 30, ""),     // unstamped, contained in s2
-			phase("light", n1.Add(-48*time.Hour), 30, ""), // covered by no session
+			phase("light", n2.Add(time.Hour), 30, ""),       // names no session, inside s2
+			phase("light", n1.Add(-48*time.Hour), 30, ""),   // names no session, near none: a night of its own
+			phase("light", n1.Add(-96*time.Hour), 30, "s0"), // stamped for a session not in the batch
 		},
 	}
 	c := e.write(smallCopy, acc)
-	assert.Equal(t, TableCount{Written: 2}, c["sleep_sessions"])
-	assert.Equal(t, TableCount{Written: 3, Skipped: 1}, c["sleep_phases"])
+	assert.Equal(t, TableCount{Written: 3}, c["sleep_sessions"])
+	assert.Equal(t, TableCount{Written: 4, Skipped: 1}, c["sleep_phases"])
 
 	var s2ID int64
 	require.NoError(t, e.pool.QueryRow(context.Background(),
 		`SELECT id FROM ohs_data.sleep_sessions WHERE content_hash = 's2'`).Scan(&s2ID))
 	assert.EqualValues(t, 2, e.scalar(`SELECT count(*) FROM ohs_data.sleep_phases WHERE session_id = $1 AND tenant_id = $2`, s2ID, e.tenant))
+	// s2 came with no figures, so it takes them from its stages; s1 gained
+	// none and keeps none.
+	assert.EqualValues(t, 3600, e.scalar(`SELECT total_sleep_seconds FROM ohs_data.sleep_sessions WHERE id = $1`, s2ID))
+	assert.Nil(t, e.scalar(`SELECT total_sleep_seconds FROM ohs_data.sleep_sessions WHERE content_hash = 's1'`))
+	assert.EqualValues(t, true, e.scalar(`SELECT metadata->'synthesized' FROM ohs_data.sleep_sessions WHERE bedtime_start = $1`, n1.Add(-48*time.Hour)))
 
 	// Replaying resolves the existing parents and skips everything.
 	c = e.write(smallCopy, acc)
 	assert.Equal(t, TableCount{Skipped: 2}, c["sleep_sessions"])
-	assert.Equal(t, TableCount{Skipped: 4}, c["sleep_phases"])
+	assert.Equal(t, TableCount{Skipped: 5}, c["sleep_phases"])
+	assert.Equal(t, 3, e.count("sleep_sessions"))
 }
 
 func TestWriter_SleepPhasesWithoutSessionAreSynthesized(t *testing.T) {

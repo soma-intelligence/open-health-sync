@@ -13,11 +13,17 @@ let package = Package(
     products: [
         .library(name: "OpenHealthSync", targets: ["OpenHealthSync"]),
         .library(name: "OpenHealthSyncHealthKit", targets: ["OpenHealthSyncHealthKit"]),
+        .library(name: "OpenHealthSyncBluetooth", targets: ["OpenHealthSyncBluetooth"]),
     ],
     targets: [
         .target(name: "OpenHealthSync"),
         .target(
             name: "OpenHealthSyncHealthKit",
+            dependencies: ["OpenHealthSync"]
+        ),
+        // CoreBluetooth glue; compiles to nothing where CoreBluetooth is missing.
+        .target(
+            name: "OpenHealthSyncBluetooth",
             dependencies: ["OpenHealthSync"]
         ),
         .executableTarget(
@@ -26,7 +32,8 @@ let package = Package(
         ),
         .testTarget(
             name: "OpenHealthSyncTests",
-            dependencies: ["OpenHealthSync"]
+            // OpenHealthSyncBluetooth too, so `swift test` on macOS compiles it.
+            dependencies: ["OpenHealthSync", "OpenHealthSyncBluetooth"]
         ),
     ]
 )

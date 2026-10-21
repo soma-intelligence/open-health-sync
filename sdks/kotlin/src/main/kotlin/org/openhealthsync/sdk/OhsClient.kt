@@ -193,19 +193,30 @@ public class OhsClient(
      * with backoff (honouring `Retry-After`), up to `maxUploadAttempts` attempts; any other
      * error is thrown at once.
      */
-    public suspend fun uploadAppleHealthPart(part: AppleHealthPart): UploadResult {
+    public suspend fun uploadAppleHealthPart(part: AppleHealthPart): UploadResult =
+        upload("apple-health", part.type, part.day, part.batch, part.partNumber, part.body)
+
+    /**
+     * Uploads one part of Bluetooth device values ([BluetoothRecorder]), with the retries of
+     * [uploadAppleHealthPart]. Send the same part again until it is stored: a retry is answered
+     * `duplicate: true`.
+     */
+    public suspend fun uploadBluetoothPart(part: BluetoothPart): UploadResult =
+        upload("bluetooth", BluetoothPart.TYPE, part.day, part.batch, part.partNumber, part.body)
+
+    private suspend fun upload(route: String, type: String, day: String, batch: String, partNumber: Int, body: ByteArray): UploadResult {
         val headers = mapOf(
             "Content-Type" to "application/gzip",
-            "X-OHS-Type" to part.type,
-            "X-OHS-Day" to part.day,
-            "X-OHS-Batch" to part.batch,
-            "X-OHS-Part" to part.partNumber.toString(),
+            "X-OHS-Type" to type,
+            "X-OHS-Day" to day,
+            "X-OHS-Batch" to batch,
+            "X-OHS-Part" to partNumber.toString(),
         )
         var attempt = 1
         while (true) {
             val wait: Long
             try {
-                return decode(UploadResult.serializer(), call("POST", "/v1/ingest/apple-health", part.body, headers))
+                return decode(UploadResult.serializer(), call("POST", "/v1/ingest/$route", body, headers))
             } catch (e: OhsApiException) {
                 val retryable = e.status == 429 || e.status >= 500
                 if (!retryable || attempt >= maxUploadAttempts) throw e
