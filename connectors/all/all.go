@@ -12,6 +12,7 @@ import (
 	_ "github.com/soma-intelligence/open-health-sync/connectors/eightsleep"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/fitbit"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/garmin"
+	_ "github.com/soma-intelligence/open-health-sync/connectors/garminconnect"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/healthconnect"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/intervalsicu"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/omron"

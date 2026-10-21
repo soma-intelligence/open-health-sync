@@ -1,0 +1,38 @@
+{
+  "data": [
+    {
+      "calendarDate": "2026-04-20",
+      "totalSteps": 10000,
+      "totalDistanceMeters": 7500,
+      "activeKilocalories": 600,
+      "bmrKilocalories": 1500,
+      "floorsAscended": 12,
+      "restingHeartRate": 52,
+      "minHeartRate": 48,
+      "maxHeartRate": 150,
+      "averageStressLevel": 30,
+      "maxStressLevel": 80,
+      "highStressDuration": 4800,
+      "stressDuration": 18000,
+      "moderateIntensityMinutes": 40,
+      "vigorousIntensityMinutes": 20
+    },
+    {
+      "calendarDate": "2026-04-21",
+      "totalSteps": 8200,
+      "totalDistanceMeters": 6100,
+      "activeKilocalories": 480,
+      "bmrKilocalories": 1490,
+      "floorsAscended": 7,
+      "restingHeartRate": 54,
+      "minHeartRate": 49,
+      "maxHeartRate": 141,
+      "averageStressLevel": 28,
+      "maxStressLevel": 74,
+      "highStressDuration": 3600,
+      "stressDuration": 15600,
+      "moderateIntensityMinutes": 25,
+      "vigorousIntensityMinutes": 5
+    }
+  ]
+}

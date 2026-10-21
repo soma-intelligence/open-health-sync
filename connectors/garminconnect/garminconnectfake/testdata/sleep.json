@@ -1,0 +1,23 @@
+{
+  "dailySleepDTO": {
+    "calendarDate": "2026-04-20",
+    "sleepTimeSeconds": 27000,
+    "deepSleepSeconds": 6000,
+    "lightSleepSeconds": 15000,
+    "remSleepSeconds": 5400,
+    "awakeSleepSeconds": 600,
+    "sleepStartTimestampGMT": 1776636000000,
+    "sleepEndTimestampGMT": 1776664800000,
+    "avgSleepHRV": 55,
+    "averageSpO2Value": 96,
+    "averageRespirationValue": 14,
+    "sleepScores": { "overall": { "value": 82, "qualifierKey": "GOOD" } }
+  },
+  "sleepLevels": [
+    { "startGMT": "2026-04-19T22:00:00.0", "endGMT": "2026-04-19T23:40:00.0", "activityLevel": 1.0 },
+    { "startGMT": "2026-04-19T23:40:00.0", "endGMT": "2026-04-20T01:20:00.0", "activityLevel": 0.0 },
+    { "startGMT": "2026-04-20T01:20:00.0", "endGMT": "2026-04-20T02:50:00.0", "activityLevel": 2.0 },
+    { "startGMT": "2026-04-20T02:50:00.0", "endGMT": "2026-04-20T03:00:00.0", "activityLevel": 3.0 },
+    { "startGMT": "2026-04-20T03:00:00.0", "endGMT": "2026-04-20T06:00:00.0", "activityLevel": 1.0 }
+  ]
+}

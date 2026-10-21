@@ -4,7 +4,7 @@ A connector teaches Open Health Sync one source. Thirteen are available: [Apple 
 [Health Connect](health-connect.md), [Withings](withings.md), [Oura](oura.md), [WHOOP](whoop.md),
 [Strava](strava.md), [Polar](polar.md), [Fitbit](fitbit.md), [Suunto](suunto.md),
 [Ultrahuman](ultrahuman.md), [intervals.icu](intervals-icu.md), [Dexcom](dexcom.md) and
-[OMRON](omron.md). [Garmin](garmin.md), [Eight Sleep](eight-sleep.md), [Xiaomi](xiaomi.md), [activity files](activity-files.md) (FIT, GPX and TCX
+[OMRON](omron.md). [Garmin](garmin.md), [Garmin (account)](garmin-connect.md), [Eight Sleep](eight-sleep.md), [Xiaomi](xiaomi.md), [activity files](activity-files.md) (FIT, GPX and TCX
 files from Garmin, COROS, Wahoo, Zwift, Suunto, Polar, Strava and others) and
 [Bluetooth devices](bluetooth.md) (standard heart rate, blood pressure, scale, glucose,
 thermometer and pulse oximeter profiles) are on main for the next release.
@@ -58,6 +58,7 @@ linked tracking issue or the vendor's developer site before you start):
 | RingConn | Via Health Connect | On-device: the RingConn app writes to Health Connect on Android and to Apple Health on iOS | Steps, active and resting energy, sleep with stages, resting and average heart rate, SpO2, weight, height | RingConn publishes no developer API or data export. Health Connect records from the RingConn app (`com.gdjztech.ringconn`) get the source slug `ringconn`. HRV is not shared with Health Connect | |
 | Health records (EHR): Epic, Oracle Health and other certified EHRs | Planned, after the SDKs | SMART on FHIR patient access (OAuth 2.0), FHIR R4 | Lab results, vital signs, conditions, medications, allergies, immunizations | US first, where certified EHRs must offer patient access APIs. Each operator registers its own app with each EHR vendor, and each health system activates it. The health records found in Apple Health exports are planned too | |
 | Eight Sleep | Next release | The account sign-in and API the Eight Sleep app uses (no public API), scheduled pulls | Sleep sessions with stages, sleep score, heart rate, HRV, breathing rate; bed and room temperature in session metadata | Eight Sleep publishes no developer API: the connector follows the open source pyEight library, is unsupported by Eight Sleep and can break when the app changes. Users enter their Eight Sleep password on your instance's sign-in page; it is stored encrypted so the server can sign in again. On by default with the app's client id and secret as pyEight publishes them ([guide](eight-sleep.md)) | |
+| Garmin (account) | Next release | The Garmin Connect account sign-in and private Connect API the app and website use (no partner app), scheduled pulls | Daily activity (steps, distance, energy, floors, resting heart rate), sleep with stages, sleep score, HRV, SpO2, breathing, stress high time, activities as workouts | A second path alongside the partner-API Garmin connector: no approval, the user signs in with their own Garmin account. It follows the open source python-garminconnect library, is unsupported by Garmin and can break; Garmin's anti-bot protection may refuse a server, and the connector does not work around it. No operator keys ([guide](garmin-connect.md)) | [#9](https://github.com/soma-intelligence/open-health-sync/issues/9) |
 
 ## What each connector delivers
 

@@ -326,6 +326,7 @@ Integration paths, vendor programs and tracking issues for each:
 | Strava | ✅ Available | OAuth, scheduled pulls, webhook events ([guide](docs/connectors/strava.md)) |
 | Polar | ✅ Available | OAuth, scheduled pulls, webhooks ([guide](docs/connectors/polar.md)) |
 | Garmin | 🔜 Next release | partner program: OAuth with PKCE, scheduled pulls, Garmin's notifications; bring your own Garmin app, and Garmin has paused new applications ([guide](docs/connectors/garmin.md)) |
+| Garmin (account) | 🔜 Next release | no partner app: the user signs in with their own Garmin account, scheduled pulls of daily activity, sleep, heart rate, HRV, stress and activities. Uses Garmin's private Connect API, unsupported and can break ([guide](docs/connectors/garmin-connect.md)) |
 | Fitbit | ✅ Available | Google Health API: OAuth, scheduled pulls, signed webhooks ([guide](docs/connectors/fitbit.md)). Unverified Google projects serve at most 100 users |
 | Suunto | ✅ Available | partner program: OAuth, scheduled pulls, signed notifications ([guide](docs/connectors/suunto.md)) |
 | Ultrahuman | ✅ Available | Partnership API: OAuth, daily pulls; ring data and M1 glucose ([guide](docs/connectors/ultrahuman.md)) |

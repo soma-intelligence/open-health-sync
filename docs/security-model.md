@@ -12,7 +12,7 @@ checklist see [hardening.md](hardening.md); to report a problem see
 | Health records (samples, sleep, workouts, daily summaries) | Postgres, schema `ohs_data` | Every query filters on `tenant_id` and `user_id`. Stored in clear. |
 | Raw provider and device payloads | Raw store: a folder or an S3 bucket | Keyed by `raw/<tenant>/<user>/...`, written once. Gzip, not encrypted. |
 | Provider OAuth access and refresh tokens | `ohs_sync` connections | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the row |
-| Provider account passwords (Eight Sleep only: no OAuth) | `ohs_sync` connections, in the refresh token column | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the row; never logged; wiped on disconnect |
+| Provider account passwords (Eight Sleep, Garmin account: no OAuth) | `ohs_sync` connections, in the refresh token column | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the row; never logged; wiped on disconnect |
 | Tenant API keys (`ohs_sk_`) | `ohs_core.api_keys` | SHA-256 hash only |
 | User tokens (`ohs_ut_`) | `ohs_core.user_tokens` | SHA-256 hash only, scoped, expiring |
 | Webhook signing secrets (`whsec_`) | `ohs_core.webhook_endpoints` | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the endpoint |
@@ -47,7 +47,7 @@ checklist see [hardening.md](hardening.md); to report a problem see
   `upload`, `connect` and `read`.
 - **Providers.** Call the unauthenticated routes `GET /oauth/{provider}/callback` and
   `POST /inbound/{provider}`. Anyone on the internet can call them too. The sign-in page
-  `/oauth/{provider}/signin` of providers without OAuth (Eight Sleep) is public in the same way.
+  `/oauth/{provider}/signin` of providers without OAuth (Eight Sleep, Garmin account) is public in the same way.
 - **Share link readers.** Whoever holds a share link: they call `POST /shl/{manifest_id}` and
   `GET /shl/file/{ticket}` with no credential, from any origin. So can anyone on the internet.
 - **Webhook receivers.** URLs a tenant registers; `ohs` posts to them from the `etl` role.
@@ -83,7 +83,7 @@ checklist see [hardening.md](hardening.md); to report a problem see
   consumes it with a single `DELETE ... RETURNING`, so a state works once, for one provider,
   and only before it expires. The tenant's `redirect_uri` must be https (http only for
   localhost). Providers that require PKCE get it (`internal/collect/oauth.go`).
-- **Password sign-in (Eight Sleep).** A provider with no OAuth for other apps gets a sign-in page
+- **Password sign-in (Eight Sleep, Garmin account).** A provider with no OAuth for other apps gets a sign-in page
   on this server instead of a consent URL (`internal/collect/signin.go`). It needs the same live
   state; a refused password keeps the state so the user can retry, and the route shares the
   callback's rate limit, so it is no better an oracle for guessing passwords than the provider's

@@ -584,6 +584,7 @@ var providerNames = map[string]string{
 	"eight_sleep":    "Eight Sleep",
 	"fitbit":         "Fitbit",
 	"garmin":         "Garmin",
+	"garmin_connect": "Garmin (account)",
 	"health_connect": "Health Connect",
 	"intervals_icu":  "intervals.icu",
 	"omron":          "OMRON",
@@ -605,19 +606,20 @@ func ProviderName(slug string) string { return providerName(slug) }
 // providerDetails say on the connection page what each source shares, from
 // the data its connector reads.
 var providerDetails = map[string]string{
-	"dexcom":        "Continuous glucose readings",
-	"eight_sleep":   "Sleep stages, heart rate, HRV, breathing and bed temperature",
-	"fitbit":        "Sleep, activity, workouts and heart rate",
-	"garmin":        "Daily activity, sleep, heart rate, HRV and workouts",
-	"intervals_icu": "Workouts, HRV, sleep score and weight",
-	"omron":         "Blood pressure, heart rate and weight",
-	"oura":          "Sleep, readiness, activity and heart rate",
-	"polar":         "Workouts, sleep, activity and heart rate",
-	"strava":        "Workouts with distance, pace and heart rate",
-	"suunto":        "Workouts with distance, pace and heart rate",
-	"ultrahuman":    "Sleep, heart rate, HRV, steps and temperature",
-	"whoop":         "Recovery, sleep, strain and workouts",
-	"withings":      "Weight, body composition, blood pressure and sleep",
+	"dexcom":         "Continuous glucose readings",
+	"eight_sleep":    "Sleep stages, heart rate, HRV, breathing and bed temperature",
+	"fitbit":         "Sleep, activity, workouts and heart rate",
+	"garmin":         "Daily activity, sleep, heart rate, HRV and workouts",
+	"garmin_connect": "Sleep, heart rate, HRV, stress, steps and activities from your Garmin account",
+	"intervals_icu":  "Workouts, HRV, sleep score and weight",
+	"omron":          "Blood pressure, heart rate and weight",
+	"oura":           "Sleep, readiness, activity and heart rate",
+	"polar":          "Workouts, sleep, activity and heart rate",
+	"strava":         "Workouts with distance, pace and heart rate",
+	"suunto":         "Workouts with distance, pace and heart rate",
+	"ultrahuman":     "Sleep, heart rate, HRV, steps and temperature",
+	"whoop":          "Recovery, sleep, strain and workouts",
+	"withings":       "Weight, body composition, blood pressure and sleep",
 }
 
 // joinNames lists names in prose: "A", "A and B", "A, B and C".

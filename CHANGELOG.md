@@ -183,6 +183,14 @@ release may change the API, the configuration or the database schema.
   pyEight library. It is on by default; turn it off in the console. Sleep sessions with stages and sleep score,
   `heart_rate`, `hrv_rmssd` and `respiratory_rate` samples, and bed and room temperature in the
   session metadata. See [docs/connectors/eight-sleep.md](docs/connectors/eight-sleep.md).
+- Garmin (account) connector, slug `garmin_connect`. A second path alongside the partner-API
+  `garmin` connector: the user signs in with their own Garmin Connect email and password (no
+  partner app, no operator keys), and the connector reads Garmin's private Connect API, following
+  the open source python-garminconnect library. Daily summaries and the matching totals, sleep
+  with stages and score, `hrv_rmssd` and `stress_high_time`, and activities as workouts. The
+  connector makes an honest request with one stable user agent and does not work around Garmin's
+  anti-bot protection; this unofficial path is unsupported by Garmin and can break. See
+  [docs/connectors/garmin-connect.md](docs/connectors/garmin-connect.md).
 - Sign-in page for providers without OAuth. A connector can implement
   `connector.PasswordConnector`; starting a connection to it returns this server's own page,
   `/oauth/{provider}/signin`, which asks for the account email and password and ends like the
