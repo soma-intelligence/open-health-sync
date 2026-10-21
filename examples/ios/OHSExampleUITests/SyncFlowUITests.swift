@@ -44,9 +44,15 @@ final class SyncFlowUITests: XCTestCase {
         waitUntilGone(urlField, app)
         XCTAssertFalse(app.staticTexts["Add the server URL and a user token first."].exists, dump(app))
 
-        // Health access: the system sheet, every type on.
-        app.buttons["Allow Health access"].tap()
-        tapInHealthSheet(app, "Turn On All")
+        // Health access: the system sheet, every type on. A tap made while the Settings sheet
+        // is still sliding away can be lost, so wait for it to go and for the button to be
+        // reachable, and tap again if the request never started (the section is disabled
+        // while a request runs).
+        waitUntilGone(app.navigationBars["Settings"], app)
+        let allow = app.buttons["Allow Health access"]
+        XCTAssertTrue(scrollUntilExists(allow, in: app, towardTop: true), dump(app))
+        allow.tap()
+        tapInHealthSheet(app, "Turn On All", retapping: allow)
         tapInHealthSheet(app, "Allow")
         XCTAssertTrue(scrollUntilExists(element(app, startingWith: "Health access requested"), in: app), dump(app))
 
@@ -62,10 +68,17 @@ final class SyncFlowUITests: XCTestCase {
 
     /// The Health sheet is a system view shown over the app; look for the control in the app and
     /// in SpringBoard, since the host process differs between iOS versions.
-    private func tapInHealthSheet(_ app: XCUIApplication, _ label: String) {
+    /// With `retapping`, taps that button again when the sheet has not shown after a while and
+    /// the button is enabled again, that is when the first tap started nothing.
+    private func tapInHealthSheet(_ app: XCUIApplication, _ label: String, retapping button: XCUIElement? = nil) {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let deadline = Date().addingTimeInterval(timeout)
+        var retapAt = button == nil ? Date.distantFuture : Date().addingTimeInterval(15)
         while Date() < deadline {
+            if Date() >= retapAt, let button, button.exists, button.isHittable, button.isEnabled {
+                button.tap()
+                retapAt = .distantFuture
+            }
             for root in [app, springboard] {
                 let control = root.descendants(matching: .any)
                     .matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
