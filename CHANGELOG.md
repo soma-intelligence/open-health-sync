@@ -9,6 +9,13 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Releases carry the Android example app, `ohs-example-android.apk`, so a phone installs it without
+  a build; its checksum is in the signed `checksums.txt`.
+- `data_types` on each provider of `GET /v1/providers`: the record kinds the connector writes
+  (`sample`, `sleep`, `workout`...) and the quantity names it can produce (`heart_rate`...), so an
+  app can tell which source gives what without reading the docs. The lists are read from each
+  mapper's source by `go run ./internal/connector/cmd/gendatatypes`, which also writes the table in
+  [docs/connectors/README.md](docs/connectors/README.md#what-each-connector-delivers).
 - Admin console for the whole pipeline. `/console` now runs the instance, not only shows it: an
   overview of the five pipeline stages (sources, sync, processing, storage, delivery) with what
   needs attention, providers turned on and their keys saved from the browser, users created and
@@ -31,6 +38,56 @@ release may change the API, the configuration or the database schema.
 - `GET /v1/tenant` (the tenant of the key), `GET /v1/keys`, `POST /v1/keys` and
   `DELETE /v1/keys/{key_id}`: a tenant manages its own API keys over the API, as
   `ohs admin key` does from a shell. A key cannot revoke itself (409).
+- Tenants managed over HTTP, for an instance that serves several teams: with an instance admin
+  key, `GET` and `POST /v1/admin/tenants` list (paged) and create tenants (never an admin; the
+  first key's secret is in the 201 answer only), `GET /v1/admin/tenants/{tenant_id}` and
+  `.../pipeline` read one, `GET`, `POST .../keys` and `DELETE .../keys/{key_id}` manage its
+  keys, and `POST .../demo-user` fills one of its users with up to 90 days of synthetic data, the
+  code path of `ohs seed --demo` now shared by both. Each change is also recorded in the audit
+  log of the tenant it changed (actor `admin`, the admin key's id, the key prefix, never the
+  key), in the same transaction for tenants and keys. See [docs/admin-api.md](docs/admin-api.md).
+- Providers per tenant: an instance admin turns a provider off, or back on, for one tenant with
+  `PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}` (`{"enabled": false}`), and lists the
+  switches with `GET /v1/admin/tenants/{tenant_id}/providers`. On by default. While off, the
+  tenant's `GET /v1/providers` and connect page leave the provider out, starting a connection,
+  the OAuth callback and uploads answer 403, sync now answers 409, no pull is planned and a
+  queued one ends `cancelled` without reaching the provider. Connections and data are kept. The
+  switch is audited as `tenant.provider` on both tenants and applies in every process within 30
+  seconds; migration 0041 adds `ohs_core.tenant_providers`.
+- A tenant brings its own provider keys: with an instance admin key,
+  `PUT /v1/admin/tenants/{tenant_id}/providers/{provider}/keys` sets the tenant's own OAuth
+  application for a provider (`GET` shows how they stand, never a value; `DELETE` removes them).
+  The tenant's new connections then go through its application, whose name its users see on the
+  consent screen, while every other tenant keeps the instance's keys; a provider the instance has
+  no keys for becomes available to that tenant only. The callback URL stays the instance's. A
+  connection keeps the keys it was made with for its refreshes, pulls, notifications (each
+  application's signature reaches only its own connections) and revocation. Removing the keys,
+  or replacing them with another client id, sets the connections made with them `needs_reauth`
+  with a `connection.needs_reauth` webhook event; rotating only a secret keeps them. Keys are
+  checked by the connector before they are stored, sealed with `OHS_ENCRYPTION_KEY`, covered by
+  `ohs admin rekey` and `ohs doctor`, audited as `tenant.provider_keys` on both tenants and
+  applied in every process within 30 seconds. `GET /v1/admin/tenants/{tenant_id}/providers`
+  gains `own_keys`. Migration 0042 adds `ohs_core.tenant_provider_keys` and a `tenant_keys_id`
+  column to connections and OAuth states. See [docs/admin-api.md](docs/admin-api.md#a-tenants-own-provider-keys).
+- An instance admin runs one tenant's API with its own key: under
+  `/v1/admin/tenants/{tenant_id}`, the tenant's users (list, create, read, delete, deletion
+  jobs), their data (`daily`, `samples`, `samples/stats`, `sleep`, `workouts`, `nutrition`,
+  `coverage`), their connections (`connections`, `freshness`, `sync-runs`, connection links,
+  sync now, disconnect), its webhooks and deliveries, its sync runs and processing jobs (with
+  retries) and its audit log answer what the tenant's own key gets from the route of the same
+  name, through the same handlers. A `Location` points at the admin route. Each request is
+  recorded on the tenant served (actor `admin`, the user of the path, `admin_tenant_id`) as well
+  as on the admin's tenant (without the user); a request on the admin's own tenant is recorded
+  once. A portal can run a team's projects behind its own sign in, with no tenant key in a
+  browser.
+- Demo personas: `ohs seed --demo --persona` and `"persona"` on
+  `POST /v1/admin/tenants/{tenant_id}/demo-user` pick `mix` (the default, unchanged), `runner`
+  (polar, whoop, apple_health: resting heart rate about 46, HRV about 78, VO2 max about 56, runs
+  on most days), `sleep` (oura, apple_health: about 6.2 h a night with late, irregular
+  bedtimes) or `weight` (withings, fitbit: about 92 kg with a slow yearly drift). Each is its
+  own person with its own seed and, by default, its own user (`demo-runner`, `demo-sleep`,
+  `demo-weight`); the answer and the audit event name the persona. See
+  [docs/demo.md](docs/demo.md#personas).
 - `GET /v1/pipeline` (the tenant's pipeline counts in one answer), `GET /v1/pipeline/sync-runs`
   (sync runs across users, with `status` and `provider` filters), `GET /v1/pipeline/etl-jobs`
   (parked, pending or running processing jobs), and `POST /v1/pipeline/etl-jobs/{job_id}/retry`
@@ -63,6 +120,17 @@ release may change the API, the configuration or the database schema.
   `uploadBluetoothPart` sends them; the Swift package gets an `OpenHealthSyncBluetooth`
   product (CoreBluetooth) that does the scanning and subscriptions on iOS and macOS, and the
   Android example app shows the same with `BluetoothGatt`.
+- Activity intensity minutes: `moderate_activity_time` and `vigorous_activity_time`, the minutes
+  of a day a provider classed as moderate or vigorous activity, one sample per provider day in
+  `min`. Oura's `daily_activity` (medium and high activity time) and Withings' `getactivity`
+  (`moderate` and `intense`) fill them; the metadata copies stay. Read them with `/samples`,
+  `/samples/stats`, the exports and the MCP tools. Migration 0039 adds the two types to the
+  catalog with LOINC 77592-4 and 77593-2.
+- FHIR follows the HL7 Physical Activity IG (1.0.0) for its measures: the two intensity types
+  and workouts also carry the IG's `PhysicalActivity` category, workout mean and maximum heart
+  rate carry LOINC 55425-3 and 55426-1, and the daily summary's `total_kcal` carries 41979-6.
+  CI validates these golden files against the IG's activity measure profile as well. See
+  [docs/fhir.md](docs/fhir.md#physical-activity).
 
 - Self reports: `POST /v1/users/{id}/self-reports` records a person's own ratings next to their
   synced data: how they feel, mood, stress, energy, sleep quality and muscle soreness (1 to 5),
@@ -106,8 +174,32 @@ release may change the API, the configuration or the database schema.
   Unset, the routes are not mounted. Tries are rate limited per client address like the OAuth
   callback (`OHS_RATE_LIMIT_OAUTH`, its own bucket, `route_group="setup"` in
   `ohs_rate_limited_total`). See [docs/setup.md](docs/setup.md).
-- A reproducible ingestion benchmark against Open Wearables: `bench/openwearables/` and
-  [the method and results](docs/benchmarks/open-wearables.md).
+- A reproducible Apple Health ingestion benchmark in Go: `bench/ingest/` and
+  [the method and results](docs/benchmarks/ingest.md).
+- Eight Sleep connector, slug `eight_sleep`. Eight Sleep has no public API: the connector signs
+  in the way the Eight Sleep app does (a password grant with the app's client id and secret,
+  built in from the values pyEight publishes, overridable with `OHS_EIGHT_SLEEP_CLIENT_ID` and
+  `OHS_EIGHT_SLEEP_CLIENT_SECRET`) and pulls the nightly trends, following the open source
+  pyEight library. It is on by default; turn it off in the console. Sleep sessions with stages and sleep score,
+  `heart_rate`, `hrv_rmssd` and `respiratory_rate` samples, and bed and room temperature in the
+  session metadata. See [docs/connectors/eight-sleep.md](docs/connectors/eight-sleep.md).
+- Sign-in page for providers without OAuth. A connector can implement
+  `connector.PasswordConnector`; starting a connection to it returns this server's own page,
+  `/oauth/{provider}/signin`, which asks for the account email and password and ends like the
+  OAuth callback. The password goes to the connector only, is never logged, and is kept sealed
+  under `OHS_ENCRYPTION_KEY` with the connection so the server can sign in again. The hosted
+  connection page says which sources ask for a password.
+- Garmin connector (Health API), slug `garmin`. Users connect their Garmin Connect account over
+  OAuth 2.0 with PKCE (the code verifier is derived from the OAuth state, so nothing is stored
+  per consent). Pulls dailies, 15 minute epochs, sleeps with stages, activities, body
+  composition, HRV (as `hrv_rmssd`), pulse ox, respiration, VO2 max, blood pressure and skin
+  temperature, in 24 hour upload windows paced at about 100 requests a minute; stress and Body
+  Battery are stored raw. Garmin's ping and push notifications arrive at `/inbound/garmin`: a
+  ping queues a pull of that type's upload window, a push stores its items as received.
+  Optional `OHS_GARMIN_INBOUND_TOKEN`: a secret the notification URLs carry, refused when
+  missing. Disconnecting or deleting a user deletes the Garmin registration. Garmin issues keys
+  to approved businesses only, and every instance brings its own. See
+  [docs/connectors/garmin.md](docs/connectors/garmin.md).
 - Xiaomi: `ohs import mi-fitness <folder|copy.zip>` loads the copy of Mi Fitness data that
   Xiaomi sends from its account privacy center (heart rate, resting heart rate, SpO2, steps,
   distance, active energy, weight, body fat, VO2 max, sleep with stages, workouts) through the new
@@ -167,9 +259,35 @@ release may change the API, the configuration or the database schema.
   and summarizes one without its samples. Exports: dataset `ecg` (metadata) and
   `canonical/ecg.ndjson` in the user archive (with samples). No migration. See
   [docs/api.md](docs/api.md#ecg-recordings) and [docs/fhir.md](docs/fhir.md#ecg-recordings).
+- Health Connect nutrition and energy: `Nutrition` and `Hydration` records become nutrition logs
+  (every mass converted from grams to its nutrient's unit, the meal type, the food name in
+  `metadata.food_name`), identified by record id like the samples, so an edit replaces the
+  figures, a moved start replaces the older copy and a `Deletion` removes it.
+  `TotalCaloriesBurned` becomes the new quantity type `total_energy_burned` (kcal), which is the
+  daily summary's `total_kcal` when a source sends it, and `BasalMetabolicRate` the new type
+  `basal_metabolic_rate` (kcal/d). Migration 0040 adds the two types to the catalog. See
+  [docs/connectors/health-connect.md](docs/connectors/health-connect.md).
+- Nutrition in FHIR: each nutrition log is an Observation `nutrition-{id}` (record type
+  `nutrition_log`, no category) with the meal type and every figure as components, coded by
+  REST field and by LOINC where a point in time code exists (energy 9052-2, protein 9079-5,
+  carbohydrates 9059-7, fat 9066-2, water 8999-5). In the Observation search, read by id,
+  Provenance, `$everything` and the user archive. See
+  [docs/fhir.md](docs/fhir.md#nutrition-logs).
+- Web example: a Next.js app (`examples/web`) built on the TypeScript server SDK that goes from
+  the first user to webhooks in four pages: create and list users; get data in through the
+  hosted connection page or an upload of 14 days of synthetic steps, resting heart rate and
+  sleep with an upload-only user token; read it back as daily summaries, samples, sleep, FHIR R4
+  and Open mHealth; and a webhook receiver that verifies with `verifyWebhook` and lists the last
+  20 events. The tenant key stays on the server. CI type checks, tests and builds it. See
+  [examples/web](examples/web/README.md).
 
 ### Changed
 
+- The recipes are Go programs: `recipes/<name>/main.go`, standard library only, run with
+  `go run ./recipes/<name>` (they were Python scripts). Their flags, output and files are the
+  same. `recipes/starter` holds the block every recipe starts with, to copy for a tool of your
+  own, and the seven tutorials in `docs/learn/`, the webhook examples and the export examples are
+  in Go or DuckDB SQL too. The quickstart end to end test needs Go in place of Python 3.
 - `OHS_CONSOLE=true` now serves the console with its actions. An instance that turned it on for
   the read-only view gets them on upgrade; set `OHS_CONSOLE=read-only` to keep the console
   without any action.
@@ -235,6 +353,14 @@ release may change the API, the configuration or the database schema.
   notifications were deletions.
 - MCP `get_coverage` without `start` reports the last 30 days. On years of Apple Health history
   it answered with over a megabyte of JSON, more than an agent can read.
+- Nutrient units: every nutrient now has one documented unit (kcal, g, mg, mcg or mL; see
+  [docs/api.md](docs/api.md#nutrition-logs)) and every mapper converts to it. The extended
+  nutrients of Apple Health (`nutrients.caffeine`, `nutrients.vitamin_d`...) were stored in the
+  unit of the upload, and a food entry (`HKCorrelationTypeIdentifierFood`) stored its core masses
+  without the conversion single dietary samples had, so a mass sent in kilograms landed 1,000
+  times too low in `protein_g`. A unit that does not convert now rejects the record instead.
+  Rows already stored keep their values: erase the provider's data
+  (`DELETE /v1/users/{id}/data/apple_health`) and import again to rewrite them.
 - `GET /v1/users/{id}/connections` and the MCP tool `list_connections` return `created_at`,
   `initial_backfill_at`, `scopes` and `updated_at`, as `api/openapi.yaml` documents. Only
   `connected_at` was sent, so the Swift and Kotlin SDKs could not decode the list and the

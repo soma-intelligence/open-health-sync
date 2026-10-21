@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package garmin
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"math/rand"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/soma-intelligence/open-health-sync/internal/connector"
+)
+
+// maxResponseBytes caps one Health API answer.
+const maxResponseBytes = 32 << 20
+
+// maxAttempts bounds the attempts of one request on transport errors.
+const maxAttempts = 4
+
+var (
+	// errUnauthorized is an HTTP 401: the access token is gone.
+	errUnauthorized = errors.New("garmin: access token rejected")
+	// errNotGranted is an HTTP 400 or 403 from a summary endpoint: the user
+	// did not grant the permission this summary type needs, or the app has
+	// no access to it. Fetch treats the type as empty.
+	errNotGranted = errors.New("garmin: summary type not available for this user")
+)
+
+// get sends one GET to path under the API base. It returns the body of a 2xx
+// answer, nil for 204 and 404, a *connector.RateLimitError for 429,
+// errUnauthorized for 401 and errNotGranted for 400 and 403.
+func (c *Connector) get(ctx context.Context, token, path string, q url.Values) ([]byte, error) {
+	endpoint := c.apiBase + path
+	if len(q) > 0 {
+		endpoint += "?" + q.Encode()
+	}
+	resp, body, err := c.do(ctx, http.MethodGet, token, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	switch s := resp.StatusCode; {
+	case s == http.StatusUnauthorized:
+		return nil, errUnauthorized
+	case s == http.StatusBadRequest, s == http.StatusForbidden:
+		return nil, fmt.Errorf("%w (HTTP %d)", errNotGranted, s)
+	case s == http.StatusTooManyRequests:
+		return nil, connector.RateLimited(resp.Header, c.now())
+	case s == http.StatusNoContent, s == http.StatusNotFound:
+		return nil, nil
+	case s >= 400:
+		return nil, fmt.Errorf("garmin: GET %s: HTTP %d", path, s)
+	}
+	return body, nil
+}
+
+// do sends one request with a bearer token. A transport error is retried on
+// a ladder that starts at retryBase and doubles, jittered upwards. The
+// response body is read (capped) and closed.
+func (c *Connector) do(ctx context.Context, method, token, endpoint string) (*http.Response, []byte, error) {
+	backoff := c.retryBase
+	for attempt := 1; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+		resp, err := c.httpc.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
+			if attempt == maxAttempts {
+				return nil, nil, fmt.Errorf("garmin http: %w", err)
+			}
+			slog.Warn("garmin: transport error, retrying", "provider", Slug, "attempt", attempt)
+			if err := c.sleep(ctx, jitter(backoff)); err != nil {
+				return nil, nil, err
+			}
+			backoff *= 2
+			continue
+		}
+		body, err := readBody(resp.Body, maxResponseBytes)
+		resp.Body.Close()
+		if err != nil {
+			return nil, nil, fmt.Errorf("garmin: read response: %w", err)
+		}
+		return resp, body, nil
+	}
+}
+
+// readBody reads at most limit bytes. Past the cap it reports an error rather
+// than handing a truncated body to the decoder.
+func readBody(r io.Reader, limit int64) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > limit {
+		return nil, fmt.Errorf("garmin: response exceeds %d bytes", limit)
+	}
+	return b, nil
+}
+
+// jitter spreads d over [d, 1.5d).
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	return d + time.Duration(rand.Int63n(int64(d/2)+1))
+}
+
+// pause waits d (skipped when d <= 0), or returns early on cancellation.
+func pause(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}

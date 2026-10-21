@@ -123,14 +123,15 @@ func TestFHIRObservations(t *testing.T) {
 	// Every record, in one list ordered by time: the sleep session (bedtime
 	// the evening before), the first day (midnight UTC), blood pressure
 	// (07:00), the 08:00 heart rate and steps, the workout (08:00, after the
-	// samples of the same time), the rest of the heart rate, the second day.
+	// samples of the same time), the rest of the heart rate, lunch (12:00),
+	// the second day.
 	all := e.bundle(base, e.keyA)
 	assert.Empty(t, next(all))
 	var obs []fhir.Observation
 	for _, en := range all.Entry {
 		obs = append(obs, en.Resource)
 	}
-	assert.Equal(t, []string{"sleep", "daily", "qs", "qs", "qs", "workout", "qs", "qs", "qs", "qs", "daily"}, idPrefixes(obs))
+	assert.Equal(t, []string{"sleep", "daily", "qs", "qs", "qs", "workout", "qs", "qs", "qs", "qs", "nutrition", "daily"}, idPrefixes(obs))
 	bp := obs[2]
 	assert.Equal(t, []fhir.Coding{{System: fhir.QuantityTypeSystem, Code: "blood_pressure_systolic"}}, bp.Code.Coding,
 		"an unpaired half: R4 allows 8480-6 only inside the blood pressure panel")
@@ -160,6 +161,16 @@ func TestFHIRObservations(t *testing.T) {
 	assert.Equal(t, "41950-7", day.Component[0].Code.Coding[0].Code)
 	assert.Equal(t, 9000.0, *day.Component[0].ValueQuantity.Value)
 
+	meal := obs[10]
+	assert.Equal(t, []fhir.Coding{{System: fhir.RecordTypeSystem, Code: fhir.RecordNutritionLog}}, meal.Code.Coding)
+	assert.Empty(t, meal.Category)
+	assert.Equal(t, "2026-03-01T12:00:00Z", meal.EffectiveDateTime, "no end: an instant")
+	require.Len(t, meal.Component, 2, "the meal type and the energy; a name the nutrient table does not know is left out")
+	assert.Equal(t, "lunch", meal.Component[0].ValueCodeableConcept.Coding[0].Code)
+	assert.Equal(t, []fhir.Coding{{System: fhir.LOINC, Code: "9052-2"}, {System: fhir.ComponentSystem, Code: "energy_kcal"}},
+		meal.Component[1].Code.Coding)
+	assert.Equal(t, 650.0, *meal.Component[1].ValueQuantity.Value)
+
 	// Every page size gives the same list, each Observation once.
 	for limit := 1; limit <= len(obs)+1; limit++ {
 		assert.Equal(t, ids(obs), ids(e.walk(base+"?limit="+strconv.Itoa(limit), e.keyA)), "limit %d", limit)
@@ -178,25 +189,28 @@ func TestFHIRObservations(t *testing.T) {
 	// The code, category and type filters, alone and together.
 	q := func(s string) string { return url.QueryEscape(s) }
 	for query, want := range map[string]int{
-		"?code=http://loinc.org%7C8867-4":                      5,
-		"?code=" + q(fhir.QuantityTypeSystem+"|step_count"):    1,
-		"?code=http://loinc.org%7C8480-6":                      0, // no pair here
-		"?code=http://loinc.org%7C0000-0":                      0,
-		"?code=http://loinc.org%7C93832-4":                     1,
-		"?code=http://loinc.org%7C55411-3":                     1,
-		"?code=" + q(fhir.RecordTypeSystem+"|daily_summary"):   2,
-		"?code=" + q(fhir.RecordTypeSystem+"|unknown"):         0,
-		"?category=activity":                                   4, // steps, the workout, two days
-		"?category=" + q(fhir.ObservationCategory+"|activity"): 4,
-		"?category=vital-signs":                                6,
-		"?category=laboratory":                                 0,
-		"?category=survey":                                     0,
-		"?type=heart_rate&category=activity":                   0,
-		"?type=heart_rate&code=http://loinc.org%7C8867-4":      5,
-		"?category=activity&code=http://loinc.org%7C55411-3":   1,
-		"?start=2026-03-01T09:00:00Z&end=2026-03-01T11:00:00Z": 2,
-		"?start=2026-03-01T08:00:00Z&end=2026-03-01T08:00:01Z": 3,
-		"?start=2026-03-02&category=activity":                  1,
+		"?code=http://loinc.org%7C8867-4":                                    5,
+		"?code=" + q(fhir.QuantityTypeSystem+"|step_count"):                  1,
+		"?code=http://loinc.org%7C8480-6":                                    0, // no pair here
+		"?code=http://loinc.org%7C0000-0":                                    0,
+		"?code=http://loinc.org%7C93832-4":                                   1,
+		"?code=http://loinc.org%7C55411-3":                                   1,
+		"?code=" + q(fhir.RecordTypeSystem+"|daily_summary"):                 2,
+		"?code=" + q(fhir.RecordTypeSystem+"|nutrition_log"):                 1,
+		"?code=" + q(fhir.RecordTypeSystem+"|unknown"):                       0,
+		"?category=activity":                                                 4, // steps, the workout, two days
+		"?category=" + q(fhir.ObservationCategory+"|activity"):               4,
+		"?category=vital-signs":                                              6,
+		"?category=laboratory":                                               0,
+		"?category=survey":                                                   0,
+		"?type=heart_rate&category=activity":                                 0,
+		"?type=heart_rate&code=http://loinc.org%7C8867-4":                    5,
+		"?category=activity&code=http://loinc.org%7C55411-3":                 1,
+		"?start=2026-03-01T09:00:00Z&end=2026-03-01T11:00:00Z":               2,
+		"?start=2026-03-01T08:00:00Z&end=2026-03-01T08:00:01Z":               3,
+		"?start=2026-03-02&category=activity":                                1,
+		"?start=2026-03-01T12:00:00Z&end=2026-03-01T13:00:00Z":               2, // heart rate and lunch
+		"?type=heart_rate&code=" + q(fhir.RecordTypeSystem+"|nutrition_log"): 0,
 	} {
 		assert.Len(t, e.walk(base+query, e.keyA), want, query)
 	}
@@ -208,6 +222,7 @@ func TestFHIRObservations(t *testing.T) {
 		base + "?cursor=bm9wZQ":                         http.StatusBadRequest,
 		base + "/qs-999999999":                          http.StatusNotFound,
 		base + "/sleep-999999999":                       http.StatusNotFound,
+		base + "/nutrition-999999999":                   http.StatusNotFound,
 		base + "/bp-" + strings.TrimPrefix(o.ID, "qs-"): http.StatusNotFound, // heart rate is no panel
 		base + "/" + strings.TrimPrefix(o.ID, "qs-"):    http.StatusNotFound,
 	} {

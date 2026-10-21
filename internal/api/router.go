@@ -29,6 +29,8 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
@@ -47,6 +49,18 @@ type Deps struct {
 	// /v1/providers) and the console's provider settings (/v1/admin). Nil
 	// means none is enabled.
 	Providers *providerset.Set
+	// TenantProviders are the providers an instance admin turned off for
+	// one tenant: left out of GET /v1/providers and refused on the upload
+	// routes for that tenant, and switched by
+	// /v1/admin/tenants/{tenant_id}/providers. Nil means every provider is
+	// on for every tenant and leaves the admin routes out.
+	TenantProviders *tenantproviders.Set
+	// TenantKeys are the provider keys tenants brought for themselves:
+	// listed for the tenant in GET /v1/providers, and set by
+	// /v1/admin/tenants/{tenant_id}/providers/{provider}/keys. Nil leaves
+	// those admin routes out. The connection routes read the same set from
+	// Collect's Deps.
+	TenantKeys *tenantkeys.Set
 	// Device handles POST /v1/ingest/apple-health. Nil leaves the route out.
 	Device connector.DeviceConnector
 	// HealthConnect handles POST /v1/ingest/health-connect. Nil leaves the

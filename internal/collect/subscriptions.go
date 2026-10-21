@@ -86,8 +86,9 @@ func (s *Scheduler) RenewSilent(ctx context.Context, n int) (int, error) {
 	return int(tag.RowsAffected()), nil
 }
 
+// subscriber reports whether provider takes subscriptions on this instance.
 func (d Deps) subscriber(provider string) (connector.Subscriber, bool) {
-	oc, ok := d.oauth(provider)
+	oc, ok := d.capableOAuth(provider)
 	if !ok {
 		return nil, false
 	}
@@ -215,13 +216,11 @@ func (s *Scheduler) subscribable(ctx context.Context, status string) ([]string, 
 func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) {
 	d := s.d
 	log := slog.With("tenant_id", sub.tenant, "user_id", sub.user, "provider", sub.provider)
-	oc, ok := d.oauth(sub.provider)
-	if !ok {
+	if _, ok := d.capableOAuth(sub.provider); !ok {
 		// Provider disabled on this instance: leave the row for one that has it.
 		log.WarnContext(ctx, "collect: subscription left pending, provider not enabled in this process")
 		return false, nil
 	}
-	sc, isSub := oc.(connector.Subscriber)
 
 	// Step 1.
 	tx, err := d.Pool.Begin(ctx)
@@ -251,10 +250,17 @@ func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) 
 	if connGone || c.status != StatusActive {
 		return drop("connection not active")
 	}
+	// The keys the connection was made with subscribe it.
+	oc, ok := d.oauthOf(c)
+	if !ok {
+		log.WarnContext(ctx, "collect: subscription left pending, the connection's provider keys are not available in this process")
+		return false, nil
+	}
+	sc, isSub := oc.(connector.Subscriber)
 	if !isSub {
 		return drop("provider does not take subscriptions")
 	}
-	conn, err := d.renewLocked(ctx, ctx, tx, oc, c, "")
+	conn, err := d.renewLocked(ctx, ctx, tx, c, "")
 	if errors.Is(err, connector.ErrNeedsReauth) {
 		// renewLocked marked the connection needs_reauth in tx.
 		return drop("provider rejected the grant")
@@ -412,14 +418,15 @@ func (d Deps) revokeLocked(ctx, pctx context.Context, tx pgx.Tx, c connRow) erro
 		return fmt.Errorf("lock subscriptions: %w", err)
 	}
 
-	oc, ok := d.oauth(c.provider)
+	oc, ok := d.oauthOf(c)
 	if !ok {
-		// Its keys are not set in this process: nothing can be called at the
-		// provider. The rows are still marked removed below.
+		// Its keys are not set in this process (or the tenant keys it was
+		// made with are gone): nothing can be called at the provider. The
+		// rows are still marked removed below.
 		log.WarnContext(ctx, "collect: provider not enabled in this process, grant not revoked and subscriptions not unsubscribed at the provider")
 	}
 	if ok && c.accessEnc != nil {
-		conn, err := d.renewLocked(ctx, pctx, tx, oc, c, "")
+		conn, err := d.renewLocked(ctx, pctx, tx, c, "")
 		if err != nil {
 			log.WarnContext(ctx, "collect: token refresh before revoke failed, using stored tokens", "error", safeErr(err))
 			conn, err = d.open(c)

@@ -154,7 +154,7 @@ Notes:
   references do not appear. A path no route matches is named by the catch-all route `/`. A
   method outside the standard ones is recorded as `_OTHER` (span name `HTTP`).
 - **Outcomes.** `ohs.job.outcome` is `completed`, `failed`, `deferred` (the provider's rate
-  limit), `needs_reauth`, `inactive` (the connection or user is gone), `claim_lost` (another
+  limit), `needs_reauth`, `inactive` (the connection or user is gone, or the provider is turned off for the tenant), `claim_lost` (another
   worker owns the job now) or `settle_error`. A failed job, a failed delivery attempt, a 5xx API answer and
   a failed query set the span status to error, without a description.
 - **Database spans** exist only under a request, job or delivery span. The polling of the job

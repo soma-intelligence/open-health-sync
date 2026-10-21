@@ -3,12 +3,12 @@
 **Goal:** one page with your steps, sleep, resting heart rate and HRV over the last months, every
 device together, and a training chart on it that you added yourself.
 
-**Time:** 20 minutes. **Level:** some Python. **Needs:** [project 1](first-sync.md).
+**Time:** 20 minutes. **Level:** some Go. **Needs:** [project 1](first-sync.md).
 
 ## 1. Make the page
 
 ```sh
-python3 recipes/dashboard.py
+go run ./recipes/dashboard
 ```
 
 ```text
@@ -26,39 +26,49 @@ dark mode.
 Make your own copy first, so an update of the repository never overwrites your changes:
 
 ```sh
-cp recipes/dashboard.py my-dashboard.py
+mkdir my-dashboard && cp recipes/dashboard/main.go my-dashboard/
 ```
 
-Open `my-dashboard.py` and find `def main():`. Just above the line that starts with
-`apps = sorted(`, add the minutes of training per day:
+Open `my-dashboard/main.go` and find `func main()`. Just above the line
+`seen := map[string]bool{}`, add the minutes of training per day:
 
-```python
-    training = defaultdict(float)
-    for w in records("workouts", start=start.isoformat()):
-        training[date.fromisoformat(w["start_date"][:10])] += (w["duration_s"] or 0) / 60
+```go
+	training := map[string]float64{}
+	for _, w := range records[workout]("workouts", url.Values{"start": {from}}) {
+		training[w.StartDate[:10]] += w.DurationS / 60
+	}
 ```
 
 Then add one line to the list of charts, after the heart rate variability one:
 
-```python
-        chart("Training", "min", training, start, a.days, True, "{:.0f}"),
+```go
+		chart("Training", "min", training, start, *days, true, f0),
+```
+
+and, at the very end of the file, the shape of a workout:
+
+```go
+type workout struct {
+	StartDate string  `json:"start_date"`
+	DurationS float64 `json:"duration_s"`
+}
 ```
 
 ```sh
-python3 my-dashboard.py --days 60
+go run ./my-dashboard -days 60
 ```
 
 Open `health-dashboard.html` again: a fifth chart shows your training as daily bars, under the
 four others. The `chart()` function does the drawing; you only gave it a name, a unit, a value
-per day and `True` for bars (`False` draws dots).
+per day and `true` for bars (`false` draws dots).
 
 ## Make it yours
 
-- **Another daily figure.** `kcal, _ = daily("active_kcal", start)` gives a value per day from
+- **Another daily figure.** `kcal, _ := daily("active_kcal", from, "")` gives a value per day from
   the app that reports it most, ready for `chart()`; `readiness_score` and `recovery_score` work
   the same for a ring or a band. The fields are listed under
   [DailySummary](../data-model.md#dailysummary).
-- **A year.** `--days 365 --out year.html` is a good page to look at in January.
+- **A year.** `-days 365 -out year.html` is a good page to look at in January.
 - **Every morning.** Run it from cron and write the file into a folder your home server
   publishes, so the page on your phone is always today's.
 

@@ -1,0 +1,11 @@
+[
+  {
+    "userId": "a1b2c3d4-0000-4000-8000-000000000001",
+    "summaryId": "x1a2b3c-st-20260302",
+    "calendarDate": "2026-03-02",
+    "startTimeInSeconds": 1772404200,
+    "startTimeOffsetInSeconds": 3600,
+    "durationInSeconds": 28800,
+    "avgDeviationCelsius": -0.3
+  }
+]

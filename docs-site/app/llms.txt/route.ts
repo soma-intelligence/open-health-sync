@@ -9,7 +9,7 @@ export async function GET() {
   // The generated index opens with a generic "# Docs"; llms.txt wants the project's name and a summary.
   const index = (await docsLlms.index()).replace(
     /^# .*\n/,
-    `# ${appName}\n\n> Self-hosted health data aggregator: pulls data from wearables and health apps, normalizes it to one model, and serves it as REST, FHIR R4, Open mHealth, CSV, Parquet and a read-only MCP server.\n`,
+    `# ${appName}\n\n> Open source, self-hosted health data aggregator and an alternative to hosted wearable APIs such as Terra: pulls data from wearables and health apps, normalizes it to one model, and serves it as REST, FHIR R4, Open mHealth, CSV, Parquet and a read-only MCP server.\n`,
   );
   return new Response(index.replace(/\]\((\/[^)\s]*)\)/g, (_, path: string) => `](${absoluteUrl(path)})`));
 }

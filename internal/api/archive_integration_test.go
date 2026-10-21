@@ -184,7 +184,7 @@ func TestUserArchive(t *testing.T) {
 	}
 	e.do("GET", base+"/fhir/Observation?limit=1000", e.keyA, nil).json(t, &search)
 	require.Len(t, bundle.Entry, len(search.Entry))
-	assert.Len(t, bundle.Entry, 10, "six samples, a sleep session, a workout, two days")
+	assert.Len(t, bundle.Entry, 11, "six samples, a sleep session, a workout, a meal, two days")
 	for _, en := range bundle.Entry {
 		assert.Equal(t, "Observation", en.Resource.ResourceType)
 		assert.Equal(t, "Patient/"+u.String(), en.Resource.Subject.Reference)
@@ -233,7 +233,7 @@ func TestUserArchive(t *testing.T) {
 		assert.Equal(t, n, counts[name], name)
 	}
 	assert.Equal(t, 1, counts["user.json"])
-	assert.Equal(t, 10, counts["fhir/bundle.json"])
+	assert.Equal(t, 11, counts["fhir/bundle.json"])
 	assert.Equal(t, len(omhPage.Data), counts["omh/data-points.ndjson"])
 	assert.Equal(t, 2, m.Raw.Objects)
 	assert.EqualValues(t, len(rawA)+len(rawB), m.Raw.Bytes)

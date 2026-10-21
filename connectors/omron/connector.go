@@ -90,6 +90,7 @@ type Options struct {
 type Connector struct {
 	mu    sync.RWMutex
 	keys  connector.Config
+	opts  Options // what New was given, for NewInstance
 	ep    Endpoints
 	fixed bool // ep came from Options.Endpoints: Configure keeps it
 
@@ -109,6 +110,7 @@ var (
 // New returns an OMRON connector.
 func New(o Options) *Connector {
 	c := &Connector{
+		opts:      o,
 		ep:        o.Endpoints,
 		fixed:     o.Endpoints.Token != "",
 		httpc:     o.HTTPClient,
@@ -190,6 +192,16 @@ func (c *Connector) Configure(cfg connector.Config) error {
 		c.ep = ep
 	}
 	return nil
+}
+
+// NewInstance returns a connector like c without keys, sharing its HTTP
+// client, for a tenant's own keys (connector.Instancer).
+func (c *Connector) NewInstance() connector.Connector {
+	o := c.opts
+	o.HTTPClient = c.httpc
+	n := New(o)
+	n.keys = nil
+	return n
 }
 
 // credentials returns the configured client id and secret.

@@ -33,9 +33,11 @@ func dayWindow(dataType, day, timestamp string, md map[string]any) (time.Time, t
 }
 
 // mapDailyActivity turns one daily_activity document into step_count,
-// active_energy_burned and distance_walking_running samples for its day.
-// Oura's distance is the equivalent walking distance of the day's movement.
-// The activity score and the time spent at each intensity stay in metadata.
+// active_energy_burned, distance_walking_running, moderate_activity_time and
+// vigorous_activity_time samples for its day. Oura's distance is the
+// equivalent walking distance of the day's movement; its medium and high
+// activity time (seconds) are the moderate and vigorous minutes. The activity
+// score and the time spent at each intensity stay in metadata too.
 func mapDailyActivity(line []byte, userID string) (*model.MapResult, error) {
 	var a DailyActivity
 	if err := decode(DataTypeDailyActivity, line, &a); err != nil {
@@ -68,6 +70,8 @@ func mapDailyActivity(line []byte, userID string) (*model.MapResult, error) {
 		{quantityType: model.QTStepCount, unit: "count", value: a.Steps},
 		{quantityType: model.QTActiveEnergyBurned, unit: "kcal", value: a.ActiveCalories},
 		{quantityType: model.QTDistanceWalkingRunning, unit: "m", value: a.EquivalentWalkingDistance},
+		{quantityType: model.QTModerateActivityTime, unit: "s", value: a.MediumActivityTime},
+		{quantityType: model.QTVigorousActivityTime, unit: "s", value: a.HighActivityTime},
 	} {
 		if m.value == nil {
 			continue

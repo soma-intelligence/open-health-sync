@@ -73,6 +73,14 @@ func From(ctx context.Context) (Principal, bool) {
 	return p, ok
 }
 
+// WithPrincipal returns ctx carrying p as the caller that handlers further
+// in see, for a route that serves a tenant route's handler on behalf of
+// another tenant (an instance admin reading one tenant's data). The Slot is
+// left as it is: the request stays recorded as the one who authenticated.
+func WithPrincipal(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, ctxKey{}, p)
+}
+
 // Middleware authenticates the bearer secret with lookup and enforces want.
 func Middleware(lookup Lookup, want Scope) func(http.Handler) http.Handler {
 	return MiddlewareAny(lookup, want)

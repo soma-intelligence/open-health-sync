@@ -4,8 +4,10 @@
 
 `OHS_ENCRYPTION_KEY` seals the secrets Open Health Sync keeps in the database: the OAuth access
 and refresh tokens of every provider connection (`ohs_sync.connections`), the signing secret
-of every webhook endpoint (`ohs_core.webhook_endpoints`) and the provider keys saved in the
-[console](console.md) (`ohs_core.provider_settings`). This page explains how to replace that
+of every webhook endpoint (`ohs_core.webhook_endpoints`), the provider keys saved in the
+[console](console.md) (`ohs_core.provider_settings`) and the provider keys tenants brought for
+themselves through the [admin API](admin-api.md#a-tenants-own-provider-keys)
+(`ohs_core.tenant_provider_keys`). This page explains how to replace that
 key on a running instance without losing them.
 
 ## Why rotate

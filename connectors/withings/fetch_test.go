@@ -148,7 +148,7 @@ func TestFetchThenMap(t *testing.T) {
 	}
 
 	act := mapEmitted(t, c, sink, DataTypeActivity)
-	require.Len(t, act.QuantitySamples, 6)
+	require.Len(t, act.QuantitySamples, 10, "steps, distance, energy, moderate and vigorous minutes, two days")
 	for _, s := range act.QuantitySamples {
 		assert.Equal(t, "Europe/Paris", s.Metadata["timezone"])
 	}

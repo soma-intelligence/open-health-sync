@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -56,7 +57,8 @@ func intp(n int) *int { return &n }
 
 func TestNewConnectSessionDefaults(t *testing.T) {
 	now := time.Date(2026, 3, 1, 10, 0, 0, 500, time.UTC)
-	s, problem := pageDeps().newConnectSession(ConnectSessionRequest{}, now)
+	s, code, problem := pageDeps().newConnectSession(uuid.Nil, ConnectSessionRequest{}, now)
+	require.Zero(t, code)
 	require.Empty(t, problem)
 	assert.Equal(t, []string{"oura", "withings"}, s.providers, "every enabled OAuth provider, devices left out")
 	assert.Equal(t, time.Date(2026, 3, 1, 10, 30, 0, 0, time.UTC), s.expiresAt)
@@ -66,13 +68,14 @@ func TestNewConnectSessionDefaults(t *testing.T) {
 
 func TestNewConnectSessionKeepsValidFields(t *testing.T) {
 	now := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
-	s, problem := pageDeps().newConnectSession(ConnectSessionRequest{
+	s, code, problem := pageDeps().newConnectSession(uuid.Nil, ConnectSessionRequest{
 		RedirectURI: "https://app.example.test/done",
 		Providers:   []string{"withings", "oura", "withings"},
 		AppName:     "  Sleep Diary  ",
 		LogoURL:     "https://cdn.example.test/logo.png",
 		TTLSeconds:  intp(60),
 	}, now)
+	require.Zero(t, code)
 	require.Empty(t, problem)
 	assert.Equal(t, []string{"withings", "oura"}, s.providers, "order kept, duplicates dropped")
 	assert.Equal(t, "Sleep Diary", s.appName)
@@ -107,18 +110,44 @@ func TestNewConnectSessionRefuses(t *testing.T) {
 		"ttl zero is explicit": {ConnectSessionRequest{TTLSeconds: intp(0)}, "ttl_seconds"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, problem := pageDeps().newConnectSession(tc.req, time.Now())
+			_, code, problem := pageDeps().newConnectSession(uuid.Nil, tc.req, time.Now())
+			assert.Equal(t, http.StatusBadRequest, code)
 			assert.Contains(t, problem, tc.want)
 		})
 	}
-	_, problem := pageDeps().newConnectSession(ConnectSessionRequest{AppName: strings.Repeat("é", 80)}, time.Now())
+	_, code, problem := pageDeps().newConnectSession(uuid.Nil, ConnectSessionRequest{AppName: strings.Repeat("é", 80)}, time.Now())
+	assert.Zero(t, code)
 	assert.Empty(t, problem, "80 characters, more than 80 bytes, is accepted")
 }
 
 func TestNewConnectSessionWithNoOAuthProvider(t *testing.T) {
 	d := pageDeps()
 	d.Slugs = []string{"device"}
-	_, problem := d.newConnectSession(ConnectSessionRequest{}, time.Now())
+	_, code, problem := d.newConnectSession(uuid.Nil, ConnectSessionRequest{}, time.Now())
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Contains(t, problem, "no OAuth provider")
+}
+
+// A provider turned off for the tenant is left out of the default list and
+// refused by name (403); another tenant still gets it.
+func TestNewConnectSessionProviderOff(t *testing.T) {
+	off, other := uuid.New(), uuid.New()
+	d := pageDeps()
+	d.Allowed = func(tenant uuid.UUID, slug string) bool { return tenant != off || slug != "oura" }
+	s, code, _ := d.newConnectSession(off, ConnectSessionRequest{}, time.Now())
+	require.Zero(t, code)
+	assert.Equal(t, []string{"withings"}, s.providers)
+	_, code, problem := d.newConnectSession(off, ConnectSessionRequest{Providers: []string{"withings", "oura"}}, time.Now())
+	assert.Equal(t, http.StatusForbidden, code)
+	assert.Contains(t, problem, `"oura"`)
+	assert.Contains(t, problem, ProviderOffDetail)
+	s, code, _ = d.newConnectSession(other, ConnectSessionRequest{Providers: []string{"oura"}}, time.Now())
+	require.Zero(t, code)
+	assert.Equal(t, []string{"oura"}, s.providers)
+
+	d.Allowed = func(uuid.UUID, string) bool { return false }
+	_, code, problem = d.newConnectSession(off, ConnectSessionRequest{}, time.Now())
+	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Contains(t, problem, "no OAuth provider")
 }
 
@@ -224,7 +253,7 @@ func TestConnectPageTemplateWithoutAppName(t *testing.T) {
 
 func TestPageCSPAllowsConsentOrigins(t *testing.T) {
 	h := &Handlers{d: pageDeps()}
-	csp := h.pageCSP([]string{"withings", "oura", "withings"})
+	csp := h.pageCSP(uuid.New(), []string{"withings", "oura", "withings"})
 	assert.Contains(t, csp, "form-action 'self' https://auth.withings.example.test https://auth.oura.example.test;")
 	assert.Contains(t, csp, "img-src https:")
 	assert.NotContains(t, csp, "script-src")
@@ -269,4 +298,29 @@ func TestResultPageBackLink(t *testing.T) {
 	renderResult(rec, http.StatusOK, "withings", true)
 	assert.NotContains(t, rec.Body.String(), "href=")
 	assert.Contains(t, rec.Body.String(), "You can close this window.")
+}
+
+func TestConnectPageNamesPasswordSources(t *testing.T) {
+	var b strings.Builder
+	require.NoError(t, connectPage.Execute(&b, connectView{
+		Session: "tok", Expires: "in 30 minutes",
+		Providers: []providerView{
+			{Slug: "eight_sleep", Name: "Eight Sleep", Status: "not_connected", StatusText: "Not connected", Button: "Connect", Action: "connect/eight_sleep"},
+		},
+		PasswordSources: "Eight Sleep",
+	}))
+	out := b.String()
+	assert.Contains(t, out, "For Eight Sleep, this server asks for the password itself")
+	assert.Contains(t, out, "The app never sees your password")
+
+	b.Reset()
+	require.NoError(t, connectPage.Execute(&b, connectView{Session: "tok", Expires: "in 30 minutes"}))
+	assert.NotContains(t, b.String(), "asks for the password itself")
+}
+
+func TestJoinNames(t *testing.T) {
+	assert.Equal(t, "", joinNames(nil))
+	assert.Equal(t, "A", joinNames([]string{"A"}))
+	assert.Equal(t, "A and B", joinNames([]string{"A", "B"}))
+	assert.Equal(t, "A, B and C", joinNames([]string{"A", "B", "C"}))
 }

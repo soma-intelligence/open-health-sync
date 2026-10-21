@@ -22,6 +22,10 @@ Left out on purpose: the routes providers call (`/oauth/{provider}/callback`,
 `/inbound/{provider}`), `/mcp` (AI agents speak MCP to it, see [mcp.md](mcp.md)), `/metrics`
 and `/openapi.yaml`. The liveness and readiness checks are there (`healthz`, `readyz`).
 
+[`examples/web`](../examples/web/README.md) is a Next.js app built on the TypeScript client:
+it creates users, sends them to the hosted connection page, uploads synthetic data with an
+upload-only user token, reads it back as JSON, FHIR R4 and Open mHealth, and verifies webhooks.
+
 ## Install
 
 TypeScript, built once, then installed by path:
@@ -32,6 +36,11 @@ npm ci && npm run build
 cd /path/to/your/app
 npm install /path/to/open-health-sync/sdks/server/typescript
 ```
+
+In a Next.js app, an install by path is a link to a folder outside the app, and the bundler
+reads only files under its root: set `turbopack.root` and `outputFileTracingRoot` in
+`next.config.ts` to a folder that holds both, as [`examples/web`](../examples/web/next.config.ts)
+does.
 
 You can also copy `src/client.ts`, `src/types.ts` and `src/webhooks.ts` into your code base;
 they import only each other and `node:crypto`.
@@ -205,7 +214,9 @@ def health_hook():
     return "", 204
 ```
 
-Express and Flask are only examples; the helpers take any header map and body bytes.
+Express and Flask are only examples; the helpers take any header map and body bytes. In a
+Next.js route handler, pass `request.headers` and `new Uint8Array(await request.arrayBuffer())`,
+as [`examples/web/lib/webhooks.ts`](../examples/web/lib/webhooks.ts) does.
 
 ## Regenerate
 

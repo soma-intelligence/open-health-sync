@@ -157,6 +157,55 @@ class CreatedAPIKey(TypedDict):
     key: str
 
 
+class AdminTenant(TypedDict):
+    id: str
+    name: str
+    # True for an instance admin tenant, whose keys reach the /v1/admin routes.
+    admin: bool
+    created_at: str
+    # The tenant's keys that are not revoked.
+    active_keys: int
+
+
+class CreatedAdminTenant(TypedDict):
+    id: str
+    name: str
+    # True for an instance admin tenant, whose keys reach the /v1/admin routes.
+    admin: bool
+    created_at: str
+    # The tenant's keys that are not revoked.
+    active_keys: int
+    # The tenant's first key, with its secret, returned this once.
+    key: CreatedAPIKey
+
+
+class CreateAdminTenantRequest(TypedDict):
+    # Surrounding spaces are trimmed; what is left must be 1 to 100 characters, none of them a
+    # control character.
+    name: str
+
+
+class DemoUserRequest(TypedDict, total=False):
+    # The user to fill, created when the tenant has none with this reference. By default
+    # `demo-user` for `mix` and `demo-<persona>` for the others, so each persona fills its own.
+    external_ref: str
+    # Days of data, ending yesterday.
+    days: int
+    # The kind of person: `mix` (one person seen through six sources), `runner` (polar, whoop,
+    # apple_health), `sleep` (a short, irregular sleeper: oura, apple_health) or `weight`
+    # (someone watching their weight: withings, fitbit). See docs/demo.md.
+    persona: Literal["mix", "runner", "sleep", "weight"]
+
+
+class DemoUser(TypedDict):
+    user: User
+    days: int
+    # Rows this call stored; 0 when every day was already there.
+    rows_written: int
+    # The persona written.
+    persona: Literal["mix", "runner", "sleep", "weight"]
+
+
 class Pipeline(TypedDict):
     generated_at: str
     users: PipelineUser
@@ -312,6 +361,83 @@ class AdminProviderPatch(TypedDict, total=False):
     enabled: bool
 
 
+class AdminTenantProvider(TypedDict):
+    slug: str
+    name: str
+    kinds: List[Literal["oauth", "push", "device"]]
+    # The provider's status on the instance, as `GET /v1/admin/providers` gives it.
+    instance_status: Literal["active", "off", "not_configured", "error", "built_in"]
+    # The tenant's switch, true unless an instance admin turned it off.
+    enabled: bool
+    # True while the tenant has keys of its own for the provider
+    # (`/v1/admin/tenants/{tenant_id}/providers/{provider}/keys`).
+    own_keys: bool
+    # True when the tenant's users can use the provider now: `enabled` is true and either the
+    # tenant's own keys run, or the tenant has none and the instance runs the provider
+    # (`active` or `built_in`).
+    available: bool
+    # The last change of the switch, null when it was never set.
+    updated_at: Optional[str]
+
+
+class _AdminTenantProviderKeysRequired(TypedDict):
+    provider: str
+    # True while the tenant has keys of its own for the provider.
+    set: bool
+    # `active`: the tenant's new connections use these keys. `error`: they do not run (they no
+    # longer open with the configured encryption keys, or the provider refused them, see
+    # `error`); the tenant cannot connect the provider until they are set again or removed.
+    # `not_set`: the tenant uses the instance's keys.
+    status: Literal["active", "error", "not_set"]
+    error: Optional[str]
+    # The first and last four characters of `CLIENT_ID`, never all of it.
+    client_id: Optional[str]
+    # Every key the provider takes. No value is ever served.
+    keys: List[AdminTenantProviderKeysKey]
+    # The addresses to register in the tenant's application at the provider: the instance's,
+    # the same for every tenant.
+    urls: AdminTenantProviderKeysUrl
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    # The id of the admin key that saved the keys.
+    updated_by: Optional[str]
+
+
+class AdminTenantProviderKeys(_AdminTenantProviderKeysRequired, total=False):
+    # Only in the answers of PUT and DELETE: how many connections of the tenant the change
+    # set `needs_reauth`.
+    reauth_required: int
+
+
+class AdminTenantProviderKeysKey(TypedDict):
+    name: str
+    required: bool
+    secret: bool
+    set: bool
+
+
+class AdminTenantProviderKeysUrl(TypedDict):
+    """The addresses to register in the tenant's application at the provider: the instance's,
+    the same for every tenant.
+    """
+
+    # The OAuth redirect URI.
+    redirect: Optional[str]
+    # Where the provider posts notifications, for a push provider.
+    inbound: Optional[str]
+
+
+class AdminTenantProviderKeysPut(TypedDict):
+    # Every key of the tenant's application by name, such as `CLIENT_ID` and
+    # `CLIENT_SECRET`; the provider's `keys` lists them. Replaces the previous ones whole.
+    keys: Dict[str, str]
+
+
+class AdminTenantProviderPatch(TypedDict):
+    # false turns the provider off for the tenant, true turns it back on.
+    enabled: bool
+
+
 class _AuditEventRequired(TypedDict):
     # Increasing; the cursor of the next page.
     id: int
@@ -320,8 +446,9 @@ class _AuditEventRequired(TypedDict):
     # data.read, data.export, data.write, user.create, user.read, user.delete,
     # user.erased, token.create, connection.read, connection.create,
     # connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-    # config.write, tenant.create, key.create, key.revoke, share.create, share.read,
-    # share.revoke, share.access (more may be added).
+    # config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
+    # key.revoke, share.create,
+    # share.read, share.revoke, share.access (more may be added).
     action: str
     # The end user the action concerns.
     user_id: Optional[str]
@@ -356,6 +483,8 @@ class _ProviderRequired(TypedDict):
 class Provider(_ProviderRequired, total=False):
     # Display name, the slug when the build has none. Older servers leave it out.
     name: str
+    # What the connector delivers: first the record kinds it writes (sample, category, sleep, workout, route, nutrition, ecg, heartbeat, daily), then the canonical quantity names it can produce. Read from the connector's source, so a quantity is listed when the connector can write it, not when a given user has it. Older servers leave it out.
+    data_types: List[str]
 
 
 class CreateUserRequest(TypedDict, total=False):
@@ -882,6 +1011,7 @@ class _NutritionLogRequired(TypedDict):
 
 class NutritionLog(_NutritionLogRequired, total=False):
     end_date: Optional[str]
+    # breakfast, lunch, dinner or snack.
     meal_type: Optional[str]
     energy_kcal: Optional[float]
     protein_g: Optional[float]
@@ -890,7 +1020,8 @@ class NutritionLog(_NutritionLogRequired, total=False):
     fiber_g: Optional[float]
     sugar_g: Optional[float]
     sodium_mg: Optional[float]
-    # Extended nutrients by name.
+    # Extended nutrients by name (caffeine, vitamin_d, water...), each in its
+    # nutrient's unit (docs/api.md lists them).
     nutrients: Optional[Dict[str, Any]]
     external_id: Optional[str]
 
@@ -2012,6 +2143,13 @@ __all__ = [
     "AdminProviderKey",
     "AdminProviderPatch",
     "AdminProviderUrl",
+    "AdminTenant",
+    "AdminTenantProvider",
+    "AdminTenantProviderKeys",
+    "AdminTenantProviderKeysKey",
+    "AdminTenantProviderKeysPut",
+    "AdminTenantProviderKeysUrl",
+    "AdminTenantProviderPatch",
     "AuditEvent",
     "AuditEventActor",
     "CategorySample",
@@ -2026,12 +2164,14 @@ __all__ = [
     "ConsentSource",
     "Coverage",
     "CoverageDay",
+    "CreateAdminTenantRequest",
     "CreateSelfReportsRequest",
     "CreateShareRequest",
     "CreateTimeTagRequest",
     "CreateUserRequest",
     "CreateWebhookRequest",
     "CreatedAPIKey",
+    "CreatedAdminTenant",
     "CreatedShare",
     "DailySummary",
     "DailySummaryPage",
@@ -2039,6 +2179,8 @@ __all__ = [
     "DeleteProviderDataResponse",
     "DeleteUserResponse",
     "DeletionJob",
+    "DemoUser",
+    "DemoUserRequest",
     "ECGRecording",
     "ECGRecordingDetail",
     "ECGRecordingPage",

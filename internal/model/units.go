@@ -74,6 +74,8 @@ var storageUnits = map[string]string{
 	QTActiveEnergyBurned:     "kcal",
 	QTActiveEnergyIntraday:   "kcal",
 	QTBasalEnergyBurned:      "kcal",
+	QTTotalEnergyBurned:      "kcal",
+	QTBasalMetabolicRate:     "kcal/d",
 	QTDistanceWalkingRunning: "m",
 	QTDistanceWalkRunIntday:  "m",
 
@@ -138,6 +140,10 @@ var storageUnits = map[string]string{
 	QTStressHighTime:   "min",
 	QTRecoveryHighTime: "min",
 
+	// Activity intensity, in minutes of the day.
+	QTModerateActivityTime: "min",
+	QTVigorousActivityTime: "min",
+
 	// A person's own ratings (SelfReportScales).
 	QTReportedFeeling:        "score",
 	QTReportedMood:           "score",
@@ -170,6 +176,7 @@ var unitAliases = map[string]string{
 	"{flights}": "count",
 	"flights":   "count",
 	"kcal":      "kcal",
+	"kcal/day":  "kcal/d",
 	"m":         "m",
 	"meters":    "m",
 	"metres":    "m",
@@ -296,6 +303,9 @@ var metricUnitConversions = map[string]conversion{
 	// Oura daily_stress reports seconds.
 	"stress_high_time|s":   {Factor: 1.0 / 60, To: "min"},
 	"recovery_high_time|s": {Factor: 1.0 / 60, To: "min"},
+	// Oura daily_activity and Withings getactivity report seconds.
+	"moderate_activity_time|s": {Factor: 1.0 / 60, To: "min"},
+	"vigorous_activity_time|s": {Factor: 1.0 / 60, To: "min"},
 	// Strain: Whoop and some aggregators call the same dimensionless index a "score". Scoped
 	// to the two strain types because readiness_score IS stored as "score", so a
 	// global score -> index rule would be wrong for it. Without these, every

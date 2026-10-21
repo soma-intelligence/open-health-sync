@@ -9,8 +9,8 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
-// mapActivity turns one getactivity day into step_count, distance and active
-// energy samples. The day is the user's local day: it runs from local midnight
+// mapActivity turns one getactivity day into step_count, distance, active
+// energy, moderate_activity_time and vigorous_activity_time samples. The day is the user's local day: it runs from local midnight
 // (in the zone Withings gave, else UTC) to one second before the next.
 //
 // A day's total is re-sent with a larger value while the day is open, so the
@@ -93,6 +93,9 @@ func mapActivity(line []byte, userID string) (*model.MapResult, error) {
 		{quantityType: model.QTStepCount, unit: "count", value: a.Steps},
 		{quantityType: model.QTDistanceWalkingRunning, unit: "m", value: a.Distance},
 		{quantityType: model.QTActiveEnergyBurned, unit: "kcal", value: a.Calories},
+		// Durations in seconds: the day's moderate and intense activity.
+		{quantityType: model.QTModerateActivityTime, unit: "s", value: a.Moderate},
+		{quantityType: model.QTVigorousActivityTime, unit: "s", value: a.Intense},
 	} {
 		add(m.quantityType, m.unit, m.value)
 	}

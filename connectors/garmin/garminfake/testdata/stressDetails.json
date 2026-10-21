@@ -1,0 +1,18 @@
+[
+  {
+    "userId": "a1b2c3d4-0000-4000-8000-000000000001",
+    "summaryId": "x1a2b3c-sd-69a3bfb0",
+    "calendarDate": "2026-03-01",
+    "startTimeInSeconds": 1772319600,
+    "startTimeOffsetInSeconds": 3600,
+    "durationInSeconds": 86400,
+    "timeOffsetStressLevelValues": {
+      "0": 25,
+      "180": 30
+    },
+    "timeOffsetBodyBatteryValues": {
+      "0": 70,
+      "180": 69
+    }
+  }
+]

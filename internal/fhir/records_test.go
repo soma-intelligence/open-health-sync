@@ -83,15 +83,39 @@ func dailySummary() read.DailySummary {
 	}
 }
 
+// nutritionLog is an invented Health Connect lunch: the seven columns, the
+// extended nutrients of nutrients_json, a name the table does not know (left
+// out) and a meal type.
+func nutritionLog() read.NutritionLog {
+	return read.NutritionLog{
+		ID:         12012,
+		StartDate:  time.Date(2026, 3, 1, 11, 30, 0, 0, time.UTC),
+		EndDate:    ptr(time.Date(2026, 3, 1, 11, 50, 0, 0, time.UTC)),
+		MealType:   ptr("lunch"),
+		EnergyKcal: ptr(420.0),
+		ProteinG:   ptr(24.0),
+		CarbsG:     ptr(52.5),
+		FatG:       ptr(11.0),
+		FiberG:     ptr(13.0),
+		SugarG:     ptr(6.5),
+		SodiumMg:   ptr(800.0),
+		Nutrients:  json.RawMessage(`{"water":250,"fat_saturated":2.1,"caffeine":50,"vitamin_b6":0.4,"vitamin_d":2.5,"lutein":3}`),
+		ExternalID: ptr("hc-nutrition-invented-7"),
+		Metadata:   json.RawMessage(`{"food_name":"Lentil soup"}`),
+		Provenance: read.Provenance{Provider: "health_connect", Source: ptr("health_connect"), IngestedAt: ingested},
+	}
+}
+
 func recordCases() map[string]read.ObservationRecord {
 	sys, dia := bpPair()
-	sl, w, d, e := sleepSession(), workout(), dailySummary(), ecgRecording()
+	sl, w, d, e, n := sleepSession(), workout(), dailySummary(), ecgRecording(), nutritionLog()
 	return map[string]read.ObservationRecord{
 		"observation-vital-blood-pressure-panel": {Kind: read.KindQuantity, Sample: &sys, Partner: &dia},
 		"observation-sleep-session":              {Kind: read.KindSleep, Sleep: &sl},
 		"observation-workout":                    {Kind: read.KindWorkout, Workout: &w},
 		"observation-daily-summary":              {Kind: read.KindDaily, Daily: &d},
 		"observation-ecg-recording":              {Kind: read.KindECG, ECG: &e},
+		"observation-nutrition-log":              {Kind: read.KindNutrition, Nutrition: &n},
 	}
 }
 
@@ -108,13 +132,14 @@ func TestGoldenRecords(t *testing.T) {
 func TestGoldenMixedSearchSet(t *testing.T) {
 	sys, dia := bpPair()
 	single := sample(1020, "blood_pressure_diastolic", 79, "mmHg", "8462-4", "mm[Hg]")
-	sl, w, d, e := sleepSession(), workout(), dailySummary(), ecgRecording()
+	sl, w, d, e, n := sleepSession(), workout(), dailySummary(), ecgRecording(), nutritionLog()
 	recs := []read.ObservationRecord{
 		{Kind: read.KindSleep, Sleep: &sl},
 		{Kind: read.KindQuantity, Sample: &sys, Partner: &dia},
 		{Kind: read.KindQuantity, Sample: &single},
 		{Kind: read.KindWorkout, Workout: &w},
 		{Kind: read.KindECG, ECG: &e},
+		{Kind: read.KindNutrition, Nutrition: &n},
 		{Kind: read.KindDaily, Daily: &d},
 	}
 	var obs []Observation
@@ -122,7 +147,7 @@ func TestGoldenMixedSearchSet(t *testing.T) {
 		obs = append(obs, FromRecord(testUser, r))
 	}
 	base := "http://localhost:8080/v1/users/" + testUser.String() + "/fhir"
-	golden(t, "bundle-searchset-mixed", SearchSet(base, base+"/Observation?limit=6", base+"/Observation?limit=6&cursor=abc", obs))
+	golden(t, "bundle-searchset-mixed", SearchSet(base, base+"/Observation?limit=7", base+"/Observation?limit=7&cursor=abc", obs))
 }
 
 func TestBloodPressurePanel(t *testing.T) {
@@ -177,6 +202,16 @@ func TestRecordsWithoutValues(t *testing.T) {
 	o = FromDailySummary(testUser, d)
 	assert.Equal(t, &Period{Start: "2026-03-01T00:00:00Z", End: "2026-03-02T00:00:00Z"}, o.EffectivePeriod, "an unknown zone is UTC")
 	assert.Equal(t, "unknown", o.DataAbsentReason.Coding[0].Code)
+
+	// A meal logged with no figure keeps its meal type.
+	n := read.NutritionLog{ID: 4, StartDate: t0, EndDate: ptr(t0), MealType: ptr("snack"), Nutrients: json.RawMessage("null"),
+		Provenance: read.Provenance{Provider: "health_connect", IngestedAt: ingested}}
+	o = FromNutritionLog(testUser, n)
+	assert.Equal(t, "unknown", o.DataAbsentReason.Coding[0].Code)
+	require.Len(t, o.Component, 1)
+	assert.Equal(t, "snack", o.Component[0].ValueCodeableConcept.Coding[0].Code)
+	assert.Equal(t, "2026-03-01T08:00:00Z", o.EffectiveDateTime, "start and end equal: an instant")
+	assert.Empty(t, o.Category, "no HL7 category describes intake")
 }
 
 func TestDailySummaryLocalDay(t *testing.T) {
@@ -193,14 +228,15 @@ func TestDailySummaryLocalDay(t *testing.T) {
 
 func TestRecordIDs(t *testing.T) {
 	sys, dia := bpPair()
-	sl, w, d, e := sleepSession(), workout(), dailySummary(), ecgRecording()
+	sl, w, d, e, n := sleepSession(), workout(), dailySummary(), ecgRecording(), nutritionLog()
 	for want, r := range map[string]read.ObservationRecord{
-		"qs-1003":      {Kind: read.KindQuantity, Sample: &sys},
-		"bp-1003":      {Kind: read.KindQuantity, Sample: &sys, Partner: &dia},
-		"sleep-7007":   {Kind: read.KindSleep, Sleep: &sl},
-		"workout-8008": {Kind: read.KindWorkout, Workout: &w},
-		"daily-9009":   {Kind: read.KindDaily, Daily: &d},
-		"ecg-11011":    {Kind: read.KindECG, ECG: &e},
+		"qs-1003":         {Kind: read.KindQuantity, Sample: &sys},
+		"bp-1003":         {Kind: read.KindQuantity, Sample: &sys, Partner: &dia},
+		"sleep-7007":      {Kind: read.KindSleep, Sleep: &sl},
+		"workout-8008":    {Kind: read.KindWorkout, Workout: &w},
+		"daily-9009":      {Kind: read.KindDaily, Daily: &d},
+		"ecg-11011":       {Kind: read.KindECG, ECG: &e},
+		"nutrition-12012": {Kind: read.KindNutrition, Nutrition: &n},
 	} {
 		assert.Equal(t, want, RecordID(r))
 		assert.Equal(t, want, FromRecord(testUser, r).ID)
@@ -210,7 +246,7 @@ func TestRecordIDs(t *testing.T) {
 		assert.Equal(t, r.Partner != nil, panel, want)
 		assert.Positive(t, id)
 	}
-	for _, bad := range []string{"", "1", "bp-", "bp-x", "sleep-0", "ecg-", "ecg-0", "ecg--1", "workout--2", "daily-+3", "qs-1-2", "xx-1", "sleep-99999999999999999999"} {
+	for _, bad := range []string{"", "1", "bp-", "bp-x", "sleep-0", "ecg-", "ecg-0", "ecg--1", "workout--2", "daily-+3", "qs-1-2", "xx-1", "sleep-99999999999999999999", "nutrition-", "nutrition-0", "nutrition-x"} {
 		_, _, _, ok := ParseID(bad)
 		assert.False(t, ok, bad)
 	}

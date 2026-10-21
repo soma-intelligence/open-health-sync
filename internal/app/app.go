@@ -43,6 +43,8 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
@@ -177,10 +179,18 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	if err != nil {
 		return err
 	}
+	// The providers an instance admin turned off for one tenant, read the
+	// same way: every role asks Allowed, which does no I/O.
+	tenantProviders := tenantproviders.New(ctx, tenantproviders.NewPG(pool))
+	// The provider keys tenants brought for themselves, read the same way.
+	// Removing them sets the connections made with them needs_reauth.
+	tenantKeys := tenantkeys.New(ctx, tenantkeys.Options{Store: tenantkeys.NewPG(pool, box, collect.RetireTenantKeys)})
 	collectDeps := collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: store,
-		Lookup:    providers.Lookup,
-		PublicURL: cfg.PublicURL,
+		Lookup:     providers.Lookup,
+		Allowed:    tenantProviders.Allowed,
+		TenantKeys: tenantKeys,
+		PublicURL:  cfg.PublicURL,
 	}
 
 	if cfg.BootstrapTenant != "" {
@@ -213,6 +223,8 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 
 	// Reload what other processes saved in the console.
 	goRole("providers", func() error { return providers.Run(ctx, providerset.ReloadEvery) })
+	goRole("tenant providers", func() error { return tenantProviders.Run(ctx, tenantproviders.ReloadEvery) })
+	goRole("tenant keys", func() error { return tenantKeys.Run(ctx, tenantkeys.ReloadEvery) })
 
 	etlMetrics := &automation.Metrics{}
 	if cfg.Roles["etl"] {
@@ -260,8 +272,12 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			// read-only hides the console's write actions.
 			ConsoleReadOnly: cfg.ConsoleReadOnly,
 			Collect:         collect.NewHandlers(collectDeps),
-			PublicURL:       cfg.PublicURL,
-			Webhooks:        webhook.NewStore(pool, box),
+			// Providers turned off per tenant, and their admin routes.
+			TenantProviders: tenantProviders,
+			// Provider keys of one tenant, and their admin routes.
+			TenantKeys: tenantKeys,
+			PublicURL:  cfg.PublicURL,
+			Webhooks:   webhook.NewStore(pool, box),
 			// WebhookAllowPrivate relaxes the endpoint URL checks.
 			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.

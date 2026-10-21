@@ -98,6 +98,7 @@ type Options struct {
 type Connector struct {
 	mu   sync.RWMutex
 	keys connector.Config
+	opts Options // what New was given, for NewInstance
 
 	authURL, tokenURL, revokeURL, apiBase string
 	httpc                                 *http.Client
@@ -120,6 +121,7 @@ var (
 // New returns a Fitbit connector.
 func New(o Options) *Connector {
 	c := &Connector{
+		opts:    o,
 		authURL: o.AuthURL, tokenURL: o.TokenURL, revokeURL: o.RevokeURL, apiBase: o.APIBase,
 		httpc: o.HTTPClient, retryBase: o.RetryBase, pageDelay: o.PageDelay,
 		now: o.Now, sleep: o.Sleep,
@@ -219,6 +221,16 @@ func (c *Connector) Configure(cfg connector.Config) error {
 		KeyWebhookSecret: cfg[KeyWebhookSecret], KeyWebhookSignature: cfg[KeyWebhookSignature],
 	}
 	return nil
+}
+
+// NewInstance returns a connector like c without keys, sharing its HTTP
+// client, for a tenant's own keys (connector.Instancer).
+func (c *Connector) NewInstance() connector.Connector {
+	o := c.opts
+	o.HTTPClient = c.httpc
+	n := New(o)
+	n.keys = nil
+	return n
 }
 
 // credentials returns the configured client id and secret.

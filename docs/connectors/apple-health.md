@@ -238,3 +238,8 @@ to 6 tries per part. 401 and 403 stop the import at once: check the token and it
   iPhone and an Apple Watch both report, the larger source total wins instead of being added.
 - A value outside its hard plausible range rejects the record; outside the soft range it is
   stored and flagged in its metadata.
+- Dietary values, single samples and food entries alike, are converted to the unit of their
+  nutrient ([the nutrient table](../api.md#nutrition-logs)): a mass in kilograms, grams,
+  milligrams or micrograms, a volume in litres, millilitres or fluid ounces, an energy in
+  kilocalories (HealthKit's `Cal`) or kilojoules. A value in a unit that does not convert to its
+  nutrient's (a mass for water, the small calorie `cal`) rejects the record.

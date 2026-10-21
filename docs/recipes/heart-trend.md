@@ -5,8 +5,8 @@ wearable gives you, and two of the noisiest from one day to the next. Week by we
 shows.
 
 ```sh
-python3 recipes/heart-trend.py              # the last 8 weeks
-python3 recipes/heart-trend.py --weeks 26
+go run ./recipes/heart-trend            # the last 8 weeks
+go run ./recipes/heart-trend -weeks 26
 ```
 
 ```text

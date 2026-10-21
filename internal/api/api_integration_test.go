@@ -34,6 +34,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 )
 
 type env struct {
@@ -46,6 +47,9 @@ type env struct {
 	tenantB uuid.UUID
 	keyB    string
 	metrics *automation.Metrics
+	// switches are the providers turned off per tenant, as the router
+	// sees them.
+	switches *tenantproviders.Set
 }
 
 // testMetricsToken is the OHS_METRICS_TOKEN of the test router.
@@ -79,11 +83,12 @@ func newEnv(t *testing.T, tweak ...func(*api.Deps)) *env {
 		MetricsToken:  testMetricsToken,
 		ETLMetrics:    m,
 	}
+	deps.TenantProviders = tenantproviders.New(ctx, tenantproviders.NewPG(pool))
 	for _, f := range tweak {
 		f(&deps)
 	}
 	return &env{t: t, pool: pool, store: st, handler: api.NewRouter(deps),
-		tenantA: a.ID, keyA: keyA, tenantB: b.ID, keyB: keyB, metrics: m}
+		tenantA: a.ID, keyA: keyA, tenantB: b.ID, keyB: keyB, metrics: m, switches: deps.TenantProviders}
 }
 
 type resp struct {
@@ -669,7 +674,22 @@ func TestProvidersAndOps(t *testing.T) {
 	e := newEnv(t)
 	r := e.do("GET", "/v1/providers", e.keyA, nil)
 	require.Equal(t, http.StatusOK, r.code, string(r.body))
-	assert.JSONEq(t, `{"data":[{"slug":"apple_health","name":"Apple Health","kinds":["device"]}]}`, string(r.body))
+	var providers struct {
+		Data []struct {
+			Slug      string   `json:"slug"`
+			Name      string   `json:"name"`
+			Kinds     []string `json:"kinds"`
+			DataTypes []string `json:"data_types"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(r.body, &providers))
+	require.Len(t, providers.Data, 1)
+	p := providers.Data[0]
+	assert.Equal(t, "apple_health", p.Slug)
+	assert.Equal(t, "Apple Health", p.Name)
+	assert.Equal(t, []string{"device"}, p.Kinds)
+	assert.Equal(t, connector.DataTypesOf(applehealth.New()), p.DataTypes)
+	assert.Subset(t, p.DataTypes, []string{"sample", "sleep", "workout", "heart_rate", "step_count"})
 	r = e.do("GET", "/v1/providers", "", nil)
 	assert.Equal(t, http.StatusUnauthorized, r.code)
 

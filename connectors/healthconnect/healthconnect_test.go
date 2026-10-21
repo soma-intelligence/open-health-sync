@@ -234,7 +234,7 @@ func TestMapDeletionAndUnknown(t *testing.T) {
 	res := mapOne(t, lines(t)["st-0"])
 	require.Equal(t, []model.Deletion{{ExternalID: "st-0"}}, res.Deletions)
 
-	res = mapOne(t, lines(t)["hy-1"])
+	res = mapOne(t, lines(t)["vo-1"])
 	require.Equal(t, model.MapResult{}, res)
 
 	_, err := New().Map(connector.RawRecord{Fields: map[string]any{"recordType": "Deletion"}})
@@ -244,6 +244,104 @@ func TestMapDeletionAndUnknown(t *testing.T) {
 	_, err = New().Map(connector.RawRecord{Fields: map[string]any{"recordType": "Steps", "metadata": map[string]any{"id": "x"},
 		"startTime": "2026-03-02T09:00:00Z", "endTime": "2026-03-02T08:00:00Z", "count": 1}})
 	require.ErrorContains(t, err, "before")
+}
+
+func TestMapNutrition(t *testing.T) {
+	res := mapOne(t, lines(t)["nu-1"])
+	require.Empty(t, res.QuantitySamples)
+	require.Len(t, res.NutritionLogs, 1)
+	nl := res.NutritionLogs[0]
+	require.Equal(t, Slug, nl.Provider)
+	require.Equal(t, "nu-1", nl.ExternalID)
+	require.Equal(t, time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC), nl.StartDate)
+	require.Equal(t, time.Date(2026, 3, 2, 12, 30, 0, 0, time.UTC), *nl.EndDate)
+	require.Equal(t, "lunch", nl.MealType)
+	require.Equal(t, "Lentil soup", nl.Metadata["food_name"])
+	require.Equal(t, "com.example.food", nl.Metadata["data_origin"])
+	require.Equal(t, "Etc/GMT-1", nl.Metadata["timezone"])
+	require.True(t, nl.Replaceable)
+	require.True(t, nl.SupersedeMoved)
+
+	// The seven columns, in their units: grams, sodium in milligrams.
+	for name, got := range map[string]*float64{"energy": nl.EnergyKcal, "protein": nl.ProteinG, "carbs": nl.CarbsG,
+		"fat": nl.FatG, "fiber": nl.FiberG, "sugar": nl.SugarG, "sodium": nl.SodiumMg} {
+		require.NotNil(t, got, name)
+	}
+	require.Equal(t, 420.0, *nl.EnergyKcal)
+	require.Equal(t, 24.0, *nl.ProteinG)
+	require.Equal(t, 55.0, *nl.CarbsG)
+	require.Equal(t, 10.0, *nl.FatG)
+	require.Equal(t, 16.0, *nl.FiberG)
+	require.Equal(t, 6.0, *nl.SugarG)
+	require.InDelta(t, 800, *nl.SodiumMg, 1e-9)
+	// The others, each in its unit (model.Nutrients).
+	require.InDelta(t, 90, nl.NutrientsJSON["energy_from_fat"], 1e-9)
+	require.InDelta(t, 1.5, nl.NutrientsJSON["fat_saturated"], 1e-9)
+	require.InDelta(t, 6.6, nl.NutrientsJSON["iron"], 1e-9, "mg")
+	require.InDelta(t, 12, nl.NutrientsJSON["vitamin_c"], 1e-9, "mg")
+	require.InDelta(t, 2, nl.NutrientsJSON["vitamin_d"], 1e-9, "mcg")
+	require.Equal(t, 0.0, nl.NutrientsJSON["caffeine"], "a zero is kept")
+	require.NotContains(t, nl.NutrientsJSON, "zinc", "a figure left out gives nothing")
+
+	edited := lines(t)["nu-1"]
+	edited["proteinGrams"] = 30.0
+	again := mapOne(t, edited).NutritionLogs[0]
+	require.Equal(t, nl.ContentHash, again.ContentHash, "an edit keeps the identity so it replaces the figures")
+	require.Equal(t, 30.0, *again.ProteinG)
+
+	for meal, want := range map[string]string{"breakfast": "breakfast", "snack": "snack", "unknown": "", "": "", "brunch": ""} {
+		l := lines(t)["nu-1"]
+		l["mealType"] = meal
+		require.Equal(t, want, mapOne(t, l).NutritionLogs[0].MealType, meal)
+	}
+
+	bare := map[string]any{"recordType": "Nutrition", "metadata": map[string]any{"id": "nu-2"},
+		"startTime": "2026-03-02T19:00:00Z", "endTime": "2026-03-02T19:10:00Z", "name": "Dinner"}
+	logs := mapOne(t, bare).NutritionLogs
+	require.Len(t, logs, 1, "a meal logged with no figure is kept")
+	require.Nil(t, logs[0].EnergyKcal)
+	require.Empty(t, logs[0].NutrientsJSON)
+
+	bad := lines(t)["nu-1"]
+	bad["endTime"] = "2026-03-02T11:00:00Z"
+	_, err := New().Map(connector.RawRecord{UserID: testUser, Fields: bad})
+	require.ErrorContains(t, err, "before")
+}
+
+func TestMapHydration(t *testing.T) {
+	res := mapOne(t, lines(t)["hy-1"])
+	require.Len(t, res.NutritionLogs, 1)
+	nl := res.NutritionLogs[0]
+	require.Equal(t, map[string]any{"water": 250.0}, nl.NutrientsJSON, "litres to millilitres")
+	require.Nil(t, nl.EnergyKcal)
+	require.Empty(t, nl.MealType)
+	require.Equal(t, "hy-1", nl.ExternalID)
+	require.NotEqual(t, mapOne(t, lines(t)["nu-1"]).NutritionLogs[0].ContentHash, nl.ContentHash)
+
+	bad := lines(t)["hy-1"]
+	delete(bad, "volumeLiters")
+	_, err := New().Map(connector.RawRecord{UserID: testUser, Fields: bad})
+	require.ErrorContains(t, err, "no value")
+}
+
+func TestMapEnergy(t *testing.T) {
+	tc := mapOne(t, lines(t)["tc-1"]).QuantitySamples
+	require.Len(t, tc, 1)
+	require.Equal(t, model.QTTotalEnergyBurned, tc[0].QuantityType)
+	require.Equal(t, 85.5, tc[0].Value)
+	require.Equal(t, "kcal", tc[0].Unit)
+	require.Equal(t, "samsung_health", tc[0].SourceSlug)
+	require.Equal(t, time.Date(2026, 3, 2, 1, 0, 0, 0, time.UTC), tc[0].EndDate)
+
+	bm := mapOne(t, lines(t)["bm-1"]).QuantitySamples
+	require.Len(t, bm, 1)
+	require.Equal(t, model.QTBasalMetabolicRate, bm[0].QuantityType)
+	require.Equal(t, 1650.0, bm[0].Value)
+	require.Equal(t, bm[0].StartDate, bm[0].EndDate, "an instant")
+	v, unit, err := model.ToStorageUnit(bm[0].QuantityType, bm[0].Value, bm[0].Unit)
+	require.NoError(t, err)
+	require.Equal(t, "kcal/d", unit)
+	require.Equal(t, 1650.0, v)
 }
 
 func TestSourceSlug(t *testing.T) {

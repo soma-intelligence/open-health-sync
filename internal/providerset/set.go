@@ -296,7 +296,7 @@ func (s *Set) Update(ctx context.Context, slug string, ch Change, by string) (St
 				continue
 			}
 			val := strings.TrimSpace(*v)
-			if err := checkValue(f, val); err != nil {
+			if err := CheckValue(f, val); err != nil {
 				return State{}, err
 			}
 			next.Keys[f] = val
@@ -522,9 +522,9 @@ func missingKeys(required []string, keys config.ProviderKeys) []string {
 	return out
 }
 
-// checkValue refuses a value no provider issues: too long, not UTF-8, or
+// CheckValue refuses a value no provider issues: too long, not UTF-8, or
 // holding a control character.
-func checkValue(field, v string) error {
+func CheckValue(field, v string) error {
 	switch {
 	case len(v) > MaxValue:
 		return &FieldError{Msg: fmt.Sprintf("%s is longer than %d bytes", field, MaxValue)}

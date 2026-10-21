@@ -6,7 +6,7 @@ import { defineDocs } from "fumadocs-mdx/macro";
 import { openapiPlugin } from "fumadocs-openapi/server";
 import { z } from "zod";
 import { absoluteUrl } from "./asset";
-import { docsRoute } from "./shared";
+import { docsHref, docsRoute } from "./shared";
 
 const docs = defineDocs({
   dir: "content/docs",
@@ -45,5 +45,7 @@ export const source = loader({
 export const docsLlms = llms(source, {
   renderPage: async (page) => `# ${page.data.title} (${absoluteUrl(page.url)})
 
-${await page.data.getText("processed")}`,
+${(await page.data.getText("processed"))
+  .replace(/\]\((\/documentation[^)\s]*)\)/g, (_, href: string) => `](${absoluteUrl(docsHref(href))})`)
+  .replace(/href="(\/documentation[^"]*)"/g, (_, href: string) => `href="${absoluteUrl(docsHref(href))}"`)}`,
 });

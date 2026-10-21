@@ -5,8 +5,8 @@ device together. It is a single HTML file with no script and nothing loaded from
 open it, keep it, print it.
 
 ```sh
-python3 recipes/dashboard.py                    # last 90 days, writes health-dashboard.html
-python3 recipes/dashboard.py --days 365 --out year.html
+go run ./recipes/dashboard                    # last 90 days, writes health-dashboard.html
+go run ./recipes/dashboard -days 365 -out year.html
 ```
 
 ![A dashboard with four charts: steps and sleep as daily bars, resting heart rate and HRV as daily dots, each with a 7 day average line](../assets/recipes/dashboard.png)
@@ -20,7 +20,7 @@ The file holds your health data. Share it with care.
 
 It reads `GET /v1/users/{id}/daily` (steps, resting heart rate, HRV) and
 `GET /v1/users/{id}/sleep`, picks for each chart the source that reports it on the most days,
-and draws the charts as inline SVG in Python, with no library.
+and draws the charts as inline SVG in Go, with no library.
 
 ## Make it yours
 

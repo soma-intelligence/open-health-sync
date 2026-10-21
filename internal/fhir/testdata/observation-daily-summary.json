@@ -87,6 +87,10 @@
       "code": {
         "coding": [
           {
+            "system": "http://loinc.org",
+            "code": "41979-6"
+          },
+          {
             "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
             "code": "total_kcal"
           }

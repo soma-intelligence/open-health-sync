@@ -545,3 +545,261 @@ export function parseRoute(hash) {
   if (id && views[1]) return { view: views[1], section, id };
   return { view: views[0], section };
 }
+
+// ---------------------------------------------------------------------------
+// Health charts
+
+// HEALTH_RANGES are the spans of the user page's health charts, in days.
+export const HEALTH_RANGES = [30, 90];
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// isoDay is the YYYY-MM-DD of a time in UTC.
+function isoDay(ms) {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+// healthRange is the window of the last n days, today (UTC) included, as
+// the read routes take it: start inclusive, end exclusive. before is the day
+// before start, where the first night's sleep begins. days lists every date
+// of the window, oldest first.
+export function healthRange(n, now = Date.now()) {
+  const today = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
+  const day = 86400000;
+  const days = Array.from({ length: n }, (_, i) => isoDay(today - (n - 1 - i) * day));
+  return { start: days[0], end: isoDay(today + day), before: isoDay(today - n * day), days };
+}
+
+// validZone is the zone when the runtime knows it, else null.
+function validZone(zone) {
+  if (typeof zone !== "string" || !zone) return null;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return zone;
+  } catch {
+    return null;
+  }
+}
+
+// localDate is the calendar date of an RFC 3339 time in an IANA zone
+// ("2026-10-17"), in UTC when the zone is missing or unknown.
+export function localDate(iso, zone) {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  const z = validZone(zone);
+  if (!z) return isoDay(t);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: z, year: "numeric", month: "2-digit", day: "2-digit" }).format(t);
+}
+
+// recordZone is the zone the user's records were made in (the timezone of
+// their metadata), from the latest record that names a known one, else UTC.
+// Lists are in ascending order, as the read routes serve them.
+export function recordZone(...lists) {
+  for (const list of lists) {
+    for (let i = (list || []).length - 1; i >= 0; i--) {
+      const z = validZone(list[i]?.metadata?.timezone);
+      if (z) return z;
+    }
+  }
+  return "UTC";
+}
+
+// SLEEP_STAGES are the parts of a night the sleep chart stacks, from the
+// baseline up. asleep holds a night whose source reports no stage.
+export const SLEEP_STAGES = [
+  ["deep", "Deep"],
+  ["light", "Light"],
+  ["rem", "REM"],
+  ["asleep", "No stages"],
+];
+
+// sleepNights gives each day of the range its sleep, by the local date the
+// user woke up: the seconds of each stage summed over the day's sessions (a
+// nap adds to its day), the time awake, and total, the time asleep. A day
+// with no session is null.
+export function sleepNights(sessions, days, zone) {
+  const byDay = new Map(days.map((d) => [d, null]));
+  for (const s of sessions || []) {
+    const d = localDate(s.bedtime_end || s.bedtime_start, s.metadata?.timezone || zone);
+    if (!byDay.has(d)) continue;
+    const n = byDay.get(d) || { date: d, deep: 0, light: 0, rem: 0, asleep: 0, awake: 0, total: 0 };
+    const staged = (s.deep_sleep_seconds || 0) + (s.light_sleep_seconds || 0) + (s.rem_sleep_seconds || 0);
+    if (staged > 0) {
+      n.deep += s.deep_sleep_seconds || 0;
+      n.light += s.light_sleep_seconds || 0;
+      n.rem += s.rem_sleep_seconds || 0;
+    } else {
+      n.asleep += s.total_sleep_seconds || 0;
+    }
+    n.awake += s.awake_seconds || 0;
+    n.total = n.deep + n.light + n.rem + n.asleep;
+    byDay.set(d, n);
+  }
+  return days.map((d) => (byDay.get(d)?.total > 0 ? byDay.get(d) : null));
+}
+
+// dailySeries is one figure of the daily summaries for each day of the
+// range, null where the day has none.
+export function dailySeries(rows, days, field) {
+  const byDay = new Map();
+  for (const r of rows || []) {
+    const v = r[field];
+    if (v !== null && v !== undefined && Number.isFinite(Number(v))) byDay.set(r.date, Number(v));
+  }
+  return days.map((d) => (byDay.has(d) ? byDay.get(d) : null));
+}
+
+// statSeries is the mean of each day of the range from a samples/stats
+// answer by day, null where the day has no sample. Rows of the same day
+// (view=all) are pooled.
+export function statSeries(stats, days) {
+  const byDay = new Map();
+  for (const b of stats?.buckets || []) {
+    const d = String(b.start || "").slice(0, 10);
+    const acc = byDay.get(d) || { sum: 0, count: 0 };
+    acc.sum += Number(b.sum) || 0;
+    acc.count += Number(b.count) || 0;
+    byDay.set(d, acc);
+  }
+  return days.map((d) => {
+    const acc = byDay.get(d);
+    return acc && acc.count > 0 ? acc.sum / acc.count : null;
+  });
+}
+
+// workoutTimeline lays the workouts of the range out for the timeline: one
+// row per activity type, the most frequent first, the ones past maxRows
+// folded into "Other", and one mark per workout at the index of the local
+// day it started. seconds is their total duration.
+export function workoutTimeline(workouts, days, zone, maxRows = 5) {
+  const index = new Map(days.map((d, i) => [d, i]));
+  const kept = [];
+  for (const w of workouts || []) {
+    const i = index.get(localDate(w.start_date, w.metadata?.timezone || zone));
+    if (i !== undefined) kept.push({ day: i, workout: w });
+  }
+  const counts = new Map();
+  for (const k of kept) counts.set(k.workout.activity_type, (counts.get(k.workout.activity_type) || 0) + 1);
+  const types = [...counts.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
+  const fold = types.length > maxRows;
+  const shown = fold ? types.slice(0, maxRows - 1) : types;
+  const rows = shown.map(([type, count]) => ({ type, label: humanize(type), count }));
+  if (fold) rows.push({ type: null, label: "Other", count: types.slice(maxRows - 1).reduce((s, t) => s + t[1], 0) });
+  const rowOf = new Map(shown.map(([type], i) => [type, i]));
+  const marks = kept.map((k) => ({ ...k, row: rowOf.has(k.workout.activity_type) ? rowOf.get(k.workout.activity_type) : rows.length - 1 }));
+  const seconds = kept.reduce((s, k) => s + workoutSeconds(k.workout), 0);
+  return { rows, marks, seconds };
+}
+
+// workoutSeconds is how long a workout lasted: duration_s, else the time
+// from its start to its end.
+export function workoutSeconds(w) {
+  if (Number.isFinite(w.duration_s)) return w.duration_s;
+  const s = Date.parse(w.start_date);
+  const e = Date.parse(w.end_date);
+  return Number.isNaN(s) || Number.isNaN(e) || e < s ? 0 : Math.round((e - s) / 1000);
+}
+
+// mean is the average of the values that are not null, or null.
+export function mean(values) {
+  const v = values.filter((x) => x !== null && x !== undefined);
+  return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
+}
+
+// latest is the last value that is not null and its index, or null.
+export function latest(values) {
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (values[i] !== null && values[i] !== undefined) return { value: values[i], index: i };
+  }
+  return null;
+}
+
+// niceTicks covers [min, max] with round ticks, a step of 1, 2 or 5 times a
+// power of ten, about count intervals. lo and hi are the first and last
+// tick. A flat series gets room around it; nothing but zeros spans 0 to 1.
+export function niceTicks(min, max, count = 3) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { ticks: [0, 1], lo: 0, hi: 1 };
+  if (min > max) [min, max] = [max, min];
+  if (min === max) {
+    const pad = Math.abs(min) * 0.1;
+    if (pad) [min, max] = [min - pad, max + pad];
+    else max = 1;
+  }
+  const rough = (max - min) / Math.max(1, count);
+  const pow = 10 ** Math.floor(Math.log10(rough));
+  const f = rough / pow;
+  const step = (f >= Math.sqrt(50) ? 10 : f >= Math.sqrt(10) ? 5 : f >= Math.SQRT2 ? 2 : 1) * pow;
+  const digits = Math.max(0, -Math.floor(Math.log10(step)));
+  const lo = Math.floor(min / step) * step;
+  const hi = Math.ceil(max / step) * step;
+  const ticks = [];
+  for (let i = 0; lo + i * step <= hi + step / 2; i++) ticks.push(Number((lo + i * step).toFixed(digits)));
+  return { ticks, lo: ticks[0], hi: ticks[ticks.length - 1] };
+}
+
+// barPath is the outline of a bar of width w from y down to y + h, its top
+// corners rounded by r (at most half the width or the height): the data
+// end is round, the baseline square.
+export function barPath(x, y, w, h, r = 4) {
+  const n = (v) => Number(v.toFixed(2));
+  const k = Math.max(0, Math.min(r, w / 2, h));
+  if (k === 0) return `M${n(x)} ${n(y + h)}V${n(y)}H${n(x + w)}V${n(y + h)}Z`;
+  return `M${n(x)} ${n(y + h)}V${n(y + k)}Q${n(x)} ${n(y)} ${n(x + k)} ${n(y)}H${n(x + w - k)}Q${n(x + w)} ${n(y)} ${n(x + w)} ${n(y + k)}V${n(y + h)}Z`;
+}
+
+// linePath joins points ([x, y]) into an SVG path.
+export function linePath(points) {
+  const n = (v) => Number(v.toFixed(2));
+  return points.map(([x, y], i) => `${i ? "L" : "M"}${n(x)} ${n(y)}`).join("");
+}
+
+// formatDuration renders seconds as "7 h 30 min", "45 min" or "8 h".
+export function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "-";
+  const m = Math.round(seconds / 60);
+  const h = Math.floor(m / 60);
+  if (!h) return `${m} min`;
+  return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+}
+
+// compact renders an axis value: 12000 reads "12K", 1500 reads "1.5K".
+export function compact(n) {
+  const a = Math.abs(n);
+  if (a >= 1e6) return `${Number((n / 1e6).toFixed(1))}M`;
+  if (a >= 1e3) return `${Number((n / 1e3).toFixed(1))}K`;
+  return String(Number(n.toFixed(2)));
+}
+
+// dayLabel renders a date of the range: "Oct 17", or "Fri, Oct 17" long.
+export function dayLabel(date, long = false) {
+  const [y, m, d] = String(date).split("-").map(Number);
+  if (!y || !m || !d) return String(date);
+  const short = `${MONTHS[m - 1]} ${d}`;
+  return long ? `${WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}, ${short}` : short;
+}
+
+// labelDays picks the days the x axis names: every step-th day counting
+// back from the last, so today is always named, at most max of them.
+export function labelDays(n, max) {
+  const step = Math.max(1, Math.ceil(n / Math.max(1, max)));
+  const out = [];
+  for (let i = n - 1; i >= 0; i -= step) out.unshift(i);
+  return out;
+}
+
+// workoutSummary is a workout in one line: "45 min · 8.2 km · 412 kcal".
+export function workoutSummary(w) {
+  const parts = [];
+  const s = workoutSeconds(w);
+  if (s > 0) parts.push(formatDuration(s));
+  if (Number.isFinite(w.distance_m) && w.distance_m > 0) parts.push(w.distance_m >= 1000 ? `${(w.distance_m / 1000).toFixed(1)} km` : `${Math.round(w.distance_m)} m`);
+  if (Number.isFinite(w.active_energy_kcal) && w.active_energy_kcal > 0) parts.push(`${formatCount(w.active_energy_kcal)} kcal`);
+  return parts.join(" · ");
+}
+
+// clip shortens a label to n characters, an ellipsis last.
+export function clip(text, n) {
+  const s = String(text ?? "");
+  return s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
+}

@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Validates the FHIR golden files (internal/fhir/testdata) with the official
-# HL7 FHIR validator against FHIR R4 (4.0.1). CI runs it on the changes that
+# HL7 FHIR validator against FHIR R4 (4.0.1), then the Physical Activity golden
+# files a second time against the HL7 Physical Activity IG's activity measure
+# profile (hl7.fhir.us.physical-activity 1.0.0). CI runs it on the changes that
 # touch internal/fhir (.github/workflows/fhir-validate.yml). It
 # needs Java 17 or later and the network (the validator jar from its GitHub
 # release, the FHIR packages from packages.fhir.org, and by default the
@@ -39,11 +41,22 @@ if [ "$got" != "$sha256" ]; then
   exit 1
 fi
 
-files=("$root"/internal/fhir/testdata/*.json)
-args=("${files[@]}" -version 4.0.1)
+tx=()
 if [ -n "${FHIR_VALIDATOR_TX:-}" ]; then
-  args+=(-tx "$FHIR_VALIDATOR_TX")
+  tx=(-tx "$FHIR_VALIDATOR_TX")
 fi
+files=("$root"/internal/fhir/testdata/*.json)
+# The Observations that are Physical Activity IG measures (docs/fhir.md).
+pa_files=(
+  "$root"/internal/fhir/testdata/observation-activity-moderate-time.json
+  "$root"/internal/fhir/testdata/observation-activity-vigorous-time.json
+  "$root"/internal/fhir/testdata/observation-workout.json
+)
+pa_ig="hl7.fhir.us.physical-activity#1.0.0"
+pa_profile="http://hl7.org/fhir/us/physical-activity/StructureDefinition/pa-observation-activity-measure"
+
 # Run from the download directory: the validator writes its caches there.
 cd "$dir"
-java -Xmx4g -jar "$jar" "${args[@]}"
+java -Xmx4g -jar "$jar" "${files[@]}" -version 4.0.1 "${tx[@]}"
+echo "fhir-validate: Physical Activity IG ($pa_ig), profile $pa_profile"
+java -Xmx4g -jar "$jar" "${pa_files[@]}" -version 4.0.1 -ig "$pa_ig" -profile "$pa_profile" "${tx[@]}"

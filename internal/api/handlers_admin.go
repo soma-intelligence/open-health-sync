@@ -57,15 +57,16 @@ type adminProviderPatch struct {
 	Enabled *bool              `json:"enabled"`
 }
 
-// mountAdmin serves the instance settings to a key of the instance admin
-// tenant. Provider keys are instance wide: every tenant's users connect
-// through the same provider applications.
+// mountAdmin serves the instance settings and the tenants to a key of the
+// instance admin tenant. Provider keys are instance wide: every tenant's
+// users connect through the same provider applications.
 func (s *server) mountAdmin(mux *http.ServeMux) {
-	if s.d.Providers == nil {
-		return
-	}
 	admin := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, auth.Middleware(s.lookup, auth.TenantAdmin)(h))
+	}
+	s.mountAdminTenants(admin)
+	if s.d.Providers == nil {
+		return
 	}
 	admin("GET /v1/admin/providers", s.listAdminProviders)
 	admin("GET /v1/admin/providers/{provider}", s.getAdminProvider)
@@ -107,7 +108,9 @@ func (s *server) toAdminProvider(st providerset.State) adminProviderJSON {
 		}
 	}
 	links := collect.Deps{PublicURL: s.d.PublicURL}
-	if _, ok := connector.AsOAuth(c); ok {
+	// A provider whose users sign in on this server (Eight Sleep) has no
+	// callback to register.
+	if oc, ok := connector.AsOAuth(c); ok && !isPassword(oc) {
 		u := links.CallbackURL(st.Slug)
 		out.URLs.Redirect = &u
 	}
@@ -192,3 +195,6 @@ func providerErr(w http.ResponseWriter, r *http.Request, err error) bool {
 	}
 	return false
 }
+
+// isPassword reports whether c signs users in with their provider password.
+func isPassword(c connector.Connector) bool { _, ok := connector.AsPassword(c); return ok }

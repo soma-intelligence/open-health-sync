@@ -21,7 +21,7 @@ const auditTimeout = 2 * time.Second
 
 // auditPathValues are the path values an audit event keeps in its detail:
 // identifiers, never a value read or written.
-var auditPathValues = []string{"provider", "key_id", "job_id"}
+var auditPathValues = []string{"tenant_id", "provider", "key_id", "job_id"}
 
 func (s *server) mountAudit(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/audit", s.listAudit)
@@ -29,9 +29,11 @@ func (s *server) mountAudit(mux *http.ServeMux) {
 
 // audit records one authenticated request: the credential, the action its
 // route stands for, the user it concerns and its status. A user token names
-// its own user; a tenant key route names the user of its {id}. A write that
-// fails is logged and counted, never turned into an error for the caller,
-// who already has the response.
+// its own user; a tenant key route names the user of its {id}, unless its
+// {tenant_id} names another tenant (an admin route): that user is not one of
+// the caller's, and is named on that tenant's log instead (asTenant). A write
+// that fails is logged and counted, never turned into an error for the
+// caller, who already has the response.
 func (s *server) audit(r *http.Request, p auth.Principal, code int) {
 	ev := audit.Event{
 		Tenant:    p.TenantID,
@@ -46,7 +48,7 @@ func (s *server) audit(r *http.Request, p auth.Principal, code int) {
 	if p.UserID != nil {
 		ev.ActorType = audit.UserToken
 		ev.User = p.UserID
-	} else if u, err := uuid.Parse(r.PathValue("id")); err == nil {
+	} else if u, err := uuid.Parse(r.PathValue("id")); err == nil && ownTenant(r, p) {
 		ev.User = &u
 	}
 	// The route pattern hides which provider, key or job a request named.
@@ -58,12 +60,29 @@ func (s *server) audit(r *http.Request, p auth.Principal, code int) {
 			ev.Detail[name] = v
 		}
 	}
+	s.record(r, ev)
+}
+
+// record writes ev once the response is decided. A write that fails is
+// logged and counted.
+func (s *server) record(r *http.Request, ev audit.Event) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), auditTimeout)
 	defer cancel()
 	if err := audit.Record(ctx, s.d.Pool, ev); err != nil {
 		s.metrics.auditFailures.Add(1)
 		slog.ErrorContext(r.Context(), "api: audit event not written", "error", err, "route", r.Pattern)
 	}
+}
+
+// ownTenant reports whether the request is about the caller's own tenant:
+// true unless the route's {tenant_id} names another one.
+func ownTenant(r *http.Request, p auth.Principal) bool {
+	v := r.PathValue("tenant_id")
+	if v == "" {
+		return true
+	}
+	id, err := uuid.Parse(v)
+	return err == nil && id == p.TenantID
 }
 
 // listAudit serves the tenant's audit log, newest first, filtered by

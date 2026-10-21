@@ -298,6 +298,11 @@ func (w *Writer) writeNutritionLogs(ctx context.Context, tx TxLike, sc scope, lo
 		func(l model.NutritionLog) copyDedupeKey {
 			return copyDedupeKey{hash: l.ContentHash, stamp: l.StartDate.UnixNano()}
 		})
+	upsert, moved := supersedeMovedLogs(sc, upsert)
+	superseded += moved
+	if err := deleteMovedLogs(ctx, tx, sc, upsert); err != nil {
+		return written, skipped, err
+	}
 	for _, g := range []struct {
 		logs       []model.NutritionLog
 		onConflict string
@@ -313,6 +318,65 @@ func (w *Writer) writeNutritionLogs(ctx context.Context, tx TxLike, sc scope, lo
 		written, skipped = written+n, skipped+k
 	}
 	return written, skipped + superseded, nil
+}
+
+// nutritionSupersede deletes the stored copies of SupersedeMoved logs under
+// another start: same provider and external id ($3, $4, one element per
+// log), another start_date ($5). The dedup unique includes start_date, so
+// the upsert alone cannot reach them.
+const nutritionSupersede = `DELETE FROM ohs_data.nutrition_logs n
+	USING unnest($3::text[], $4::text[], $5::timestamptz[]) AS m(provider, external_id, start_date)
+	WHERE n.tenant_id = $1 AND n.user_id = $2
+	  AND n.provider = m.provider AND n.external_id = m.external_id AND n.start_date <> m.start_date`
+
+func supersedesLog(l model.NutritionLog) bool {
+	return l.SupersedeMoved && l.Replaceable && l.ExternalID != ""
+}
+
+// supersedeMovedLogs keeps, of several SupersedeMoved copies of one log in
+// the batch, the last one, and counts the others.
+func supersedeMovedLogs(sc scope, logs []model.NutritionLog) ([]model.NutritionLog, int) {
+	type key struct{ provider, externalID string }
+	last := map[key]int{}
+	for i, l := range logs {
+		if supersedesLog(l) {
+			last[key{sc.providerOr(l.Provider), l.ExternalID}] = i
+		}
+	}
+	if len(last) == 0 {
+		return logs, 0
+	}
+	out := logs[:0:0]
+	for i, l := range logs {
+		if supersedesLog(l) && last[key{sc.providerOr(l.Provider), l.ExternalID}] != i {
+			continue
+		}
+		out = append(out, l)
+	}
+	return out, len(logs) - len(out)
+}
+
+// deleteMovedLogs deletes, before the upsert, the stored copies of the
+// SupersedeMoved logs whose start moved. They are not counted: the new copy
+// is the record.
+func deleteMovedLogs(ctx context.Context, tx TxLike, sc scope, logs []model.NutritionLog) error {
+	var providers, ids []string
+	var starts []time.Time
+	for _, l := range logs {
+		if !supersedesLog(l) {
+			continue
+		}
+		providers = append(providers, sc.providerOr(l.Provider))
+		ids = append(ids, l.ExternalID)
+		starts = append(starts, l.StartDate)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, nutritionSupersede, sc.tenant, sc.user, providers, ids, starts); err != nil {
+		return fmt.Errorf("supersede moved nutrition logs: %w", err)
+	}
+	return nil
 }
 
 // --- heartbeat_samples ---

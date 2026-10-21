@@ -8,36 +8,56 @@ import assert from "node:assert/strict";
 
 import {
   ApiError,
+  HEALTH_RANGES,
   ReadOnlyError,
   STAGE_STATES,
   absTime,
   apiPath,
   attention,
+  barPath,
   classifyConnection,
   classifyDelivery,
   classifyFreshness,
   classifyProvider,
   classifyRun,
   classifyWebhook,
+  clip,
+  compact,
   confirmMatches,
+  dailySeries,
+  dayLabel,
   filenameFrom,
   formatAgo,
   formatBytes,
   formatCount,
+  formatDuration,
   formatTime,
   formatWindow,
+  healthRange,
   humanize,
   initials,
   keysPatch,
+  labelDays,
+  latest,
+  linePath,
+  localDate,
   makeApi,
   makeGet,
+  mean,
+  niceTicks,
   parseRoute,
   pipelineStages,
   providerLabel,
   providerStatusLabel,
+  recordZone,
   relTime,
+  sleepNights,
   splitFigure,
+  statSeries,
   webhookLabel,
+  workoutSeconds,
+  workoutSummary,
+  workoutTimeline,
 } from "./static/lib.mjs";
 
 function fakeFetch(status = 200, body = { data: [] }, headers = {}) {
@@ -370,4 +390,128 @@ test("splitFigure", () => {
   assert.deepEqual(splitFigure(null), { figure: "-", unit: "", word: false });
   assert.deepEqual(splitFigure("Never"), { figure: "Never", unit: "", word: true });
   assert.deepEqual(splitFigure("just now"), { figure: "just now", unit: "", word: true });
+});
+
+test("healthRange: the last n days, today included, end exclusive", () => {
+  const now = Date.parse("2026-10-18T01:30:00Z");
+  assert.deepEqual(HEALTH_RANGES, [30, 90]);
+  const r = healthRange(30, now);
+  assert.equal(r.days.length, 30);
+  assert.equal(r.start, "2026-09-19");
+  assert.equal(r.days[29], "2026-10-18");
+  assert.equal(r.end, "2026-10-19");
+  assert.equal(r.before, "2026-09-18");
+  assert.equal(healthRange(90, now).start, "2026-07-21");
+  assert.equal(healthRange(3, Date.parse("2026-03-01T12:00:00Z")).days.join(","), "2026-02-27,2026-02-28,2026-03-01");
+});
+
+test("localDate and recordZone", () => {
+  assert.equal(localDate("2026-10-17T22:30:00Z", "Asia/Tokyo"), "2026-10-18");
+  assert.equal(localDate("2026-10-17T05:30:00Z", "America/Los_Angeles"), "2026-10-16");
+  assert.equal(localDate("2026-10-17T22:30:00Z", "Not/AZone"), "2026-10-17", "an unknown zone is UTC");
+  assert.equal(localDate("2026-10-17T22:30:00Z", null), "2026-10-17");
+  assert.equal(localDate("soon", "UTC"), null);
+  assert.equal(recordZone([{ metadata: { timezone: "Europe/Paris" } }, { metadata: {} }]), "Europe/Paris");
+  assert.equal(recordZone([{ metadata: { timezone: "Nope" } }], [{ metadata: { timezone: "Asia/Tokyo" } }]), "Asia/Tokyo");
+  assert.equal(recordZone([], null, [{}]), "UTC");
+});
+
+test("sleepNights: by the day the user woke up, stages summed, no stage held as asleep", () => {
+  const days = ["2026-10-16", "2026-10-17", "2026-10-18"];
+  const nights = sleepNights(
+    [
+      { bedtime_start: "2026-10-15T21:30:00Z", bedtime_end: "2026-10-16T05:30:00Z", deep_sleep_seconds: 3600, light_sleep_seconds: 14400, rem_sleep_seconds: 5400, awake_seconds: 1200 },
+      { bedtime_start: "2026-10-16T12:00:00Z", bedtime_end: "2026-10-16T12:30:00Z", light_sleep_seconds: 1800 },
+      { bedtime_start: "2026-10-17T21:00:00Z", bedtime_end: "2026-10-18T05:00:00Z", total_sleep_seconds: 25200, metadata: { timezone: "Asia/Tokyo" } },
+      { bedtime_start: "2026-10-01T21:00:00Z", bedtime_end: "2026-10-02T05:00:00Z", total_sleep_seconds: 25200 },
+    ],
+    days,
+    "Europe/Paris",
+  );
+  assert.deepEqual(nights[0], { date: "2026-10-16", deep: 3600, light: 16200, rem: 5400, asleep: 0, awake: 1200, total: 25200 }, "a nap adds to its day");
+  assert.equal(nights[1], null);
+  assert.equal(nights[2].asleep, 25200);
+  assert.equal(nights[2].total, 25200);
+  assert.deepEqual(sleepNights(null, days, "UTC"), [null, null, null]);
+});
+
+test("dailySeries and statSeries: one value per day, null where none", () => {
+  const days = ["2026-10-16", "2026-10-17", "2026-10-18"];
+  assert.deepEqual(dailySeries([{ date: "2026-10-16", step_count: 8000 }, { date: "2026-10-18", step_count: null }, { date: "2026-10-01", step_count: 3 }], days, "step_count"), [8000, null, null]);
+  const stats = {
+    buckets: [
+      { start: "2026-10-16T00:00:00+02:00", count: 1, sum: 54 },
+      { start: "2026-10-18T00:00:00+02:00", count: 2, sum: 120 },
+      { start: "2026-10-18T00:00:00+02:00", count: 1, sum: 63 },
+    ],
+  };
+  assert.deepEqual(statSeries(stats, days), [54, null, 61], "rows of a day pool by count");
+  assert.deepEqual(statSeries(null, days), [null, null, null]);
+});
+
+test("workoutTimeline: lanes by frequency, the tail folded into Other", () => {
+  const days = ["2026-10-16", "2026-10-17", "2026-10-18"];
+  const w = (type, start) => ({ activity_type: type, start_date: start, duration_s: 1800 });
+  const t = workoutTimeline(
+    [w("running", "2026-10-16T07:00:00Z"), w("running", "2026-10-18T07:00:00Z"), w("cycling", "2026-10-17T07:00:00Z"), w("yoga", "2026-10-17T18:00:00Z"), w("swimming", "2026-10-18T18:00:00Z"), w("running", "2026-09-01T07:00:00Z")],
+    days,
+    "UTC",
+    3,
+  );
+  assert.deepEqual(t.rows.map((r) => [r.label, r.count]), [["Running", 2], ["Cycling", 1], ["Other", 2]]);
+  assert.deepEqual(t.marks.map((m) => [m.day, m.row]), [[0, 0], [2, 0], [1, 1], [1, 2], [2, 2]]);
+  assert.equal(t.seconds, 5 * 1800, "outside the range counts for nothing");
+  assert.equal(workoutTimeline([], days, "UTC").rows.length, 0);
+});
+
+test("workoutSeconds and workoutSummary", () => {
+  assert.equal(workoutSeconds({ duration_s: 600 }), 600);
+  assert.equal(workoutSeconds({ start_date: "2026-10-17T07:00:00Z", end_date: "2026-10-17T07:40:00Z" }), 2400);
+  assert.equal(workoutSeconds({ start_date: "2026-10-17T07:00:00Z" }), 0);
+  assert.equal(workoutSummary({ duration_s: 2700, distance_m: 8234, active_energy_kcal: 412.4 }), "45 min · 8.2 km · 412 kcal");
+  assert.equal(workoutSummary({ duration_s: 0, distance_m: 800 }), "800 m");
+});
+
+test("mean and latest skip missing days", () => {
+  assert.equal(mean([null, 2, 4, null]), 3);
+  assert.equal(mean([null]), null);
+  assert.deepEqual(latest([1, 5, null]), { value: 5, index: 1 });
+  assert.equal(latest([null, null]), null);
+});
+
+test("niceTicks: round steps covering the values", () => {
+  assert.deepEqual(niceTicks(0, 12345).ticks, [0, 5000, 10000, 15000]);
+  assert.deepEqual(niceTicks(0, 9.1).ticks, [0, 2, 4, 6, 8, 10]);
+  assert.deepEqual(niceTicks(52.3, 61.8).ticks, [50, 55, 60, 65]);
+  assert.deepEqual(niceTicks(71.3, 74.9).ticks, [71, 72, 73, 74, 75]);
+  assert.deepEqual(niceTicks(0, 0), { ticks: [0, 0.5, 1], lo: 0, hi: 1 }, "nothing but zeros");
+  const flat = niceTicks(78.2, 78.2);
+  assert.ok(flat.lo < 78.2 && flat.hi > 78.2, "a flat series gets room");
+  assert.deepEqual(niceTicks(NaN, 3), { ticks: [0, 1], lo: 0, hi: 1 });
+});
+
+test("barPath rounds the data end only, linePath joins points", () => {
+  assert.equal(barPath(0, 10, 8, 30), "M0 40V14Q0 10 4 10H4Q8 10 8 14V40Z");
+  assert.equal(barPath(0, 10, 8, 30, 0), "M0 40V10H8V40Z");
+  assert.equal(barPath(0, 10, 2, 30), "M0 40V11Q0 10 1 10H1Q2 10 2 11V40Z", "no more than half the width");
+  assert.equal(linePath([[0, 1], [2.555, 3]]), "M0 1L2.56 3");
+  assert.equal(linePath([]), "");
+});
+
+test("formatDuration, compact, dayLabel, labelDays and clip", () => {
+  assert.equal(formatDuration(27000), "7 h 30 min");
+  assert.equal(formatDuration(2700), "45 min");
+  assert.equal(formatDuration(28800), "8 h");
+  assert.equal(formatDuration(null), "-");
+  assert.equal(compact(12500), "12.5K");
+  assert.equal(compact(2000000), "2M");
+  assert.equal(compact(500), "500");
+  assert.equal(compact(0.5), "0.5");
+  assert.equal(dayLabel("2026-10-17"), "Oct 17");
+  assert.equal(dayLabel("2026-10-17", true), "Sat, Oct 17");
+  assert.equal(dayLabel("soon"), "soon");
+  assert.deepEqual(labelDays(30, 5), [5, 11, 17, 23, 29], "the last day is always named");
+  assert.deepEqual(labelDays(3, 10), [0, 1, 2]);
+  assert.equal(clip("High intensity interval training", 16), "High intensity…");
+  assert.equal(clip("Running", 16), "Running");
 });

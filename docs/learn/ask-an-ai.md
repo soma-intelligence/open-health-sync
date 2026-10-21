@@ -9,7 +9,7 @@ client that speaks MCP (Claude Desktop, Claude Code, or any other MCP client).
 ## 1. Get a read-only token and the lines for your client
 
 ```sh
-python3 recipes/ai-agent.py
+go run ./recipes/ai-agent
 ```
 
 ```text
@@ -61,9 +61,9 @@ coming back from a break.
 ## Make it yours
 
 - Ask for a chart: most assistants can turn the numbers into a picture or an HTML page.
-- Ask it to write a recipe: "write a Python script like `recipes/sleep-report.py` that shows
+- Ask it to write a recipe: "write a Go program like `recipes/sleep-report/main.go` that shows
   my workouts per week". Then run it and read it.
-- Shorten the token's life: `python3 recipes/ai-agent.py --days 1` for a one-off session.
+- Shorten the token's life: `go run ./recipes/ai-agent -days 1` for a one-off session.
 
 ## Share it
 

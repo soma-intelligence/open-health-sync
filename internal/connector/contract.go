@@ -6,6 +6,7 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -57,6 +58,32 @@ type OptionalKeyed interface {
 	OptionalKeys() []string
 }
 
+// DataTypes is optionally implemented by a connector whose mapper builds its
+// quantity names at run time, so its source cannot tell what it delivers
+// (self reports). Every other connector gets its list generated from its
+// source (datatypes_gen.go). See DataTypesOf.
+type DataTypes interface {
+	DataTypes() []string
+}
+
+// Record kinds, one per table a mapper writes to.
+const (
+	KindSample      = "sample"
+	KindCategory    = "category"
+	KindSleep       = "sleep"
+	KindWorkout     = "workout"
+	KindRoute       = "route"
+	KindNutrition   = "nutrition"
+	KindECG         = "ecg"
+	KindHeartbeat   = "heartbeat"
+	KindDaily       = "daily"
+	KindObservation = "observation"
+)
+
+// Kinds lists every record kind.
+var Kinds = []string{KindSample, KindCategory, KindSleep, KindWorkout, KindRoute,
+	KindNutrition, KindECG, KindHeartbeat, KindDaily, KindObservation}
+
 // Configurable is optionally implemented by connectors that take their
 // operator keys. The app calls Configure for every enabled connector before
 // any role starts (an error stops startup), and again whenever the keys
@@ -65,6 +92,16 @@ type OptionalKeyed interface {
 // call while the connector is in use.
 type Configurable interface {
 	Configure(cfg Config) error
+}
+
+// Instancer is optionally implemented by a Configurable connector that can
+// run with more than one set of keys at once: a tenant's own OAuth
+// application next to the instance's. NewInstance returns a new connector of
+// the same provider, with the same endpoints and HTTP client and no keys; the
+// caller hands it its keys with Configure. Only the providers implementing it
+// take tenant keys.
+type Instancer interface {
+	NewInstance() Connector
 }
 
 // publicKeys are the operator keys whose values are not secrets: the console
@@ -124,11 +161,49 @@ type StateExchanger interface {
 	ExchangeState(ctx context.Context, code, state, redirect string) (Tokens, error)
 }
 
+// PasswordConnector is optionally implemented by an OAuthConnector whose
+// provider has no consent page for third parties, such as Eight Sleep: the
+// user types the account email and password into the sign-in page this
+// server serves, and SignIn trades them for Tokens. The core then stores the
+// connection exactly as after an OAuth callback. When a connector implements
+// it, the core sends the user to its own sign-in page instead of
+// AuthorizeURL, and never calls Exchange.
+//
+// What the connector needs to sign in again later (usually the credentials
+// themselves, when the provider issues no refresh token) goes in
+// Tokens.Refresh, which the core seals like any refresh token; Refresh then
+// signs in again with it.
+type PasswordConnector interface {
+	SignIn(ctx context.Context, username, password string) (Tokens, error)
+}
+
+// ErrBadCredentials is returned by PasswordConnector.SignIn when the provider
+// refuses the email and password. The sign-in page asks the user again.
+var ErrBadCredentials = errors.New("connector: the provider refused the email or password")
+
+// AsPassword reports whether c signs users in with their provider password.
+func AsPassword(c Connector) (PasswordConnector, bool) { p, ok := c.(PasswordConnector); return p, ok }
+
 // AsOAuth reports whether c can be pulled from with OAuth.
 func AsOAuth(c Connector) (OAuthConnector, bool) { o, ok := c.(OAuthConnector); return o, ok }
 
 // AsPush reports whether c receives provider notifications.
 func AsPush(c Connector) (PushConnector, bool) { p, ok := c.(PushConnector); return p, ok }
+
+// DataTypesOf lists what c delivers, as GET /v1/providers reports it: the
+// record kinds it writes (the Kind constants) and the canonical quantity
+// names it produces (for example heart_rate), kinds first, each sorted. A
+// connector that implements DataTypes answers itself; the others answer from
+// the generated list. Empty, never nil, for a connector in neither.
+func DataTypesOf(c Connector) []string {
+	if d, ok := c.(DataTypes); ok {
+		return d.DataTypes()
+	}
+	if v, ok := generatedDataTypes[c.Slug()]; ok {
+		return v
+	}
+	return []string{}
+}
 
 // AsDevice reports whether c accepts SDK uploads.
 func AsDevice(c Connector) (DeviceConnector, bool) { d, ok := c.(DeviceConnector); return d, ok }

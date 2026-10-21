@@ -63,7 +63,7 @@
     {
       "key": "observationId",
       "value": "qs-1234",
-      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-` or `ecg-`, then the stored row id."
+      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id."
     },
     {
       "key": "patientId",
@@ -124,7 +124,7 @@
           "name": "Connectors enabled on this instance",
           "request": {
             "method": "GET",
-            "description": "Connectors enabled on this instance.\n\n`GET /v1/providers`",
+            "description": "Connectors enabled on this instance.\n\n`GET /v1/providers`\n\nThe connectors enabled on this instance, less those an instance admin turned off for the\ncaller's tenant.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/providers",
@@ -775,7 +775,7 @@
           "name": "Start connecting a provider",
           "request": {
             "method": "POST",
-            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done.",
+            "description": "Start connecting a provider.\n\n`POST /v1/users/{id}/connections/{provider}`\n\nReturns the provider's consent URL. Send the user there; after consent the user\nlands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in\nresult page when no `redirect_uri` is given. Each call mints a fresh single-use state;\n`Idempotency-Key` is not honoured here. While the user's data from this provider is\nbeing deleted the answer is 409: connect again once the deletion job is done. 403 when an\ninstance admin turned the provider off for the tenant. For a provider without a consent\npage for other apps (Eight Sleep) the URL is this server's own sign-in page,\n`/oauth/{provider}/signin`, which asks for the account email and password; it ends the\nsame way.",
             "header": [
               {
                 "key": "Content-Type",
@@ -901,7 +901,7 @@
           "name": "Sync a connection now",
           "request": {
             "method": "POST",
-            "description": "Sync a connection now.\n\n`POST /v1/users/{id}/connections/{provider}/sync`\n\nQueues a pull of the connection ahead of routine work and answers with the sync run; follow it\nat the `Location` header. The window ends now and starts where the connection's data ends\n(minus an hour of overlap), a day back for a connection that never synced, or at `from`\n(at most 30 days back). While a manual run of the connection is still queued or running, the\nanswer is 200 with that run and nothing new is queued. 409 when the connection does not sync\n(`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.",
+            "description": "Sync a connection now.\n\n`POST /v1/users/{id}/connections/{provider}/sync`\n\nQueues a pull of the connection ahead of routine work and answers with the sync run; follow it\nat the `Location` header. The window ends now and starts where the connection's data ends\n(minus an hour of overlap), a day back for a connection that never synced, or at `from`\n(at most 30 days back). While a manual run of the connection is still queued or running, the\nanswer is 200 with that run and nothing new is queued. 409 when the connection does not sync\n(`needs_reauth`, `disconnected`: connect the user again), its provider is not enabled here,\nor an instance admin turned the provider off for the tenant.",
             "header": [
               {
                 "key": "Content-Type",
@@ -1613,7 +1613,7 @@
           "name": "Nutrition logs",
           "request": {
             "method": "GET",
-            "description": "Nutrition logs.\n\n`GET /v1/users/{id}/nutrition`",
+            "description": "Nutrition logs.\n\n`GET /v1/users/{id}/nutrition`\n\nFood and drink entries from Apple Health and Health Connect. Each nutrient has one\nunit whatever the source: kcal for energy, g for the macronutrients, mg or mcg for\nthe others, mL for water (the table is in docs/api.md).",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/users/:id/nutrition",
@@ -2507,7 +2507,7 @@
           "name": "The user's records as FHIR R4 Observations",
           "request": {
             "method": "GET",
-            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`), daily summaries (`daily-`) and ECG recordings with their\nvoltage samples (`ecg-`), merged in time order (a sample's start, a bedtime, a\nworkout's start, a day at midnight UTC, a recording's start), then by kind and id.\nPaged like every list: the Bundle's `next` link carries the cursor, and there is no\n`next` link on the last page; `total` is left out. A blood pressure pair is never\nsplit across pages, and its two samples are not listed on their own. A page holds at\nmost 100 ECG recordings: one that reaches them ends there, with a `next` link.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
+            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`), daily summaries (`daily-`), ECG recordings with their\nvoltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a\nsample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or\na meal's start), then by kind and id.\nPaged like every list: the Bundle's `next` link carries the cursor, and there is no\n`next` link on the last page; `total` is left out. A blood pressure pair is never\nsplit across pages, and its two samples are not listed on their own. A page holds at\nmost 100 ECG recordings: one that reaches them ends there, with a `next` link.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/users/:id/fhir/Observation",
@@ -2531,7 +2531,7 @@
                 {
                   "key": "code",
                   "value": "http://loinc.org|8867-4",
-                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG\nrecordings), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout`, `daily_summary` or `ecg_recording`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
+                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG\nrecordings), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
                   "disabled": true
                 },
                 {
@@ -2614,7 +2614,7 @@
                 {
                   "key": "observation_id",
                   "value": "{{observationId}}",
-                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-` or `ecg-`, then the stored row id."
+                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id."
                 }
               ]
             }

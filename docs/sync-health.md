@@ -100,7 +100,8 @@ integrations keep working.
 - `status`: `queued`, `running`, `retrying` (the last attempt failed, the next is at
   `next_attempt_at`), `rate_limited` (the provider asked to wait until `next_attempt_at`),
   `succeeded`, `failed` (five attempts spent, or the grant was refused) or `cancelled` (the
-  connection was disconnected).
+  connection was disconnected, or an instance admin turned the provider off for the tenant; see
+  [admin-api.md](admin-api.md#providers-per-tenant)).
 - `error` is the provider's error, made safe to show: no tokens, no query strings, no health
   values, at most 200 bytes.
 - `objects_stored` counts the raw provider payloads the pull stored. The records written from them
@@ -127,7 +128,8 @@ to reach further back, up to 30 days.
 - A "sync" button can be pressed many times: while a manual run of the connection is still queued
   or running, the call answers `200` with that run and queues nothing.
 - `409` when the connection cannot sync: it needs the user to connect again (`needs_reauth`), it is
-  disconnected, or its provider is not enabled on this instance.
+  disconnected, its provider is not enabled on this instance, or an instance admin turned the
+  provider off for this tenant.
 - Apple Health and Health Connect have no sync route: their data arrives when the phone uploads.
 
 Providers that send notifications already pull within seconds of a change (see

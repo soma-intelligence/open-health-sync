@@ -134,7 +134,7 @@ func TestFetchThenMap(t *testing.T) {
 	require.NoError(t, c.Fetch(context.Background(), testConn(), fetchFrom, fetchTo, sink))
 
 	act := mapEmitted(t, c, sink, DataTypeDailyActivity)
-	assert.Len(t, act.QuantitySamples, 6, "steps, active energy, distance for two days")
+	assert.Len(t, act.QuantitySamples, 10, "steps, active energy, distance, moderate and vigorous minutes for two days")
 
 	sl := mapEmitted(t, c, sink, DataTypeSleep)
 	require.Len(t, sl.SleepSessions, 2, "the night and the nap")

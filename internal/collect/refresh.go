@@ -27,30 +27,42 @@ func needsRefresh(t connector.Tokens, now time.Time) bool {
 }
 
 // connection loads an active connection with usable tokens, refreshing them
-// first when they are about to expire. ErrNeedsReauth from the provider marks
-// the connection needs_reauth and parks its pending pull jobs.
-func (d Deps) connection(ctx context.Context, oc connector.OAuthConnector, tenantID, userID uuid.UUID, provider string) (connector.Connection, error) {
+// first when they are about to expire, and the connector of the keys it was
+// made with. ErrNeedsReauth from the provider marks the connection
+// needs_reauth and parks its pending pull jobs.
+func (d Deps) connection(ctx context.Context, tenantID, userID uuid.UUID, provider string) (connector.Connection, connector.OAuthConnector, error) {
 	c, err := scanConn(d.Pool.QueryRow(ctx, `SELECT `+connCols+`
 		FROM ohs_sync.connections WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 		tenantID, userID, provider))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return connector.Connection{}, errInactive
+		return connector.Connection{}, nil, errInactive
 	}
 	if err != nil {
-		return connector.Connection{}, fmt.Errorf("load connection: %w", err)
+		return connector.Connection{}, nil, fmt.Errorf("load connection: %w", err)
 	}
 	if c.status != StatusActive {
-		return connector.Connection{}, errInactive
+		return connector.Connection{}, nil, errInactive
+	}
+	oc, ok := d.oauthOf(c)
+	if !ok {
+		return connector.Connection{}, nil, errKeysGone
 	}
 	conn, err := d.open(c)
 	if err != nil {
-		return connector.Connection{}, err
+		return connector.Connection{}, nil, err
 	}
 	if !needsRefresh(conn.Tokens, d.now()) {
-		return conn, nil
+		return conn, oc, nil
 	}
-	return d.refresh(ctx, oc, tenantID, userID, provider, "")
+	conn, err = d.refresh(ctx, tenantID, userID, provider, "")
+	return conn, oc, err
 }
+
+// errKeysGone: the connection was made with tenant keys that do not run in
+// this process (removed, replaced, or refused by the connector). A removal
+// sets the connection needs_reauth; until this process reloads the keys, the
+// job is retried.
+var errKeysGone = errors.New("collect: the provider keys this connection was made with are not available")
 
 // refresh renews the tokens under a row lock, so two workers never spend the
 // same refresh token (providers rotate it: the loser would be told the grant
@@ -60,7 +72,7 @@ func (d Deps) connection(ctx context.Context, oc connector.OAuthConnector, tenan
 // rejected is empty for a refresh before expiry. Otherwise it is the access
 // token the provider just refused: the refresh is forced, unless the stored
 // token already differs from it (another worker refreshed meanwhile).
-func (d Deps) refresh(ctx context.Context, oc connector.OAuthConnector, tenantID, userID uuid.UUID, provider, rejected string) (connector.Connection, error) {
+func (d Deps) refresh(ctx context.Context, tenantID, userID uuid.UUID, provider, rejected string) (connector.Connection, error) {
 	tx, err := d.Pool.Begin(ctx)
 	if err != nil {
 		return connector.Connection{}, fmt.Errorf("begin: %w", err)
@@ -79,7 +91,7 @@ func (d Deps) refresh(ctx context.Context, oc connector.OAuthConnector, tenantID
 	if c.status != StatusActive {
 		return connector.Connection{}, errInactive
 	}
-	conn, err := d.renewLocked(ctx, ctx, tx, oc, c, rejected)
+	conn, err := d.renewLocked(ctx, ctx, tx, c, rejected)
 	if errors.Is(err, connector.ErrNeedsReauth) {
 		if cerr := tx.Commit(ctx); cerr != nil {
 			return connector.Connection{}, fmt.Errorf("commit: %w", cerr)
@@ -96,13 +108,14 @@ func (d Deps) refresh(ctx context.Context, oc connector.OAuthConnector, tenantID
 }
 
 // renewLocked returns the connection of c, a row the caller locked FOR UPDATE
-// in tx, with usable tokens: refreshed (and stored in tx) when they expire
+// in tx, with usable tokens, renewed with the keys c was made with:
+// refreshed (and stored in tx) when they expire
 // within RefreshMargin, or when rejected names the stored access token. A
 // grant the provider refuses marks the connection needs_reauth in tx and
 // gives connector.ErrNeedsReauth; the caller commits or rolls back. The
 // provider call runs under pctx, the database work under ctx, so a refresh the
 // provider granted is stored even when pctx runs out right after.
-func (d Deps) renewLocked(ctx, pctx context.Context, tx pgx.Tx, oc connector.OAuthConnector, c connRow, rejected string) (connector.Connection, error) {
+func (d Deps) renewLocked(ctx, pctx context.Context, tx pgx.Tx, c connRow, rejected string) (connector.Connection, error) {
 	tenantID, userID, provider := c.tenant, c.user, c.provider
 	conn, err := d.open(c)
 	if err != nil {
@@ -113,6 +126,10 @@ func (d Deps) renewLocked(ctx, pctx context.Context, tx pgx.Tx, oc connector.OAu
 	}
 	if rejected != "" && conn.Tokens.Access != rejected {
 		return conn, nil
+	}
+	oc, ok := d.oauthOf(c)
+	if !ok {
+		return connector.Connection{}, errKeysGone
 	}
 
 	fresh, err := oc.Refresh(pctx, conn.Tokens)

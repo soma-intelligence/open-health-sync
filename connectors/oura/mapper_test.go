@@ -96,7 +96,8 @@ func paris(t *testing.T) *time.Location {
 func TestMapDailyActivity(t *testing.T) {
 	line := fixture(t, DataTypeDailyActivity, 0)
 	res := mustMap(t, DataTypeDailyActivity, line)
-	require.Len(t, res.QuantitySamples, 3)
+	require.Len(t, res.QuantitySamples, 5)
+	require.Empty(t, model.CanonicalizeUnits(&res), "seconds convert to the storage unit")
 	assertCanonical(t, res.QuantitySamples)
 	m := byType(res.QuantitySamples)
 
@@ -120,6 +121,36 @@ func TestMapDailyActivity(t *testing.T) {
 	assert.True(t, s.Replaceable)
 	assert.False(t, s.SupersedeMoved, "keyed by the day, not by one record's start")
 	assert.True(t, s.IsPrimarySource)
+}
+
+// Oura's medium and high activity time (seconds) are the day's moderate and
+// vigorous minutes, over the same local day as the steps.
+func TestMapDailyActivity_IntensityMinutes(t *testing.T) {
+	res := mustMap(t, DataTypeDailyActivity, fixture(t, DataTypeDailyActivity, 0))
+	require.Empty(t, model.CanonicalizeUnits(&res))
+	m := byType(res.QuantitySamples)
+
+	moderate, vigorous := m[model.QTModerateActivityTime], m[model.QTVigorousActivityTime]
+	assert.InDelta(t, 60.0, moderate.Value, 1e-9, "3600 s of medium activity")
+	assert.InDelta(t, 10.0, vigorous.Value, 1e-9, "600 s of high activity")
+	for _, s := range []model.QuantitySample{moderate, vigorous} {
+		assert.Equal(t, "min", s.Unit)
+		assert.True(t, m[model.QTStepCount].StartDate.Equal(s.StartDate), "the steps' day")
+		assert.True(t, m[model.QTStepCount].EndDate.Equal(s.EndDate))
+		assert.True(t, s.Replaceable)
+		assert.Equal(t, "2026-03-01_"+s.QuantityType, s.ExternalID)
+	}
+	assert.NotEqual(t, moderate.ContentHash, vigorous.ContentHash)
+	assert.Equal(t, 3600.0, moderate.Metadata["medium_activity_time"], "the metadata copy stays")
+
+	// A day with no high activity stores a zero; a figure Oura leaves out gives no sample.
+	res = mustMap(t, DataTypeDailyActivity, fixture(t, DataTypeDailyActivity, 1))
+	require.Empty(t, model.CanonicalizeUnits(&res))
+	assert.InDelta(t, 0.0, byType(res.QuantitySamples)[model.QTVigorousActivityTime].Value, 1e-9)
+	line := edit(t, fixture(t, DataTypeDailyActivity, 0), map[string]any{"medium_activity_time": nil})
+	m = byType(mustMap(t, DataTypeDailyActivity, line).QuantitySamples)
+	assert.NotContains(t, m, model.QTModerateActivityTime)
+	assert.Contains(t, m, model.QTVigorousActivityTime)
 }
 
 // A day's document re-sent with new values keeps its identity, so the

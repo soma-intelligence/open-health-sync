@@ -35,8 +35,8 @@ func (s *server) mountFHIR(mux *http.ServeMux) {
 
 // fhirObservations serves the user's records as a searchset Bundle of
 // Observations: quantity samples, blood pressure panels, sleep sessions,
-// workouts, daily summaries and ECG recordings in one list, paged like every
-// list.
+// workouts, daily summaries, ECG recordings and nutrition logs in one list,
+// paged like every list.
 func (s *server) fhirObservations(w http.ResponseWriter, r *http.Request) {
 	p, user, ok := pathUser(w, r)
 	if !ok {
@@ -464,6 +464,8 @@ func (s *server) codeFilter(r *http.Request, system, code string, quantityType f
 		return read.ObservationFilter{Daily: true}, nil
 	case fhir.RecordECG:
 		return read.ObservationFilter{ECG: true}, nil
+	case fhir.RecordNutritionLog:
+		return read.ObservationFilter{Nutrition: true}, nil
 	}
 	return read.ObservationFilter{}, nil
 }

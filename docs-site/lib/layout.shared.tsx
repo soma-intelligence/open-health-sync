@@ -1,12 +1,12 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 import { Logo } from "@/components/logo";
-import { latestVersion, repoUrl } from "./shared";
+import { docsRoute, latestVersion, repoUrl } from "./shared";
 
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
       title: <Logo />,
-      url: "/documentation",
+      url: docsRoute || "/",
     },
     githubUrl: repoUrl,
     links: [

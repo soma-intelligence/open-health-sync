@@ -523,7 +523,7 @@ export interface SearchFHIRObservationsParams {
    * (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
    * like `type`), or a record type
    * (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
-   * `blood_pressure`, `sleep_session`, `workout`, `daily_summary` or `ecg_recording`). One value; other
+   * `blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other
    * systems are a 400. A code no Observation carries is an empty Bundle.
    */
   code?: string;
@@ -783,6 +783,9 @@ export class OpenHealthSync {
    * Connectors enabled on this instance.
    *
    * `GET /v1/providers`
+   *
+   * The connectors enabled on this instance, less those an instance admin turned off for the
+   * caller's tenant.
    */
   listProviders(options?: RequestOptions): Promise<ListProvidersResponse> {
     return this.#request<ListProvidersResponse>({
@@ -1190,7 +1193,11 @@ export class OpenHealthSync {
    * lands on `redirect_uri?status=connected|error&provider=<slug>`, or on a built-in
    * result page when no `redirect_uri` is given. Each call mints a fresh single-use state;
    * `Idempotency-Key` is not honoured here. While the user's data from this provider is
-   * being deleted the answer is 409: connect again once the deletion job is done.
+   * being deleted the answer is 409: connect again once the deletion job is done. 403 when an
+   * instance admin turned the provider off for the tenant. For a provider without a consent
+   * page for other apps (Eight Sleep) the URL is this server's own sign-in page,
+   * `/oauth/{provider}/signin`, which asks for the account email and password; it ends the
+   * same way.
    */
   startConnection(
     userId: string,
@@ -1408,7 +1415,8 @@ export class OpenHealthSync {
    * (minus an hour of overlap), a day back for a connection that never synced, or at `from`
    * (at most 30 days back). While a manual run of the connection is still queued or running, the
    * answer is 200 with that run and nothing new is queued. 409 when the connection does not sync
-   * (`needs_reauth`, `disconnected`: connect the user again) or its provider is not enabled here.
+   * (`needs_reauth`, `disconnected`: connect the user again), its provider is not enabled here,
+   * or an instance admin turned the provider off for the tenant.
    */
   syncConnection(
     userId: string,
@@ -1726,6 +1734,10 @@ export class OpenHealthSync {
    * Nutrition logs.
    *
    * `GET /v1/users/{id}/nutrition`
+   *
+   * Food and drink entries from Apple Health and Health Connect. Each nutrient has one
+   * unit whatever the source: kcal for energy, g for the macronutrients, mg or mcg for
+   * the others, mL for water (the table is in docs/api.md).
    */
   listNutrition(
     userId: string,
@@ -2317,9 +2329,10 @@ export class OpenHealthSync {
    * The user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,
    * `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
    * panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
-   * workouts (`workout-`), daily summaries (`daily-`) and ECG recordings with their
-   * voltage samples (`ecg-`), merged in time order (a sample's start, a bedtime, a
-   * workout's start, a day at midnight UTC, a recording's start), then by kind and id.
+   * workouts (`workout-`), daily summaries (`daily-`), ECG recordings with their
+   * voltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a
+   * sample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or
+   * a meal's start), then by kind and id.
    * Paged like every list: the Bundle's `next` link carries the cursor, and there is no
    * `next` link on the last page; `total` is left out. A blood pressure pair is never
    * split across pages, and its two samples are not listed on their own. A page holds at

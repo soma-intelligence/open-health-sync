@@ -40,6 +40,7 @@ var additiveTypes = []string{
 	model.QTStepCount,
 	model.QTActiveEnergyBurned,
 	model.QTBasalEnergyBurned,
+	model.QTTotalEnergyBurned,
 	model.QTDistanceWalkingRunning,
 	"distance_cycling",
 	model.QTFlightsClimbed,
@@ -257,8 +258,10 @@ func derivedRow(sc scope, k dayKey, loc *time.Location, hash string, sums map[st
 		return nil
 	}
 	active, basal := f(model.QTActiveEnergyBurned), f(model.QTBasalEnergyBurned)
-	var total *float64
-	if basal != nil {
+	// A source's own total wins; otherwise basal plus active energy, when
+	// the basal part is known.
+	total := f(model.QTTotalEnergyBurned)
+	if total == nil && basal != nil {
 		t := *basal
 		if active != nil {
 			t += *active

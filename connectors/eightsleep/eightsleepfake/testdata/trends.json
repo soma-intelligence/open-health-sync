@@ -1,0 +1,105 @@
+{
+  "days": [
+    {
+      "day": "2026-03-01",
+      "score": 82,
+      "tnt": 14,
+      "processing": false,
+      "presenceDuration": 29700,
+      "sleepDuration": 26100,
+      "lightDuration": 13500,
+      "deepDuration": 5400,
+      "remDuration": 7200,
+      "presenceStart": "2026-02-28T22:30:00.000Z",
+      "presenceEnd": "2026-03-01T06:45:00.000Z",
+      "sleepQualityScore": {
+        "total": 85,
+        "hrv": {"current": 48.5, "average": 45, "score": 80},
+        "respiratoryRate": {"current": 14.2, "average": 14.6, "score": 90},
+        "heartRate": {"current": 54, "average": 56, "score": 88}
+      },
+      "sleepRoutineScore": {"total": 76},
+      "sessions": [
+        {
+          "id": "1772317800",
+          "ts": "2026-02-28T22:30:00.000Z",
+          "stages": [
+            {"stage": "awake", "duration": 900},
+            {"stage": "light", "duration": 5400},
+            {"stage": "deep", "duration": 3600},
+            {"stage": "rem", "duration": 3600},
+            {"stage": "light", "duration": 5400},
+            {"stage": "awake", "duration": 1800},
+            {"stage": "deep", "duration": 1800},
+            {"stage": "light", "duration": 2700},
+            {"stage": "rem", "duration": 3600},
+            {"stage": "awake", "duration": 900},
+            {"stage": "out", "duration": 600}
+          ],
+          "timeseries": {
+            "heartRate": [
+              ["2026-02-28T22:35:00.000Z", 62],
+              ["2026-03-01T01:00:00.000Z", 52],
+              ["2026-03-01T04:00:00.000Z", 0],
+              ["2026-03-01T06:00:00.000Z", 58]
+            ],
+            "respiratoryRate": [
+              ["2026-02-28T22:35:00.000Z", 15.0],
+              ["2026-03-01T01:00:00.000Z", 13.5],
+              ["2026-03-01T06:00:00.000Z", 14.0]
+            ],
+            "tempBedC": [
+              ["2026-02-28T22:35:00.000Z", 30.5],
+              ["2026-03-01T01:00:00.000Z", 29.0],
+              ["2026-03-01T06:00:00.000Z", 29.5]
+            ],
+            "tempRoomC": [
+              ["2026-02-28T22:35:00.000Z", 19.5],
+              ["2026-03-01T06:00:00.000Z", 18.5]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "day": "2026-03-02",
+      "score": "None",
+      "tnt": 9,
+      "processing": true,
+      "sleepQualityScore": {
+        "total": "None",
+        "hrv": {"current": "None"},
+        "respiratoryRate": {"current": 13.8}
+      },
+      "sessions": [
+        {
+          "id": 1772380800,
+          "ts": "2026-03-01T16:00:00.000Z",
+          "stages": [
+            {"stage": "awake", "duration": 300},
+            {"stage": "light", "duration": 1800},
+            {"stage": "out", "duration": 60}
+          ],
+          "timeseries": {}
+        },
+        {
+          "ts": "2026-03-01T23:00:00Z",
+          "stages": [
+            {"stage": "light", "duration": 7200},
+            {"stage": "deep", "duration": 3600},
+            {"stage": "rem", "duration": "None"},
+            {"stage": "light", "duration": 7200}
+          ],
+          "timeseries": {
+            "hrv": [
+              ["2026-03-02T01:00:00.000Z", 40],
+              ["2026-03-02T03:00:00.000Z", "None"],
+              ["2026-03-02T04:00:00.000Z", 50]
+            ],
+            "heartRate": [["not a time", 60]]
+          }
+        }
+      ]
+    }
+  ]
+}

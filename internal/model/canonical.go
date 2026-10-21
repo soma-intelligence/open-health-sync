@@ -199,6 +199,10 @@ type NutritionLog struct {
 	// Replaceable: see QuantitySample.Replaceable. A figure the re-send omits
 	// keeps its stored value rather than being cleared.
 	Replaceable bool
+	// SupersedeMoved: see QuantitySample.SupersedeMoved. The writer deletes
+	// the stored copies of the log (same provider and external id) under
+	// another start.
+	SupersedeMoved bool
 }
 
 // ECGRecording represents ECG metadata (voltage data is in ECGVoltageSample).

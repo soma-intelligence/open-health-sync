@@ -8,11 +8,14 @@
 
 import {
   ApiError,
+  HEALTH_RANGES,
   KEY_STORAGE,
+  SLEEP_STAGES,
   STAGE_STATES,
   absTime,
   apiPath,
   attention,
+  barPath,
   classifyConnection,
   classifyDelivery,
   classifyFreshness,
@@ -20,22 +23,39 @@ import {
   classifyRun,
   classifyUser,
   classifyWebhook,
+  clip,
+  compact,
   confirmMatches,
+  dailySeries,
+  dayLabel,
   formatAgo,
   formatCount,
+  formatDuration,
   formatWindow,
+  healthRange,
   humanize,
   initials,
   isCloud,
   keysPatch,
+  labelDays,
+  latest,
+  linePath,
   makeApi,
+  mean,
+  niceTicks,
   parseRoute,
   pipelineStages,
   providerLabel,
   providerStatusLabel,
+  recordZone,
   relTime,
+  sleepNights,
   splitFigure,
+  statSeries,
   webhookLabel,
+  workoutSeconds,
+  workoutSummary,
+  workoutTimeline,
 } from "./lib.mjs";
 
 // EXPORTS are the CSV exports of a user (GET /v1/users/{id}/exports/{dataset}),
@@ -127,6 +147,20 @@ function icon(name) {
   use.setAttribute("href", `#i-${name}`);
   svg.append(use);
   return svg;
+}
+
+// svgNode builds an SVG element as el builds an HTML one.
+function svgNode(tag, attrs, ...children) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    e.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const c of children.flat(Infinity)) {
+    if (c === null || c === undefined || c === false) continue;
+    e.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return e;
 }
 
 // numeral draws a value as a display numeral, the figure large and its
@@ -316,6 +350,457 @@ function healthCell(h) {
   if (!h || h.healthy) return pill("ok", "Healthy");
   const action = { reconnect: "The user reconnects", wait: "Resumes on its own" }[h.action] || humanize(h.action);
   return cell2(pill(h.action === "reconnect" ? "bad" : "warn", humanize(h.reason || "unhealthy")), action);
+}
+
+// ---------------------------------------------------------------------------
+// Charts: inline SVG, one value per day of a range
+
+// CHART_PAD is the room around a plot: its tick labels on the left, the
+// dates below.
+const CHART_PAD = { top: 10, right: 6, bottom: 24, left: 42 };
+
+// band is where the bar of day i stands: at most 24 px wide, a gap of
+// surface between neighbours once there is room for one.
+function band(geo, i) {
+  const gap = geo.step >= 8 ? 2 : geo.step >= 4 ? 1 : 0;
+  const w = Math.max(1, Math.min(24, geo.step - gap));
+  return { x: geo.x(i) - w / 2, w };
+}
+
+// dayChart draws a chart of the days of a range, sized to its box and drawn
+// again when the box changes width. ticks are the y axis (niceTicks; null
+// for none) and tick renders one; left is the room for the labels left of
+// the plot, or a function of the width giving it. draw(g, geo) adds the marks to g and
+// returns those of each day; tip(i) gives the readout of day i, rows of
+// [series class, value, label], or null when the day holds nothing. A
+// pointer, or the arrow keys once the plot has focus, moves a crosshair over
+// the days and the readout follows it. The table view under each chart
+// holds the same values for whoever cannot use either.
+function dayChart({ days, label, ticks = null, tick = String, height = 150, left: leftOf = CHART_PAD.left, draw, tip }) {
+  const box = el("div", { class: "chart-plot", tabindex: "0", role: "img", "aria-label": label });
+  const readout = el("div", { class: "chart-tip", "aria-hidden": "true", hidden: true });
+  let geo = null;
+  let marks = [];
+  let guide = null;
+  let active = -1;
+  let drawn = 0;
+
+  const render = (width) => {
+    const w = Math.round(width);
+    const left = typeof leftOf === "function" ? leftOf(w) : leftOf;
+    const h = height + CHART_PAD.top + CHART_PAD.bottom;
+    const plotW = w - left - CHART_PAD.right;
+    const step = plotW / days.length;
+    const y = ticks ? (v) => CHART_PAD.top + height * (1 - (v - ticks.lo) / (ticks.hi - ticks.lo)) : null;
+    geo = { width: w, left, top: CHART_PAD.top, height, plotW, step, x: (i) => left + (i + 0.5) * step, y };
+    const svg = svgNode("svg", { width: w, height: h, viewBox: `0 0 ${w} ${h}`, "aria-hidden": "true", focusable: "false" });
+    for (const t of ticks ? ticks.ticks : []) {
+      const ty = Math.round(y(t)) + 0.5;
+      svg.append(
+        svgNode("line", { class: t === ticks.lo ? "grid base" : "grid", x1: left, x2: w - CHART_PAD.right, y1: ty, y2: ty }),
+        svgNode("text", { class: "tick", x: left - 8, y: ty, "text-anchor": "end", "dominant-baseline": "middle" }, tick(t)),
+      );
+    }
+    for (const i of labelDays(days.length, Math.floor(plotW / 70))) {
+      const x = geo.x(i);
+      const end = w - x < 26;
+      svg.append(svgNode("text", { class: "tick", x: end ? w - CHART_PAD.right : x, y: h - 6, "text-anchor": end ? "end" : "middle" }, dayLabel(days[i])));
+    }
+    guide = svgNode("line", { class: "guide", y1: CHART_PAD.top, y2: CHART_PAD.top + height, hidden: true });
+    const g = svgNode("g", {});
+    svg.append(guide, g);
+    marks = draw(g, geo);
+    active = -1;
+    return svg;
+  };
+
+  const hide = () => {
+    for (const m of marks[active] || []) m.classList.remove("on");
+    active = -1;
+    box.classList.remove("hovering");
+    guide?.setAttribute("hidden", "");
+    readout.hidden = true;
+  };
+
+  const show = (i) => {
+    if (!geo) return;
+    const at = Math.max(0, Math.min(days.length - 1, i));
+    if (at === active) return;
+    for (const m of marks[active] || []) m.classList.remove("on");
+    active = at;
+    for (const m of marks[at] || []) m.classList.add("on");
+    // Only a day with marks dims the others.
+    box.classList.toggle("hovering", Boolean(marks[at]?.length));
+    const x = Math.round(geo.x(at)) + 0.5;
+    guide.setAttribute("x1", x);
+    guide.setAttribute("x2", x);
+    guide.removeAttribute("hidden");
+    const rows = tip(at);
+    readout.replaceChildren(
+      el("div", { class: "tip-date" }, dayLabel(days[at], true)),
+      ...(rows
+        ? rows.map(([cls, value, name]) => el("div", { class: "tip-row" }, cls ? el("i", { class: `key ${cls}` }) : null, el("strong", {}, value), name ? el("span", {}, name) : null))
+        : [el("div", { class: "tip-row" }, el("span", {}, "No data"))]),
+    );
+    readout.hidden = false;
+    // Beside the crosshair, on the side with room, so it hides no mark of
+    // the day.
+    const tw = readout.offsetWidth;
+    readout.style.left = `${x + 12 + tw <= geo.width ? x + 12 : Math.max(0, x - 12 - tw)}px`;
+  };
+
+  const redraw = () => {
+    const w = box.clientWidth;
+    if (!w || w === drawn) return;
+    drawn = w;
+    hide();
+    box.replaceChildren(render(w), readout);
+  };
+  const pointer = (ev) => {
+    if (!geo) return;
+    show(Math.floor((ev.clientX - box.getBoundingClientRect().left - geo.left) / geo.step));
+  };
+  box.addEventListener("pointermove", pointer);
+  box.addEventListener("pointerdown", pointer);
+  box.addEventListener("pointerleave", hide);
+  box.addEventListener("blur", hide);
+  box.addEventListener("keydown", (ev) => {
+    const to = { ArrowLeft: active - 1, ArrowRight: active + 1, Home: 0, End: days.length - 1 }[ev.key];
+    if (ev.key === "Escape") hide();
+    if (to === undefined) return;
+    ev.preventDefault();
+    show(active < 0 ? days.length - 1 : to);
+  });
+  if (typeof ResizeObserver === "function") new ResizeObserver(redraw).observe(box);
+  else window.requestAnimationFrame(redraw);
+  return box;
+}
+
+// barChart draws one value per day as bars from zero.
+function barChart({ days, values, cls, name, fmt, tick = compact, label }) {
+  const ticks = niceTicks(0, Math.max(0, ...values.map((v) => v || 0)));
+  return dayChart({
+    days,
+    label,
+    ticks,
+    tick,
+    draw: (g, geo) =>
+      values.map((v, i) => {
+        if (!v || v <= 0) return [];
+        const b = band(geo, i);
+        const top = geo.y(v);
+        const bar = svgNode("path", { class: `mark ${cls}`, d: barPath(b.x, top, b.w, geo.y(ticks.lo) - top) });
+        g.append(bar);
+        return [bar];
+      }),
+    tip: (i) => (values[i] === null ? null : [[cls, fmt(values[i]), name]]),
+  });
+}
+
+// lineChart draws one value per day as a line through the days that have
+// one. A dot marks the latest; sparse series, where the line alone would
+// hide how few days hold a value, get a dot on every point.
+function lineChart({ days, values, cls, name, fmt, tick = String, label }) {
+  const have = values.filter((v) => v !== null);
+  const ticks = niceTicks(Math.min(...have), Math.max(...have));
+  return dayChart({
+    days,
+    label,
+    ticks,
+    tick,
+    draw: (g, geo) => {
+      const points = values.map((v, i) => (v === null ? null : [geo.x(i), geo.y(v)]));
+      const last = latest(values);
+      const sparse = geo.step >= 10 && have.length < days.length * 0.6;
+      g.append(svgNode("path", { class: `line ${cls}`, d: linePath(points.filter(Boolean)) }));
+      return points.map((p, i) => {
+        if (!p) return [];
+        const shown = sparse || have.length === 1 || i === last.index;
+        const dot = svgNode("circle", { class: `dot ${cls}${shown ? "" : " hover-dot"}`, cx: p[0], cy: p[1], r: 4 });
+        g.append(dot);
+        return [dot];
+      });
+    },
+    tip: (i) => (values[i] === null ? null : [[cls, fmt(values[i]), name]]),
+  });
+}
+
+// sleepChart stacks the stages of each night, deep at the baseline, a gap
+// of surface between them; only the top of a night is rounded.
+function sleepChart({ days, nights, label }) {
+  const ticks = niceTicks(0, Math.max(...nights.map((n) => (n ? n.total / 3600 : 0))));
+  return dayChart({
+    days,
+    label,
+    ticks,
+    tick: (t) => `${t} h`,
+    height: 170,
+    draw: (g, geo) =>
+      nights.map((n, i) => {
+        if (!n) return [];
+        const b = band(geo, i);
+        const parts = SLEEP_STAGES.filter(([k]) => n[k] > 0);
+        const out = [];
+        let acc = 0;
+        parts.forEach(([k], j) => {
+          const bottom = geo.y(acc / 3600) - (j > 0 ? 1 : 0);
+          acc += n[k];
+          const top = geo.y(acc / 3600) + (j < parts.length - 1 ? 1 : 0);
+          if (bottom - top <= 0) return;
+          const seg = svgNode("path", { class: `mark s-${k}`, d: barPath(b.x, top, b.w, bottom - top, j === parts.length - 1 ? 4 : 0) });
+          g.append(seg);
+          out.push(seg);
+        });
+        return out;
+      }),
+    tip: (i) => {
+      const n = nights[i];
+      if (!n) return null;
+      return [
+        [null, formatDuration(n.total), "asleep"],
+        ...SLEEP_STAGES.filter(([k]) => n[k] > 0).map(([k, l]) => [`s-${k}`, formatDuration(n[k]), l]),
+        n.awake > 0 ? [null, formatDuration(n.awake), "awake"] : null,
+      ].filter(Boolean);
+    },
+  });
+}
+
+// workoutChart is the timeline of the workouts: a lane per activity type,
+// named on the left, a dot per workout on the day it started.
+function workoutChart({ days, timeline, label }) {
+  const lane = 28;
+  return dayChart({
+    days,
+    label,
+    height: timeline.rows.length * lane,
+    left: (w) => (w < 480 ? 96 : 132),
+    draw: (g, geo) => {
+      timeline.rows.forEach((r, j) => {
+        const cy = geo.top + j * lane + lane / 2;
+        g.append(
+          svgNode("line", { class: "grid", x1: geo.left, x2: geo.left + geo.plotW, y1: Math.round(cy) + 0.5, y2: Math.round(cy) + 0.5 }),
+          svgNode("text", { class: "lane", x: 0, y: cy, "dominant-baseline": "middle" }, clip(r.label, geo.left < 120 ? 12 : 18)),
+        );
+      });
+      const out = days.map(() => []);
+      for (const m of timeline.marks) {
+        const dot = svgNode("circle", { class: "mark dot s-activity", cx: geo.x(m.day), cy: geo.top + m.row * lane + lane / 2, r: 5 });
+        g.append(dot);
+        out[m.day].push(dot);
+      }
+      return out;
+    },
+    tip: (i) => {
+      const day = timeline.marks.filter((m) => m.day === i);
+      return day.length ? day.map((m) => ["s-activity", humanize(m.workout.activity_type), workoutSummary(m.workout)]) : null;
+    },
+  });
+}
+
+// chartPanel frames one chart: its title and headline figure, the plot (an
+// empty state when the range holds nothing, the error when the read
+// failed), its legend and its table view.
+function chartPanel({ title, figure = null, unit = null, plot = null, error = null, emptyText = "", legend = null, rows = null, headers = null }) {
+  return el(
+    "figure",
+    { class: "chart" },
+    el(
+      "figcaption",
+      { class: "chart-head" },
+      el("h3", { class: "chart-title" }, title),
+      figure !== null ? el("div", { class: "chart-figure" }, figure, unit ? el("span", { class: "unit" }, unit) : null) : null,
+    ),
+    error ? errorBox(error) : plot || empty(emptyText),
+    plot && legend && legend.length > 1
+      ? el(
+          "div",
+          { class: "legend" },
+          legend.map(([cls, text]) => el("span", {}, el("i", { class: `swatch ${cls}` }), text)),
+        )
+      : null,
+    plot && rows ? el("details", { class: "chart-table" }, el("summary", {}, "Table"), table(headers, rows, null)) : null,
+  );
+}
+
+// healthCharts lays out the charts of one read of the user's health. Sleep,
+// heart, steps and workouts always show, empty when the range has none;
+// active energy, weight and body fat only when the user has some.
+function healthCharts({ n, days, zone, daily, sleep, workouts, rhr, hrv, hrvKind, weight, fat }) {
+  const span = `the last ${n} days`;
+  const plotLabel = (title, figure, unit, count) =>
+    `${title}, ${span}: ${figure} ${unit}, ${count} of ${n} days with data. Arrow keys read each day.`;
+  const dated = (values, fmt) =>
+    values
+      .map((v, i) => [days[i], v])
+      .filter(([, v]) => v !== null)
+      .reverse()
+      .map(([d, v]) => el("tr", {}, el("td", { class: "nowrap" }, dayLabel(d, true)), el("td", { class: "num" }, fmt(v))));
+
+  // Sleep
+  const nights = sleep.ok ? sleepNights(sleep.value.data, days, zone) : [];
+  const slept = nights.filter(Boolean);
+  const sleepFigure = slept.length ? formatDuration(mean(slept.map((x) => x.total))) : null;
+  const stages = SLEEP_STAGES.filter(([k]) => slept.some((x) => x[k] > 0));
+  const sleepPanel = chartPanel({
+    title: "Sleep",
+    figure: sleepFigure,
+    unit: "a night on average",
+    error: sleep.ok ? null : sleep.error,
+    emptyText: `No sleep in ${span}`,
+    plot: slept.length ? sleepChart({ days, nights, label: plotLabel("Sleep", sleepFigure, "a night on average", slept.length) }) : null,
+    legend: stages.map(([k, l]) => [`s-${k}`, l]),
+    headers: ["Woke up", ["Asleep", "num"], ...stages.map(([, l]) => [l, "num"]), ["Awake", "num"]],
+    rows: slept
+      .slice()
+      .reverse()
+      .map((x) =>
+        el(
+          "tr",
+          {},
+          el("td", { class: "nowrap" }, dayLabel(x.date, true)),
+          el("td", { class: "num" }, formatDuration(x.total)),
+          stages.map(([k]) => el("td", { class: "num" }, x[k] ? formatDuration(x[k]) : "-")),
+          el("td", { class: "num" }, x.awake ? formatDuration(x.awake) : "-"),
+        ),
+      ),
+  });
+
+  // series is the panel of one value per day, as bars or a line.
+  const series = ({ title, result, values, kind, cls, name, fmt, figure, unit, tick, emptyText, header }) =>
+    chartPanel({
+      title,
+      figure: values.some((v) => v !== null) ? figure : null,
+      unit,
+      error: result.ok ? null : result.error,
+      emptyText,
+      plot: values.some((v) => v !== null)
+        ? (kind === "bar" ? barChart : lineChart)({ days, values, cls, name, fmt, tick, label: plotLabel(title, figure, unit, values.filter((v) => v !== null).length) })
+        : null,
+      headers: ["Date", [header, "num"]],
+      rows: dated(values, fmt),
+    });
+
+  const rhrValues = rhr.ok ? statSeries(rhr.value, days) : [];
+  const rhrPanel = series({
+    title: "Resting heart rate",
+    result: rhr,
+    values: rhrValues,
+    kind: "line",
+    cls: "s-heart",
+    name: "resting",
+    fmt: (v) => `${Math.round(v)} bpm`,
+    figure: String(Math.round(mean(rhrValues))),
+    unit: "bpm on average",
+    emptyText: `No resting heart rate in ${span}`,
+    header: "bpm",
+  });
+  const hrvValues = hrv.ok ? statSeries(hrv.value, days) : [];
+  const hrvPanel = series({
+    title: `Heart rate variability${hrvKind ? ` (${hrvKind})` : ""}`,
+    result: hrv,
+    values: hrvValues,
+    kind: "line",
+    cls: "s-heart",
+    name: hrvKind,
+    fmt: (v) => `${Math.round(v)} ms`,
+    figure: String(Math.round(mean(hrvValues))),
+    unit: "ms on average",
+    emptyText: `No heart rate variability in ${span}`,
+    header: "ms",
+  });
+
+  const stepValues = daily.ok ? dailySeries(daily.value.data, days, "step_count") : [];
+  const stepPanel = series({
+    title: "Steps",
+    result: daily,
+    values: stepValues,
+    kind: "bar",
+    cls: "s-activity",
+    name: "steps",
+    fmt: (v) => formatCount(v),
+    figure: formatCount(mean(stepValues)),
+    unit: "a day on average",
+    emptyText: `No steps in ${span}`,
+    header: "Steps",
+  });
+  const kcalValues = daily.ok ? dailySeries(daily.value.data, days, "active_kcal") : [];
+  const kcalPanel = kcalValues.some((v) => v !== null)
+    ? series({
+        title: "Active energy",
+        result: daily,
+        values: kcalValues,
+        kind: "bar",
+        cls: "s-activity",
+        name: "active",
+        fmt: (v) => `${formatCount(v)} kcal`,
+        figure: formatCount(mean(kcalValues)),
+        unit: "kcal a day on average",
+        header: "kcal",
+      })
+    : null;
+
+  const timeline = workouts.ok ? workoutTimeline(workouts.value.data, days, zone) : { rows: [], marks: [], seconds: 0 };
+  const count = timeline.marks.length;
+  const workoutUnit = `${count === 1 ? "workout" : "workouts"}, ${formatDuration(timeline.seconds)} in all`;
+  const workoutPanel = chartPanel({
+    title: "Workouts",
+    figure: count ? formatCount(count) : null,
+    unit: workoutUnit,
+    error: workouts.ok ? null : workouts.error,
+    emptyText: `No workout in ${span}`,
+    plot: count ? workoutChart({ days, timeline, label: plotLabel("Workouts", formatCount(count), workoutUnit, new Set(timeline.marks.map((m) => m.day)).size) }) : null,
+    headers: ["Date", "Activity", ["Duration", "num"], "Details"],
+    rows: timeline.marks
+      .slice()
+      .reverse()
+      .map((m) =>
+        el(
+          "tr",
+          {},
+          el("td", { class: "nowrap" }, dayLabel(days[m.day], true)),
+          el("td", {}, humanize(m.workout.activity_type)),
+          el("td", { class: "num" }, formatDuration(workoutSeconds(m.workout))),
+          el("td", { class: "dim" }, workoutSummary({ ...m.workout, duration_s: 0 }) || "-"),
+        ),
+      ),
+  });
+
+  // measure is the panel of a body measurement taken now and then: the
+  // latest value leads, with how far it moved over the range.
+  const measure = (title, result, unit, digits) => {
+    const values = result.ok ? statSeries(result.value, days) : [];
+    if (result.ok && !values.some((v) => v !== null)) return null;
+    const last = latest(values);
+    const first = values.find((v) => v !== null);
+    const moved = last ? last.value - first : 0;
+    const change = last && last.index > values.indexOf(first) ? `, ${moved >= 0 ? "+" : "−"}${Math.abs(moved).toFixed(digits)} since ${dayLabel(days[values.indexOf(first)])}` : "";
+    return series({
+      title,
+      result,
+      values,
+      kind: "line",
+      cls: "s-body",
+      name: title.toLowerCase(),
+      fmt: (v) => `${v.toFixed(digits)} ${unit}`,
+      figure: last ? last.value.toFixed(digits) : "-",
+      unit: `${unit} latest${change}`,
+      header: unit,
+    });
+  };
+  const weightPanel = measure("Weight", weight, "kg", 1);
+  const fatPanel = measure("Body fat", fat, "%", 1);
+
+  // Two charts a row; one alone in its row takes the whole width.
+  const rowsOf = [[sleepPanel], [rhrPanel, hrvPanel], [stepPanel, kcalPanel], [workoutPanel], [weightPanel, fatPanel]];
+  return el(
+    "div",
+    { class: "charts" },
+    rowsOf.flatMap((row) => {
+      const kept = row.filter(Boolean);
+      if (kept.length === 1) kept[0].classList.add("wide");
+      return kept;
+    }),
+  );
 }
 
 function main() {
@@ -1440,6 +1925,10 @@ function main() {
           : body(errorBox(runs.error)),
       ),
       card({ title: "Coverage", hint: "Days with data, per provider." }, cov.ok ? coverageBlock(cov.value, covSummary) : body(errorBox(cov.error))),
+      card(
+        { title: "Health", hint: "Sleep, heart, activity, workouts and body measurements over the last 30 or 90 days. They load only when you ask, and each read is recorded in the audit log." },
+        healthBlock(id),
+      ),
       card({ title: "Data", hint: "Health values load only when you ask. Each read and export is recorded in the audit log." }, dataBlock(id)),
     );
   }
@@ -1539,6 +2028,79 @@ function main() {
       el("p", { class: "muted small note" }, "FHIR and Open mHealth hold the first 1,000 records; the archive holds everything."),
       out,
     );
+  }
+
+  // healthBlock draws the user's health as charts. Like dataBlock it reads
+  // health values only when the operator asks, through the API, so each
+  // read is in the audit log as data.read. Picking the other range once the
+  // charts show reads it at once; until then it only picks.
+  function healthBlock(id) {
+    let days = HEALTH_RANGES[0];
+    let shown = false;
+    let seq = 0;
+    const out = el("div", { class: "charts-wrap" });
+    const load = el("button", { type: "button", class: "primary" }, icon("eye"), "Show charts");
+    const picks = HEALTH_RANGES.map((n) => {
+      const b = el("button", { type: "button", "aria-pressed": String(n === days) }, `${n} days`);
+      b.addEventListener("click", () => {
+        if (n === days) return;
+        days = n;
+        for (const [i, p] of picks.entries()) p.setAttribute("aria-pressed", String(HEALTH_RANGES[i] === n));
+        if (shown) read();
+      });
+      return b;
+    });
+    async function read() {
+      const mine = ++seq;
+      load.disabled = true;
+      out.setAttribute("aria-busy", "true");
+      try {
+        const charts = await readHealth(id, days);
+        if (mine !== seq) return; // a later range won
+        out.replaceChildren(charts);
+        shown = true;
+        load.replaceChildren(icon("refresh"), "Reload");
+        load.className = "";
+      } catch (err) {
+        failure(err);
+      } finally {
+        if (mine === seq) {
+          load.disabled = false;
+          out.removeAttribute("aria-busy");
+        }
+      }
+    }
+    load.addEventListener("click", read);
+    return body(el("div", { class: "chart-bar" }, el("div", { class: "segmented", role: "group", "aria-label": "Range" }, picks), load), out);
+  }
+
+  // readHealth reads the last n days of a user from the documented routes:
+  // daily summaries (steps, active energy), sleep sessions, workouts, and
+  // the daily statistics of resting heart rate, heart rate variability,
+  // weight and body fat in the zone the records were made in. A failing
+  // read shows in its own chart.
+  async function readHealth(id, n) {
+    const base = ["v1", "users", id];
+    const range = healthRange(n);
+    const query = { start: range.start, end: range.end, limit: 1000 };
+    const [daily, sleep, workouts] = await Promise.all([
+      settle(apiPath([...base, "daily"], query)),
+      settle(apiPath([...base, "sleep"], { ...query, start: range.before })),
+      settle(apiPath([...base, "workouts"], query)),
+    ]);
+    const data = (r) => (r.ok ? r.value.data || [] : []);
+    const zone = recordZone(data(daily), data(sleep), data(workouts));
+    const stats = (type) => settle(apiPath([...base, "samples", "stats"], { type, interval: "day", tz: zone, start: range.start, end: range.end }));
+    const [rhr, rmssd, weight, fat] = await Promise.all([stats("resting_heart_rate"), stats("hrv_rmssd"), stats("body_mass"), stats("body_fat_percentage")]);
+    // RMSSD and SDNN never share a chart: SDNN only when there is no RMSSD.
+    let hrv = rmssd;
+    let hrvKind = "RMSSD";
+    if (!rmssd.ok || !(rmssd.value.buckets || []).length) {
+      const sdnn = await stats("hrv_sdnn");
+      if (sdnn.ok && (sdnn.value.buckets || []).length) [hrv, hrvKind] = [sdnn, "SDNN"];
+      else if (rmssd.ok) hrvKind = null;
+    }
+    return healthCharts({ n, days: range.days, zone, daily, sleep, workouts, rhr, hrv, hrvKind, weight, fat });
   }
 
   // -------------------------------------------------------------------------

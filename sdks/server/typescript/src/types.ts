@@ -107,6 +107,61 @@ export interface CreatedAPIKey {
   key: string;
 }
 
+export interface AdminTenant {
+  id: string;
+  name: string;
+  /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
+  admin: boolean;
+  created_at: string;
+  /** The tenant's keys that are not revoked. */
+  active_keys: number;
+}
+
+export interface CreatedAdminTenant {
+  id: string;
+  name: string;
+  /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
+  admin: boolean;
+  created_at: string;
+  /** The tenant's keys that are not revoked. */
+  active_keys: number;
+  /** The tenant's first key, with its secret, returned this once. */
+  key: CreatedAPIKey;
+}
+
+export interface CreateAdminTenantRequest {
+  /**
+   * Surrounding spaces are trimmed; what is left must be 1 to 100 characters, none of them a
+   * control character.
+   */
+  name: string;
+}
+
+export interface DemoUserRequest {
+  /**
+   * The user to fill, created when the tenant has none with this reference. By default
+   * `demo-user` for `mix` and `demo-<persona>` for the others, so each persona fills its own.
+   */
+  external_ref?: string;
+  /** Days of data, ending yesterday. */
+  days?: number;
+  /**
+   * The kind of person: `mix` (one person seen through six sources), `runner` (polar, whoop,
+   * apple_health), `sleep` (a short, irregular sleeper: oura, apple_health) or `weight`
+   * (someone watching their weight: withings, fitbit). See docs/demo.md.
+   */
+  persona?: "mix" | "runner" | "sleep" | "weight";
+}
+
+export interface DemoUser {
+  user: User;
+  days: number;
+  /** Rows this call stored; 0 when every day was already there. */
+  rows_written: number;
+  /** The persona written. */
+  persona: "mix" | "runner" | "sleep" | "weight";
+}
+
 export interface Pipeline {
   generated_at: string;
   users: PipelineUser;
@@ -261,6 +316,92 @@ export interface AdminProviderPatch {
   enabled?: boolean;
 }
 
+export interface AdminTenantProvider {
+  slug: string;
+  name: string;
+  kinds: ("oauth" | "push" | "device")[];
+  /** The provider's status on the instance, as `GET /v1/admin/providers` gives it. */
+  instance_status: "active" | "off" | "not_configured" | "error" | "built_in";
+  /** The tenant's switch, true unless an instance admin turned it off. */
+  enabled: boolean;
+  /**
+   * True while the tenant has keys of its own for the provider
+   * (`/v1/admin/tenants/{tenant_id}/providers/{provider}/keys`).
+   */
+  own_keys: boolean;
+  /**
+   * True when the tenant's users can use the provider now: `enabled` is true and either the
+   * tenant's own keys run, or the tenant has none and the instance runs the provider
+   * (`active` or `built_in`).
+   */
+  available: boolean;
+  /** The last change of the switch, null when it was never set. */
+  updated_at: string | null;
+}
+
+export interface AdminTenantProviderKeys {
+  provider: string;
+  /** True while the tenant has keys of its own for the provider. */
+  set: boolean;
+  /**
+   * `active`: the tenant's new connections use these keys. `error`: they do not run (they no
+   * longer open with the configured encryption keys, or the provider refused them, see
+   * `error`); the tenant cannot connect the provider until they are set again or removed.
+   * `not_set`: the tenant uses the instance's keys.
+   */
+  status: "active" | "error" | "not_set";
+  error: string | null;
+  /** The first and last four characters of `CLIENT_ID`, never all of it. */
+  client_id: string | null;
+  /** Every key the provider takes. No value is ever served. */
+  keys: AdminTenantProviderKeysKey[];
+  /**
+   * The addresses to register in the tenant's application at the provider: the instance's,
+   * the same for every tenant.
+   */
+  urls: AdminTenantProviderKeysUrl;
+  created_at: string | null;
+  updated_at: string | null;
+  /** The id of the admin key that saved the keys. */
+  updated_by: string | null;
+  /**
+   * Only in the answers of PUT and DELETE: how many connections of the tenant the change
+   * set `needs_reauth`.
+   */
+  reauth_required?: number;
+}
+
+export interface AdminTenantProviderKeysKey {
+  name: string;
+  required: boolean;
+  secret: boolean;
+  set: boolean;
+}
+
+/**
+ * The addresses to register in the tenant's application at the provider: the instance's,
+ * the same for every tenant.
+ */
+export interface AdminTenantProviderKeysUrl {
+  /** The OAuth redirect URI. */
+  redirect: string | null;
+  /** Where the provider posts notifications, for a push provider. */
+  inbound: string | null;
+}
+
+export interface AdminTenantProviderKeysPut {
+  /**
+   * Every key of the tenant's application by name, such as `CLIENT_ID` and
+   * `CLIENT_SECRET`; the provider's `keys` lists them. Replaces the previous ones whole.
+   */
+  keys: Record<string, string>;
+}
+
+export interface AdminTenantProviderPatch {
+  /** false turns the provider off for the tenant, true turns it back on. */
+  enabled: boolean;
+}
+
 export interface AuditEvent {
   /** Increasing; the cursor of the next page. */
   id: number;
@@ -270,8 +411,9 @@ export interface AuditEvent {
    * data.read, data.export, data.write, user.create, user.read, user.delete,
    * user.erased, token.create, connection.read, connection.create,
    * connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
-   * config.write, tenant.create, key.create, key.revoke, share.create, share.read,
-   * share.revoke, share.access (more may be added).
+   * config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
+   * key.revoke, share.create,
+   * share.read, share.revoke, share.access (more may be added).
    */
   action: string;
   /** The end user the action concerns. */
@@ -303,6 +445,8 @@ export interface Provider {
   /** Display name, the slug when the build has none. Older servers leave it out. */
   name?: string;
   kinds: ("oauth" | "push" | "device")[];
+  /** What the connector delivers: first the record kinds it writes (sample, category, sleep, workout, route, nutrition, ecg, heartbeat, daily), then the canonical quantity names it can produce. Read from the connector's source, so a quantity is listed when the connector can write it, not when a given user has it. Older servers leave it out. */
+  data_types?: string[];
 }
 
 export interface CreateUserRequest {
@@ -825,6 +969,7 @@ export interface NutritionLog {
   id: number;
   start_date: string;
   end_date?: string | null;
+  /** breakfast, lunch, dinner or snack. */
   meal_type?: string | null;
   energy_kcal?: number | null;
   protein_g?: number | null;
@@ -833,7 +978,10 @@ export interface NutritionLog {
   fiber_g?: number | null;
   sugar_g?: number | null;
   sodium_mg?: number | null;
-  /** Extended nutrients by name. */
+  /**
+   * Extended nutrients by name (caffeine, vitamin_d, water...), each in its
+   * nutrient's unit (docs/api.md lists them).
+   */
   nutrients?: Record<string, unknown> | null;
   external_id?: string | null;
   /** Provider fields kept as is, plus timezone (IANA name) when known. */

@@ -73,6 +73,7 @@ type Options struct {
 type Connector struct {
 	mu   sync.RWMutex
 	keys connector.Config
+	opts Options // what New was given, for NewInstance
 
 	authBase, apiBase string
 	httpc             *http.Client
@@ -102,6 +103,7 @@ var (
 // New returns a WHOOP connector.
 func New(o Options) *Connector {
 	c := &Connector{
+		opts:      o,
 		authBase:  o.AuthBase,
 		apiBase:   o.APIBase,
 		httpc:     o.HTTPClient,
@@ -181,6 +183,16 @@ func (c *Connector) Configure(cfg connector.Config) error {
 	defer c.mu.Unlock()
 	c.keys = connector.Config{KeyClientID: cfg[KeyClientID], KeyClientSecret: cfg[KeyClientSecret]}
 	return nil
+}
+
+// NewInstance returns a connector like c without keys, sharing its HTTP
+// client, for a tenant's own keys (connector.Instancer).
+func (c *Connector) NewInstance() connector.Connector {
+	o := c.opts
+	o.HTTPClient = c.httpc
+	n := New(o)
+	n.keys = nil
+	return n
 }
 
 // credentials returns the configured client id and secret.
