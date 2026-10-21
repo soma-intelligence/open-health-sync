@@ -8,8 +8,6 @@ an infrastructure pipeline) can create a tenant per team, hand out and revoke it
 pipeline, choose its providers, give it a demo user and read its data for support, without the
 database credentials.
 
-> **Next release.** These routes are on `main` and ship in the next release.
-
 ## The admin key
 
 Every route here takes a key of an [instance admin](console.md#the-instance-admin) tenant, the

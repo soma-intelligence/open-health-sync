@@ -1,6 +1,6 @@
 # Spec: ECG read
 
-Status: built on main for the next release (2026-10-14). Guides: [api.md](../api.md#ecg-recordings),
+Status: shipped in v0.2.0 (built 2026-10-14). Guides: [api.md](../api.md#ecg-recordings),
 [fhir.md](../fhir.md#ecg-recordings), [mcp.md](../mcp.md#tools), [exports.md](../exports.md).
 
 ## Problem

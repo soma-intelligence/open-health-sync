@@ -20,8 +20,8 @@ as well.
 | Price | Free. You pay for your own server | Start Up: 499 EUR a month for 500 users. Scale Up: 1,000 EUR a month for 5,000 users. Enterprise: on request. A free trial for 25 users ([pricing](https://thryve.health/product/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Thryve's infrastructure in Germany, for 2 weeks on Start Up and 1 month on Scale Up, per the pricing page |
 | History when a user connects | A backfill of what each provider's API serves | Not on Start Up; up to 14 days on Scale Up |
-| Sources | 13 available, 4 more on main for the next release ([list](../connectors/README.md)) | 500+ wearables and health trackers advertised, Garmin included. Apple Health, Health Connect and Samsung Health through its SDK |
-| Garmin | Next release: a Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files (next release) | Yes, and a Garmin companion module for real-time Bluetooth data, which needs a Garmin license |
+| Sources | 18 available ([list](../connectors/README.md)) | 500+ wearables and health trackers advertised, Garmin included. Apple Health, Health Connect and Samsung Health through its SDK |
+| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files | Yes, and a Garmin companion module for real-time Bluetooth data, which needs a Garmin license |
 | Data model | One canonical model with named types (`heart_rate`, `step_count`), one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Epoch data and daily data, with 250+ numbered data types (`1000` steps, `3000` heart rate) |
 | FHIR and Open mHealth | FHIR R4 checked with the official HL7 validator, Open mHealth checked against the official schemas ([FHIR R4](../fhir.md), [Open mHealth](../open-mhealth.md)) | Not found on its site |
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Not stated |
@@ -47,7 +47,7 @@ for as long as you keep it. It idles in about 22 MB of memory and runs on a Rasp
 
 - **You want an EU provider to run it**: Thryve hosts everything in Germany and holds ISO 27001
   and ISO 9001 certificates, so you have no server of your own to secure and audit.
-- **You need Garmin today**, or trackers beyond the 13 sources here, under one contract.
+- **You need Garmin without a Garmin app of your own**, or trackers beyond the 18 sources here, under one contract.
 - **You need real-time Garmin data in your app** through its Garmin companion module.
 - **You do not want to register a developer app with each vendor**: Thryve's shared OAuth
   clients cover that until you want your own.

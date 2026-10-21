@@ -191,7 +191,7 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 | Resource | Filters | Ordered by |
 |---|---|---|
 | `samples` | `type` (required), `start`, `end`, `view` | `start_date` |
-| `samples/stats` (next release) | `type`, `start`, `end` (required), `interval`, `tz`, `provider`, `view` | interval, not paged |
+| `samples/stats` (0.2.0 and later) | `type`, `start`, `end` (required), `interval`, `tz`, `provider`, `view` | interval, not paged |
 | `category-samples` | `type` (optional), `start`, `end`, `view` | `start_date` |
 | `sleep` | `start`, `end`, `view` | `bedtime_start` |
 | `sleep/{session_id}/phases` | `start`, `end` | `start_date` |
@@ -346,8 +346,6 @@ rules (local days, gaps inside a period, the read limit) are in
 
 ### ECG recordings
 
-> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
-
 `GET /v1/users/{id}/ecg` lists the user's ECG recordings (Apple Watch through Apple Health,
 Withings) by start time, metadata only. `GET /v1/users/{id}/ecg/{ecg_id}` returns one recording
 with its voltage samples. Both take a tenant key, like every read.
@@ -420,7 +418,7 @@ the source: the mappers convert to it and refuse a value whose unit does not con
 | `nutrients.biotin`, `chromium`, `folate`, `folic_acid`, `iodine`, `molybdenum`, `selenium`, `vitamin_a`, `vitamin_b12`, `vitamin_d`, `vitamin_k` | mcg |
 | `nutrients.water` | mL |
 
-`meal_type` is `breakfast`, `lunch`, `dinner`, `snack` or null. Rows written before the release after 0.1.0 may
+`meal_type` is `breakfast`, `lunch`, `dinner`, `snack` or null. Rows written before 0.2.0 may
 hold `nutrients` in the unit the upload gave (an Apple Health food entry also kept its core
 masses unconverted); erasing the provider's data and importing again rewrites them. A Health
 Connect entry is identified by its record id: a re-sent record replaces its figures, a record

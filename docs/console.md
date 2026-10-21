@@ -6,8 +6,8 @@ save their keys, create users and send them a connection link, start a sync, ret
 stuck, manage webhook endpoints and API keys, and read the audit log. Everything it does is a
 call to a documented API route with your tenant key, exactly as `curl` would.
 
-> **Next release.** The actions and this design are on `main` and ship in the next release; the
-> 0.1.0 image serves a read-only console.
+> **0.2.0 and later.** The actions and this design ship in 0.2.0; the 0.1.0 image serves a
+> read-only console.
 
 ## Turn it on
 

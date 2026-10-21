@@ -1,6 +1,6 @@
 # Spec: Xiaomi
 
-Status: built on main for the next release (2026-10-13). Guide: [connectors/xiaomi.md](../connectors/xiaomi.md).
+Status: shipped in v0.2.0 (built 2026-10-13). Guide: [connectors/xiaomi.md](../connectors/xiaomi.md).
 
 ## Problem
 

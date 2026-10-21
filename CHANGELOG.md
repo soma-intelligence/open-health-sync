@@ -7,6 +7,17 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-21
+
+An admin console that runs the pipeline, an admin API for instances that serve several teams,
+provider keys per tenant, and new sources: Garmin, Eight Sleep, Xiaomi, activity files (FIT, GPX,
+TCX) and standard Bluetooth health devices through the new `ohs-bridge`. ECG recordings are
+served, and self reports, share links (SMART Health Links), sample statistics, encryption key
+rotation and signed releases are new. Migrations `0035` to `0042` apply on start.
+`OHS_CONSOLE=true` now serves the console with its actions, and the FHIR Observation search
+refuses parameters it does not support: read the [release notes](docs/release-notes/v0.2.0.md)
+before you upgrade.
+
 ### Added
 
 - Releases carry the Android example app, `ohs-example-android.apk`, so a phone installs it without
@@ -343,7 +354,6 @@ release may change the API, the configuration or the database schema.
   prints only the summary), and the summary splits parts into `stored now` and
   `already stored` instead of `uploaded`, which counted both.
 
-
 ### Fixed
 
 - Apple Health basal and active energy recorded in `Cal` (HealthKit's large calorie, a
@@ -387,6 +397,8 @@ release may change the API, the configuration or the database schema.
 
 ### Security
 
+- Binaries and the image are built with Go 1.26.10, which fixes GO-2026-6809 in `crypto/x509`
+  (govulncheck found it reachable from the server on 1.26.9).
 - The release workflow builds only a version tag on a commit of `main`, and never rebuilds a
   published release: re-pushing its tag stops before anything is built, signed or uploaded.
   The image build context is an allowlist of what `go build` needs, so a local `.env`, a dump
@@ -874,7 +886,8 @@ First public release, an early preview. See the
   `ghcr.io/soma-intelligence/open-health-sync`, and static binaries for Linux and macOS on
   amd64 and arm64 with SHA-256 checksums.
 
-[Unreleased]: https://github.com/soma-intelligence/open-health-sync/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/soma-intelligence/open-health-sync/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/soma-intelligence/open-health-sync/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/soma-intelligence/open-health-sync/releases/tag/v0.0.1

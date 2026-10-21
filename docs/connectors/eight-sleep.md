@@ -4,7 +4,7 @@ Slug `eight_sleep`. Users connect their own Eight Sleep account (Pod 3, Pod 4, P
 email and password they use in the Eight Sleep app. Open Health Sync pulls their nightly sleep
 data on a schedule: sleep stages, heart rate, HRV, breathing rate, and bed and room temperature.
 
-Status: available on `main`, next release.
+Status: available since 0.2.0.
 
 **Eight Sleep has no public API and no partner program.** This connector signs in the way the
 Eight Sleep app does and reads the same API the app reads. Nothing about it is documented or

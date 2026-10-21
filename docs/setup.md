@@ -1,7 +1,5 @@
 # First-run setup in the browser
 
-> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
-
 A fresh instance has no tenant, so no API key exists yet. The usual way to get the first one is a
 terminal: `ohs admin tenant create`, or `OHS_BOOTSTRAP_TENANT`, which prints the key once in the
 logs. Where there is no terminal and no log viewer, as with Umbrel, CasaOS and similar app

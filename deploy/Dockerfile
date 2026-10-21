@@ -25,7 +25,7 @@ RUN mkdir -p /out/raw
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
 LABEL io.modelcontextprotocol.server.name="io.github.soma-intelligence/open-health-sync" \
       org.opencontainers.image.source="https://github.com/soma-intelligence/open-health-sync" \
-      org.opencontainers.image.description="Self-hosted health data aggregator: thirteen sources in one canonical model, REST API, read-only MCP server, FHIR R4 and Open mHealth." \
+      org.opencontainers.image.description="Self-hosted health data aggregator: eighteen sources in one canonical model, REST API, read-only MCP server, FHIR R4 and Open mHealth." \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /out/ohs /ohs
 COPY --from=build --chown=65532:65532 /out/raw /var/lib/ohs/raw

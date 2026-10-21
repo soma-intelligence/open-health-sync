@@ -1,6 +1,6 @@
 # Spec: activity files (FIT, GPX, TCX)
 
-Status: built on main for the next release (2026-10-14). Guide:
+Status: shipped in v0.2.0 (built 2026-10-14). Guide:
 [connectors/activity-files.md](../connectors/activity-files.md).
 
 ## Problem

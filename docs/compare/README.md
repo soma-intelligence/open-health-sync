@@ -14,7 +14,7 @@ check their pages too.
 
 | | Kind | License | Starting price | Sources it claims |
 |---|---|---|---|---|
-| **Open Health Sync** | Open source, self-hosted | AGPL-3.0 | Free, you pay for your server | 13 available ([list](../connectors/README.md)) |
+| **Open Health Sync** | Open source, self-hosted | AGPL-3.0 | Free, you pay for your server | 18 available ([list](../connectors/README.md)) |
 | [Terra](https://tryterra.co) | Hosted API | Proprietary | $399 a month billed annually, $499 monthly | 500+ wearables and sources |
 | [Junction](https://junction.com) (formerly Vital) | Hosted API, plus lab testing | Proprietary | $300 a month for up to 500 users | 300+ devices |
 | [Thryve](https://www.thryve.health) | Hosted API, hosted in Europe | Proprietary | 499 EUR a month for up to 500 users | 500+ trackers |
@@ -44,10 +44,10 @@ Detailed comparisons:
 | Raw payloads kept | Always | Varies | Varies | What you build |
 | Runs on a Raspberry Pi | Yes, one binary | No | Usually several services | Depends |
 | Vendor developer apps | You register your own | Often theirs | You register your own | You register your own |
-| Garmin | Next release, with your own Garmin app | Most have it | Some have it | Needs Garmin's approval |
+| Garmin | Yes, with your own Garmin app | Most have it | Some have it | Needs Garmin's approval |
 | Dashboard | Admin console, no end-user dashboard | Yes | Some ship one | What you build |
 
-Pick a hosted API when you need Garmin or a long tail of devices today, do not want to run a
+Pick a hosted API when you need Garmin without your own Garmin app or a long tail of devices today, do not want to run a
 server, or need your vendor's SOC 2 and HIPAA attestations. Pick an open source aggregator when the
 data has to stay on your infrastructure, per-user fees do not fit, or you want to read and change
 the code. Pick Open Health Sync among those when standard formats (FHIR R4, Open mHealth), kept
@@ -98,14 +98,14 @@ Shimmer was the open source aggregator of the Open mHealth project: it read Fitb
 a few other APIs and wrote Open mHealth data points. Its repository has had no commit since May
 2021 and no release since 2017, and several of the APIs it supported no longer exist. Open
 Health Sync writes the same [Open mHealth](../open-mhealth.md) data points, checked against the
-official schemas, from 13 current sources.
+official schemas, from 18 current sources.
 
 ### Which devices and apps does Open Health Sync support?
 
-Thirteen sources are available: Apple Health, Health Connect (and through it Samsung Health and
+Eighteen sources are available: Apple Health, Health Connect (and through it Samsung Health and
 other Android apps), Withings, Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman,
-intervals.icu, Dexcom and OMRON. Garmin, Xiaomi, FIT, GPX and TCX activity files, and standard
-Bluetooth health devices are on main for the next release. Others are planned. The
+intervals.icu, Dexcom, OMRON, Garmin, Eight Sleep, Xiaomi, FIT, GPX and TCX activity files, and standard
+Bluetooth health devices. Others are planned. The
 [connectors page](../connectors/README.md) lists the status and integration path of each.
 
 ## Next

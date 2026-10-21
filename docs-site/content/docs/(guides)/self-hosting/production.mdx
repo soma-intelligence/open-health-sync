@@ -39,7 +39,7 @@ metrics and shows how to send OpenTelemetry traces to a collector.
 
 `OHS_ENCRYPTION_KEY` seals provider OAuth tokens. Store it in your secret manager and in your
 backups. Without it, stored tokens cannot be read and every user must connect their providers
-again. From the next release, replace it online by following
+again. Since 0.2.0, replace it online by following
 [rotating the encryption key](/documentation/self-hosting/key-rotation); on 0.1.0, a new key leaves
 the stored tokens unreadable.
 

@@ -1,7 +1,5 @@
 # Rotating the encryption key
 
-> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
-
 `OHS_ENCRYPTION_KEY` seals the secrets Open Health Sync keeps in the database: the OAuth access
 and refresh tokens of every provider connection (`ohs_sync.connections`), the signing secret
 of every webhook endpoint (`ohs_core.webhook_endpoints`), the provider keys saved in the

@@ -19,15 +19,15 @@ as well.
 | License | AGPL-3.0 | Proprietary |
 | Price | Free. You pay for your own server | Launch: $300 a month, billed monthly, for 1 to 500 connected users. Enterprise: custom, billed annually, unlimited users ([pricing](https://www.junction.com/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Junction's cloud, in a US or an EU region ([quickstart](https://docs.junction.com/home/quickstart)) |
-| Sources | 13 available, 4 more on main for the next release ([list](../connectors/README.md)) | 300+ devices advertised: cloud APIs such as Garmin, Fitbit, Oura, WHOOP, Withings, Polar and Dexcom, Apple HealthKit, Health Connect and Samsung Health through its mobile SDKs, and Bluetooth meters ([providers](https://docs.junction.com/wearables/providers/introduction)) |
-| Garmin | Next release: a Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files (next release) | Yes |
+| Sources | 18 available ([list](../connectors/README.md)) | 300+ devices advertised: cloud APIs such as Garmin, Fitbit, Oura, WHOOP, Withings, Polar and Dexcom, Apple HealthKit, Health Connect and Samsung Health through its mobile SDKs, and Bluetooth meters ([providers](https://docs.junction.com/wearables/providers/introduction)) |
+| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files | Yes |
 | Lab testing | No | A lab testing API, at-home kits and phlebotomy, on Enterprise |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Junction's own resources, such as the sleep summary at `/summary/sleep` |
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Raw provider data through routes such as `/v2/summary/sleep/{user_id}/raw` |
 | FHIR and Open mHealth | FHIR R4 checked with the official HL7 validator, Open mHealth checked against the official schemas ([FHIR R4](../fhir.md), [Open mHealth](../open-mhealth.md)) | Not in its documentation index |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | REST requests, webhooks such as `daily.data.workouts.created`, and ETL pipelines to your warehouse on Enterprise |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Not in its documentation index |
-| SDKs | Swift, Kotlin, React Native and Flutter for apps; TypeScript and Python for your backend (next release). Installed from the repository for now ([SDKs](../sdks/README.md)) | iOS, Android and Flutter for apps; Python, TypeScript, Java and Go for your backend |
+| SDKs | Swift, Kotlin, React Native and Flutter for apps; TypeScript and Python for your backend. Installed from the repository for now ([SDKs](../sdks/README.md)) | iOS, Android and Flutter for apps; Python, TypeScript, Java and Go for your backend |
 | Vendor developer apps | You register your own app with each vendor | Junction's by default. Custom OAuth credentials on Enterprise |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | HIPAA compliant and GDPR ready on every plan; a BAA, SOC 2 Type 2 and ISO 27001 on Enterprise, per Junction |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Junction's cloud |
@@ -45,7 +45,7 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 - **You need lab tests as well as wearable data.** Junction runs a lab testing API with a lab
   network, at-home kits and phlebotomy. Open Health Sync has no lab offering.
-- **You need Garmin today**, or sources beyond the 13 here, such as Peloton, Zwift
+- **You need Garmin without a Garmin app of your own**, or sources beyond the 18 here, such as Peloton, Zwift
   or Abbott LibreView, under one contract.
 - **You do not want to run a server**, or to register a developer app with each vendor.
 - **You need your vendor's attestations**: SOC 2 Type 2, ISO 27001 and a BAA, on Enterprise.

@@ -1,6 +1,6 @@
 # Spec: share links
 
-Status: built on main for the next release (2026-10-14). Guide:
+Status: shipped in v0.2.0 (built 2026-10-14). Guide:
 [share-links.md](../share-links.md). Plan: [plans/share-links.md](../plans/share-links.md).
 
 ## Problem

@@ -15,7 +15,7 @@ with Ctrl K. Keys and access tokens are masked on screen. The README shows a pos
 
 `demo-dark.gif` and `demo-light.gif` are terminal recordings of the [quickstart](../../README.md#quickstart),
 made with [VHS](https://github.com/charmbracelet/vhs). Nothing in them is mocked: the commands are
-the quickstart's, run against the image `deploy/docker-compose.yml` names
+the quickstart's, run against the image `deploy/docker-compose.yml` named when they were recorded
 (`ghcr.io/soma-intelligence/open-health-sync:0.1.0`), and the data is the synthetic set of `ohs seed --demo`
 ([docs/demo.md](../demo.md)), one invented person seen through six devices.
 

@@ -21,7 +21,7 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 - **Never expose Postgres.** The bundled compose file publishes no database port; keep it
   that way. A database elsewhere belongs on a private network, reached with `sslmode=verify-full`
   in `OHS_DATABASE_URL`.
-- **Keep the rate limits on, and rate limit at the proxy too.** From the next release, the
+- **Keep the rate limits on, and rate limit at the proxy too.** Since 0.2.0, the
   application limits only
   the provider-facing routes, per instance (`OHS_RATE_LIMIT_*`, see
   [self-hosting.md](self-hosting.md#rate-limits)). Behind a reverse proxy, list it in

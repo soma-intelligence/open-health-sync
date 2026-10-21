@@ -1,7 +1,5 @@
 # Server SDKs
 
-> **Next release.** This is on `main` and ships in the next release; the 0.1.0 image does not have it.
-
 Two clients of the API for your backend, the code that holds a tenant API key (`ohs_sk_...`):
 
 | Language | Directory | Needs |

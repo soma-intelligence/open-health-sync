@@ -18,8 +18,8 @@ its own site, pricing page and documentation, checked on 2026-10-18. They change
 | License | AGPL-3.0 | Proprietary |
 | Price | Free. You pay for your own server | Free sandbox for 30 days (25 development users). Starter: $299 a month billed annually, 1,000 users, then $0.40 a user. Pro: $1,499 a month billed annually, 10,000 users, then $0.20 a user. Enterprise on request ([pricing](https://sahha.ai/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Sahha's cloud, for 30 days on Starter and 120 days on Pro |
-| Sources | 13 available, 4 more on main for the next release ([list](../connectors/README.md)) | 800+ devices across 165 integrations advertised, Garmin included |
-| Garmin | Next release: a Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files (next release) | Listed, in beta, with Garmin's approval required |
+| Sources | 18 available ([list](../connectors/README.md)) | 800+ devices across 165 integrations advertised, Garmin included |
+| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files | Listed, in beta, with Garmin's approval required |
 | What you read | Records as measured: samples, sleep sessions and phases, workouts, daily summaries, in one unit per quantity ([data model](../data-model.md)) | Five health scores, 100+ biomarkers, 100+ archetypes and insights computed by Sahha |
 | Health scores | None: it keeps the scores providers send (readiness, recovery, strain) and computes none | The product's core |
 | FHIR and Open mHealth | FHIR R4 checked with the official HL7 validator, Open mHealth checked against the official schemas ([FHIR R4](../fhir.md), [Open mHealth](../open-mhealth.md)) | Not found on its site |
@@ -45,7 +45,7 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 - **You want scores, not raw figures**: health scores, biomarkers and archetypes you can show
   users without building the models yourself.
-- **You need Garmin**, or sources beyond the 13 here, through one SDK and API.
+- **You need Garmin without a Garmin app of your own**, or sources beyond the 18 here, through one SDK and API.
 - **You do not want to hold personal data**: Sahha works without PII.
 - **You need your vendor's SOC 2 Type II report**, or a BAA on Pro.
 

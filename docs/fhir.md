@@ -419,7 +419,7 @@ components.
 | `nutrients.<name>`, every other nutrient of [the nutrient table](api.md#nutrition-logs) | component code system only | the nutrient's unit: `kcal`, `g`, `mg` or `ug` (`mcg`) |
 
 The LOINC codes are point in time codes, the shape of one entry. A name in `nutrients` that the
-nutrient table does not list has no known unit and is left out. Rows written before the release after 0.1.0 may
+nutrient table does not list has no known unit and is left out. Rows written before 0.2.0 may
 hold extended nutrients in the unit the line gave rather than the table's
 ([api.md](api.md#nutrition-logs) says how to rewrite them). Like ECG
 recordings, nutrition logs have no merged view: two apps logging one meal are two entries.

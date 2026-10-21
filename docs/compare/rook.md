@@ -18,8 +18,8 @@ own site and pricing page, checked on 2026-10-18. They change, so check
 | License | AGPL-3.0 | Proprietary |
 | Price | Free. You pay for your own server | Core: $399 a month for up to 750 active users. Core+: $999 for up to 5,000. Business: $1,999 for up to 15,000. Enterprise on request. Lab data billed apart, from $249 a month for 300 files ([pricing](https://www.tryrook.io/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | ROOK's cloud. Dedicated servers on Enterprise |
-| Sources | 13 available, 4 more on main for the next release ([list](../connectors/README.md)) | 500+ devices through one integration advertised (its site also lists 72 data sources), plus medical devices |
-| Garmin | Next release: a Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files (next release) | Yes |
+| Sources | 18 available ([list](../connectors/README.md)) | 500+ devices through one integration advertised (its site also lists 72 data sources), plus medical devices |
+| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files | Yes |
 | Lab results | No | Lab Data API, with biomarkers coded in LOINC and FHIR R4 output |
 | Health records (EHR) | Planned, after the SDKs: SMART on FHIR patient access ([connectors](../connectors/README.md)) | EHR/EMR API with FHIR R4 output, on a waitlist on the pricing page |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | ROOK's normalized data |
@@ -46,7 +46,7 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 - **You need lab results or health records next to wearable data**, in one API, with FHIR R4
   output.
-- **You need Garmin today**, or devices beyond the 13 sources here, under one contract.
+- **You need Garmin without a Garmin app of your own**, or devices beyond the 18 sources here, under one contract.
 - **Your users cannot install your app**: the ROOK App collects their data instead.
 - **You want ready-made health scores and threshold alerts** (ROOK Score and ROOK Signals).
 - **You do not want to run a server**, or to register a developer app with each vendor.
