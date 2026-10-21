@@ -1,7 +1,15 @@
 # README demos
 
-Two recordings in the [README](../../README.md): the quickstart in a terminal, and a user
-connecting their sources in a browser.
+Three recordings in the [README](../../README.md): the quickstart in a terminal, a user
+connecting their sources in a browser, and a tour of the hosted developer portal.
+
+## Platform tour
+
+`platform-tour.mp4` (1080p, 60 fps, 75 seconds) walks through the developer portal of the hosted
+beta on test data: sign up, create an organization and a project, connect a coding agent over MCP,
+load the synthetic sample data, read it on the Data page and in the API explorer, then open a page
+with Ctrl K. Keys and access tokens are masked on screen. The README shows a poster
+(`docs/assets/readme/platform-tour-light.jpg`, `-dark.jpg`) that links to the file.
 
 ## Quickstart
 

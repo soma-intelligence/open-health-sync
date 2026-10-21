@@ -40,7 +40,7 @@ billed by the number of files a month. ROOK offers a 30-day pilot and month to m
 
 Open Health Sync costs nothing to use. You pay for the server it runs on, and for any vendor
 program that charges developers (some partner programs do). It idles in about 22 MB of memory
-and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/open-wearables.md)).
+and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 ## Pick ROOK when
 
@@ -81,5 +81,4 @@ The [quickstart](../../README.md#quickstart) starts an instance with Docker Comp
 with 90 days of synthetic data from six sources, so you can call every route before you connect
 a real account.
 
-See also: [all the options compared](README.md), [Terra API alternative](terra.md) and
-[Open Health Sync vs Open Wearables](open-wearables.md).
+See also: [all the options compared](README.md) and [Terra API alternative](terra.md).

@@ -42,7 +42,7 @@ WHOOP data reaches the API through a WHOOP developer app that you register yours
 3. Open WHOOP's consent page and allow access:
 
    ```sh
-   python3 recipes/connect.py whoop
+   go run ./recipes/connect whoop
    ```
 
 The first data arrives a few seconds later, and the history follows in the background. Check
@@ -57,8 +57,8 @@ curl -s "$OHS_URL/v1/users/$OHS_USER/coverage" -H "Authorization: Bearer $OHS_KE
 Everything at once, one file per list:
 
 ```sh
-python3 recipes/export-all.py                     # CSV, into health-export-<date>/
-python3 recipes/export-all.py --format parquet    # Parquet, for pandas, Polars or DuckDB
+go run ./recipes/export-all                    # CSV, into health-export-<date>/
+go run ./recipes/export-all -format parquet    # Parquet, for DuckDB, Polars or pandas
 ```
 
 Or one list at a time over the API. The daily summaries hold WHOOP's recovery and strain scores
@@ -83,11 +83,10 @@ figure when several measured the same thing
 (`YYYY-MM-DD`) for a window, and `type=hrv_rmssd` to the `samples` export for one measurement.
 Columns and types are described in [CSV and Parquet exports](../exports.md).
 
-```python
-import pandas as pd
-daily = pd.read_parquet("health-export-2026-10-18/daily.parquet")
-whoop = daily[daily["provider"] == "whoop"][["date", "recovery_score", "strain_score", "resting_hr"]]
-print(whoop.tail(14))
+```sh
+duckdb -c "SELECT date, recovery_score, strain_score, resting_hr
+           FROM 'health-export-2026-10-18/daily.parquet'
+           WHERE provider = 'whoop' ORDER BY date DESC LIMIT 14"
 ```
 
 ## What the WHOOP API does not give

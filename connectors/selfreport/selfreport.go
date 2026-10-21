@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
@@ -91,4 +92,16 @@ func (c *Connector) Map(raw connector.RawRecord) (model.MapResult, error) {
 		return model.MapResult{}, fmt.Errorf("%w: %s", ErrInvalidLine, err.Error())
 	}
 	return model.MapResult{QuantitySamples: []model.QuantitySample{report.Sample(raw.UserID, r)}}, nil
+}
+
+// DataTypes implements connector.DataTypes: Map builds its quantity types
+// from the report kind, so they are listed here rather than read from the
+// source.
+func (c *Connector) DataTypes() []string {
+	out := []string{connector.KindSample}
+	for _, s := range model.SelfReportScales {
+		out = append(out, s.Type)
+	}
+	sort.Strings(out[1:])
+	return out
 }

@@ -1,3 +1,10 @@
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/koi-hero-dark.gif">
+  <img src="docs/assets/readme/koi-hero-light.gif" width="100%" alt="Sync health data in peace. Koi drawn in characters swim around the line, in a seamless loop.">
+</picture>
+</p>
+
 <a href="#quickstart">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.png">
@@ -22,7 +29,7 @@ An open source, self-hosted alternative to hosted wearable APIs such as Terra.
 ![amd64 and arm64](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-555)
 [![Go version](https://img.shields.io/github/go-mod/go-version/soma-intelligence/open-health-sync?color=555)](go.mod)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-555)](LICENSE)
-[![Hosted beta: join the waitlist](https://img.shields.io/badge/hosted_beta-join_the_waitlist-0e9f8e)](https://openhealthsync.com/waitlist?utm_source=github&utm_medium=readme&utm_campaign=badge)
+[![Hosted beta: sign up free](https://img.shields.io/badge/hosted_beta-sign_up_free-0e9f8e)](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=badge)
 
 <p>
 <a href="docs/connectors/apple-health.md"><img alt="Apple Health: available" src="https://img.shields.io/badge/Apple_Health-available-0e9f8e?style=flat-square"></a>
@@ -46,7 +53,7 @@ docker pull ghcr.io/soma-intelligence/open-health-sync:0.1.0
 ```
 
 **Rather not run a server?** The hosted beta is the same API with nothing to operate: a key in a minute, demo data on the first call.<br>
-[**Join the developer waitlist →**](https://openhealthsync.com/waitlist?utm_source=github&utm_medium=readme&utm_campaign=hero) &nbsp;&middot;&nbsp; Invited? [Sign in to the developer portal](https://app.openhealthsync.com/portal)
+[**Get started for free →**](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=hero) &nbsp;&middot;&nbsp; [Sign in to the developer portal](https://app.openhealthsync.com/portal) &nbsp;&middot;&nbsp; [▶ Watch the 75-second tour](#hosted-beta)
 
 [**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Hosted beta](#hosted-beta) &nbsp;&middot;&nbsp; [Compare](#open-health-sync-vs-terra-and-other-health-data-apis) &nbsp;&middot;&nbsp; [Roadmap](#roadmap-at-a-glance) &nbsp;&middot;&nbsp; [Use cases](#what-you-can-build) &nbsp;&middot;&nbsp; [Why](#why) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [How it works](#how-it-works) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [FAQ](#faq)
 
@@ -122,12 +129,14 @@ Provider deletions are honored too.
 The same server, run for you. The hosted beta is Open Health Sync without a Postgres, a raw
 store or workers to operate: you sign in, create a key and read data on your first call.
 
+<a href="docs/demo/platform-tour.mp4">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/platform-project-dark.png">
-  <img src="docs/assets/readme/platform-project-light.png" width="100%" alt="The developer portal of the hosted beta, on a project named Sleep coach. An activation strip shows five of six steps done: create an API key, load sample data, make your first call, create a user and get real data in; receiving webhooks is next. The open step shows a curl, JavaScript and Python snippet that registers a webhook endpoint. Counters at the bottom show two users, no connections, no syncs in 24 hours and no webhook endpoints.">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/platform-tour-dark.jpg">
+  <img src="docs/assets/readme/platform-tour-light.jpg" width="100%" alt="Play the 75-second tour of the developer portal. The poster shows the Data page of a test project named Sleep Coach: one user, 11k records over 30 days from six sources, and a bar chart of records per day stacked by source (WHOOP, Fitbit, Oura, Polar, Apple Health, Withings).">
 </picture>
+</a>
 
-<sub>The developer portal on a test project: each project walks you from an empty key to data in your app, with code in curl, JavaScript and Python.</sub>
+<sub>A 75-second tour on test data: create an account and a project, connect a coding agent over MCP, load sample data, see it charted, call the API from the explorer, then Ctrl K. <a href="docs/demo/platform-tour.mp4">Play the video</a> (MP4, 9 MB).</sub>
 
 - **A key in a minute.** Create a project and get its API key. During the beta: three projects
   per account, five keys per project.
@@ -147,11 +156,11 @@ store or workers to operate: you sign in, create a key and read data on your fir
 
 <sub>The <a href="examples/web">web example</a> reading a user back with a project key: daily steps, resting heart rate and sleep stages, all synthetic data.</sub>
 
-It is free during the beta and opens by invitation, in small groups. For now it takes test data
+It is a free beta with open sign-up, on shared capacity. For now it takes test data
 only: demo and synthetic users, no real people's health data. Self-hosting stays first class,
 and the server stays free under the AGPL.
 
-<p><a href="https://openhealthsync.com/waitlist?utm_source=github&utm_medium=readme&utm_campaign=section"><b>Join the developer waitlist →</b></a> &nbsp;Only an email is required. Already invited? <a href="https://app.openhealthsync.com/portal">Sign in to the developer portal</a>.</p>
+<p><a href="https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=section"><b>Get started for free →</b></a> &nbsp;Sign up with an email and confirm it. Already have an account? <a href="https://app.openhealthsync.com/portal">Sign in to the developer portal</a>.</p>
 
 ## Roadmap at a glance
 
@@ -190,7 +199,7 @@ and the server stays free under the AGPL.
 | 🔜 | Self reports: a person's own ratings (feeling, mood, stress, energy, sleep quality and more) next to their synced data ([docs](docs/self-reports.md)) | | |
 | 🔜 | Share links (SMART Health Links): an encrypted FHIR bundle for a doctor or coach, with expiry, passcode and a built-in viewer ([docs](docs/share-links.md)) | | |
 | 🔜 | Tenants and their API keys managed over HTTP with an instance admin key, for one instance serving several teams ([docs](docs/admin-api.md)) | | |
-| ✅ | Personal mode (`ohs admin personal setup`) and [eight small Python recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
+| ✅ | Personal mode (`ohs admin personal setup`) and [eight small Go recipes](docs/recipes/README.md) on your own data | 🛠 | Health records (EHR) through SMART on FHIR |
 | ✅ | [Kotlin, Swift, React Native and Flutter SDKs](docs/sdks/README.md) and example apps | 🛠 | Coros |
 
 A line moves up only when its release is published. Details per source:
@@ -209,7 +218,7 @@ A line moves up only when its release is published. Details per source:
   and keep it on a machine you own.
 - **Small tools on your own data.** `ohs admin personal setup` gives you one instance for
   yourself, and the [recipes](docs/recipes/README.md) add a sleep report, a heart trend, a weekly
-  digest, a dashboard and more, each a single Python file with no dependency.
+  digest, a dashboard and more, each a single Go file with no dependency.
 
 ## Why
 
@@ -605,7 +614,7 @@ and units):
 ## Open Health Sync vs Terra and other health data APIs
 
 Looking for a Terra API alternative, or an open source health data aggregator? Here is how Open
-Health Sync compares with the hosted wearable APIs and the other open source option. Facts about
+Health Sync compares with the hosted wearable APIs. Facts about
 other products come from their own sites and pricing pages, checked on 2026-10-17; each row links
 to a full comparison, with how to move.
 
@@ -613,7 +622,6 @@ to a full comparison, with how to move.
 |---|---|---|---|---|---|
 | **Open Health Sync** | Yes, AGPL-3.0 | Free, you pay for your server | Yes, checked with the official HL7 validator | Read-only, stdio and HTTP | Your server |
 | [Terra](docs/compare/terra.md) | No | $399 a month billed annually | A FHIR option, no version named | Read-only | Terra's cloud, then your destination |
-| [Open Wearables](docs/compare/open-wearables.md) | Yes, MIT | Free, custom Enterprise tier | Not in its documentation | Yes, stdio | Your server |
 | [Junction](docs/compare/junction.md) | No | $300 a month for up to 500 users | Not in its documentation | Not in its documentation | Junction's cloud, US or EU |
 | [Thryve](docs/compare/thryve.md) | No | 499 EUR a month for up to 500 users | Not found on its site | Not found on its site | Thryve's servers in Germany |
 | [Spike API](docs/compare/spike.md) | No | From $450 a month | Not found in its documentation | Yes | Spike's cloud |
@@ -680,23 +688,21 @@ beta.
 <details>
 <summary><b>Is there a hosted version?</b></summary>
 
-Yes, in private beta: the same API, run for you, free during the beta and for test data only for
-now. Developers join by invitation, in small groups.
-[Join the waitlist](https://openhealthsync.com/waitlist?utm_source=github&utm_medium=readme&utm_campaign=faq); the [hosted beta](#hosted-beta) section says what it gives you.
+Yes, in free beta with open sign-up: the same API, run for you on shared capacity, for test and
+demo data only for now.
+[Sign up free](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=faq); the [hosted beta](#hosted-beta) section says what it gives you.
 
 </details>
 
 <details>
-<summary><b>How does it compare to Terra or Open Wearables?</b></summary>
+<summary><b>How does it compare to Terra?</b></summary>
 
 Terra is a hosted API: it advertises 500+ integrations, Garmin included, starts at $399 a month
-billed annually, and your users' data passes through its cloud. Open Wearables is open source (MIT) and
-self-hosted like Open Health Sync, with a dashboard and a larger community. Open Health Sync is
+billed annually, and your users' data passes through its cloud. Open Health Sync is
 free and puts standards first: FHIR R4 and Open mHealth output checked against the official
 validators, every raw payload kept, and one Go binary that runs on a Raspberry Pi. See the
 [comparison table](#open-health-sync-vs-terra-and-other-health-data-apis), or side by side:
-[Terra API alternative](docs/compare/terra.md),
-[Open Health Sync vs Open Wearables](docs/compare/open-wearables.md).
+[Terra API alternative](docs/compare/terra.md).
 
 </details>
 
@@ -767,7 +773,7 @@ Known limitations:
 - The client SDKs are 0.1.0 and not on package registries yet; install them from this
   repository. Reading Health Connect from the Kotlin SDK is planned.
 
-The hosted beta is open by invitation ([waitlist](https://openhealthsync.com/waitlist?utm_source=github&utm_medium=readme&utm_campaign=status)).
+The hosted beta is a free beta with open sign-up (shared capacity, test and demo data only): [sign up free](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=status).
 
 Next: more connectors, standard outputs (more FHIR R4 resources), then
 Health Connect reading in the Kotlin SDK, then health records (EHR) through SMART on FHIR. Requests are welcome as GitHub issues, including the connector request form.

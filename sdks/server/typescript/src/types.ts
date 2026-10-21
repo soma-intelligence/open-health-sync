@@ -445,6 +445,8 @@ export interface Provider {
   /** Display name, the slug when the build has none. Older servers leave it out. */
   name?: string;
   kinds: ("oauth" | "push" | "device")[];
+  /** What the connector delivers: first the record kinds it writes (sample, category, sleep, workout, route, nutrition, ecg, heartbeat, daily), then the canonical quantity names it can produce. Read from the connector's source, so a quantity is listed when the connector can write it, not when a given user has it. Older servers leave it out. */
+  data_types?: string[];
 }
 
 export interface CreateUserRequest {

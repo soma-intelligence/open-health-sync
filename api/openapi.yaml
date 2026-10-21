@@ -5652,6 +5652,16 @@ components:
         kinds:
           type: array
           items: { type: string, enum: [oauth, push, device] }
+        data_types:
+          type: array
+          description: >-
+            What the connector delivers: first the record kinds it writes (sample,
+            category, sleep, workout, route, nutrition, ecg, heartbeat, daily), then
+            the canonical quantity names it can produce. Read from the connector's
+            source, so a quantity is listed when the connector can write it, not
+            when a given user has it. Older servers leave it out.
+          items: { type: string }
+          examples: [[sample, sleep, workout, heart_rate, step_count]]
 
     CreateUserRequest:
       type: object
