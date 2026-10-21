@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/muktihari/fit v0.28.4
+	github.com/muktihari/fit v0.28.5
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/stretchr/testify v1.12.1

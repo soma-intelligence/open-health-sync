@@ -163,8 +163,8 @@ github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtw
 github.com/modelcontextprotocol/go-sdk v1.8.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
 github.com/morikuni/aec v1.0.0 h1:nP9CBfwrvYnBRgY6qfDQkygYDmYwOilePFkwzv4dU8A=
 github.com/morikuni/aec v1.0.0/go.mod h1:BbKIizmSmc5MMPqRYbxO4ZU0S0+P200+tUnFx7PXmsc=
-github.com/muktihari/fit v0.28.4 h1:r1WH+vO8n0i/7hYtrEDC7f4HxdjhvTt8ZmMriJmy+G0=
-github.com/muktihari/fit v0.28.4/go.mod h1:Nlz7BvsAbVK4TKXdO5zAxiKS7m1tnG/s7EYD4lJ8iLI=
+github.com/muktihari/fit v0.28.5 h1:0ERnksJnYCGc68RFhFtoTt65oe/iCMWVCn2qX9hShXA=
+github.com/muktihari/fit v0.28.5/go.mod h1:FEn9JREshtrA3yAVDXxuIBCZp9QuK1IyRduYTweEfv0=
 github.com/oasdiff/yaml v0.1.1 h1:6nHx+pn9gBRM6YpBlFZFQGCCd1nuvqOBtTD3KKTgGxY=
 github.com/oasdiff/yaml v0.1.1/go.mod h1:EYJNoyktvWMJ0Hmhx+6qTaqMOsalUaRGT8Sj1hNcegU=
 github.com/oasdiff/yaml3 v0.0.14 h1:aLJee3hxBK2H5wdXd9iPcIXb93Nty1Ge0pT171eHtkw=
