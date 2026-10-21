@@ -4,6 +4,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # 0.150 and 0.151 validate OpenAPI 3.1 bodies with JSON Schema 2020-12 and
+      # fail to compile a $ref nested inside a copied component
+      # (json-pointer ... #/components/schemas/FHIRCoding not found), which
+      # breaks test/contract. Lift once a release passes those tests.
+      - dependency-name: github.com/getkin/kin-openapi
+        versions: [">= 0.150.0"]
     groups:
       go-minor-and-patch:
         update-types: [minor, patch]

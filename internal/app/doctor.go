@@ -98,7 +98,7 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 	}
 
 	cfg, cfgErr := config.Load(o.Lookup, o.Environ)
-	if cfgErr != nil && errors.Is(cfgErr, config.ErrEncryptionKey) && get("OHS_ENCRYPTION_KEY", "") == "" {
+	if cfgErr != nil && errors.Is(cfgErr, config.ErrEncryptionKey) && get("OHS_ENCRYPTION_KEY", "") == "" && get("OHS_ENCRYPTION_KEY_FILE", "") == "" {
 		key, err := NewEncryptionKey()
 		if err != nil {
 			report("config", err, "")
@@ -108,6 +108,11 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 		}
 	} else {
 		report("config", cfgErr, "")
+	}
+	if cfgErr == nil {
+		if d := secretSources(cfg, get); d != "" {
+			report("secrets", nil, d)
+		}
 	}
 
 	// Database and raw store use the raw variables so they are still checked
@@ -311,4 +316,28 @@ func writeHint(rawURL string) string {
 		return " (the container runs as uid 65532: a bind mounted folder needs `chown -R 65532:65532 <folder>` on the host)"
 	}
 	return " (check the bucket exists and the credentials may write to it)"
+}
+
+// secretSources says where the encryption key and the setup token came from
+// when one of them uses a _FILE variable, without printing either secret.
+func secretSources(cfg config.Config, get func(string, string) string) string {
+	describe := func(name string, src config.SecretSource) string {
+		switch src {
+		case config.SourceFile:
+			return name + " read from " + get(name+"_FILE", "")
+		case config.SourceCreated:
+			return name + " generated into " + get(name+"_FILE", "")
+		}
+		return ""
+	}
+	var parts []string
+	for _, p := range []string{
+		describe("OHS_ENCRYPTION_KEY", cfg.EncryptionKeySource),
+		describe("OHS_SETUP_TOKEN", cfg.SetupTokenSource),
+	} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, "; ")
 }

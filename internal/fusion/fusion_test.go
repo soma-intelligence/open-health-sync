@@ -99,3 +99,14 @@ func TestWorkoutsPreferTheOriginalRecording(t *testing.T) {
 		assert.GreaterOrEqual(t, slices.Index(order, vendor), 0, vendor)
 	}
 }
+
+func TestKnownMetrics(t *testing.T) {
+	m := KnownMetrics()
+	require.NotEmpty(t, m)
+	assert.IsIncreasing(t, m, "sorted, each once")
+	for _, metric := range m {
+		assert.NotEmpty(t, Group(metric), metric)
+	}
+	assert.Contains(t, m, "step_count")
+	assert.Contains(t, m, MetricSleep)
+}

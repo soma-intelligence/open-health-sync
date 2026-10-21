@@ -34,6 +34,13 @@ console never shows the setup link.
 On an app store, the store's per-install app password (the secret it generates for each install
 and shows you on the app's page) is the natural value for `OHS_SETUP_TOKEN`.
 
+A store that cannot generate a secret per install can set `OHS_SETUP_TOKEN_FILE` instead (next
+release), for example `/var/lib/ohs/secrets/setup-token` on a mounted folder. On first start
+`ohs` writes a random token into that file, and you read it from the store's file browser to open
+the setup page. `OHS_ENCRYPTION_KEY_FILE` works the same way for the encryption key; back that
+file up with the database, since the stored OAuth tokens cannot be read without it. `ohs doctor`
+says which file each secret came from, without printing it.
+
 ## The routes
 
 The page calls two routes, which a script can call too:

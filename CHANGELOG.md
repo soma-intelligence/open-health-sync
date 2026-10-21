@@ -16,6 +16,12 @@ release may change the API, the configuration or the database schema.
   app can tell which source gives what without reading the docs. The lists are read from each
   mapper's source by `go run ./internal/connector/cmd/gendatatypes`, which also writes the table in
   [docs/connectors/README.md](docs/connectors/README.md#what-each-connector-delivers).
+- `OHS_ENCRYPTION_KEY_FILE` and `OHS_SETUP_TOKEN_FILE`: read the encryption key or the setup token
+  from a file instead of the variable. A missing file is created on first start with a random
+  value (mode 0600), so app store templates without per-install secrets (CasaOS, Unraid) still get
+  a different key on every install. Setting a variable and its `_FILE` together is an error, and
+  `ohs doctor` says which file each secret came from without printing it. See
+  [docs/setup.md](docs/setup.md).
 - Admin console for the whole pipeline. `/console` now runs the instance, not only shows it: an
   overview of the five pipeline stages (sources, sync, processing, storage, delivery) with what
   needs attention, providers turned on and their keys saved from the browser, users created and
@@ -346,6 +352,11 @@ release may change the API, the configuration or the database schema.
   so a derived day's `total_kcal` was close to its active energy alone. Values already stored
   stay wrong: erase the Apple Health data (`DELETE /v1/users/{id}/data/apple_health`) and
   import the export again.
+- `ohs import` given a folder says to pass export.zip or export.xml, instead of the system's
+  "is a directory".
+- Suunto: a workout whose `startTime` or `workoutId` has an unexpected JSON type (a string
+  where a number was expected) no longer drops its whole page of workouts; that workout is
+  kept and reported by the mapper like any unreadable start.
 - Disconnecting or deleting a user now revokes the Oura access token (`GET /oauth/revoke`),
   like WHOOP, Strava and Polar.
 - A provider deletion notice (Oura, WHOOP, Strava) now updates the connection's
