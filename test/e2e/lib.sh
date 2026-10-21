@@ -101,6 +101,17 @@ e2e_up() {
   fi
   e2e_compose up -d --no-build --wait --wait-timeout 180 >"$E2E_WORK/up.log" 2>&1 || {
     tail -n 30 "$E2E_WORK/up.log"; e2e_compose logs --tail 50 ohs || true; return 1; }
+  # The container healthcheck runs `ohs doctor --quick`, which can pass before
+  # the HTTP listener accepts connections, so wait for /readyz on the
+  # published port too.
+  local i code
+  for i in $(seq 1 60); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' "$E2E_URL/readyz" || true)
+    [ "$code" = "200" ] && return 0
+    sleep 1
+  done
+  echo "/readyz never answered 200 on $E2E_URL (last: $code)"; e2e_compose logs --tail 50 ohs || true
+  return 1
 }
 
 e2e_down() {
