@@ -3,8 +3,8 @@
 A health data aggregator collects data from wearables and health apps (Apple Health, Health
 Connect, Oura, WHOOP, Garmin, Fitbit, Withings and others) and gives your product one API for all
 of them, instead of one integration per vendor. There are three ways to get one: a hosted API
-such as Terra or Junction, an open source aggregator you run yourself such as Open Health Sync or
-Open Wearables, or code you write and maintain.
+such as Terra or Junction, an open source aggregator you run yourself such as Open Health Sync,
+or code you write and maintain.
 
 This page compares the main options. Facts about other products come from their own sites,
 pricing pages and repositories, checked on 2026-10-17. Prices and integration counts change, so
@@ -15,7 +15,6 @@ check their pages too.
 | | Kind | License | Starting price | Sources it claims |
 |---|---|---|---|---|
 | **Open Health Sync** | Open source, self-hosted | AGPL-3.0 | Free, you pay for your server | 13 available ([list](../connectors/README.md)) |
-| [Open Wearables](https://openwearables.io) | Open source, self-hosted | MIT | Free, custom Enterprise tier | 13 providers |
 | [Terra](https://tryterra.co) | Hosted API | Proprietary | $399 a month billed annually, $499 monthly | 500+ wearables and sources |
 | [Junction](https://junction.com) (formerly Vital) | Hosted API, plus lab testing | Proprietary | $300 a month for up to 500 users | 300+ devices |
 | [Thryve](https://www.thryve.health) | Hosted API, hosted in Europe | Proprietary | 499 EUR a month for up to 500 users | 500+ trackers |
@@ -28,7 +27,6 @@ check their pages too.
 Detailed comparisons:
 
 - [Terra API alternative](terra.md): Open Health Sync and Terra, side by side, and how to move.
-- [Open Health Sync vs Open Wearables](open-wearables.md): the two open source options.
 - [Junction alternative](junction.md): wearable data and lab testing, and how to move.
 - [Thryve alternative](thryve.md): a hosted API in Germany, and how to move.
 - [Spike API alternative](spike.md): wearables, nutrition from photos and an MCP server.
@@ -59,10 +57,9 @@ raw payloads, several tenants on one instance, or a small footprint matter to yo
 
 ### Is there an open source alternative to Terra?
 
-Yes. Open Health Sync and Open Wearables are both free, open source and self-hosted. Open Health
-Sync puts standards first (FHIR R4, Open mHealth, raw payloads kept) and runs as one Go binary;
-Open Wearables has the larger community, a dashboard and an MIT license. See
-[Terra API alternative](terra.md) and [Open Health Sync vs Open Wearables](open-wearables.md).
+Yes. Open Health Sync is free, open source and self-hosted. It puts standards first (FHIR R4,
+Open mHealth, raw payloads kept) and runs as one Go binary. See
+[Terra API alternative](terra.md).
 
 ### How much does a wearable data API cost?
 

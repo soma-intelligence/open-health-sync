@@ -5,7 +5,7 @@ sleep the weeks I trained the most?", "has my resting heart rate changed since I
 running?". It reads through the Model Context Protocol (MCP).
 
 ```sh
-python3 recipes/ai-agent.py
+go run ./recipes/ai-agent
 ```
 
 ```text
@@ -27,7 +27,7 @@ Paste the lines for your client and restart it.
 
 It reads your samples, sleep, workouts, daily summaries and coverage through the MCP tools. It
 cannot write, delete or connect anything, it sees only your user, and it stops working after 30
-days (`--days` sets fewer). To revoke it sooner, pass the whole token to
+days (`-days` sets fewer). To revoke it sooner, pass the whole token to
 `ohs admin key revoke --tenant <id> --key ohs_ut_...`; the tenant id is in the first line of
 `~/.ohs.env`.
 

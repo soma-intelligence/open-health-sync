@@ -29,7 +29,7 @@ from the Health app on your iPhone, and run `ohs import apple-health export.zip`
 From the repository folder:
 
 ```sh
-python3 recipes/ai-agent.py
+go run ./recipes/ai-agent
 ```
 
 ```text

@@ -3,8 +3,8 @@
 See what feeds your instance, how fresh each source is, and connect a new one in one command.
 
 ```sh
-python3 recipes/connect.py            # what is connected, and what can be
-python3 recipes/connect.py oura       # opens the Oura sign in page
+go run ./recipes/connect            # what is connected, and what can be
+go run ./recipes/connect oura       # opens the Oura sign in page
 ```
 
 ```text
@@ -12,7 +12,7 @@ Source          Status        Synced through        Last error
 apple_health    fresh         2026-10-12 23:43
 oura            fresh         2026-10-12 23:40
 
-Can connect: fitbit, whoop  (python3 connect.py <name>)
+Can connect: fitbit, whoop  (go run ./recipes/connect <name>)
 ```
 
 Allow access on the provider's page and the first data arrives a few seconds later; history

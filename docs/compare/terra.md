@@ -41,7 +41,7 @@ $2,000 a month at the listed starting prices, before any volume discount.
 
 Open Health Sync costs nothing to use. You pay for the server it runs on, and for any vendor
 program that charges developers (some partner programs do). It idles in about 22 MB of memory
-and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/open-wearables.md)).
+and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 ## Pick Terra when
 
@@ -98,6 +98,5 @@ The [quickstart](../../README.md#quickstart) starts an instance with Docker Comp
 with 90 days of synthetic data from six sources, so you can call every route before you connect
 a real account.
 
-See also: [all the options compared](README.md),
-[Open Health Sync vs Open Wearables](open-wearables.md), [Junction alternative](junction.md) and
+See also: [all the options compared](README.md), [Junction alternative](junction.md) and
 [Spike API alternative](spike.md).

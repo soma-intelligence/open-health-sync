@@ -74,7 +74,7 @@ minutes:
    docker compose --env-file .env -f deploy/docker-compose.yml exec -T ohs \
      /ohs admin personal setup > ~/.ohs.env
    chmod 600 ~/.ohs.env
-   python3 recipes/connect.py oura
+   go run ./recipes/connect oura
    ```
 
 The first data arrives a few seconds after you allow access, and the history follows in the

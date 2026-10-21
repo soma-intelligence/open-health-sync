@@ -32,10 +32,17 @@ export function readConfig(env: Record<string, string | undefined> = process.env
       ohsUrl,
       apiKey,
       webhookSecret: env.OHS_WEBHOOK_SECRET?.trim() || undefined,
-      appUrl: (env.APP_URL?.trim() || "http://localhost:3000").replace(/\/+$/, ""),
+      appUrl: appUrl(env),
     },
     missing,
   };
+}
+
+// Where the app is reached: APP_URL, else the production address Vercel
+// gives a deployment, else this machine.
+function appUrl(env: Record<string, string | undefined>): string {
+  const vercel = env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  return (env.APP_URL?.trim() || (vercel ? `https://${vercel}` : "http://localhost:3000")).replace(/\/+$/, "");
 }
 
 /** The settings, or an error naming what is missing. */
