@@ -6,7 +6,7 @@ your phone the morning your night syncs. Each one takes 10 to 30 minutes, works 
 you already wear, and ends with something you can show.
 
 No health data background is needed. If you can copy a command into a terminal, you can do the
-first four. The last three ask for a little Python, and every line is given.
+first four. The last three ask for a little Go, and every line is given.
 
 | # | Project | Time | You end up with |
 |---|---|---|---|
@@ -36,7 +36,8 @@ The projects build on each other, so do project 1 first. After that, take them i
 
 ## What you need
 
-- A computer with Docker, Python 3.9 or later, `curl` and `jq`. A Raspberry Pi 5 works too.
+- A computer with Docker, [Go](https://go.dev/dl/) 1.23 or later, `curl` and `jq`. A Raspberry
+  Pi 5 works too.
 - Data from at least one source: an iPhone with the Health app (an Apple Watch adds heart rate
   variability), or an account with Withings, Oura, WHOOP, Fitbit, Polar, Suunto, Strava,
   Ultrahuman or intervals.icu.

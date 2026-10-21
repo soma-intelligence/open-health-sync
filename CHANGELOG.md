@@ -9,6 +9,13 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Releases carry the Android example app, `ohs-example-android.apk`, so a phone installs it without
+  a build; its checksum is in the signed `checksums.txt`.
+- `data_types` on each provider of `GET /v1/providers`: the record kinds the connector writes
+  (`sample`, `sleep`, `workout`...) and the quantity names it can produce (`heart_rate`...), so an
+  app can tell which source gives what without reading the docs. The lists are read from each
+  mapper's source by `go run ./internal/connector/cmd/gendatatypes`, which also writes the table in
+  [docs/connectors/README.md](docs/connectors/README.md#what-each-connector-delivers).
 - Admin console for the whole pipeline. `/console` now runs the instance, not only shows it: an
   overview of the five pipeline stages (sources, sync, processing, storage, delivery) with what
   needs attention, providers turned on and their keys saved from the browser, users created and
@@ -167,8 +174,8 @@ release may change the API, the configuration or the database schema.
   Unset, the routes are not mounted. Tries are rate limited per client address like the OAuth
   callback (`OHS_RATE_LIMIT_OAUTH`, its own bucket, `route_group="setup"` in
   `ohs_rate_limited_total`). See [docs/setup.md](docs/setup.md).
-- A reproducible ingestion benchmark against Open Wearables: `bench/openwearables/` and
-  [the method and results](docs/benchmarks/open-wearables.md).
+- A reproducible Apple Health ingestion benchmark in Go: `bench/ingest/` and
+  [the method and results](docs/benchmarks/ingest.md).
 - Eight Sleep connector, slug `eight_sleep`. Eight Sleep has no public API: the connector signs
   in the way the Eight Sleep app does (a password grant with the app's client id and secret,
   built in from the values pyEight publishes, overridable with `OHS_EIGHT_SLEEP_CLIENT_ID` and
@@ -276,6 +283,11 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- The recipes are Go programs: `recipes/<name>/main.go`, standard library only, run with
+  `go run ./recipes/<name>` (they were Python scripts). Their flags, output and files are the
+  same. `recipes/starter` holds the block every recipe starts with, to copy for a tool of your
+  own, and the seven tutorials in `docs/learn/`, the webhook examples and the export examples are
+  in Go or DuckDB SQL too. The quickstart end to end test needs Go in place of Python 3.
 - `OHS_CONSOLE=true` now serves the console with its actions. An instance that turned it on for
   the read-only view gets them on upgrade; set `OHS_CONSOLE=read-only` to keep the console
   without any action.

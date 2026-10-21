@@ -4,8 +4,9 @@ Your ring knows your sleep, your watch your heart rate, your phone your steps, a
 share in its own app. Open Health Sync brings them into one place you run yourself, in the same
 units and the same shape. From there, a useful tool is a few lines of code.
 
-The [`recipes/`](../../recipes) folder holds small tools that do one thing each. They are single
-Python files with no dependency: copy one, run it, change it.
+The [`recipes/`](../../recipes) folder holds small tools that do one thing each. Each is a single
+Go file that uses only the standard library: copy one, run it with `go run`, change it. They need
+[Go](https://go.dev/dl/) 1.23 or later.
 
 New to this? [Learn by building](../learn/README.md) walks you through them in seven short
 projects, from a first sync to a server of your own.
@@ -14,6 +15,8 @@ projects, from a first sync to a server of your own.
 |---|---|
 | [Sleep report](sleep-report.md) | your last nights in the terminal, whatever device measured them |
 | [Heart trend](heart-trend.md) | resting heart rate and HRV week by week, and how this week compares |
+| [Training load](training-load.md) | your workouts week by week, and whether this week is a jump |
+| [Blood pressure log](bp-log.md) | your cuff readings and their averages, to bring to your doctor |
 | [Compare sources](compare-sources.md) | the same figure from your ring, your watch and your phone, side by side |
 | [Weekly digest](weekly-digest.md) | a short Markdown note about last week, ready for your notes or a chat |
 | [Dashboard](dashboard.md) | a one page HTML dashboard of steps, sleep, resting heart rate and HRV |
@@ -58,7 +61,7 @@ to your idea.
    [Connectors](../connectors/README.md)):
 
    ```sh
-   python3 recipes/connect.py oura
+   go run ./recipes/connect oura
    ```
 
    For an iPhone, export everything from the Health app (your picture, *Export All Health
@@ -76,7 +79,7 @@ to your idea.
 4. Run a recipe:
 
    ```sh
-   python3 recipes/sleep-report.py
+   go run ./recipes/sleep-report
    ```
 
 The key in `~/.ohs.env` reads everything on the instance: keep the file private, and use the
@@ -84,17 +87,36 @@ The key in `~/.ohs.env` reads everything on the instance: keep the file private,
 
 ## Write your own
 
-Every recipe starts with the same block of about 60 lines: it reads `~/.ohs.env`, calls the
-API and follows the pages of a list. Below it, a tool is usually one loop:
+Every recipe starts with the same block of about 100 lines: it reads `~/.ohs.env`, calls the API
+and follows the pages of a list. [`recipes/starter`](../../recipes/starter/main.go) is that block
+with a first tool under it. Copy it and replace its `main`:
 
-```python
-for night in records("sleep", start="2026-09-01"):
-    print(night["bedtime_start"], night["total_sleep_seconds"] / 3600, night["provider"])
+```sh
+mkdir my-tool && cp recipes/starter/main.go my-tool/
+go run ./my-tool
 ```
 
-`records(name, **filters)` reads any list of the [API](../api.md#reading-data): `samples`
-(with `type`, such as `heart_rate` or `step_count`), `sleep`, `workouts`, `daily`, `nutrition`,
-`category-samples`. Every record carries `provider`, the app it came from, so a tool can pick
-one device or compare them. Quantity names and units are in the [data model](../data-model.md).
+Below the block, a tool is usually one loop:
 
-Made something useful? Open a pull request that adds it to `recipes/` with a page here.
+```go
+type night struct {
+	Provider          string  `json:"provider"`
+	BedtimeStart      string  `json:"bedtime_start"`
+	TotalSleepSeconds float64 `json:"total_sleep_seconds"`
+}
+
+func main() {
+	for _, n := range records[night]("sleep", url.Values{"start": {"2026-09-01"}}) {
+		fmt.Println(n.BedtimeStart, n.TotalSleepSeconds/3600, n.Provider)
+	}
+}
+```
+
+`records[T](name, filters)` reads any list of the [API](../api.md#reading-data) into a slice of
+`T`, a struct with the fields you need: `samples` (with `type`, such as `heart_rate` or
+`step_count`), `sleep`, `workouts`, `daily`, `nutrition`, `category-samples`. Every record
+carries `provider`, the app it came from, so a tool can pick one device or compare them.
+Quantity names and units are in the [data model](../data-model.md).
+
+Made something useful? Open a pull request that adds it to `recipes/<name>/main.go` with a page
+here.

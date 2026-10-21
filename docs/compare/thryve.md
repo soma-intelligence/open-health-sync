@@ -41,7 +41,7 @@ short window (2 weeks and 1 month), so your product stores its own copy.
 Open Health Sync costs nothing to use. You pay for the server it runs on, and for any vendor
 program that charges developers (some partner programs do). The database you run is the copy,
 for as long as you keep it. It idles in about 22 MB of memory and runs on a Raspberry Pi 5 with
-4 GB ([benchmarks](../benchmarks/open-wearables.md)).
+4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 ## Pick Thryve when
 
@@ -89,5 +89,4 @@ The [quickstart](../../README.md#quickstart) starts an instance with Docker Comp
 with 90 days of synthetic data from six sources, so you can call every route before you connect
 a real account.
 
-See also: [all the options compared](README.md), [Terra API alternative](terra.md) and
-[Open Health Sync vs Open Wearables](open-wearables.md).
+See also: [all the options compared](README.md) and [Terra API alternative](terra.md).

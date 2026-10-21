@@ -15,6 +15,14 @@ The app holds only a user token with the `upload` scope. It cannot read anything
 read route needs the tenant key, which belongs on your backend, never in an app. You check the
 data with curl instead (below).
 
+## Install without building
+
+Each release from the next one on carries the app, built from the release's own commit:
+[ohs-example-android.apk](https://github.com/soma-intelligence/open-health-sync/releases/latest/download/ohs-example-android.apk).
+Open that link on the phone, allow the install from your browser, then paste the server URL and an
+upload token in Settings (below). Its SHA-256 is in the release's signed `checksums.txt`. The APK is signed with a build key that changes with each release: remove the previous version
+before installing a new one.
+
 ## Requirements
 
 - Android Studio Ladybug or later, or JDK 17 and the Android SDK (platform 35) for the command line
