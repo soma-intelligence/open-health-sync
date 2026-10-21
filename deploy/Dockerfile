@@ -8,7 +8,7 @@
 # run scripts/image-without-buildx.sh instead.
 # The build stage always runs on the build machine and cross-compiles with Go,
 # so arm64 images need no emulation.
-FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
