@@ -642,11 +642,19 @@ dependencies = [
  "chrono",
  "flate2",
  "futures-util",
+ "ohs-driver",
  "serde",
  "serde_json",
  "sha2",
  "tokio",
  "ureq",
+ "uuid",
+]
+
+[[package]]
+name = "ohs-driver"
+version = "0.1.0"
+dependencies = [
  "uuid",
 ]
 

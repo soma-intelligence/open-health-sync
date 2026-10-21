@@ -8,11 +8,15 @@ description = "Sends what standard Bluetooth health devices and USB-mounted watc
 repository = "https://github.com/soma-intelligence/open-health-sync"
 publish = false
 
+[workspace]
+members = ["driver"]
+
 [dependencies]
 btleplug = "0.13.5"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
 flate2 = "1.1.10"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+ohs-driver = { path = "driver" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

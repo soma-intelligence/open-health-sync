@@ -23,6 +23,7 @@ use crate::queue::{write_atomic, Queue};
 use crate::spool::Spool;
 use crate::status::{self, DeviceStatus, Status};
 use crate::upload::{locked, Backoff, Drain, Report, Uploader};
+use crate::vendor;
 
 /// How often watched folders are walked.
 const FILES_EVERY: Duration = Duration::from_secs(10);
@@ -84,7 +85,7 @@ pub fn scan(seconds: u64, all: bool) -> Result<(), String> {
 }
 
 /// `ohs-bridge watch`: prints what devices send. Uploads nothing.
-pub fn watch(devices: Vec<String>) -> Result<(), String> {
+pub fn watch(devices: Vec<String>, vendor: vendor::Config) -> Result<(), String> {
     let rt = runtime()?;
     rt.block_on(async {
         let adapter = ble::adapter().await?;
@@ -96,6 +97,8 @@ pub fn watch(devices: Vec<String>) -> Result<(), String> {
         let opts = Arc::new(Options {
             device_user: None,
             glucose: Arc::default(),
+            vendor,
+            upload: false,
         });
         let (tx, mut rx) = mpsc::channel(256);
         tokio::spawn(ble::connect_loop(adapter, target, opts, tx));
@@ -142,6 +145,11 @@ pub fn watch(devices: Vec<String>) -> Result<(), String> {
                     };
                     log(&format!("{}  {text}", name(&key)));
                 }
+                Event::Vendor { key, live, .. } => {
+                    if let Some(l) = live {
+                        log(&format!("{}  {}", name(&key), l.text));
+                    }
+                }
                 Event::Note { key, text } => log(&format!("{}: {text}", name(&key))),
                 Event::Disconnected { key } => log(&format!("{} disconnected", name(&key))),
             }
@@ -185,7 +193,12 @@ pub fn run(opts: cli::Run) -> Result<(), String> {
                 .await
                 .map_err(|e| format!("cannot scan: {e}"))?;
             let target = Target::new(&opts.devices, opts.any);
-            let o = Arc::new(Options { device_user: opts.device_user, glucose: glucose.clone() });
+            let o = Arc::new(Options {
+                device_user: opts.device_user,
+                glucose: glucose.clone(),
+                vendor: opts.vendor.clone(),
+                upload: true,
+            });
             tokio::spawn(ble::connect_loop(adapter, target, o, tx.clone()));
             log("looking for devices");
         }
@@ -255,6 +268,17 @@ pub fn run(opts: cli::Run) -> Result<(), String> {
                             gatt::HEART_RATE_MEASUREMENT => d.heart_rate = live::heart_rate(&value).map(|h| h.bpm),
                             gatt::BATTERY_LEVEL => d.battery = live::battery(&value),
                             _ => {}
+                        }
+                    }
+                    Some(Event::Vendor { key, lines, live }) => {
+                        let d = devices.entry(key).or_default();
+                        for l in &lines {
+                            spool.append(l, &mut locked(&queue)).map_err(io_err("cannot write the spool"))?;
+                            d.values += 1;
+                            d.last_value = Some(Utc::now());
+                        }
+                        if let Some(hr) = live.and_then(|l| l.heart_rate) {
+                            d.heart_rate = Some(hr);
                         }
                     }
                     Some(Event::Note { key, text }) => {

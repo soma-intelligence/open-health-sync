@@ -116,6 +116,20 @@ release may change the API, the configuration or the database schema.
   uploads new FIT files from a folder, such as a watch mounted over USB, through the activity
   files route. `ohs-bridge watch` shows heart rate, RR and battery live, and `--status-file`
   keeps a one-line status for menu bar tools. See [docs/bridge.md](docs/bridge.md).
+- Polar measurement streams in `ohs-bridge`: a Polar H10 or H9 strap streams its raw ECG
+  (130 Hz) and an optical sensor (Verity Sense, OH1, 360) its beat-to-beat PP intervals, with
+  PPG, accelerometer, gyroscope and magnetometer on request (`--polar` on `watch` and `run`;
+  default `ecg,ppi`). The bridge implements Polar's published measurement protocol, with no
+  SDK code. The Bluetooth upload line accepts a 128-bit vendor characteristic and an optional
+  `ctx` (the stream's settings); the server maps PP intervals to heart rate and RR intervals,
+  valid beats only, and stores the other frames for a later decoder. Vendor drivers have no
+  I/O, so the same code can later run in a phone app. See
+  [docs/specs/vendor-bluetooth.md](docs/specs/vendor-bluetooth.md) for the other vendors.
+- Vendor driver plug-ins: the driver interface is its own crate, `ohs-driver`, and `ohs-bridge`
+  is also a library whose `main_with` takes more protocols, so another binary adds vendor
+  drivers without forking the bridge. Such a driver decodes on the client and sends a `sample`
+  line (a declared type, value, unit and time) that the server checks and stores as sent;
+  `watch` never lets a driver acknowledge or erase data on a device.
 - Swift and Kotlin SDKs: `BluetoothRecorder` builds the Bluetooth upload parts and
   `uploadBluetoothPart` sends them; the Swift package gets an `OpenHealthSyncBluetooth`
   product (CoreBluetooth) that does the scanning and subscriptions on iOS and macOS, and the

@@ -56,6 +56,7 @@ type lineOpt func(map[string]any)
 
 func withDeviceUser(n int) lineOpt { return func(m map[string]any) { m["device_user"] = n } }
 func withAt(s string) lineOpt      { return func(m map[string]any) { m["at"] = s } }
+func withCtx(s string) lineOpt     { return func(m map[string]any) { m["ctx"] = s } }
 
 func fields(char string, value []byte, opts ...lineOpt) map[string]any {
 	m := map[string]any{
@@ -100,6 +101,8 @@ func TestParseUpload(t *testing.T) {
 	c := New()
 	good := encodeLine(t, fields("2a37", []byte{0x00, 72})) + "\n" + encodeLine(t, fields("2a19", []byte{80}))
 	require.NoError(t, c.ParseUpload(connector.UploadMeta{Type: DataType}, strings.NewReader(good), nil))
+	vendor := encodeLine(t, fields("FB005C82-02E7-F387-1CAD-8ACD2D8DF0C8", []byte{0x00}, withCtx("0000018200")))
+	require.NoError(t, c.ParseUpload(connector.UploadMeta{Type: DataType}, strings.NewReader(vendor), nil))
 
 	bad := func(mut func(map[string]any)) string {
 		m := fields("2a37", []byte{0x00, 72})
@@ -107,28 +110,33 @@ func TestParseUpload(t *testing.T) {
 		return encodeLine(t, m)
 	}
 	for name, body := range map[string]string{
-		"not json":           "nope\n",
-		"array":              "[1,2]\n",
-		"no at":              bad(func(m map[string]any) { delete(m, "at") }),
-		"at without offset":  bad(func(m map[string]any) { m["at"] = "2026-10-16T21:04:05" }),
-		"no char":            bad(func(m map[string]any) { delete(m, "char") }),
-		"bad char":           bad(func(m map[string]any) { m["char"] = "2a3z" }),
-		"three digit char":   bad(func(m map[string]any) { m["char"] = "a37" }),
-		"other 128-bit char": bad(func(m map[string]any) { m["char"] = "6a4e2401-667b-11e3-949a-0800200c9a66" }),
-		"no value":           bad(func(m map[string]any) { delete(m, "value") }),
-		"empty value":        bad(func(m map[string]any) { m["value"] = "" }),
-		"odd hex":            bad(func(m map[string]any) { m["value"] = "abc" }),
-		"not hex":            bad(func(m map[string]any) { m["value"] = "zz" }),
-		"value too long":     bad(func(m map[string]any) { m["value"] = strings.Repeat("00", MaxValueBytes+1) }),
-		"no session":         bad(func(m map[string]any) { delete(m, "session") }),
-		"short session":      bad(func(m map[string]any) { m["session"] = "abc" }),
-		"session with dot":   bad(func(m map[string]any) { m["session"] = "abcd.efgh" }),
-		"long device name":   bad(func(m map[string]any) { m["device"] = map[string]any{"name": strings.Repeat("x", 129)} }),
-		"device not object":  bad(func(m map[string]any) { m["device"] = "H10" }),
-		"device user 255":    bad(func(m map[string]any) { m["device_user"] = 255 }),
-		"device user -1":     bad(func(m map[string]any) { m["device_user"] = -1 }),
-		"device user 1.5":    bad(func(m map[string]any) { m["device_user"] = 1.5 }),
-		"no line":            "\n  \n",
+		"not json":            "nope\n",
+		"array":               "[1,2]\n",
+		"no at":               bad(func(m map[string]any) { delete(m, "at") }),
+		"at without offset":   bad(func(m map[string]any) { m["at"] = "2026-10-16T21:04:05" }),
+		"no char":             bad(func(m map[string]any) { delete(m, "char") }),
+		"bad char":            bad(func(m map[string]any) { m["char"] = "2a3z" }),
+		"three digit char":    bad(func(m map[string]any) { m["char"] = "a37" }),
+		"UUID without dashes": bad(func(m map[string]any) { m["char"] = "fb005c8202e7f3871cad8acd2d8df0c8" }),
+		"UUID dash moved":     bad(func(m map[string]any) { m["char"] = "fb005c8-202e7-f387-1cad-8acd2d8df0c8" }),
+		"UUID not hex":        bad(func(m map[string]any) { m["char"] = "fb005c82-02e7-f387-1cad-8acd2d8df0cz" }),
+		"ctx not hex":         bad(func(m map[string]any) { m["ctx"] = "zz" }),
+		"ctx odd hex":         bad(func(m map[string]any) { m["ctx"] = "000" }),
+		"ctx too long":        bad(func(m map[string]any) { m["ctx"] = strings.Repeat("00", MaxCtxBytes+1) }),
+		"no value":            bad(func(m map[string]any) { delete(m, "value") }),
+		"empty value":         bad(func(m map[string]any) { m["value"] = "" }),
+		"odd hex":             bad(func(m map[string]any) { m["value"] = "abc" }),
+		"not hex":             bad(func(m map[string]any) { m["value"] = "zz" }),
+		"value too long":      bad(func(m map[string]any) { m["value"] = strings.Repeat("00", MaxValueBytes+1) }),
+		"no session":          bad(func(m map[string]any) { delete(m, "session") }),
+		"short session":       bad(func(m map[string]any) { m["session"] = "abc" }),
+		"session with dot":    bad(func(m map[string]any) { m["session"] = "abcd.efgh" }),
+		"long device name":    bad(func(m map[string]any) { m["device"] = map[string]any{"name": strings.Repeat("x", 129)} }),
+		"device not object":   bad(func(m map[string]any) { m["device"] = "H10" }),
+		"device user 255":     bad(func(m map[string]any) { m["device_user"] = 255 }),
+		"device user -1":      bad(func(m map[string]any) { m["device_user"] = -1 }),
+		"device user 1.5":     bad(func(m map[string]any) { m["device_user"] = 1.5 }),
+		"no line":             "\n  \n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := c.ParseUpload(connector.UploadMeta{Type: DataType}, strings.NewReader(body), nil)
@@ -218,6 +226,91 @@ func TestHeartRate(t *testing.T) {
 		require.Len(t, res.QuantitySamples, 1)
 		assert.Equal(t, "2a37", res.QuantitySamples[0].Metadata["gatt_characteristic"])
 	})
+}
+
+// pmdFrame is a Polar Measurement Data frame: measurement type, an 8-byte
+// device timestamp, frame type, then the samples.
+func pmdFrame(kind, frameType byte, samples ...[]byte) []byte {
+	return cat(append([][]byte{{kind, 1, 2, 3, 4, 5, 6, 7, 8, frameType}}, samples...)...)
+}
+
+// ppi is one PP interval sample: heart rate, interval, error estimate, flags.
+func ppi(bpm, ms, errMS int, flags byte) []byte {
+	return cat([]byte{byte(bpm)}, le16(ms), le16(errMS), []byte{flags})
+}
+
+func TestPolarPPIntervals(t *testing.T) {
+	arrived := atTime(t)
+	const contact = 0x06 // skin contact supported and detected
+
+	t.Run("intervals end at the arrival", func(t *testing.T) {
+		res := mapLine(t, CharPolarPMDData, pmdFrame(3, 0, ppi(71, 845, 12, contact), ppi(72, 830, 10, contact)))
+		require.Len(t, res.QuantitySamples, 1)
+		s := res.QuantitySamples[0]
+		assert.Equal(t, model.QTHeartRate, s.QuantityType)
+		assert.Equal(t, 72.0, s.Value)
+		assert.Equal(t, "polar", s.SourceSlug)
+		assert.Equal(t, CharPolarPMDData, s.Metadata["gatt_characteristic"])
+		assert.Equal(t, "pp_interval", s.Metadata["polar_measurement"])
+		assert.True(t, res.HighFrequency)
+		require.Len(t, res.HeartbeatSamples, 2)
+		first, last := res.HeartbeatSamples[0], res.HeartbeatSamples[1]
+		assert.Equal(t, 845.0, first.RRMS)
+		assert.Equal(t, 830.0, last.RRMS)
+		assert.True(t, last.Timestamp.Equal(arrived.UTC()))
+		assert.True(t, first.Timestamp.Equal(arrived.Add(-830*time.Millisecond).UTC()))
+	})
+
+	t.Run("an interval flagged not valid is left out but keeps its place", func(t *testing.T) {
+		res := mapLine(t, CharPolarPMDData, pmdFrame(3, 0, ppi(70, 850, 9, contact), ppi(70, 400, 80, contact|0x01)))
+		require.Len(t, res.HeartbeatSamples, 1)
+		assert.Equal(t, 850.0, res.HeartbeatSamples[0].RRMS)
+		assert.True(t, res.HeartbeatSamples[0].Timestamp.Equal(arrived.Add(-400*time.Millisecond).UTC()))
+		require.Len(t, res.QuantitySamples, 1)
+	})
+
+	t.Run("off the skin", func(t *testing.T) {
+		res := mapLine(t, CharPolarPMDData, pmdFrame(3, 0, ppi(65, 900, 9, 0x04)))
+		assert.Empty(t, res.QuantitySamples)
+		assert.Empty(t, res.HeartbeatSamples)
+	})
+
+	t.Run("no contact sensor", func(t *testing.T) {
+		res := mapLine(t, CharPolarPMDData, pmdFrame(3, 0, ppi(65, 900, 9, 0x00)))
+		assert.Len(t, res.QuantitySamples, 1)
+		assert.Len(t, res.HeartbeatSamples, 1)
+	})
+
+	t.Run("ECG and motion frames are stored, not mapped", func(t *testing.T) {
+		ecg := pmdFrame(0, 0, []byte{0xe8, 0x03, 0x00, 0x18, 0xfc, 0xff})
+		res := mapLine(t, CharPolarPMDData, ecg, withCtx("000001820001010e00"))
+		assert.Empty(t, res.QuantitySamples)
+		assert.Empty(t, res.HeartbeatSamples)
+		res = mapLine(t, CharPolarPMDData, pmdFrame(2, 0x81, []byte{1, 2, 3}))
+		assert.Empty(t, res.QuantitySamples)
+	})
+
+	t.Run("truncated", func(t *testing.T) {
+		for _, v := range [][]byte{
+			{0x03, 1, 2},
+			pmdFrame(3, 0, ppi(70, 850, 9, contact)[:5]),
+		} {
+			_, err := New().Map(connector.RawRecord{UserID: testUser, Fields: fields(CharPolarPMDData, v)})
+			require.ErrorIs(t, err, ErrTruncated)
+			require.ErrorContains(t, err, CharPolarPMDData)
+		}
+	})
+
+	t.Run("upper case UUID", func(t *testing.T) {
+		res := mapLine(t, strings.ToUpper(CharPolarPMDData), pmdFrame(3, 0, ppi(60, 1000, 5, contact)))
+		require.Len(t, res.HeartbeatSamples, 1)
+	})
+}
+
+func TestVendorCharacteristicNotMapped(t *testing.T) {
+	res := mapLine(t, "6a4e2401-667b-11e3-949a-0800200c9a66", []byte{1, 2, 3})
+	assert.Empty(t, res.QuantitySamples)
+	assert.Empty(t, res.HeartbeatSamples)
 }
 
 func TestBloodPressure(t *testing.T) {
@@ -592,4 +685,108 @@ func TestUnitsAreKnown(t *testing.T) {
 		require.NotEmpty(t, res.QuantitySamples, v.char)
 		assert.Empty(t, model.CanonicalizeUnits(&res), "%s %x", v.char, v.value)
 	}
+}
+
+// sampleFields is a line a client decoded itself (a vendor band's driver).
+func sampleFields(sample map[string]any) map[string]any {
+	m := fields("61080003-8d6d-82b8-614a-1c8cb0f8dcc6", nil)
+	delete(m, "value")
+	m["device"] = map[string]any{"name": "Band 1A2B", "firmware": "41.17"}
+	m["sample"] = sample
+	return m
+}
+
+func TestDecodedSamples(t *testing.T) {
+	mapFields := func(m map[string]any) (model.MapResult, error) {
+		return New().Map(connector.RawRecord{UserID: testUser, Provider: Slug, DataType: DataType, Fields: m})
+	}
+
+	t.Run("quantity in its storage unit", func(t *testing.T) {
+		res, err := mapFields(sampleFields(map[string]any{
+			"type": "skin_temperature", "value": 33.25, "unit": "celsius",
+			"start": "2026-10-16T03:00:00Z",
+		}))
+		require.NoError(t, err)
+		require.Len(t, res.QuantitySamples, 1)
+		s := res.QuantitySamples[0]
+		assert.Equal(t, "skin_temperature", s.QuantityType)
+		assert.InDelta(t, 33.25, s.Value, 1e-9)
+		assert.Equal(t, "celsius", s.Unit)
+		assert.Equal(t, time.Date(2026, 10, 16, 3, 0, 0, 0, time.UTC), s.StartDate)
+		assert.Equal(t, s.StartDate, s.EndDate)
+		assert.Equal(t, "client", s.Metadata["decoded_by"])
+		assert.Equal(t, "41.17", s.Metadata["firmware"])
+		assert.Len(t, s.ContentHash, 64)
+		assert.Empty(t, res.HeartbeatSamples)
+	})
+
+	t.Run("converted unit and a span", func(t *testing.T) {
+		res, err := mapFields(sampleFields(map[string]any{
+			"type": "skin_temperature", "value": 92.3, "unit": "degF",
+			"start": "2026-10-16T03:00:00Z", "end": "2026-10-16T03:01:00Z",
+		}))
+		require.NoError(t, err)
+		s := res.QuantitySamples[0]
+		assert.InDelta(t, 33.5, s.Value, 1e-6)
+		assert.Equal(t, "celsius", s.Unit)
+		assert.Equal(t, time.Minute, s.EndDate.Sub(s.StartDate))
+	})
+
+	t.Run("rr interval is a beat of the session", func(t *testing.T) {
+		res, err := mapFields(sampleFields(map[string]any{
+			"type": "rr_interval", "value": 812.5, "unit": "ms", "start": "2026-10-16T19:04:05.1Z",
+		}))
+		require.NoError(t, err)
+		require.Len(t, res.HeartbeatSamples, 1)
+		b := res.HeartbeatSamples[0]
+		assert.Equal(t, "9f2c4e1a7b3d5c60", b.SeriesID)
+		assert.InDelta(t, 812.5, b.RRMS, 1e-9)
+		assert.Empty(t, res.QuantitySamples)
+	})
+
+	t.Run("same reading re-sent hashes the same", func(t *testing.T) {
+		s := map[string]any{"type": "heart_rate", "value": 58.0, "unit": "bpm", "start": "2026-10-16T03:00:00Z"}
+		a, err := mapFields(sampleFields(s))
+		require.NoError(t, err)
+		later := sampleFields(s)
+		later["at"] = "2026-10-17T09:00:00+02:00"
+		b, err := mapFields(later)
+		require.NoError(t, err)
+		assert.Equal(t, a.QuantitySamples[0].ContentHash, b.QuantitySamples[0].ContentHash)
+	})
+
+	bad := map[string]map[string]any{
+		"undeclared type":      {"type": "mood", "value": 1.0, "unit": "count", "start": "2026-10-16T03:00:00Z"},
+		"unit not convertible": {"type": "heart_rate", "value": 60.0, "unit": "kg", "start": "2026-10-16T03:00:00Z"},
+		"no unit":              {"type": "heart_rate", "value": 60.0, "start": "2026-10-16T03:00:00Z"},
+		"no value":             {"type": "heart_rate", "unit": "bpm", "start": "2026-10-16T03:00:00Z"},
+		"rr not in ms":         {"type": "rr_interval", "value": 0.8, "unit": "s", "start": "2026-10-16T03:00:00Z"},
+		"rr out of range":      {"type": "rr_interval", "value": -3.0, "unit": "ms", "start": "2026-10-16T03:00:00Z"},
+		"start not a time":     {"type": "heart_rate", "value": 60.0, "unit": "bpm", "start": "yesterday"},
+		"start before 2000":    {"type": "heart_rate", "value": 60.0, "unit": "bpm", "start": "1999-12-31T23:00:00Z"},
+		"start in the future":  {"type": "heart_rate", "value": 60.0, "unit": "bpm", "start": "2026-10-16T20:00:00Z"},
+		"end before start": {"type": "step_count_intraday", "value": 12.0, "unit": "count",
+			"start": "2026-10-16T03:01:00Z", "end": "2026-10-16T03:00:00Z"},
+	}
+	for name, s := range bad {
+		t.Run(name, func(t *testing.T) {
+			_, err := mapFields(sampleFields(s))
+			assert.ErrorIs(t, err, ErrInvalidLine)
+		})
+	}
+
+	t.Run("value and sample together", func(t *testing.T) {
+		m := sampleFields(map[string]any{"type": "heart_rate", "value": 60.0, "unit": "bpm", "start": "2026-10-16T03:00:00Z"})
+		m["value"] = "0050"
+		_, err := mapFields(m)
+		assert.ErrorIs(t, err, ErrInvalidLine)
+	})
+
+	t.Run("upload accepts sample lines", func(t *testing.T) {
+		body := encodeLine(t, sampleFields(map[string]any{
+			"type": "hrv_rmssd", "value": 41.0, "unit": "ms", "start": "2026-10-16T03:00:00Z",
+		}))
+		err := New().ParseUpload(connector.UploadMeta{Type: DataType}, strings.NewReader(body), nil)
+		assert.NoError(t, err)
+	})
 }
