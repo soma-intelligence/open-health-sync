@@ -5,6 +5,7 @@ package etl
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -401,7 +402,7 @@ func validateWorkout(w *model.Workout, now time.Time) []ValidationError {
 		{"elevation_gain_m", w.ElevationGainM, workoutElevationGain},
 		{"vo2_max", w.VO2Max, rangeRules["vo2_max"]},
 	} {
-		if e := checkWorkoutValue(f.field, f.v, f.rule); e != nil {
+		if e := checkValue("workout", f.field, f.v, f.rule); e != nil {
 			errs = append(errs, *e)
 		}
 	}
@@ -418,15 +419,15 @@ var (
 	workoutElevationGain = rangeRule{HardMin: 0, HardMax: 20000, SoftMin: 0, SoftMax: 10000}
 )
 
-// checkWorkoutValue range-checks one optional workout summary field: outside
-// the hard band parks the workout, outside the soft band flags it.
-func checkWorkoutValue(field string, v *float64, r rangeRule) *ValidationError {
+// checkValue range-checks one optional figure of a record: outside the hard
+// band parks the record, outside the soft band flags it.
+func checkValue(recordType, field string, v *float64, r rangeRule) *ValidationError {
 	if v == nil {
 		return nil
 	}
 	if math.IsNaN(*v) || *v < r.HardMin || *v > r.HardMax {
 		return &ValidationError{
-			RecordType: "workout",
+			RecordType: recordType,
 			Field:      field,
 			Value:      *v,
 			Message:    fmt.Sprintf("%s out of range [%g, %g]: %g", field, r.HardMin, r.HardMax, *v),
@@ -435,7 +436,7 @@ func checkWorkoutValue(field string, v *float64, r rangeRule) *ValidationError {
 	}
 	if *v < r.SoftMin || *v > r.SoftMax {
 		return &ValidationError{
-			RecordType: "workout",
+			RecordType: recordType,
 			Field:      field,
 			Value:      *v,
 			Message:    fmt.Sprintf("%s outside the expected range [%g, %g]: %g", field, r.SoftMin, r.SoftMax, *v),
@@ -495,7 +496,53 @@ func validateNutritionLog(n *model.NutritionLog, now time.Time) []ValidationErro
 		errs = append(errs, checkEnd("nutrition_log", n.StartDate, *n.EndDate, now)...)
 	}
 
+	for _, f := range []struct {
+		field string
+		v     *float64
+		rule  rangeRule
+	}{
+		{"energy_kcal", n.EnergyKcal, mealEnergy},
+		{"protein_g", n.ProteinG, mealGrams},
+		{"carbs_g", n.CarbsG, mealGrams},
+		{"fat_g", n.FatG, mealGrams},
+		{"fiber_g", n.FiberG, mealGrams},
+		{"sugar_g", n.SugarG, mealGrams},
+		{"sodium_mg", n.SodiumMg, mealSodium},
+	} {
+		if e := checkValue("nutrition_log", f.field, f.v, f.rule); e != nil {
+			errs = append(errs, *e)
+		}
+	}
+	// The extended nutrients are amounts too: none can be negative.
+	for _, k := range sortedKeys(n.NutrientsJSON) {
+		v, ok := n.NutrientsJSON[k].(float64)
+		if !ok {
+			continue
+		}
+		if e := checkValue("nutrition_log", "nutrients."+k, &v, nonNegative); e != nil {
+			errs = append(errs, *e)
+		}
+	}
+
 	return errs
+}
+
+// The bands of a logged meal or drink. A day's intake rarely passes 10000
+// kcal, so one log above 20000 is flagged, not refused.
+var (
+	mealEnergy  = rangeRule{HardMin: 0, HardMax: unbounded, SoftMin: 0, SoftMax: 20000}
+	mealGrams   = rangeRule{HardMin: 0, HardMax: unbounded, SoftMin: 0, SoftMax: 5000}
+	mealSodium  = rangeRule{HardMin: 0, HardMax: unbounded, SoftMin: 0, SoftMax: 100000}
+	nonNegative = rangeRule{HardMin: 0, HardMax: unbounded, SoftMin: 0, SoftMax: unbounded}
+)
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // validateDailySummary rejects a summary of a day that has not begun.

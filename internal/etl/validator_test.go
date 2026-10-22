@@ -576,3 +576,34 @@ func TestValidateWorkout_SummaryRanges(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateNutritionLog_Amounts(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	f := func(v float64) *float64 { return &v }
+	cases := []struct {
+		name string
+		n    model.NutritionLog
+		sev  Severity
+	}{
+		{"plausible", model.NutritionLog{EnergyKcal: f(640), ProteinG: f(32), CarbsG: f(70), SodiumMg: f(900), NutrientsJSON: map[string]any{"water": 250.0}}, ""},
+		{"negative energy", model.NutritionLog{EnergyKcal: f(-100000)}, SeverityReject},
+		{"negative protein", model.NutritionLog{ProteinG: f(-3)}, SeverityReject},
+		{"negative water", model.NutritionLog{NutrientsJSON: map[string]any{"water": -100000.0}}, SeverityReject},
+		{"huge meal", model.NutritionLog{EnergyKcal: f(1e6)}, SeveritySuspect},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.n.StartDate = now.Add(-time.Hour)
+			errs := ValidateMapResultAt(&model.MapResult{NutritionLogs: []model.NutritionLog{c.n}}, now)
+			switch c.sev {
+			case "":
+				assert.Empty(t, errs)
+			case SeverityReject:
+				assert.Len(t, Rejections(errs), 1)
+			default:
+				assert.Empty(t, Rejections(errs))
+				assert.Len(t, Suspicions(errs), 1)
+			}
+		})
+	}
+}
