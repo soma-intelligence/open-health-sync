@@ -7,6 +7,12 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- `make record` no longer fails on intervals.icu: an identifier whose value is a bare date (a
+  wellness day's `id`) is shifted like any other date instead of getting a stand-in, which broke
+  the mapping and tripped the leak check on the recording day.
+
 ## [0.2.0] - 2026-10-21
 
 An admin console that runs the pipeline, an admin API for instances that serve several teams,
