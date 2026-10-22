@@ -7,6 +7,25 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- A synthetic data generator for every documented provider (`internal/synth`): an invented
+  person's timeline rendered in each vendor's wire format, written from the vendor's published
+  documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
+  out of range and malformed values, unit variants and huge exports. `go test ./...` runs a light
+  version; the nightly `synthetic-data` workflow runs every scenario. See
+  [docs/specs/synthetic-data.md](docs/specs/synthetic-data.md).
+
+### Fixed
+
+- Sleep phases, ECG recordings, daily summaries and observations are now validated, and an end
+  before the start or far in the future is refused on every record kind.
+- Apple Health glucose in mmol/L and the `yd`, `in`, `s`, `oz` and `lb` unit spellings are
+  accepted instead of refused.
+- Workout heart rate, energy, distance, speed, climb and VO2 max are range-checked.
+- Nutrition logs with negative energy, macros or nutrients are refused.
+- Health Connect: `recordingMethod` `manual_entry` marks the record as user entered.
+
 ## [0.2.0] - 2026-10-21
 
 An admin console that runs the pipeline, an admin API for instances that serve several teams,
