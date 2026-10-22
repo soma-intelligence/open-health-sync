@@ -121,7 +121,7 @@ func wellness(tl *synth.Timeline, i int, d synth.Day, r *synth.Rand) synth.Doc {
 	doc := synth.Doc{
 		"id": d.Date, "restingHR": int(tot.RestingHR), "steps": int(tot.Steps),
 		"updated": d.End.UTC().Add(2 * time.Hour).Format("2006-01-02T15:04:05.000Z07:00"),
-		"ctl": synth.Round(r.Range(30, 60), 2), "atl": synth.Round(r.Range(25, 70), 2), "locked": false,
+		"ctl":     synth.Round(r.Range(30, 60), 2), "atl": synth.Round(r.Range(25, 70), 2), "locked": false,
 	}
 	if s, ok := tl.NightOf(i); ok {
 		doc["sleepSecs"] = int(s.Asleep().Seconds())

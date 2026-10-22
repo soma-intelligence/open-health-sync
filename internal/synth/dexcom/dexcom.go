@@ -125,4 +125,3 @@ func trend(rate float64) string {
 		return "doubleDown"
 	}
 }
-
