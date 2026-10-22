@@ -261,12 +261,14 @@ func (g *renderer) faults(t time.Time, session string, dev synth.Doc) {
 		g.add(t, "2a35", []byte{0x04, 0x78, 0x00}, session, dev, synth.FaultMalformed, "short_compound")
 		g.add(t, "2a18", []byte{0x03, 1}, session, dev, synth.FaultMalformed, "short_glucose")
 		g.add(t, "2a37", []byte{}, session, dev, synth.FaultMalformed, "empty_value")
-		for tag, js := range map[string]string{
-			"odd_hex":     `{"at":"2026-03-20T10:00:00.000+01:00","char":"2a37","value":"064","session":"` + session + `"}`,
-			"not_hex":     `{"at":"2026-03-20T10:00:00.000+01:00","char":"2a37","value":"zz48","session":"` + session + `"}`,
-			"no_offset":   `{"at":"2026-03-20T10:00:00","char":"2a37","value":"0648","session":"` + session + `"}`,
-			"bad_session": `{"at":"2026-03-20T10:00:00.000+01:00","char":"2a37","value":"0648","session":"a b"}`,
+		// A slice, not a map: the order of the lines is part of the output.
+		for _, m := range [][2]string{
+			{"odd_hex", `{"at":"2026-03-20T10:00:00.000+01:00","char":"2a37","value":"064","session":"` + session + `"}`},
+			{"not_hex", `{"at":"2026-03-20T10:00:00.000+01:00","char":"2a37","value":"zz48","session":"` + session + `"}`},
+			{"no_offset", `{"at":"2026-03-20T10:00:00","char":"2a37","value":"0648","session":"` + session + `"}`},
+			{"bad_session", `{"at":"2026-03-20T10:00:00.000+01:00","char":"2a37","value":"0648","session":"a b"}`},
 		} {
+			tag, js := m[0], m[1]
 			g.e.Raw(synth.Line{DataType: DataType, Day: t.UTC().Truncate(24 * time.Hour), JSON: []byte(js), Fault: synth.FaultMalformed, Tag: tag})
 		}
 	}

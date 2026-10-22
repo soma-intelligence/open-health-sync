@@ -23,6 +23,8 @@ package healthconnect
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -94,7 +96,8 @@ func shape(interval bool, numbers map[string][2]float64, enums ...string) synth.
 		sh.Optional = append(sh.Optional, "zoneOffset")
 		sh.Times = []string{"time"}
 	}
-	for k := range numbers {
+	// In key order, so the field list is the same on every run.
+	for _, k := range slices.Sorted(maps.Keys(numbers)) {
 		if !strings.Contains(k, ".") {
 			sh.Required = append(sh.Required, k)
 		}
