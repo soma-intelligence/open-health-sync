@@ -433,7 +433,7 @@ func Suite(t *testing.T, c func() connector.Connector, render Render) {
 			}
 			return hex.EncodeToString(h.Sum(nil))
 		}
-		if gen(1) != gen(1) {
+		if a, b := gen(1), gen(1); a != b {
 			t.Error("same seed, different lines")
 		}
 		if gen(1) == gen(2) {

@@ -169,7 +169,7 @@ func (tl *Timeline) Glucose(t time.Time) float64 {
 		if dt < 0 || dt > 240 {
 			continue
 		}
-		g += amp * (m.CarbsG / 80) * math.Exp(-math.Pow(dt-50, 2)/(2*35*35))
+		g += amp * (m.CarbsG / 80) * math.Exp(-(dt-50)*(dt-50)/(2*35*35))
 	}
 	if w, ok := tl.WorkoutAt(t); ok {
 		g -= clamp(t.Sub(w.Start).Minutes()/2, 0, 25)
@@ -253,7 +253,7 @@ func ecgTrace(seed uint64, start time.Time, hz, secs int, bpm float64) []float64
 	n := hz * secs
 	out := make([]float64, n)
 	rr := 60 / bpm
-	gauss := func(x, mu, sd, a float64) float64 { return a * math.Exp(-math.Pow(x-mu, 2)/(2*sd*sd)) }
+	gauss := func(x, mu, sd, a float64) float64 { return a * math.Exp(-(x-mu)*(x-mu)/(2*sd*sd)) }
 	for i := range out {
 		tt := float64(i) / float64(hz)
 		ph := math.Mod(tt, rr) / rr

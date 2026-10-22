@@ -69,7 +69,6 @@ var (
 	msS     = altUnit{Unit: "s", Factor: 0.001}
 	mgG     = altUnit{Unit: "g", Factor: 0.001}
 	mcgMg   = altUnit{Unit: "mg", Factor: 0.001}
-	minHr   = altUnit{Unit: "hr", Factor: 1.0 / 60}
 	minS    = altUnit{Unit: "s", Factor: 60}
 	mmHgKPa = altUnit{Unit: "kPa", Factor: 0.1333223684}
 )

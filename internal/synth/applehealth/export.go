@@ -180,8 +180,8 @@ func (ex *exporter) xml(w io.Writer) error {
 	if locale == "" {
 		locale = "en_US"
 	}
-	bw.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-	bw.WriteString(dtd)
+	_, _ = bw.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+	_, _ = bw.WriteString(dtd)
 	fmt.Fprintf(bw, "<HealthData locale=%q>\n", locale)
 	fmt.Fprintf(bw, " <ExportDate value=%q/>\n", ex.date(tl.Opt.Now))
 	sex := "HKBiologicalSexMale"
@@ -206,14 +206,14 @@ func (ex *exporter) xml(w io.Writer) error {
 		}
 		if ex.o.has(ExportTruncatedXML) && total > 200 {
 			// Cut inside an element, as a copy interrupted mid-write leaves it.
-			bw.WriteString(` <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="`)
+			_, _ = bw.WriteString(` <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="`)
 			return bw.Flush()
 		}
 	}
 	if ex.o.has(ExportUnknownTypes) {
-		bw.WriteString(" <Record type=\"HKQuantityTypeIdentifierFutureMetric\" sourceName=\"Health\" unit=\"zz\" value=\"1\" startDate=\"" + ex.date(tl.Days[0].Start.Add(9*time.Hour)) + "\" endDate=\"" + ex.date(tl.Days[0].Start.Add(9*time.Hour)) + "\"/>\n")
-		bw.WriteString(" <FutureElement kind=\"something\"><Child value=\"1\"/></FutureElement>\n")
-		bw.WriteString(" <Record type=\"HKCategoryTypeIdentifierFutureEvent\" sourceName=\"Health\" value=\"HKCategoryValueFutureThing\" startDate=\"" + ex.date(tl.Days[0].Start.Add(9*time.Hour)) + "\" endDate=\"" + ex.date(tl.Days[0].Start.Add(10*time.Hour)) + "\"/>\n")
+		_, _ = bw.WriteString(" <Record type=\"HKQuantityTypeIdentifierFutureMetric\" sourceName=\"Health\" unit=\"zz\" value=\"1\" startDate=\"" + ex.date(tl.Days[0].Start.Add(9*time.Hour)) + "\" endDate=\"" + ex.date(tl.Days[0].Start.Add(9*time.Hour)) + "\"/>\n")
+		_, _ = bw.WriteString(" <FutureElement kind=\"something\"><Child value=\"1\"/></FutureElement>\n")
+		_, _ = bw.WriteString(" <Record type=\"HKCategoryTypeIdentifierFutureEvent\" sourceName=\"Health\" value=\"HKCategoryValueFutureThing\" startDate=\"" + ex.date(tl.Days[0].Start.Add(9*time.Hour)) + "\" endDate=\"" + ex.date(tl.Days[0].Start.Add(10*time.Hour)) + "\"/>\n")
 	}
 	if ex.o.has(ExportBadDates) {
 		s := tl.Days[0].Start.Add(10 * time.Hour)
@@ -237,7 +237,7 @@ func (ex *exporter) xml(w io.Writer) error {
 	}
 	ex.audiogram()
 	ex.clinical()
-	bw.WriteString("</HealthData>\n")
+	_, _ = bw.WriteString("</HealthData>\n")
 	return bw.Flush()
 }
 
@@ -316,7 +316,7 @@ func (ex *exporter) sample(s Sample, depth int) error {
 		attr(&b, "endDate", ex.date(s.End))
 		b.WriteString(">\n")
 		ex.meta(&b, ind+" ", s)
-		ex.bw.WriteString(b.String())
+		_, _ = ex.bw.WriteString(b.String())
 		b.Reset()
 		for _, c := range s.Children {
 			if err := ex.sample(c, depth+1); err != nil {
@@ -460,7 +460,7 @@ func (ex *exporter) summary(d synth.Day) {
 	attr(&b, "appleStandHours", strconv.Itoa(10+d.Index%4))
 	attr(&b, "appleStandHoursGoal", "12")
 	b.WriteString("/>\n")
-	ex.bw.WriteString(b.String())
+	_, _ = ex.bw.WriteString(b.String())
 	ex.stats.Summaries++
 }
 
@@ -478,7 +478,7 @@ func (ex *exporter) audiogram() {
 			num(f), 5+i*2, 10+i*2)
 	}
 	b.WriteString(" </Audiogram>\n")
-	ex.bw.WriteString(b.String())
+	_, _ = ex.bw.WriteString(b.String())
 }
 
 func (ex *exporter) clinical() {
@@ -550,7 +550,7 @@ func (ex *exporter) gpx(w io.Writer, rf routeRef) error {
 		fmt.Fprintf(bw, "      <trkpt lon=\"%.6f\" lat=\"%.6f\"><ele>%.6f</ele><time>%s</time><extensions><speed>%.6f</speed><course>%.6f</course><hAcc>%.6f</hAcc><vAcc>%.6f</vAcc></extensions></trkpt>\n",
 			lon, lat, ele, t.UTC().Format(time.RFC3339), spd, float64(t.Unix()%360), 3.0+float64(t.Unix()%3), 2.0+float64(t.Unix()%2))
 	}
-	bw.WriteString("    </trkseg>\n  </trk>\n</gpx>\n")
+	_, _ = bw.WriteString("    </trkseg>\n  </trk>\n</gpx>\n")
 	return bw.Flush()
 }
 

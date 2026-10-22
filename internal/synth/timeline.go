@@ -613,7 +613,8 @@ func (tl *Timeline) body(i int, r *Rand) {
 	if r.Chance(0.85) {
 		wkg := round(p.WeightKG+trend+r.Norm(0, 0.25), 2)
 		fat := clamp(p.BodyFat+r.Norm(0, 0.006), 0.04, 0.6)
-		bmi := wkg / math.Pow(p.HeightCM/100, 2)
+		h := p.HeightCM / 100
+		bmi := wkg / (h * h)
 		w := Weigh{At: at(d, 7.15).Add(time.Duration(r.Range(0, 600)) * time.Second), WeightKG: wkg, BodyFat: round(fat, 3),
 			LeanKG: round(wkg*(1-fat), 2), BoneKG: round(wkg*0.04, 2), WaterKG: round(wkg*(1-fat)*0.73, 2), BMI: round(bmi, 1), VisceralF: round(clamp(fat*30, 1, 20), 0)}
 		w.MuscleKG = round(w.LeanKG-w.BoneKG, 2)
