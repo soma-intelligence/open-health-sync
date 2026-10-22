@@ -33,7 +33,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "github-slugger": "^2.0.0",
-    "postcss": "^8.5.30",
+    "postcss": "^8.5.31",
     "serve": "^14.2.6",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
