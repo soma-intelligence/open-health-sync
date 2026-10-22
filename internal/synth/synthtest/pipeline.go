@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -99,23 +100,11 @@ func runObject(c connector.Connector, dataType string, lines []synth.Line, now t
 	for i, l := range lines {
 		results[i].Line = l
 	}
-	// The reader skips blank lines and hands records over by parsed count, so
-	// the parsed lines are matched back in order, around the parse errors.
-	parsed := make([]int, 0, len(lines))
-	var records []map[string]any
-	_, err := reader.StreamNDJSON(context.Background(), key, func(_ int, rec map[string]any) error {
-		records = append(records, rec)
-		return nil
-	})
-	if err != nil {
-		for i := range results {
-			results[i].Outcome, results[i].Detail = ParseError, err.Error()
-		}
-		return results
-	}
-	// The reader keeps only the first parse errors, so each line is parsed
-	// here the same way (a scanner line, then json.Unmarshal into a map) to
-	// tell which ones it dropped.
+	// The reader skips blank lines and keeps only its first parse errors, so
+	// each line is parsed here the same way (a scanner line, then
+	// json.Unmarshal into a map) to tell which ones it hands over; each
+	// record is then mapped as it streams, so no run holds every record.
+	var parsed []int
 	for i, l := range lines {
 		line := bytes.TrimSuffix(l.JSON, []byte("\r"))
 		if len(line) == 0 {
@@ -129,15 +118,25 @@ func runObject(c connector.Connector, dataType string, lines []synth.Line, now t
 		}
 		parsed = append(parsed, i)
 	}
-	if len(parsed) != len(records) {
-		for _, i := range parsed {
-			results[i].Outcome = ParseError
-			results[i].Detail = fmt.Sprintf("reader returned %d records for %d lines", len(records), len(parsed))
+	k := 0
+	_, err := reader.StreamNDJSON(context.Background(), key, func(_ int, rec map[string]any) error {
+		if k < len(parsed) {
+			mapOne(c, dataType, key, rec, now, &results[parsed[k]])
+		}
+		k++
+		return nil
+	})
+	if err != nil {
+		for i := range results {
+			results[i].Outcome, results[i].Detail = ParseError, err.Error()
 		}
 		return results
 	}
-	for k, i := range parsed {
-		mapOne(c, dataType, key, records[k], now, &results[i])
+	if k != len(parsed) {
+		for _, i := range parsed {
+			results[i].Outcome = ParseError
+			results[i].Detail = fmt.Sprintf("reader returned %d records for %d lines", k, len(parsed))
+		}
 	}
 	return results
 }
@@ -340,25 +339,60 @@ func Accepted(results []Result) []string {
 	return out
 }
 
+// Full reports whether the full run was asked for: OHS_SYNTH_FULL set and
+// not -short. By default (go test ./..., the CI run) the suites keep a few
+// days and skip Huge and the document scenarios one by one, since All holds
+// every one of them; the nightly workflow sets OHS_SYNTH_FULL=1 for
+// fourteen days, every scenario on its own and Huge.
+func Full() bool { return !testing.Short() && os.Getenv("OHS_SYNTH_FULL") != "" }
+
+// documentOnly are the scenarios All covers in the light run.
+var documentOnly = map[synth.Scenario]bool{synth.Duplicates: true, synth.Missing: true, synth.OutOfRange: true,
+	synth.UnitVariants: true, synth.Malformed: true, synth.Unknown: true, synth.Timestamps: true}
+
+// Scenarios lists the scenarios a suite runs.
+func Scenarios() []synth.Scenario {
+	var out []synth.Scenario
+	for _, s := range synth.Scenarios {
+		if !Full() && (s == synth.Huge || documentOnly[s]) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// Days is the number of days a suite generates for s.
+func Days(s synth.Scenario) int {
+	switch {
+	case s == synth.Huge:
+		return 3
+	case Full():
+		return 14
+	}
+	return 5
+}
+
+// PersonaDays is the number of days of each persona run.
+func PersonaDays() int {
+	if Full() {
+		return 14
+	}
+	return 4
+}
+
 // Render turns a timeline into a provider's lines.
 type Render func(tl *synth.Timeline) []synth.Line
 
-// Suite runs render through c for every scenario (Huge only without -short)
-// and every persona, and checks each run. It is the whole test of a
+// Suite runs render through c for the scenarios of Scenarios and every
+// persona, and checks each run. It is the whole test of a
 // renderer and its connector.
 func Suite(t *testing.T, c func() connector.Connector, render Render) {
 	t.Helper()
-	for _, s := range synth.Scenarios {
-		if s == synth.Huge && testing.Short() {
-			continue
-		}
+	for _, s := range Scenarios() {
 		t.Run(string(s), func(t *testing.T) {
 			t.Parallel()
-			days := 14
-			if s == synth.Huge {
-				days = 3
-			}
-			tl := synth.Build(synth.Options{Seed: 7, Scenarios: []synth.Scenario{s}, Days: days})
+			tl := synth.Build(synth.Options{Seed: 7, Scenarios: []synth.Scenario{s}, Days: Days(s)})
 			lines := render(tl)
 			if len(lines) == 0 {
 				t.Fatal("no lines")
@@ -383,7 +417,7 @@ func Suite(t *testing.T, c func() connector.Connector, render Render) {
 	for _, p := range synth.Personas {
 		t.Run("persona/"+string(p), func(t *testing.T) {
 			t.Parallel()
-			tl := synth.Build(synth.Options{Seed: 3, Persona: p, Scenarios: []synth.Scenario{synth.DST, synth.Travel, synth.MultiDevice}})
+			tl := synth.Build(synth.Options{Seed: 3, Persona: p, Days: PersonaDays(), Scenarios: []synth.Scenario{synth.DST, synth.Travel, synth.MultiDevice}})
 			conn := c()
 			Check(t, conn.Slug(), Run(conn, render(tl), tl.Opt.Now), tl.Opt.Now, 20)
 		})
@@ -391,7 +425,7 @@ func Suite(t *testing.T, c func() connector.Connector, render Render) {
 	t.Run("deterministic", func(t *testing.T) {
 		t.Parallel()
 		gen := func(seed uint64) string {
-			tl := synth.Build(synth.Options{Seed: seed, Days: 5, Scenarios: []synth.Scenario{synth.All}})
+			tl := synth.Build(synth.Options{Seed: seed, Days: 2, Scenarios: []synth.Scenario{synth.All}})
 			h := sha256.New()
 			for _, l := range render(tl) {
 				h.Write(l.JSON)

@@ -45,6 +45,9 @@ type Shape struct {
 	// since 1970 as a number, EpochMillis milliseconds.
 	TimeLayout         string
 	Epoch, EpochMillis bool
+	// Closed says the line is written by this server, not a vendor: a field
+	// it does not know is a fault, so the unknown field variant is skipped.
+	Closed bool
 }
 
 // Emitter collects a renderer's documents and applies the document scenarios.
@@ -58,6 +61,9 @@ type Emitter struct {
 	// cursor is where each data type is in its cycle of mutations.
 	cursor  map[string]int
 	pending []Line
+	// docs holds the mutated document of each pending line, marshalled
+	// when kept; nil for a line already in bytes.
+	docs []Doc
 	// UnknownType is a data type the provider's connector does not know,
 	// for the Unknown scenario; empty to skip.
 	UnknownType string
@@ -80,20 +86,25 @@ func (e *Emitter) Raw(l Line) { e.lines = append(e.lines, l) }
 // with the defects they ask for.
 func (e *Emitter) Add(dataType string, day time.Time, d Doc, sh Shape) {
 	day = day.UTC().Truncate(24 * time.Hour)
-	d = normalize(d)
 	n := e.seen[dataType]
 	e.seen[dataType] = n + 1
 	o := e.tl.Opt
-	e.lines = append(e.lines, Line{DataType: dataType, Day: day, JSON: marshal(d)})
 	// The first document gets every mutation, then one in eight gets the
-	// next few of the cycle.
+	// next few of the cycle. The others are written as they are: the
+	// normalized tree marshals to the same bytes.
 	if n%8 != 0 {
+		e.lines = append(e.lines, Line{DataType: dataType, Day: day, JSON: marshal(d)})
 		return
 	}
+	d = normalize(d)
+	e.lines = append(e.lines, Line{DataType: dataType, Day: day, JSON: marshal(d)})
 	e.pending = e.pending[:0]
+	e.docs = e.docs[:0]
 	defer e.flush(dataType, n == 0)
+	// A mutated document is marshalled only if the cycle keeps it.
 	add := func(doc Doc, f Fault, tag string) {
-		e.pending = append(e.pending, Line{DataType: dataType, Day: day, JSON: marshal(doc), Fault: f, Tag: tag})
+		e.pending = append(e.pending, Line{DataType: dataType, Day: day, Fault: f, Tag: tag})
+		e.docs = append(e.docs, doc)
 	}
 	if o.Has(Duplicates) {
 		add(d, FaultNone, "duplicate")
@@ -160,9 +171,11 @@ func (e *Emitter) Add(dataType string, day time.Time, d Doc, sh Shape) {
 		}
 	}
 	if o.Has(Unknown) {
-		c := clone(d)
-		c["x_future_field"] = map[string]any{"added_in": "a later API version", "values": []any{1, 2, 3}}
-		add(c, FaultNone, "unknown_field")
+		if !sh.Closed {
+			c := clone(d)
+			c["x_future_field"] = map[string]any{"added_in": "a later API version", "values": []any{1, 2, 3}}
+			add(c, FaultNone, "unknown_field")
+		}
 		for _, p := range sh.Enums {
 			if c, ok := set(d, p, "SOMETHING_NEW"); ok {
 				add(c, FaultUnknownEnum, "unknown_enum:"+p)
@@ -170,6 +183,7 @@ func (e *Emitter) Add(dataType string, day time.Time, d Doc, sh Shape) {
 		}
 		if n == 0 && e.UnknownType != "" {
 			e.pending = append(e.pending, Line{DataType: e.UnknownType, Day: day, JSON: marshal(d), Fault: FaultUnknownType, Tag: "unknown_type"})
+			e.docs = append(e.docs, nil)
 		}
 	}
 	if o.Has(UnitVariants) {
@@ -210,13 +224,22 @@ func (e *Emitter) Add(dataType string, day time.Time, d Doc, sh Shape) {
 // flush keeps all the pending mutations, or the next perDoc of the type's
 // cycle.
 func (e *Emitter) flush(dataType string, all bool) {
+	keep := func(i int) {
+		l := e.pending[i]
+		if l.JSON == nil && i < len(e.docs) && e.docs[i] != nil {
+			l.JSON = marshal(e.docs[i])
+		}
+		e.lines = append(e.lines, l)
+	}
 	if all || len(e.pending) <= perDoc {
-		e.lines = append(e.lines, e.pending...)
+		for i := range e.pending {
+			keep(i)
+		}
 		return
 	}
 	c := e.cursor[dataType]
 	for k := 0; k < perDoc; k++ {
-		e.lines = append(e.lines, e.pending[(c+k)%len(e.pending)])
+		keep((c + k) % len(e.pending))
 	}
 	e.cursor[dataType] = c + perDoc
 }
@@ -225,6 +248,7 @@ func (e *Emitter) flush(dataType string, all bool) {
 func (e *Emitter) malformed(dataType string, day time.Time, b []byte) {
 	add := func(j []byte, tag string) {
 		e.pending = append(e.pending, Line{DataType: dataType, Day: day, JSON: j, Fault: FaultMalformed, Tag: tag})
+		e.docs = append(e.docs, nil)
 	}
 	add(b[:len(b)/2], "truncated")
 	add(append([]byte("\xef\xbb\xbf"), b...), "bom")
@@ -262,7 +286,9 @@ func (e *Emitter) revise(d Doc, sh Shape) (Doc, bool) {
 				// any range the original was in, SpO2 1.0 included.
 				if f, err := n.Float64(); err == nil {
 					v := round(f*0.98, 3)
-					if _, err := n.Int64(); err == nil && f >= 50 {
+					if _, err := n.Int64(); err == nil {
+						// An integer stays one: a scale or a count has no
+						// fractions.
 						v = math.Round(v)
 					}
 					setIn(c, p, v)

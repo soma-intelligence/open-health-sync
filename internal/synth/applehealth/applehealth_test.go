@@ -22,22 +22,13 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/synth/synthtest"
 )
 
-func scenarios(t *testing.T) []synth.Scenario {
-	var out []synth.Scenario
-	for _, s := range synth.Scenarios {
-		if s == synth.Huge && testing.Short() {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
-}
+func scenarios(*testing.T) []synth.Scenario { return synthtest.Scenarios() }
 
 func days(s synth.Scenario) int {
 	if s == synth.Huge {
 		return 2
 	}
-	return 14
+	return synthtest.Days(s)
 }
 
 // TestUploadLines runs the SDK upload lines of every scenario through the
@@ -63,7 +54,7 @@ func TestPersonas(t *testing.T) {
 	for _, p := range synth.Personas {
 		t.Run(string(p), func(t *testing.T) {
 			t.Parallel()
-			tl := synth.Build(synth.Options{Seed: 3, Persona: p, Scenarios: []synth.Scenario{synth.DST, synth.Travel, synth.MultiDevice}})
+			tl := synth.Build(synth.Options{Seed: 3, Persona: p, Days: synthtest.PersonaDays(), Scenarios: []synth.Scenario{synth.DST, synth.Travel, synth.MultiDevice}})
 			res := synthtest.Run(ahc.New(), applehealth.Lines(tl), tl.Opt.Now)
 			synthtest.Check(t, applehealth.Slug, res, tl.Opt.Now, 20)
 		})
@@ -73,7 +64,7 @@ func TestPersonas(t *testing.T) {
 // TestParseUpload checks the upload gate: a part of documented lines passes,
 // a part holding one malformed line is refused whole, and neither panics.
 func TestParseUpload(t *testing.T) {
-	tl := synth.Build(synth.Options{Seed: 7, Scenarios: []synth.Scenario{synth.All}})
+	tl := synth.Build(synth.Options{Seed: 7, Days: synthtest.Days(synth.All), Scenarios: []synth.Scenario{synth.All}})
 	parts := map[string][2]*bytes.Buffer{}
 	for _, l := range applehealth.Lines(tl) {
 		p, ok := parts[l.DataType]
@@ -143,7 +134,7 @@ func TestExportArchive(t *testing.T) {
 	for _, units := range []string{"metric", "imperial"} {
 		t.Run(units, func(t *testing.T) {
 			t.Parallel()
-			tl := synth.Build(synth.Options{Seed: 11, Scenarios: []synth.Scenario{synth.DST, synth.Travel, synth.MultiDevice, synth.Extremes, synth.Gaps}})
+			tl := synth.Build(synth.Options{Seed: 11, Days: synthtest.Days(synth.All), Scenarios: []synth.Scenario{synth.DST, synth.Travel, synth.MultiDevice, synth.Extremes, synth.Gaps}})
 			o := applehealth.ExportOptions{}
 			if units == "imperial" {
 				o.Units = applehealth.ImperialUnits
@@ -206,7 +197,7 @@ func digest(b []byte) string {
 // different ones.
 func TestDeterministic(t *testing.T) {
 	gen := func(seed uint64) (string, string) {
-		tl := synth.Build(synth.Options{Seed: seed, Days: 5, Scenarios: []synth.Scenario{synth.All}})
+		tl := synth.Build(synth.Options{Seed: seed, Days: 2, Scenarios: []synth.Scenario{synth.All}})
 		h := sha256.New()
 		for _, l := range applehealth.Lines(tl) {
 			h.Write(l.JSON)

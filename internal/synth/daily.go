@@ -164,12 +164,45 @@ func (tl *Timeline) LocalISO(t time.Time) string { return tl.Local(t).Format(tim
 func (s Sport) Intensity() float64 { return s.intensity() }
 
 // Every returns the instants from a to b, step apart, that a worn device saw.
+// The days of a timeline need not touch (DST adds the autumn change months
+// later), so the stretches between them are skipped, not walked.
 func (tl *Timeline) Every(a, b time.Time, step time.Duration) []time.Time {
 	var out []time.Time
-	for t := a; t.Before(b); t = t.Add(step) {
-		if tl.Worn(t) {
-			out = append(out, t)
+	for _, sp := range tl.spans() {
+		from, to := sp.Start, sp.End
+		if from.Before(a) {
+			from = a
 		}
+		if to.After(b) {
+			to = b
+		}
+		if !from.Before(to) {
+			continue
+		}
+		// Stay on the grid of a.
+		t := a.Add((from.Sub(a) + step - 1) / step * step)
+		for ; t.Before(to); t = t.Add(step) {
+			if tl.Worn(t) {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
+}
+
+// spans returns the stretches the timeline covers: each day and the evening
+// before it, merged where they touch.
+func (tl *Timeline) spans() []Interval {
+	var out []Interval
+	for _, d := range tl.Days {
+		iv := Interval{d.Start.Add(-12 * time.Hour), d.End}
+		if n := len(out); n > 0 && !iv.Start.After(out[n-1].End) {
+			if iv.End.After(out[n-1].End) {
+				out[n-1].End = iv.End
+			}
+			continue
+		}
+		out = append(out, iv)
 	}
 	return out
 }
