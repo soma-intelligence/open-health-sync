@@ -526,6 +526,8 @@ func TestValidateMapResult_EndBeforeStartAndFutureEnd(t *testing.T) {
 		NutritionLogs:   []model.NutritionLog{{StartDate: start, EndDate: &far}},
 		Workouts:        []model.Workout{{StartDate: start, EndDate: far}},
 		ECGRecordings:   []model.ECGRecording{{StartDate: start, EndDate: end}},
+		DailySummaries:  []model.DailySummary{{SummaryDate: far}},
+		Observations:    []model.Observation{{TS: start, EndTS: end}},
 	}
 	got := map[string]string{}
 	for _, e := range Rejections(ValidateMapResultAt(mr, now)) {
@@ -535,5 +537,6 @@ func TestValidateMapResult_EndBeforeStartAndFutureEnd(t *testing.T) {
 		"quantity_sample": "end_date", "category_sample": "end_date",
 		"sleep_phase": "end_date", "nutrition_log": "end_date",
 		"workout": "end_date", "ecg_recording": "end_date",
+		"daily_summary": "summary_date", "observation": "end_date",
 	}, got)
 }

@@ -9,6 +9,8 @@ package synthtest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +18,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -196,8 +199,9 @@ type T interface {
 //   - a line that follows the vendor's documentation is never refused:
 //     no map error, no unit error, no rejection;
 //   - a malformed line never reaches storage;
-//   - every record that would be stored has finite numbers, UTC times no
-//     more than two days past now, and an end not before its start.
+//   - every record that would be stored has finite numbers, times no more
+//     than two days past now, and an end not before its start. The zone of
+//     a time is free: hashes and the database work in UTC.
 //
 // At most max failures are reported, so one systematic bug does not flood the
 // log.
@@ -281,9 +285,6 @@ func recordInvariants(where string, rec reflect.Value, now time.Time) []string {
 				continue
 			}
 			times[name] = tm
-			if tm.Location() != time.UTC {
-				out = append(out, fmt.Sprintf("%s.%s is not UTC: %s", where, name, tm))
-			}
 			if tm.After(now.Add(48 * time.Hour)) {
 				out = append(out, fmt.Sprintf("%s.%s is in the future: %s", where, name, tm.Format(time.RFC3339)))
 			}
@@ -337,4 +338,72 @@ func Accepted(results []Result) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Render turns a timeline into a provider's lines.
+type Render func(tl *synth.Timeline) []synth.Line
+
+// Suite runs render through c for every scenario (Huge only without -short)
+// and every persona, and checks each run. It is the whole test of a
+// renderer and its connector.
+func Suite(t *testing.T, c func() connector.Connector, render Render) {
+	t.Helper()
+	for _, s := range synth.Scenarios {
+		if s == synth.Huge && testing.Short() {
+			continue
+		}
+		t.Run(string(s), func(t *testing.T) {
+			t.Parallel()
+			days := 14
+			if s == synth.Huge {
+				days = 3
+			}
+			tl := synth.Build(synth.Options{Seed: 7, Scenarios: []synth.Scenario{s}, Days: days})
+			lines := render(tl)
+			if len(lines) == 0 {
+				t.Fatal("no lines")
+			}
+			conn := c()
+			res := Run(conn, lines, tl.Opt.Now)
+			Check(t, conn.Slug(), res, tl.Opt.Now, 20)
+			if s == synth.Baseline {
+				stored := 0
+				for _, r := range res {
+					if r.Outcome == Stored {
+						stored++
+					}
+				}
+				if stored == 0 {
+					t.Error("baseline stored nothing")
+				}
+			}
+			t.Logf("%d lines, outcomes %v", len(lines), Summary(res))
+		})
+	}
+	for _, p := range synth.Personas {
+		t.Run("persona/"+string(p), func(t *testing.T) {
+			t.Parallel()
+			tl := synth.Build(synth.Options{Seed: 3, Persona: p, Scenarios: []synth.Scenario{synth.DST, synth.Travel, synth.MultiDevice}})
+			conn := c()
+			Check(t, conn.Slug(), Run(conn, render(tl), tl.Opt.Now), tl.Opt.Now, 20)
+		})
+	}
+	t.Run("deterministic", func(t *testing.T) {
+		t.Parallel()
+		gen := func(seed uint64) string {
+			tl := synth.Build(synth.Options{Seed: seed, Days: 5, Scenarios: []synth.Scenario{synth.All}})
+			h := sha256.New()
+			for _, l := range render(tl) {
+				h.Write(l.JSON)
+				h.Write([]byte{'\n'})
+			}
+			return hex.EncodeToString(h.Sum(nil))
+		}
+		if gen(1) != gen(1) {
+			t.Error("same seed, different lines")
+		}
+		if gen(1) == gen(2) {
+			t.Error("different seeds, same lines")
+		}
+	})
 }

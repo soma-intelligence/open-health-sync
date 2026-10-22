@@ -112,6 +112,12 @@ func ValidateMapResultAt(mr *model.MapResult, now time.Time) []ValidationError {
 	for i := range mr.NutritionLogs {
 		errs = append(errs, at(validateNutritionLog(&mr.NutritionLogs[i], now), i)...)
 	}
+	for i := range mr.DailySummaries {
+		errs = append(errs, at(validateDailySummary(&mr.DailySummaries[i], now), i)...)
+	}
+	for i := range mr.Observations {
+		errs = append(errs, at(validateObservation(&mr.Observations[i], now), i)...)
+	}
 	for i := range mr.ECGRecordings {
 		errs = append(errs, at(validateECGRecording(&mr.ECGRecordings[i], now), i)...)
 	}
@@ -434,6 +440,36 @@ func validateNutritionLog(n *model.NutritionLog, now time.Time) []ValidationErro
 	if n.EndDate != nil {
 		errs = append(errs, checkEnd("nutrition_log", n.StartDate, *n.EndDate, now)...)
 	}
+
+	return errs
+}
+
+// validateDailySummary rejects a summary of a day that has not begun.
+func validateDailySummary(d *model.DailySummary, now time.Time) []ValidationError {
+	if !isFutureTimestamp(d.SummaryDate, now) {
+		return nil
+	}
+	return []ValidationError{{
+		RecordType: "daily_summary",
+		Field:      "summary_date",
+		Value:      d.SummaryDate,
+		Message:    "timestamp is in the future (more than 48h ahead)",
+	}}
+}
+
+// validateObservation checks an observation's instant and interval.
+func validateObservation(o *model.Observation, now time.Time) []ValidationError {
+	var errs []ValidationError
+
+	if isFutureTimestamp(o.TS, now) {
+		errs = append(errs, ValidationError{
+			RecordType: "observation",
+			Field:      "ts",
+			Value:      o.TS,
+			Message:    "timestamp is in the future (more than 48h ahead)",
+		})
+	}
+	errs = append(errs, checkEnd("observation", o.TS, o.EndTS, now)...)
 
 	return errs
 }

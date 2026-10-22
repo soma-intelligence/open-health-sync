@@ -34,6 +34,8 @@ type Timeline struct {
 	ExtremeDay int
 	// built says the lists are sorted, so lookups can search them.
 	built bool
+	// totals caches Totals by day index.
+	totals map[int]Totals
 }
 
 // Interval is a stretch of time.
