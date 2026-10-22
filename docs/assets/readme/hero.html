@@ -1,0 +1,120 @@
+<!--
+  Source of docs/assets/readme/hero-light.png and hero-dark.png (800x400 at 2x).
+  Render with Playwright: open hero.html?theme=light and ?theme=dark at a
+  viewport of 800x400, deviceScaleFactor 2, wait for document.fonts.ready,
+  and screenshot. Update the source list and the version on each release.
+-->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=block" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f3ef; --bg2: #e6efea; --ink: #16181d; --muted: #5d636b; --label: #7a7f86;
+    --tile: #ffffff; --tile-line: #e3e2dd; --stage: #efeeea; --accent: #0e9f8e;
+    --json-key: #16181d; --json-str: #0e9f8e; --json-num: #c2522d; --code-bg: #f7f6f2; --code-head: #eeede8;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1114; --bg2: #11281f; --ink: #f2f3f5; --muted: #a3a8af; --label: #8c9198;
+    --tile: #181b20; --tile-line: #2b2f36; --stage: #1d2026; --accent: #14b8a2;
+    --json-key: #e8eaed; --json-str: #22c3ab; --json-num: #f0a35e; --code-bg: #15181c; --code-head: #1b1e23;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 800px; height: 400px; }
+  body {
+    font-family: Inter, -apple-system, sans-serif; color: var(--ink);
+    background: linear-gradient(135deg, var(--bg) 55%, var(--bg2) 100%);
+    position: relative; overflow: hidden;
+  }
+  .abs { position: absolute; }
+  .title { left: 36px; top: 26px; display: flex; align-items: center; gap: 12px; }
+  .title span { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
+  .pills { right: 36px; top: 34px; display: flex; gap: 7px; }
+  .pill { border: 1px solid var(--tile-line); background: var(--tile); border-radius: 999px;
+          font-size: 10.5px; padding: 3px 9px; font-weight: 500; }
+  .tag { left: 36px; top: 70px; font-size: 13px; color: var(--muted); }
+  .h { font-size: 8.5px; letter-spacing: 2.4px; color: var(--label); font-weight: 500; }
+  .legend { font-size: 8.5px; color: var(--muted); display: flex; align-items: center; gap: 5px; margin-top: 7px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+  .grid { display: grid; gap: 5px; }
+  .src { grid-template-columns: repeat(3, 86px); margin-top: 9px; }
+  .out { grid-template-columns: repeat(3, 77px); margin-top: 9px; gap: 6px 6px; }
+  .t { height: 24px; border: 1px solid var(--tile-line); background: var(--tile); border-radius: 6px;
+       display: flex; align-items: center; gap: 4px; padding: 0 5px; font-size: 8.8px; font-weight: 600; letter-spacing: -0.15px;
+       white-space: nowrap; overflow: hidden; }
+  .planned { display: flex; gap: 5px; margin-top: 8px; }
+  .p { border: 1px dashed var(--label); border-radius: 999px; font-size: 9.5px; padding: 2px 8px; color: var(--ink); }
+  .arrow { color: var(--accent); font-size: 11px; font-weight: 600; }
+  .core { left: 320px; top: 122px; width: 184px; height: 181px; border: 1.5px solid var(--accent);
+          border-radius: 10px; background: var(--tile); padding: 10px 10px; }
+  .core .head { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; margin: 1px 0 8px 1px; }
+  .stage { background: var(--stage); border-radius: 5px; padding: 4px 8px; margin-bottom: 4px; height: 31px; }
+  .stage b { display: block; font-weight: 400; font-size: 10.5px; line-height: 12px; }
+  .stage i { display: block; font-style: normal; font-size: 8px; color: var(--muted); line-height: 10px; }
+  .code { left: 520px; top: 198px; width: 244px; height: 126px; border: 1px solid var(--tile-line);
+          border-radius: 7px; background: var(--code-bg); overflow: hidden; font-family: 'JetBrains Mono', Menlo, monospace; }
+  .code .bar { background: var(--code-head); border-bottom: 1px solid var(--tile-line); padding: 5px 10px; font-size: 8.5px; color: var(--muted); }
+  .code pre { font-family: inherit; font-size: 7.6px; line-height: 11.5px; padding: 6px 10px; color: var(--json-key); }
+  .s { color: var(--json-str); } .n { color: var(--json-num); }
+</style>
+</head>
+<body>
+  <div class="abs title">
+    <svg width="38" height="22" viewBox="8 22 86 52" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 26 C30 26 34 48 50 48" stroke="var(--ink)"/>
+      <path d="M10 70 C30 70 34 48 50 48" stroke="var(--ink)"/>
+      <path d="M50 48 H60 L66 32 L74 64 L80 48 H90" stroke="var(--accent)"/>
+    </svg>
+    <span>Open Health Sync</span>
+  </div>
+  <div class="abs pills"><div class="pill">Self-hosted</div><div class="pill">AGPL-3.0</div><div class="pill">Go + Postgres</div></div>
+  <div class="abs tag">Collect health data from devices and apps, keep every raw payload, serve it back as one clean model.</div>
+
+  <div class="abs" style="left:36px; top:105px;">
+    <div class="h">SOURCES</div>
+    <div class="legend"><span class="dot"></span>18 in v0.2.0</div>
+    <div class="grid src" id="src"></div>
+    <div class="h" style="margin-top:14px;">PLANNED</div>
+    <div class="planned"><div class="p">Coros</div><div class="p">Samsung Health (via Health Connect)</div></div>
+  </div>
+
+  <div class="abs arrow" style="left:306px; top:168px;">&rarr;</div>
+  <div class="abs h" style="left:320px; top:105px;">OPEN HEALTH SYNC</div>
+  <div class="abs core">
+    <div class="head"><span class="dot"></span>ohs, one Go binary</div>
+    <div class="stage"><b>Background sync</b><i>webhooks first</i></div>
+    <div class="stage"><b>Raw store</b><i>disk or S3, verbatim</i></div>
+    <div class="stage"><b>Normalize</b><i>units, dedup, local day</i></div>
+    <div class="stage" style="margin-bottom:0"><b>Postgres</b><i>+ TimescaleDB</i></div>
+  </div>
+  <div class="abs arrow" style="left:506px; top:168px;">&rarr;</div>
+
+  <div class="abs" style="left:520px; top:105px;">
+    <div class="h">OUTPUTS</div>
+    <div class="legend"><span class="dot"></span>in v0.2.0</div>
+    <div class="grid out" id="out"></div>
+  </div>
+  <div class="abs code">
+    <div class="bar">GET /v1/users/{id}/samples</div>
+<pre>{
+  "type": <span class="s">"heart_rate"</span>,
+  "value": <span class="n">55.5</span>,
+  "unit": <span class="s">"bpm"</span>,
+  "start_date": <span class="s">"2026-01-10T00:00:00Z"</span>,
+  "provider": <span class="s">"apple_health"</span>,
+  "device": <span class="s">"Apple Watch"</span>
+}</pre>
+  </div>
+<script>
+  const theme = new URLSearchParams(location.search).get('theme');
+  if (theme) document.documentElement.dataset.theme = theme;
+  const tiles = (id, names) => document.getElementById(id).innerHTML =
+    names.map(n => `<div class="t"><span class="dot"></span>${n}</div>`).join('');
+  tiles('src', ['Apple Health','Withings','Health Connect','Oura','WHOOP','Fitbit','Polar','Strava','Suunto',
+    'Ultrahuman','Dexcom','OMRON','intervals.icu','Garmin','Eight Sleep','Xiaomi','Activity files','Bluetooth']);
+  tiles('out', ['REST API','MCP','FHIR R4','Open mHealth','CSV/Parquet','Webhooks']);
+</script>
+</body>
+</html>

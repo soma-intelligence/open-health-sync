@@ -8,7 +8,7 @@
 <a href="#quickstart">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.png">
-  <img src="docs/assets/readme/hero-light.png" width="100%" alt="Open Health Sync: thirteen sources flow into one Go binary (background sync, raw store, normalize, Postgres). All thirteen are in v0.2.0: Apple Health, Withings, Health Connect, Oura, WHOOP, Fitbit, Polar, Strava, Suunto, Ultrahuman, Dexcom, OMRON and intervals.icu. Outputs, all in v0.2.0: REST API, read-only MCP, FHIR R4, Open mHealth, CSV/Parquet exports and outgoing webhooks. Coros and Samsung Health via Health Connect are planned; Garmin, drawn as planned, ships in v0.2.0. The JSON shown is a real heart rate sample read back from the API.">
+  <img src="docs/assets/readme/hero-light.png" width="100%" alt="Open Health Sync: eighteen sources flow into one Go binary (background sync, raw store, normalize, Postgres). All eighteen are in v0.2.0: Apple Health, Withings, Health Connect, Oura, WHOOP, Fitbit, Polar, Strava, Suunto, Ultrahuman, Dexcom, OMRON, intervals.icu, Garmin, Eight Sleep, Xiaomi, activity files and Bluetooth devices. Outputs, all in v0.2.0: REST API, read-only MCP, FHIR R4, Open mHealth, CSV/Parquet exports and outgoing webhooks. Coros and Samsung Health via Health Connect are planned. The JSON shown is a real heart rate sample read back from the API.">
 </picture>
 </a>
 
