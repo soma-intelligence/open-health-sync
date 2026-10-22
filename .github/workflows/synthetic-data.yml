@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# The full synthetic data run: every connector's renderer through the worker's
+# steps, fourteen days, every scenario on its own and Huge (one sample a
+# second). Pull requests run the light version (go test ./... in ci.yml,
+# five days, the document scenarios through All). See
+# docs/specs/synthetic-data.md.
+name: synthetic-data
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Run every renderer at full size
+        env:
+          OHS_SYNTH_FULL: "1"
+        run: go test -count=1 -timeout 25m ./internal/synth/...
