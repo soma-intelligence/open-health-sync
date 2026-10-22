@@ -10,8 +10,8 @@ import (
 
 	conn "github.com/soma-intelligence/open-health-sync/connectors/withings"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
-	"github.com/soma-intelligence/open-health-sync/internal/synth/withings"
 	"github.com/soma-intelligence/open-health-sync/internal/synth/synthtest"
+	"github.com/soma-intelligence/open-health-sync/internal/synth/withings"
 )
 
 func TestMain(m *testing.M) {
