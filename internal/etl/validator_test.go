@@ -540,3 +540,39 @@ func TestValidateMapResult_EndBeforeStartAndFutureEnd(t *testing.T) {
 		"daily_summary": "summary_date", "observation": "end_date",
 	}, got)
 }
+
+func TestValidateWorkout_SummaryRanges(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	f := func(v float64) *float64 { return &v }
+	cases := []struct {
+		name string
+		w    model.Workout
+		sev  Severity // empty for no finding
+	}{
+		{"plausible", model.Workout{AvgHeartRate: f(142), MaxHeartRate: f(181), ActiveEnergyKcal: f(620), DistanceM: f(10200), AvgSpeedMps: f(3.1), ElevationGainM: f(84), VO2Max: f(52)}, ""},
+		{"heart rate x10", model.Workout{AvgHeartRate: f(1420)}, SeverityReject},
+		{"negative heart rate", model.Workout{MaxHeartRate: f(-180)}, SeverityReject},
+		{"no heart rate recorded", model.Workout{AvgHeartRate: f(0)}, SeveritySuspect},
+		{"negative energy", model.Workout{ActiveEnergyKcal: f(-500)}, SeverityReject},
+		{"negative distance", model.Workout{DistanceM: f(-3)}, SeverityReject},
+		{"negative speed", model.Workout{AvgSpeedMps: f(-1)}, SeverityReject},
+		{"negative climb", model.Workout{ElevationGainM: f(-12)}, SeverityReject},
+		{"vo2 max x10", model.Workout{VO2Max: f(520)}, SeverityReject},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.w.StartDate = now.Add(-time.Hour)
+			c.w.EndDate = now
+			errs := ValidateMapResultAt(&model.MapResult{Workouts: []model.Workout{c.w}}, now)
+			switch c.sev {
+			case "":
+				assert.Empty(t, errs)
+			case SeverityReject:
+				assert.Len(t, Rejections(errs), 1)
+			default:
+				assert.Empty(t, Rejections(errs))
+				assert.Len(t, Suspicions(errs), 1)
+			}
+		})
+	}
+}

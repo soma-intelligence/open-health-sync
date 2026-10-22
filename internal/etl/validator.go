@@ -388,7 +388,61 @@ func validateWorkout(w *model.Workout, now time.Time) []ValidationError {
 		})
 	}
 
+	for _, f := range []struct {
+		field string
+		v     *float64
+		rule  rangeRule
+	}{
+		{"avg_heart_rate", w.AvgHeartRate, workoutHeartRate},
+		{"max_heart_rate", w.MaxHeartRate, workoutHeartRate},
+		{"active_energy_kcal", w.ActiveEnergyKcal, rangeRules[model.QTActiveEnergyBurned]},
+		{"distance_m", w.DistanceM, rangeRules[model.QTDistanceWalkingRunning]},
+		{"avg_speed_mps", w.AvgSpeedMps, workoutSpeed},
+		{"elevation_gain_m", w.ElevationGainM, workoutElevationGain},
+		{"vo2_max", w.VO2Max, rangeRules["vo2_max"]},
+	} {
+		if e := checkWorkoutValue(f.field, f.v, f.rule); e != nil {
+			errs = append(errs, *e)
+		}
+	}
+
 	return errs
+}
+
+// The bands of the workout summary fields that have no quantity type of
+// their own. A heart rate of zero is a device that recorded none, not a
+// measurement, so it is flagged instead of parking the whole workout.
+var (
+	workoutHeartRate     = rangeRule{HardMin: 0, HardMax: 300, SoftMin: 25, SoftMax: 250}
+	workoutSpeed         = rangeRule{HardMin: 0, HardMax: 150, SoftMin: 0, SoftMax: 40}
+	workoutElevationGain = rangeRule{HardMin: 0, HardMax: 20000, SoftMin: 0, SoftMax: 10000}
+)
+
+// checkWorkoutValue range-checks one optional workout summary field: outside
+// the hard band parks the workout, outside the soft band flags it.
+func checkWorkoutValue(field string, v *float64, r rangeRule) *ValidationError {
+	if v == nil {
+		return nil
+	}
+	if math.IsNaN(*v) || *v < r.HardMin || *v > r.HardMax {
+		return &ValidationError{
+			RecordType: "workout",
+			Field:      field,
+			Value:      *v,
+			Message:    fmt.Sprintf("%s out of range [%g, %g]: %g", field, r.HardMin, r.HardMax, *v),
+			Severity:   SeverityReject,
+		}
+	}
+	if *v < r.SoftMin || *v > r.SoftMax {
+		return &ValidationError{
+			RecordType: "workout",
+			Field:      field,
+			Value:      *v,
+			Message:    fmt.Sprintf("%s outside the expected range [%g, %g]: %g", field, r.SoftMin, r.SoftMax, *v),
+			Severity:   SeveritySuspect,
+		}
+	}
+	return nil
 }
 
 // validateRoutePoint checks GPS coordinate ranges and timestamps.
