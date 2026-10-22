@@ -94,8 +94,11 @@ var nutrientUnitScale = map[string]struct {
 	"mcg": {"mass", 1},
 	"ug":  {"mass", 1},
 	"µg":  {"mass", 1},
-	"l":   {"volume", 1000},
-	"ml":  {"volume", 1},
+	// HKUnit.ounce() and pound(), which a US phone may pick for any mass.
+	"oz": {"mass", 28349523.125},
+	"lb": {"mass", 453592370},
+	"l":  {"volume", 1000},
+	"ml": {"volume", 1},
 	// HealthKit's US and imperial fluid ounces.
 	"fl_oz_us":  {"volume", 29.5735295625},
 	"fl_oz_imp": {"volume", 28.4130625},

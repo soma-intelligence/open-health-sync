@@ -513,3 +513,27 @@ func TestValidationError_ErrorString(t *testing.T) {
 	assert.Contains(t, errStr, "value")
 	assert.Contains(t, errStr, "350")
 }
+
+func TestValidateMapResult_EndBeforeStartAndFutureEnd(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	start := now.Add(-time.Hour)
+	end := start.Add(-time.Minute)
+	far := now.AddDate(70, 0, 0)
+	mr := &model.MapResult{
+		QuantitySamples: []model.QuantitySample{{QuantityType: "heart_rate", Value: 60, StartDate: start, EndDate: end}},
+		CategorySamples: []model.CategorySample{{StartDate: start, EndDate: far}},
+		SleepPhases:     []model.SleepPhase{{StartDate: start, EndDate: end}},
+		NutritionLogs:   []model.NutritionLog{{StartDate: start, EndDate: &far}},
+		Workouts:        []model.Workout{{StartDate: start, EndDate: far}},
+		ECGRecordings:   []model.ECGRecording{{StartDate: start, EndDate: end}},
+	}
+	got := map[string]string{}
+	for _, e := range Rejections(ValidateMapResultAt(mr, now)) {
+		got[e.RecordType] = e.Field
+	}
+	assert.Equal(t, map[string]string{
+		"quantity_sample": "end_date", "category_sample": "end_date",
+		"sleep_phase": "end_date", "nutrition_log": "end_date",
+		"workout": "end_date", "ecg_recording": "end_date",
+	}, got)
+}

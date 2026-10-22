@@ -100,6 +100,9 @@ func ValidateMapResultAt(mr *model.MapResult, now time.Time) []ValidationError {
 	for i := range mr.SleepSessions {
 		errs = append(errs, at(validateSleepSession(&mr.SleepSessions[i], now), i)...)
 	}
+	for i := range mr.SleepPhases {
+		errs = append(errs, at(validateSleepPhase(&mr.SleepPhases[i], now), i)...)
+	}
 	for i := range mr.Workouts {
 		errs = append(errs, at(validateWorkout(&mr.Workouts[i], now), i)...)
 	}
@@ -108,6 +111,9 @@ func ValidateMapResultAt(mr *model.MapResult, now time.Time) []ValidationError {
 	}
 	for i := range mr.NutritionLogs {
 		errs = append(errs, at(validateNutritionLog(&mr.NutritionLogs[i], now), i)...)
+	}
+	for i := range mr.ECGRecordings {
+		errs = append(errs, at(validateECGRecording(&mr.ECGRecordings[i], now), i)...)
 	}
 	for i := range mr.ECGSamples {
 		errs = append(errs, at(validateECGVoltageSample(&mr.ECGSamples[i], now), i)...)
@@ -165,7 +171,37 @@ func validateQuantitySample(s *model.QuantitySample, now time.Time) []Validation
 			Severity:   SeverityReject,
 		})
 	}
+	errs = append(errs, checkEnd("quantity_sample", s.StartDate, s.EndDate, now)...)
 
+	return errs
+}
+
+// checkEnd rejects an end that precedes the start or lies in the future. A
+// zero end means an instant and passes. A start already in the future is
+// reported by the caller, so its end is not reported twice.
+func checkEnd(recordType string, start, end, now time.Time) []ValidationError {
+	if end.IsZero() {
+		return nil
+	}
+	var errs []ValidationError
+	if end.Before(start) {
+		errs = append(errs, ValidationError{
+			RecordType: recordType,
+			Field:      "end_date",
+			Value:      end,
+			Message:    "end_date must not be before start_date",
+			Severity:   SeverityReject,
+		})
+	}
+	if isFutureTimestamp(end, now) && !isFutureTimestamp(start, now) {
+		errs = append(errs, ValidationError{
+			RecordType: recordType,
+			Field:      "end_date",
+			Value:      end,
+			Message:    "timestamp is in the future (more than 48h ahead)",
+			Severity:   SeverityReject,
+		})
+	}
 	return errs
 }
 
@@ -248,6 +284,26 @@ func validateCategorySample(s *model.CategorySample, now time.Time) []Validation
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkEnd("category_sample", s.StartDate, s.EndDate, now)...)
+
+	return errs
+}
+
+// validateSleepPhase checks a stage interval like any other sample: not in
+// the future and not ending before it starts. A rejected phase parks its
+// whole record, since a night with a stage cut out would misreport it.
+func validateSleepPhase(p *model.SleepPhase, now time.Time) []ValidationError {
+	var errs []ValidationError
+
+	if isFutureTimestamp(p.StartDate, now) {
+		errs = append(errs, ValidationError{
+			RecordType: "sleep_phase",
+			Field:      "start_date",
+			Value:      p.StartDate,
+			Message:    "timestamp is in the future (more than 48h ahead)",
+		})
+	}
+	errs = append(errs, checkEnd("sleep_phase", p.StartDate, p.EndDate, now)...)
 
 	return errs
 }
@@ -305,6 +361,15 @@ func validateWorkout(w *model.Workout, now time.Time) []ValidationError {
 			Field:      "start_date",
 			Value:      w.StartDate,
 			Message:    "start_date must be before or equal to end_date",
+		})
+	}
+
+	if isFutureTimestamp(w.EndDate, now) && !isFutureTimestamp(w.StartDate, now) {
+		errs = append(errs, ValidationError{
+			RecordType: "workout",
+			Field:      "end_date",
+			Value:      w.EndDate,
+			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
 
@@ -366,6 +431,26 @@ func validateNutritionLog(n *model.NutritionLog, now time.Time) []ValidationErro
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	if n.EndDate != nil {
+		errs = append(errs, checkEnd("nutrition_log", n.StartDate, *n.EndDate, now)...)
+	}
+
+	return errs
+}
+
+// validateECGRecording checks a recording's interval like a sample's.
+func validateECGRecording(r *model.ECGRecording, now time.Time) []ValidationError {
+	var errs []ValidationError
+
+	if isFutureTimestamp(r.StartDate, now) {
+		errs = append(errs, ValidationError{
+			RecordType: "ecg_recording",
+			Field:      "start_date",
+			Value:      r.StartDate,
+			Message:    "timestamp is in the future (more than 48h ahead)",
+		})
+	}
+	errs = append(errs, checkEnd("ecg_recording", r.StartDate, r.EndDate, now)...)
 
 	return errs
 }

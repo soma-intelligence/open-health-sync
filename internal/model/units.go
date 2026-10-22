@@ -227,13 +227,15 @@ type conversion struct {
 // unitConversions are qt-agnostic: the transform holds for any metric measured in
 // the source unit. Keyed by the lowercased source unit.
 var unitConversions = map[string]conversion{
-	"lb":     {Factor: 0.45359237, To: "kg"},
-	"lbs":    {Factor: 0.45359237, To: "kg"},
-	"st":     {Factor: 6.35029318, To: "kg"},
-	"g":      {Factor: 0.001, To: "kg"},
-	"km":     {Factor: 1000, To: "m"},
-	"mi":     {Factor: 1609.344, To: "m"},
-	"ft":     {Factor: 0.3048, To: "m"},
+	"lb":  {Factor: 0.45359237, To: "kg"},
+	"lbs": {Factor: 0.45359237, To: "kg"},
+	"st":  {Factor: 6.35029318, To: "kg"},
+	"g":   {Factor: 0.001, To: "kg"},
+	"km":  {Factor: 1000, To: "m"},
+	"mi":  {Factor: 1609.344, To: "m"},
+	"ft":  {Factor: 0.3048, To: "m"},
+	// Swimming distance in a yards pool (HKUnit.yard()).
+	"yd":     {Factor: 0.9144, To: "m"},
 	"cal":    {Factor: 0.001, To: "kcal"},
 	"kj":     {Factor: 0.2390057, To: "kcal"},
 	"j":      {Factor: 0.0002390057, To: "kcal"},
@@ -266,6 +268,10 @@ var metricUnitConversions = map[string]conversion{
 	"distance_walking_running|cm":          {Factor: 0.01, To: "m"},
 	"distance_walking_running_intraday|cm": {Factor: 0.01, To: "m"},
 	"blood_glucose|mmol/l":                 {Factor: 18.0182, To: "mg/dL"},
+	// HealthKit's running form metrics take any length or time unit.
+	"running_vertical_oscillation|in": {Factor: 2.54, To: "cm"},
+	"running_vertical_oscillation|m":  {Factor: 100, To: "cm"},
+	"running_ground_contact_time|s":   {Factor: 1000, To: "ms"},
 	// Blood pressure cuffs on the Bluetooth Blood Pressure profile may report
 	// kPa. Scoped to the two pressures: kPa means nothing for other metrics.
 	"blood_pressure_systolic|kpa":  {Factor: 7.50062, To: "mmHg"},
@@ -288,7 +294,8 @@ var metricUnitConversions = map[string]conversion{
 	"body_fat_percentage|fraction":   {Factor: 100, To: "percent"},
 	"blood_alcohol_content|fraction": {Factor: 100, To: "percent"},
 	// Waist is a body dimension, stored in centimetres like height.
-	"waist_circumference|m": {Factor: 100, To: "cm"},
+	"waist_circumference|m":  {Factor: 100, To: "cm"},
+	"waist_circumference|in": {Factor: 2.54, To: "cm"},
 	// HealthKit reports the UV index as a dimensionless count.
 	"uv_exposure|count": {Factor: 1, To: "index"},
 	// Apple ring times: the Apple Health client sends milliseconds (see storageUnits).
@@ -351,6 +358,14 @@ func ToStorageUnit(quantityType string, value float64, unit string) (float64, st
 	}
 
 	src := strings.ToLower(strings.TrimSpace(unit))
+	// HealthKit writes a mole unit with its molar mass: blood glucose in
+	// mmol/L is "mmol<180.15588000005408>/L". The mass only says which
+	// analyte, which the quantity type already names.
+	if i := strings.IndexByte(src, '<'); i >= 0 {
+		if j := strings.IndexByte(src[i:], '>'); j > 0 {
+			src = src[:i] + src[i+j+1:]
+		}
+	}
 	if src == "" {
 		return value, target, nil
 	}

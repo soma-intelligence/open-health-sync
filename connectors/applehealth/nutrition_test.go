@@ -202,10 +202,26 @@ func TestMapFoodCorrelation_RefusesAnUnknownUnit(t *testing.T) {
 		"endDate":         "2026-09-01T12:20:00Z",
 		"correlationType": "HKCorrelationTypeIdentifierFood",
 		"objects": []any{
-			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietaryProtein", "value": 25.0, "unit": "oz"},
+			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietaryProtein", "value": 25.0, "unit": "furlong"},
 		},
 	}, "user-1")
 	assert.Error(t, err)
+}
+
+// HKUnit.ounce() is a mass unit HealthKit accepts for any dietary mass.
+func TestMapFoodCorrelation_OuncesConvert(t *testing.T) {
+	m := newMapper()
+	res, err := m.mapFoodCorrelation(map[string]any{
+		"startDate":       "2026-09-01T12:00:00Z",
+		"endDate":         "2026-09-01T12:20:00Z",
+		"correlationType": "HKCorrelationTypeIdentifierFood",
+		"objects": []any{
+			map[string]any{"sampleType": "HKQuantityTypeIdentifierDietaryProtein", "value": 1.0, "unit": "oz"},
+		},
+	}, "user-1")
+	require.NoError(t, err)
+	require.NotNil(t, res.NutritionLogs[0].ProteinG)
+	assert.InDelta(t, 28.349523125, *res.NutritionLogs[0].ProteinG, 1e-9)
 }
 
 func TestMapDietaryQuantity_ExtendedNutrientsInTheirUnit(t *testing.T) {

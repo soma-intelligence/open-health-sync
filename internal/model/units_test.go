@@ -3,6 +3,7 @@
 package model
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -370,5 +371,30 @@ func TestEveryEmittedQuantityTypeHasAStorageUnit(t *testing.T) {
 		assert.True(t, declared,
 			"%s emits quantity_type %q with no storage unit declared in units.go: add it there, or to unitExemptQuantityTypes with a reason",
 			file, qt)
+	}
+}
+
+// HealthKit writes glucose in mmol/L with the molar mass inside the unit, and
+// running form metrics in whatever length or time unit the phone picked.
+func TestToStorageUnit_HealthKitSpellings(t *testing.T) {
+	for _, tc := range []struct {
+		qt, unit string
+		in, want float64
+		to       string
+	}{
+		{"blood_glucose", "mmol<180.15588000005408>/L", 5.5, 99.1001, "mg/dL"},
+		{"distance_swimming", "yd", 100, 91.44, "m"},
+		{"running_vertical_oscillation", "in", 3, 7.62, "cm"},
+		{"running_ground_contact_time", "s", 0.25, 250, "ms"},
+		{"waist_circumference", "in", 32, 81.28, "cm"},
+	} {
+		v, u, err := ToStorageUnit(tc.qt, tc.in, tc.unit)
+		if err != nil {
+			t.Errorf("%s %s: %v", tc.qt, tc.unit, err)
+			continue
+		}
+		if u != tc.to || math.Abs(v-tc.want) > 1e-6 {
+			t.Errorf("%s %g %s = %g %s, want %g %s", tc.qt, tc.in, tc.unit, v, u, tc.want, tc.to)
+		}
 	}
 }
