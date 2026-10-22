@@ -18,18 +18,24 @@ Spec: [specs/synthetic-data.md](../specs/synthetic-data.md).
    unit test.
 6. A light run in `go test ./...` and a nightly full run (`.github/workflows/synthetic-data.yml`,
    `OHS_SYNTH_FULL=1`).
+7. Every provider through the whole server (`test/synthflow`, `OHS_SYNTH_E2E=1`, nightly):
+   upload routes, raw store, worker, TimescaleDB, read API and exports, each faulty line
+   judged from the server's own logs. It found the NUL bug (now fixed) and the slow merged
+   export.
 
 ## Next
 
 1. **Decide the open findings** (spec, "Seen and left as they are"): a lower bound for
    timestamps, an exclusive zero for glucose and HRV, a ceiling for body mass, the skipped
-   HealthKit types. Each is a one line rule change plus a test once decided.
+   HealthKit types, the Fitbit point re-sent without its source. Each is a small rule change
+   plus a test once decided.
 2. **Fetch level tests.** The renderers produce what each API answers; serving those answers
    from the existing fakes (`connectors/<provider>/<provider>fake`) would run `Fetch`, paging and the day
    grouping on the same data, not only `Map`.
-3. **End to end.** Upload the device lines (Apple Health, Health Connect, Bluetooth, activity
-   files, self reports) to a running server in the e2e flow and compare the read API with the
-   timeline: a step count, a night, a workout per day.
+3. **The merged export.** Decide how the default (merged) sample export should scale: it
+   streams about 110 rows a second on second-level data against 125 000 for `view=all`
+   (spec, "Through the whole server"). Then compare the read API with the timeline itself (a
+   step count, a night, a workout per day), not only with the stored rows.
 4. **A command.** `ohs-synth --provider oura --scenario all --days 30 --seed 7 --out dir/` to
    write the lines and files to disk, for a demo instance or a load test.
 5. **The four providers without a public schema.** Garmin (partner Health API), Ultrahuman

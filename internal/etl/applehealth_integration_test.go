@@ -114,3 +114,28 @@ func TestReprocessUserRecipe(t *testing.T) {
 	e.process(job)
 	assert.Equal(t, 1, e.count("quantity_samples"), "re-processing stores nothing twice")
 }
+
+// A NUL in a source name or a metadata value, which PostgreSQL text and
+// jsonb refuse, used to fail the whole object: the job retried until parked
+// and every line beside it was lost. It is now removed and the lines land.
+func TestAppleHealthNULCharactersLand(t *testing.T) {
+	e := newEnv(t)
+	e.reg.Register(applehealth.New())
+	lines := []string{
+		`{"quantityType":"HKQuantityTypeIdentifierHeartRate","value":72,"unit":"count/min","startDate":"2026-03-01T10:00:00Z","endDate":"2026-03-01T10:00:00Z","sourceName":"Watch\u0000"}`,
+		`{"quantityType":"HKQuantityTypeIdentifierHeartRate","value":74,"unit":"count/min","startDate":"2026-03-01T10:01:00Z","endDate":"2026-03-01T10:01:00Z","metadata":{"HKMetadataKeyDeviceName":"a\u0000b"}}`,
+		`{"quantityType":"HKQuantityTypeIdentifierHeartRate","value":76,"unit":"count/min","startDate":"2026-03-01T10:02:00Z","endDate":"2026-03-01T10:02:00Z"}`,
+		`{"quantityType":"HKQuantityTypeIdentifierHeartRate","value":-5,"unit":"count/min","startDate":"2026-03-01T10:03:00Z","endDate":"2026-03-01T10:03:00Z","sourceName":"\u0000refused"}`,
+	}
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "mixed", lines...))
+
+	assert.Equal(t, 3, e.count("quantity_samples"))
+	var name string
+	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT source_name FROM ohs_data.quantity_samples
+		WHERE tenant_id = $1 AND user_id = $2 AND value = 72`, e.tenant, e.user).Scan(&name))
+	assert.Equal(t, "Watch", name)
+	var failed int
+	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT count(*) FROM ohs_data.failed_records
+		WHERE tenant_id = $1 AND user_id = $2 AND reason_code = 'validation'`, e.tenant, e.user).Scan(&failed))
+	assert.Equal(t, 1, failed, "the out of range line is recorded, its payload stripped of the NUL")
+}

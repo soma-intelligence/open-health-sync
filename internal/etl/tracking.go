@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
 // Execer is the Exec method of pgx.Tx and pgxpool.Pool.
@@ -49,7 +51,13 @@ func writeFailedRecords(ctx context.Context, tx Execer, sc scope, rawKey string,
 			if reason == "" {
 				reason = "unknown"
 			}
-			args = append(args, sc.tenant, sc.user, sc.provider, rawKey, rec.LineNum, rec.RawPayload, reason, rec.Error, "pending")
+			// The payload and the message can quote a NUL from the source,
+			// which jsonb and text refuse: the failure would fail too.
+			var payload any
+			if rec.RawPayload != nil {
+				payload = model.ScrubJSON(rec.RawPayload)
+			}
+			args = append(args, sc.tenant, sc.user, sc.provider, rawKey, rec.LineNum, payload, reason, model.ScrubJSON(rec.Error), "pending")
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO ohs_data.failed_records
 			(tenant_id, user_id, provider, raw_key, line_number, raw_payload, reason_code, error_message, status) VALUES `+
@@ -67,7 +75,7 @@ func writeJobFailure(ctx context.Context, tx Execer, sc scope, rawKey, msg strin
 	_, err := tx.Exec(ctx, `INSERT INTO ohs_data.failed_records
 		(tenant_id, user_id, provider, raw_key, line_number, reason_code, error_message, status)
 		VALUES ($1, $2, $3, $4, NULL, 'job', $5, 'pending')`,
-		sc.tenant, sc.user, sc.provider, rawKey, msg)
+		sc.tenant, sc.user, sc.provider, rawKey, model.ScrubJSON(msg))
 	if err != nil {
 		return fmt.Errorf("insert job failure: %w", err)
 	}

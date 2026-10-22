@@ -28,3 +28,27 @@ jobs:
         env:
           OHS_SYNTH_FULL: "1"
         run: go test -count=1 -timeout 25m ./internal/synth/...
+
+  # The same data through the whole server: upload routes, raw store, worker,
+  # a real TimescaleDB, the read API and the exports (test/synthflow). The
+  # anomaly report is kept as an artifact.
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Run every provider through the server
+        env:
+          OHS_SYNTH_E2E: "1"
+          OHS_SYNTH_REPORT: ${{ runner.temp }}/synthflow-report.md
+        run: go test -tags integration -count=1 -timeout 55m -run TestEveryProviderThroughTheServer ./test/synthflow/
+      - name: Keep the anomaly report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: synthflow-report
+          path: ${{ runner.temp }}/synthflow-report.md
+          if-no-files-found: ignore

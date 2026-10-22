@@ -124,6 +124,8 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 			// connector counts and logs what it skips.
 			return nil
 		}
+		// Text choke point: a NUL from the source fails the whole write.
+		model.ScrubText(mr)
 		stampOwner(mr, sc)
 		if policy.Recorded || policy.Required {
 			withheld += consent.Filter(mr, policy.Allows)

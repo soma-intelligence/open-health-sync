@@ -128,6 +128,33 @@ pressure twice a day), `cycle` (tracks a menstrual cycle).
 - `OHS_SYNTH_FULL=1 go test ./internal/synth/...` runs fourteen days, every scenario on its own
   and `huge`. The `synthetic-data` workflow runs it nightly.
 
+## Through the whole server
+
+`test/synthflow` sends the same data to a running server on a fresh TimescaleDB: the device
+providers through their upload routes, the cloud providers the way a pull stores them (raw
+object, `raw_objects` row, ETL job). Every line with a fault is a part of its own, so the
+server's own logs (`sync_log`, `failed_records`) say what it did with that line, which is
+compared with the harness's prediction. Then it checks every stored row in the database (no
+NaN, nothing more than 48 hours ahead, no end before its start, no job left parked), reads
+each quantity type back through the REST API and calls the sleep, workout, FHIR, Open mHealth
+and export routes. About twenty minutes: `OHS_SYNTH_E2E=1 go test -tags integration
+./test/synthflow/`, run nightly by the `synthetic-data` workflow, with
+`OHS_SYNTH_REPORT=path` for the anomaly report.
+
+The first run (seed 11, three days, scenario `all`, about 264 000 lines) agreed with the
+harness on every line once bug 7 was fixed, and found what the harness cannot see:
+
+- Bug 7 below.
+- The sample export of the merged view (the default) is about a thousand times slower than
+  `view=all` on second-level data: for the activity files account (three days of FIT files,
+  249 355 samples) `view=all` streamed everything in 2 seconds, the merged export had written
+  99 990 rows after 15 minutes (about 110 rows a second). Health Connect (40 604 rows): 0.6
+  seconds against 9. A year of an Apple Watch would take days to export.
+- Epoch dates reach the database on six providers (Apple Health, Bluetooth, Polar,
+  Withings, Dexcom, Omron), as the harness predicted.
+- Fitbit: a data point re-sent without its optional `dataSource` is stored a second time, as
+  the hash keys on the source. Google Health API points mostly have no `name` to dedupe on.
+
 ## Bugs it found
 
 Fixed on the branch, each with a unit test:
@@ -144,6 +171,12 @@ Fixed on the branch, each with a unit test:
    hydration record of -100 L) were stored.
 6. Health Connect: the constant-name spelling `manual_entry` of `RECORDING_METHOD_MANUAL_ENTRY`
    did not set `was_user_entered`.
+7. A NUL character in any string (a device name, a metadata value), which PostgreSQL text and
+   jsonb refuse, failed the whole write: the job retried until it was parked and every line of
+   the object was lost, a whole day of an upload for one bad character. Found only through the
+   server run below (1051 parked jobs for Apple Health, 26 for Health Connect, others for Oura,
+   intervals.icu and Omron). The ETL now removes NUL and invalid UTF-8 from every string of a
+   mapped record and from the payload of a failed record (`model.ScrubText`).
 
 Seen and left as they are, for a decision:
 
