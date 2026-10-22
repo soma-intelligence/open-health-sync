@@ -21,6 +21,12 @@ updates:
     directory: /docs-site
     schedule:
       interval: weekly
+    ignore:
+      # fumadocs-ui is an alias (npm:@fumadocs/base-ui@X), which Dependabot does
+      # not update, and base-ui pins fumadocs-core to its own exact version, so a
+      # core bump alone fails npm ci with ERESOLVE (#175, #201). Bump both by
+      # hand, together: fumadocs-core and the base-ui version of the alias.
+      - dependency-name: fumadocs-core
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
