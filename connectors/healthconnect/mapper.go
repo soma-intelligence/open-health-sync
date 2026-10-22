@@ -278,7 +278,9 @@ func (b *builder) sample(externalID, qt, unit string, v float64, start, end time
 		s.DeviceID = strings.TrimSpace(d.Manufacturer + " " + d.Model)
 		s.DeviceModel = d.Model
 	}
-	if b.r.Metadata.RecordingMethod == "manual" {
+	// "manual" is the documented value; "manual_entry" is what the
+	// constant-name rule gives for RECORDING_METHOD_MANUAL_ENTRY.
+	if m := b.r.Metadata.RecordingMethod; m == "manual" || m == "manual_entry" {
 		t := true
 		s.WasUserEntered = &t
 	}

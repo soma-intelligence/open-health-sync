@@ -149,6 +149,13 @@ func TestMapBodyAndManualEntry(t *testing.T) {
 	require.True(t, *w.WasUserEntered)
 	require.Equal(t, "withings", w.SourceSlug)
 
+	// The constant-name spelling of RECORDING_METHOD_MANUAL_ENTRY counts too.
+	alt := lines(t)["w-1"]
+	alt["metadata"].(map[string]any)["recordingMethod"] = "manual_entry"
+	w = mapOne(t, alt).QuantitySamples[0]
+	require.NotNil(t, w.WasUserEntered)
+	require.True(t, *w.WasUserEntered)
+
 	h := mapOne(t, lines(t)["h-1"]).QuantitySamples[0]
 	v, unit, err := model.ToStorageUnit(h.QuantityType, h.Value, h.Unit)
 	require.NoError(t, err)

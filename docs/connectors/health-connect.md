@@ -124,7 +124,7 @@ fails at processing.
   record. `MenstruationPeriod` (a span with no flow per day) is not stored.
 - **Time zone**: `zoneOffset` (or `startZoneOffset`) gives `metadata.utc_offset_minutes` and,
   for whole hours, `metadata.timezone`, which sets the local day of daily summaries.
-- **Manual entries**: `recordingMethod` `manual` sets `was_user_entered`.
+- **Manual entries**: `recordingMethod` `manual` (or `manual_entry`) sets `was_user_entered`.
 
 ## Reading permissions
 
