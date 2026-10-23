@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Not published to PyPI: install it from this directory (see README.md).
+# Published to PyPI by .github/workflows/sdk-publish.yml from a sdk-python-v<version> tag.
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -7,17 +7,41 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-health-sync"
-version = "1.0.0"
-description = "Server-side Python client of the Open Health Sync API, generated from api/openapi.yaml."
+version = "0.1.0"
+description = "Server-side Python SDK for Open Health Sync, the open source health data aggregator: a typed client for every API route and webhook signature checks."
 readme = "README.md"
 license = { text = "AGPL-3.0-only" }
 requires-python = ">=3.9"
 dependencies = []
-classifiers = [
-    "License :: OSI Approved :: GNU Affero General Public License v3",
-    "Programming Language :: Python :: 3",
-    "Private :: Do Not Upload",
+keywords = [
+    "health data",
+    "health data aggregator",
+    "wearables",
+    "apple health",
+    "health connect",
+    "fhir",
+    "webhooks",
+    "quantified self",
+    "terra alternative",
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/soma-intelligence/open-health-sync"
+Documentation = "https://github.com/soma-intelligence/open-health-sync/blob/main/docs/server-sdks.md"
+Source = "https://github.com/soma-intelligence/open-health-sync/tree/main/sdks/server/python"
+Issues = "https://github.com/soma-intelligence/open-health-sync/issues"
 
 [tool.setuptools]
 packages = ["open_health_sync"]

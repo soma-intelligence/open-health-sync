@@ -7,7 +7,7 @@ shape every SDK shares ([overview](README.md)). AGPL-3.0-only, like the server (
 
 ## Install
 
-Nothing is published yet (`publish_to: none`). Add the package from this repository, by path or
+Nothing is published yet. Add the package from this repository, by path or
 by git:
 
 ```yaml

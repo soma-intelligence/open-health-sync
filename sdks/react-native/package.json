@@ -1,9 +1,25 @@
 {
   "name": "open-health-sync-react-native",
   "version": "0.1.0",
-  "private": true,
-  "description": "TypeScript client for the Open Health Sync REST API, for React Native, Expo, Node 18+ and browsers.",
+  "description": "TypeScript client for Open Health Sync, the open source health data aggregator: Apple Health, Health Connect, Oura, WHOOP, Withings and more through one API, in React Native, Expo, Node 18+ and browsers.",
+  "keywords": [
+    "health-data",
+    "wearables",
+    "apple-health",
+    "healthkit",
+    "health-connect",
+    "fhir",
+    "react-native",
+    "expo",
+    "quantified-self",
+    "open-health-sync",
+    "terra-alternative"
+  ],
   "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/soma-intelligence/open-health-sync/blob/main/docs/sdks/react-native.md",
+  "bugs": {
+    "url": "https://github.com/soma-intelligence/open-health-sync/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/soma-intelligence/open-health-sync.git",
@@ -35,7 +51,8 @@
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\"",
-    "example": "tsc -p tsconfig.test.json && node dist-test/example/quickstart.js"
+    "example": "tsc -p tsconfig.test.json && node dist-test/example/quickstart.js",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "fflate": "0.8.3"
@@ -43,5 +60,8 @@
   "devDependencies": {
     "@types/node": "22.10.2",
     "typescript": "5.8.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

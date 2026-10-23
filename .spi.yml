@@ -1,0 +1,5 @@
+# Swift Package Index: build the documentation of the SDK's main library.
+version: 1
+builder:
+  configs:
+    - documentation_targets: [OpenHealthSync]
