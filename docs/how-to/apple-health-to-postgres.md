@@ -1,5 +1,9 @@
 # Import Apple Health data into PostgreSQL
 
+To export Apple Health data to PostgreSQL, run Open Health Sync and load the Health app export
+with `ohs import apple-health`: your history lands in Postgres as tables you can query with SQL.
+Open Health Sync is open source and runs on your own computer, so the data never leaves it.
+
 The Health app on the iPhone can export everything it holds, but the export is one large XML
 file that a spreadsheet or a database cannot read as it is. This guide loads it into PostgreSQL
 as clean tables (samples, sleep sessions, workouts, daily summaries) with Open Health Sync, then

@@ -1,5 +1,9 @@
 # Export WHOOP data to CSV or Parquet
 
+To get WHOOP data through an API, connect WHOOP to Open Health Sync with OAuth: it pulls your
+recovery, strain, sleep and workouts into a database you run, and exports them as CSV or Parquet
+at any time. Open Health Sync is open source and self-hosted.
+
 The WHOOP app can email you a one-off CSV export of your sleep, recovery and strain, organized
 by physiological cycle (menu, *Data Export*, per
 [WHOOP's article](https://www.whoop.com/thelocker/access-your-whoop-data-with-new-integrations-data-export-options/)).

@@ -1,5 +1,9 @@
 # Connect Claude to your Apple Health data
 
+To use Apple Health data in Claude through MCP, load your Health app export into Open Health
+Sync and add its read-only MCP server to Claude with a token that can only read one person's
+data. Open Health Sync is open source and runs on your own computer.
+
 Claude, or any other assistant that speaks the Model Context Protocol (MCP), can answer questions
 about your Apple Health data from your real numbers: "how did I sleep the weeks I ran the most?",
 "has my resting heart rate changed since March?". This guide loads your Health app export into

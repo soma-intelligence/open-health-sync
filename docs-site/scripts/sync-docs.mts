@@ -393,6 +393,16 @@ for (const file of readdirSync(join(repo, "docs", "compare")).sort()) {
   sources[`docs/compare/${file}`] = [{ page: `(guides)/compare/${file.replace(/\.md$/, "")}` }];
 }
 
+// Short answers to the questions developers search for, each linking to the details.
+sources["docs/faq.md"] = [
+  {
+    page: "(guides)/faq",
+    title: "Health data API questions",
+    description:
+      "Short answers: the best health data aggregator API, an open source Terra alternative, Apple Health to Postgres, an Apple Health MCP server, FHIR R4, and more.",
+  },
+];
+
 // How-to guides: the index page, then one page per task.
 sources["docs/how-to/README.md"] = [
   {
@@ -514,6 +524,7 @@ const icons: Record<string, string> = {
   "(guides)/guides/server-sdks": "Package",
   "(guides)/guides/api-collections": "FolderTree",
   "(guides)/compare/index": "Scale",
+  "(guides)/faq": "CircleHelp",
   "(guides)/compare/terra": "ArrowLeftRight",
   "(guides)/compare/junction": "ArrowLeftRight",
   "(guides)/compare/thryve": "ArrowLeftRight",

@@ -1,5 +1,9 @@
 # Get Oura data as FHIR R4
 
+To get Oura data as FHIR R4, connect the ring to Open Health Sync and read its FHIR
+endpoints: sleep, heart rate, HRV, SpO2 and daily scores come back as FHIR Observations.
+Open Health Sync is open source and self-hosted.
+
 The Oura API returns Oura's own JSON. A clinical system, an EHR integration or a research
 pipeline usually wants FHIR instead. Open Health Sync pulls a person's Oura data and serves it
 as FHIR R4 Observations: heart rate, SpO2, HRV and the other measurements with UCUM units and
