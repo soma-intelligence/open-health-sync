@@ -54,7 +54,7 @@ var archiveLists = []struct {
 	name  string
 	write archiveWrite
 }{
-	{"samples", archiveList(read.AllSamples)},
+	{"samples", archiveEach(read.EachSample)},
 	{"category-samples", archiveList(read.CategorySamples)},
 	{"sleep", archiveList(read.Sleep)},
 	{"sleep-phases", archiveChildren(read.Sleep, func(s read.SleepSession) int64 { return s.ID }, read.SleepPhases)},
@@ -352,6 +352,20 @@ func archiveList[T any](fn listFunc[T]) archiveWrite {
 		return eachRecord(func(q read.Query) (read.Page[T], error) {
 			return fn(ctx, db, tenantID, user, q)
 		}, func(rec T) error { return emit(rec) })
+	}
+}
+
+// archiveEach emits every record of a list read in batches.
+func archiveEach[T any](each eachFunc[T]) archiveWrite {
+	return func(ctx context.Context, db read.Querier, tenantID, user uuid.UUID, emit func(any) error) error {
+		return each(ctx, db, tenantID, user, read.Query{}, func(recs []T) error {
+			for _, rec := range recs {
+				if err := emit(rec); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 	}
 }
 

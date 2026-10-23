@@ -145,11 +145,14 @@ The first run (seed 11, three days, scenario `all`, about 264 000 lines) agreed 
 harness on every line once bug 7 was fixed, and found what the harness cannot see:
 
 - Bug 7 below.
-- The sample export of the merged view (the default) is about a thousand times slower than
+- The sample export of the merged view (the default) was about a thousand times slower than
   `view=all` on second-level data: for the activity files account (three days of FIT files,
   249 355 samples) `view=all` streamed everything in 2 seconds, the merged export had written
-  99 990 rows after 15 minutes (about 110 rows a second). Health Connect (40 604 rows): 0.6
-  seconds against 9. A year of an Apple Watch would take days to export.
+  99 990 rows after 15 minutes (about 110 rows a second), as each record ran its own lookup
+  over the streams around it. The export and the archive now decide the merged view in one
+  pass (`read.EachSample`): the same account's 115 297 merged samples in 2.2 seconds instead
+  of 19 minutes, and the Apple Health account's 57 575 in 0.8 seconds instead of 10 minutes 42,
+  identical record for record.
 - Epoch dates reach the database on six providers (Apple Health, Bluetooth, Polar,
   Withings, Dexcom, Omron), as the harness predicted.
 - Fitbit: a data point re-sent without its optional `dataSource` is stored a second time, as

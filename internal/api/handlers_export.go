@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -16,13 +17,34 @@ import (
 
 // exportDatasets are the lists an export can hold, by the name in its route.
 var exportDatasets = map[string]func(s *server, w http.ResponseWriter, r *http.Request, tenantID, user uuid.UUID, q read.Query, f export.Format){
-	"samples":          exportRoute(read.AllSamples),
-	"category-samples": exportRoute(read.CategorySamples),
-	"sleep":            exportRoute(read.Sleep),
-	"workouts":         exportRoute(read.Workouts),
-	"nutrition":        exportRoute(read.Nutrition),
-	"daily":            exportRoute(read.Daily),
-	"ecg":              exportRoute(read.ECGRecordings),
+	"samples":          exportRoute(read.EachSample),
+	"category-samples": exportRoute(pages(read.CategorySamples)),
+	"sleep":            exportRoute(pages(read.Sleep)),
+	"workouts":         exportRoute(pages(read.Workouts)),
+	"nutrition":        exportRoute(pages(read.Nutrition)),
+	"daily":            exportRoute(pages(read.Daily)),
+	"ecg":              exportRoute(pages(read.ECGRecordings)),
+}
+
+// eachFunc calls fn with every record of a list in [start, end), batch by
+// batch.
+type eachFunc[T any] func(ctx context.Context, db read.Querier, tenantID, userID uuid.UUID, q read.Query, fn func([]T) error) error
+
+// pages reads a list page by page at the largest page size.
+func pages[T any](list listFunc[T]) eachFunc[T] {
+	return func(ctx context.Context, db read.Querier, tenantID, userID uuid.UUID, q read.Query, fn func([]T) error) error {
+		q.Limit = read.MaxLimit
+		for {
+			pg, err := list(ctx, db, tenantID, userID, q)
+			if err != nil {
+				return err
+			}
+			if err := fn(pg.Records); err != nil || pg.NextCursor == "" {
+				return err
+			}
+			q.Cursor = pg.NextCursor
+		}
+	}
 }
 
 func (s *server) mountExports(mux *http.ServeMux) {
@@ -69,28 +91,37 @@ func (s *server) exportFile(w http.ResponseWriter, r *http.Request) {
 	write(s, w, r, p.TenantID, user, q, f)
 }
 
-func exportRoute[T any](fn listFunc[T]) func(s *server, w http.ResponseWriter, r *http.Request, tenantID, user uuid.UUID, q read.Query, f export.Format) {
+func exportRoute[T any](each eachFunc[T]) func(s *server, w http.ResponseWriter, r *http.Request, tenantID, user uuid.UUID, q read.Query, f export.Format) {
 	return func(s *server, w http.ResponseWriter, r *http.Request, tenantID, user uuid.UUID, q read.Query, f export.Format) {
-		q.Limit = read.MaxLimit
-		// The first page is read before anything is written, so a bad
+		// The first batch is read before anything is written, so a bad
 		// query or an unknown user is still a problem response.
-		pg, err := fn(r.Context(), s.d.Pool, tenantID, user, q)
-		if err != nil {
-			readError(w, r, err, "user")
-			return
+		var out *export.Writer[T]
+		begin := func() error {
+			w.Header().Set("Content-Type", f.ContentType())
+			w.Header().Set("Content-Disposition", `attachment; filename="`+r.PathValue("dataset")+"-"+user.String()+"."+string(f)+`"`)
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusOK)
+			var err error
+			out, err = export.NewWriter[T](w, f)
+			return err
 		}
-		w.Header().Set("Content-Type", f.ContentType())
-		w.Header().Set("Content-Disposition", `attachment; filename="`+r.PathValue("dataset")+"-"+user.String()+"."+string(f)+`"`)
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusOK)
-		out, err := export.NewWriter[T](w, f)
-		if err == nil {
-			for err = out.Write(pg.Records); err == nil && pg.NextCursor != ""; {
-				q.Cursor = pg.NextCursor
-				if pg, err = fn(r.Context(), s.d.Pool, tenantID, user, q); err == nil {
-					err = out.Write(pg.Records)
+		started := false
+		err := each(r.Context(), s.d.Pool, tenantID, user, q, func(recs []T) error {
+			if !started {
+				started = true
+				if err := begin(); err != nil {
+					return err
 				}
 			}
+			return out.Write(recs)
+		})
+		if !started {
+			if err != nil {
+				readError(w, r, err, "user")
+				return
+			}
+			started = true
+			err = begin()
 		}
 		if err == nil {
 			err = out.Close()

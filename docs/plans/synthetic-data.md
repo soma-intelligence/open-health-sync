@@ -32,10 +32,9 @@ Spec: [specs/synthetic-data.md](../specs/synthetic-data.md).
 2. **Fetch level tests.** The renderers produce what each API answers; serving those answers
    from the existing fakes (`connectors/<provider>/<provider>fake`) would run `Fetch`, paging and the day
    grouping on the same data, not only `Map`.
-3. **The merged export.** Decide how the default (merged) sample export should scale: it
-   streams about 110 rows a second on second-level data against 125 000 for `view=all`
-   (spec, "Through the whole server"). Then compare the read API with the timeline itself (a
-   step count, a night, a workout per day), not only with the stored rows.
+3. **The read API against the timeline.** Compare what the API returns with the timeline
+   itself (a step count, a night, a workout per day), not only with the stored rows. (The
+   merged export now runs in one pass: spec, "Through the whole server".)
 4. **A command.** `ohs-synth --provider oura --scenario all --days 30 --seed 7 --out dir/` to
    write the lines and files to disk, for a demo instance or a load test.
 5. **The four providers without a public schema.** Garmin (partner Health API), Ultrahuman

@@ -29,6 +29,10 @@ release may change the API, the configuration or the database schema.
 - A NUL character in a source name or a metadata value no longer fails the whole raw object:
   the job used to retry until parked and every record beside it was lost. NUL and invalid
   UTF-8 are removed from mapped records and from failed record payloads.
+- The sample export and the archive decide the merged view in one pass over the stored samples
+  instead of one lookup per record: on second by second data the default export streamed about
+  110 rows a second; an Apple Health account of 57 575 merged samples now exports in under a
+  second instead of 10 minutes, record for record the same.
 
 ## [0.2.0] - 2026-10-21
 
