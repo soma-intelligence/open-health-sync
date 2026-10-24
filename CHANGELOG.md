@@ -56,6 +56,11 @@ release may change the API, the configuration or the database schema.
   110 rows a second; an Apple Health account of 57 575 merged samples now exports in under a
   second instead of 10 minutes, record for record the same.
 
+### Security
+
+- `github.com/klauspost/compress` 1.18.7 (GO-2026-5841). `govulncheck` found the vulnerable
+  code unreachable from Open Health Sync; the bump keeps it so.
+
 ## [0.2.0] - 2026-10-21
 
 An admin console that runs the pipeline, an admin API for instances that serve several teams,
