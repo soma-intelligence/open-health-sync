@@ -38,6 +38,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
+	"github.com/soma-intelligence/open-health-sync/internal/memlimit"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
@@ -75,7 +76,7 @@ const (
 // after ctx ends, and closes the database pool last. It returns the first
 // error that stopped a role early.
 func Run(ctx context.Context, cfg config.Config) error {
-	return run(ctx, cfg, os.Stderr)
+	return runWith(ctx, cfg, os.Stderr, options{grace: ShutdownGrace, margin: shutdownMargin, memLimit: true})
 }
 
 // Version is logged at start (set by ohs serve).
@@ -101,6 +102,9 @@ type options struct {
 	grace, margin time.Duration
 	// wrapRaw, when set, wraps the raw store every role uses.
 	wrapRaw func(rawstore.Store) rawstore.Store
+	// memLimit sets the runtime's soft memory limit from the container's
+	// when GOMEMLIMIT is unset (the process, not a test).
+	memLimit bool
 }
 
 func run(ctx context.Context, cfg config.Config, logOut io.Writer) error {
@@ -114,6 +118,15 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	}
 	logger := newLogger(logOut, level)
 	slog.SetDefault(logger)
+	if opts.memLimit {
+		switch n, src := memlimit.Apply(os.LookupEnv, memlimit.DefaultCgroupRoot); src {
+		case memlimit.Cgroup:
+			logger.Info("memory limit set from the container's", "gomemlimit_bytes", n,
+				"fraction", memlimit.Fraction)
+		case memlimit.Env:
+			logger.Info("memory limit set by GOMEMLIMIT", "gomemlimit_bytes", n)
+		}
+	}
 
 	// Seals with OHS_ENCRYPTION_KEY, still opens what the previous keys sealed.
 	box, err := crypto.NewKeyring(cfg.EncryptionKey, cfg.PreviousEncryptionKeys...)

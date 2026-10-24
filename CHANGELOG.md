@@ -19,6 +19,12 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- The default compose file caps `ohs` at 1 GB (`mem_limit`, `OHS_MEM_LIMIT`) with
+  `GOMEMLIMIT=768MiB` (`OHS_GOMEMLIMIT`), and `ohs` sets `GOMEMLIMIT` itself to three quarters
+  of the container's memory limit when it is unset. Eight concurrent large uploads took the
+  process to 623 MB and had it killed by the host's out-of-memory killer, along with a process
+  of another container. [Memory](docs/self-hosting.md#memory) lists the profiles, the Raspberry
+  Pi one included.
 - Device uploads: one tenant holds at most half of the ingest slots by default
   (`OHS_INGEST_TENANT_CONCURRENCY`), and a part may expand to at most 64 MiB once decompressed
   instead of 512 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`, up to 512). Eight gzip bombs of 611 KB

@@ -134,7 +134,36 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.pi.yml up -
 
 The overlay trims Postgres (`shared_buffers=128MB`, `effective_cache_size=512MB`,
 `work_mem=4MB`, `max_connections=30`, `timescaledb.max_background_workers=4`) and
-caps `ohs` at 512 MB with `GOMEMLIMIT=256MiB`.
+caps `ohs` at 512 MB with `GOMEMLIMIT=256MiB` and 2 uploads at once
+(`OHS_INGEST_CONCURRENCY=2`, both open to its one tenant). See [Memory](#memory) for other
+small hosts.
+
+## Memory
+
+An upload in flight holds its whole body (at most 64 MiB of gzip) while it is checked and
+stored, and the check decompresses it in a stream (at most 64 MiB, `OHS_INGEST_MAX_DECOMPRESSED_MIB`).
+The rest of the process (the ETL workers, the pulls, the pools) stays around 100 to 300 MB.
+Plan for about 200 MB plus 100 MB per upload slot in the worst case, when every slot holds a
+large part at once; real parts from the SDKs and `ohs import` are 8 MiB of NDJSON or less.
+
+| Profile | `mem_limit` | `GOMEMLIMIT` | `OHS_INGEST_CONCURRENCY` | Where |
+|---|---|---|---|---|
+| Default | `1g` | `768MiB` | `8` | `deploy/docker-compose.yml`, the Helm chart (`resources.limits.memory: 1Gi`) |
+| Low memory (Raspberry Pi 5 4 GB, a 1 GB VPS) | `512m` | `256MiB` | `2` | `deploy/docker-compose.pi.yml` |
+| Large (several tenants importing at once) | `2g` | `1536MiB` | `16` | set `OHS_MEM_LIMIT`, `OHS_GOMEMLIMIT` and `OHS_INGEST_CONCURRENCY` |
+
+- **`mem_limit`** (compose; `OHS_MEM_LIMIT` in `deploy/.env` or the shell changes it) is the
+  container's hard limit: above it the kernel restarts `ohs` alone (the restart policy brings it
+  back in a second, and an upload cut short is retried by its client), instead of the host's
+  out-of-memory killer picking a process, Postgres included.
+- **`GOMEMLIMIT`** (compose sets it from `OHS_GOMEMLIMIT`) is the Go runtime's soft limit: it
+  collects garbage harder as the heap gets near it. Keep it at about three quarters of the hard
+  limit. When it is unset, `ohs` sets it itself to three quarters of the container's memory
+  limit (cgroup v1 or v2) and logs `memory limit set from the container's`; without a
+  container limit (a plain VM, `ohs` run by systemd without `MemoryMax`) there is none, so set
+  `GOMEMLIMIT` there.
+- **Fewer slots, less memory.** Lowering `OHS_INGEST_CONCURRENCY` is what bounds the peak: a
+  client over the limit gets 503 with `Retry-After` and retries (the SDKs and `ohs import` do).
 
 ## S3 compatible raw store
 

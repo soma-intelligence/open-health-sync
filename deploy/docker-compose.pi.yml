@@ -21,4 +21,6 @@ services:
       GOMEMLIMIT: 256MiB
       # One upload can hold 64 MiB of body plus decompression buffers.
       OHS_INGEST_CONCURRENCY: "2"
+      # A Pi serves one household: its tenant may use both slots.
+      OHS_INGEST_TENANT_CONCURRENCY: "2"
     mem_limit: 512m
