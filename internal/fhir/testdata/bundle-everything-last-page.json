@@ -175,15 +175,11 @@
             "code": {
               "coding": [
                 {
-                  "system": "http://loinc.org",
-                  "code": "80404-7"
-                },
-                {
                   "system": "https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/observation-component",
                   "code": "hrv_avg_ms"
                 }
               ],
-              "text": "average heart rate variability"
+              "text": "average heart rate variability (RMSSD)"
             },
             "valueQuantity": {
               "value": 47,

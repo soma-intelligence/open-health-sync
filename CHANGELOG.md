@@ -39,6 +39,9 @@ release may change the API, the configuration or the database schema.
   Connect are attributed to that store (source `apple_health` or `health_connect`), so they no
   longer add up with the tracker's own minutes in one stream. Rows stored earlier keep their
   type and source.
+- FHIR: the `hrv_avg_ms` component of sleep sessions and daily summaries no longer carries LOINC
+  80404-7, the SDNN code: the value is RMSSD, which has no LOINC code, so it keeps the Open
+  Health Sync component code only, as `hrv_rmssd` samples do.
 
 ## [0.2.0] - 2026-10-21
 

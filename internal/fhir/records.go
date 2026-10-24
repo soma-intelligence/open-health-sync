@@ -51,11 +51,16 @@ const (
 	loincActivityMeanHR     = "55425-3" // Heart rate unspecified time mean by Pedometer
 	loincActivityMaxHR      = "55426-1" // Heart rate unspecified time maximum by Pedometer
 	loincSteps24h           = "41950-7" // Number of steps in 24 hour Measured
-	loincHRV                = "80404-7" // R-R interval.standard deviation (Heart rate variability)
 	loincRestingHR          = "40443-4" // Heart rate --resting
 	loincRespiratoryRate    = "9279-1"  // Respiratory rate
 	loincSpO2               = "59408-5" // Oxygen saturation in Arterial blood by Pulse oximetry
 )
+
+// hrvAvgText names the HRV average of a sleep session or a day. Every
+// connector writes RMSSD there, and LOINC has no RMSSD code (80404-7 is the
+// SDNN), so the component carries the Open Health Sync code only, as
+// hrv_rmssd samples do.
+const hrvAvgText = "average heart rate variability (RMSSD)"
 
 // Id prefixes: an Observation id is one of them and a stored row id.
 const (
@@ -320,7 +325,7 @@ func FromSleepSession(user uuid.UUID, s read.SleepSession) Observation {
 		intField("light_sleep_seconds", "", "light sleep duration", "s", "s", s.LightSleepSeconds),
 		intField("awake_seconds", "", "awake duration", "s", "s", s.AwakeSeconds),
 		field{name: "sleep_score", text: "sleep score", unit: "score", ucum: "{score}", v: s.SleepScore},
-		field{name: "hrv_avg_ms", loinc: loincHRV, text: "average heart rate variability", unit: "ms", ucum: "ms", v: s.HRVAvgMs},
+		field{name: "hrv_avg_ms", text: hrvAvgText, unit: "ms", ucum: "ms", v: s.HRVAvgMs},
 		field{name: "resting_hr", loinc: loincRestingHR, text: "resting heart rate", unit: "bpm", ucum: "/min", v: s.RestingHR},
 		field{name: "respiratory_rate", loinc: loincRespiratoryRate, text: "average respiratory rate", unit: "bpm", ucum: "/min", v: s.RespiratoryRate},
 		field{name: "spo2_avg", loinc: loincSpO2, text: "average oxygen saturation", unit: "percent", ucum: "%", v: s.SpO2Avg},
@@ -386,7 +391,7 @@ func FromDailySummary(user uuid.UUID, d read.DailySummary) Observation {
 		field{name: "distance_m", text: "distance", unit: "m", ucum: "m", v: d.DistanceM},
 		intField("floors_climbed", "", "floors climbed", "floors", "{floors}", d.FloorsClimbed),
 		field{name: "resting_hr", loinc: loincRestingHR, text: "resting heart rate", unit: "bpm", ucum: "/min", v: d.RestingHR},
-		field{name: "hrv_avg_ms", loinc: loincHRV, text: "average heart rate variability", unit: "ms", ucum: "ms", v: d.HRVAvgMs},
+		field{name: "hrv_avg_ms", text: hrvAvgText, unit: "ms", ucum: "ms", v: d.HRVAvgMs},
 		field{name: "readiness_score", text: "readiness score", unit: "score", ucum: "{score}", v: d.ReadinessScore},
 		field{name: "activity_score", text: "activity score", unit: "score", ucum: "{score}", v: d.ActivityScore},
 		field{name: "sleep_score", text: "sleep score", unit: "score", ucum: "{score}", v: d.SleepScore},

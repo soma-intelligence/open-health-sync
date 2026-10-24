@@ -299,14 +299,17 @@ One sleep session is one Observation of its total sleep duration.
 |---|---|---|
 | `deep_sleep_seconds`, `rem_sleep_seconds`, `light_sleep_seconds`, `awake_seconds` | component code system only | `s` |
 | `sleep_score` | component code system only | `{score}` |
-| `hrv_avg_ms` | LOINC 80404-7 | `ms` |
+| `hrv_avg_ms` | component code system only (RMSSD, see below) | `ms` |
 | `resting_hr` | LOINC 40443-4 | `/min` |
 | `respiratory_rate` | LOINC 9279-1 | `/min` |
 | `spo2_avg` | LOINC 59408-5 | `%` |
 
 Every component code also carries the field name in the component code system. The stage
 durations carry no LOINC code: LOINC's sleep stage codes were not checked against a
-terminology server, and a wrong code is worse than none. Sleep phases are not mapped.
+terminology server, and a wrong code is worse than none. `hrv_avg_ms` holds RMSSD (every
+connector writes RMSSD there) and LOINC has no RMSSD code: 80404-7 is the standard deviation
+of R-R intervals (SDNN), so it is left out, as for `hrv_rmssd` samples. Sleep phases are not
+mapped.
 
 ### Workouts
 
@@ -349,7 +352,7 @@ Observation per day rather than per metric keeps one id per row and one place in
 | `step_count` | LOINC 41950-7 (steps in 24 hours) | `{steps}` |
 | `active_kcal` | LOINC 41981-2 | `kcal` |
 | `resting_hr` | LOINC 40443-4 | `/min` |
-| `hrv_avg_ms` | LOINC 80404-7 | `ms` |
+| `hrv_avg_ms` | component code system only (RMSSD, see below) | `ms` |
 | `total_kcal` | LOINC 41979-6 (calories burned in 24 hours) | `kcal` |
 | `distance_m` | component code system only | `m` |
 | `floors_climbed` | component code system only | `{floors}` |
