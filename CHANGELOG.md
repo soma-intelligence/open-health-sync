@@ -52,6 +52,8 @@ release may change the API, the configuration or the database schema.
   figure of a sleep session, workout or daily summary outside its hard band is removed from that
   record, listed under `quality_dropped` in its metadata, while the record and its other figures
   are written. Suspect figures of these records are flagged like suspect samples.
+- Every record kind refuses a time before 1990-01-01 UTC: a zero date (0001-01-01), the Unix
+  epoch or the FIT epoch was stored as a measurement, and a year 0001 sample lost its end.
 
 ## [0.2.0] - 2026-10-21
 

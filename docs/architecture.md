@@ -50,7 +50,8 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
    record is kept in `failed_records` for a replay, and a record that lost a figure lists it
    under `quality_dropped` in its metadata. A value outside the soft bounds is written and
    flagged (`quality_flag: suspect` and `quality_note` in metadata). A bad time on a sleep,
-   workout or day still parks the whole record.
+   workout or day still parks the whole record: a time before 1990-01-01 UTC or more than
+   48 hours ahead is refused on every record kind.
 5. **Write.** A deletion the provider reported (`MapResult.Deletions`) is applied first: the
    stored rows of that provider record go (its sleep or workout with their children, and the
    samples stored under its id or `<id>_<suffix>`, found through an index on provider and

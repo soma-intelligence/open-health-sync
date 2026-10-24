@@ -177,6 +177,27 @@ func at(errs []ValidationError, i int) []ValidationError {
 // that still trips this is recoverable rather than silently lost.
 const futureTimestampBuffer = 48 * time.Hour
 
+// earliestTimestamp is the oldest time a record may carry. Before it a time is
+// a zero or epoch default (0001-01-01, 1970-01-01, the FIT epoch of
+// 1989-12-31) rather than a measurement: no wearable or app this pipeline
+// reads recorded anything before 1990.
+var earliestTimestamp = time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// checkFloor rejects a time before earliestTimestamp. A zero time is
+// rejected too: on a start it is a date the source never filled in.
+func checkFloor(recordType, field string, t time.Time) []ValidationError {
+	if !t.Before(earliestTimestamp) {
+		return nil
+	}
+	return []ValidationError{{
+		RecordType: recordType,
+		Field:      field,
+		Value:      t,
+		Message:    "timestamp is before 1990-01-01",
+		Severity:   SeverityReject,
+	}}
+}
+
 // isFutureTimestamp returns true if t is more than futureTimestampBuffer after now.
 func isFutureTimestamp(t, now time.Time) bool {
 	return t.After(now.Add(futureTimestampBuffer))
@@ -207,6 +228,7 @@ func validateQuantitySample(s *model.QuantitySample, now time.Time) []Validation
 			Severity:   SeverityReject,
 		})
 	}
+	errs = append(errs, checkFloor("quantity_sample", "start_date", s.StartDate)...)
 	errs = append(errs, checkEnd("quantity_sample", s.StartDate, s.EndDate, now)...)
 
 	return errs
@@ -320,6 +342,7 @@ func validateCategorySample(s *model.CategorySample, now time.Time) []Validation
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("category_sample", "start_date", s.StartDate)...)
 	errs = append(errs, checkEnd("category_sample", s.StartDate, s.EndDate, now)...)
 
 	return errs
@@ -339,6 +362,7 @@ func validateSleepPhase(p *model.SleepPhase, now time.Time) []ValidationError {
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("sleep_phase", "start_date", p.StartDate)...)
 	errs = append(errs, checkEnd("sleep_phase", p.StartDate, p.EndDate, now)...)
 
 	return errs
@@ -356,6 +380,7 @@ func validateSleepSession(s *model.SleepSession, now time.Time) []ValidationErro
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("sleep_session", "bedtime_start", s.BedtimeStart)...)
 
 	if isFutureTimestamp(s.BedtimeEnd, now) {
 		errs = append(errs, ValidationError{
@@ -403,6 +428,7 @@ func validateWorkout(w *model.Workout, now time.Time) []ValidationError {
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("workout", "start_date", w.StartDate)...)
 
 	if w.StartDate.After(w.EndDate) {
 		errs = append(errs, ValidationError{
@@ -543,6 +569,7 @@ func validateRoutePoint(p *model.RoutePoint, now time.Time) []ValidationError {
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("route_point", "timestamp", p.Timestamp)...)
 
 	return errs
 }
@@ -559,6 +586,7 @@ func validateNutritionLog(n *model.NutritionLog, now time.Time) []ValidationErro
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("nutrition_log", "start_date", n.StartDate)...)
 	if n.EndDate != nil {
 		errs = append(errs, checkEnd("nutrition_log", n.StartDate, *n.EndDate, now)...)
 	}
@@ -624,6 +652,7 @@ func validateDailySummary(d *model.DailySummary, now time.Time) []ValidationErro
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("daily_summary", "summary_date", d.SummaryDate)...)
 	errs = append(errs, checkFigures("daily_summary", []figure{
 		intFigure("step_count", d.StepCount, rangeRules[model.QTStepCount]),
 		{"active_kcal", d.ActiveKcal, rangeRules[model.QTActiveEnergyBurned]},
@@ -658,6 +687,7 @@ func validateObservation(o *model.Observation, now time.Time) []ValidationError 
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("observation", "ts", o.TS)...)
 	errs = append(errs, checkEnd("observation", o.TS, o.EndTS, now)...)
 
 	return errs
@@ -675,6 +705,7 @@ func validateECGRecording(r *model.ECGRecording, now time.Time) []ValidationErro
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("ecg_recording", "start_date", r.StartDate)...)
 	errs = append(errs, checkEnd("ecg_recording", r.StartDate, r.EndDate, now)...)
 
 	return errs
@@ -708,6 +739,7 @@ func validateHeartbeatSample(s *model.HeartbeatSample, now time.Time) []Validati
 			Message:    "timestamp is in the future (more than 48h ahead)",
 		})
 	}
+	errs = append(errs, checkFloor("heartbeat_sample", "timestamp", s.Timestamp)...)
 
 	if s.RRMS < 0 {
 		errs = append(errs, ValidationError{
