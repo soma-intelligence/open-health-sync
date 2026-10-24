@@ -257,6 +257,18 @@ Put a reverse proxy with TLS in front of port 8080; the bearer secrets travel in
 [hardening.md](hardening.md) is the full production checklist, and
 [security-model.md](security-model.md) the threat model behind it.
 
+### Reverse proxy
+
+[`deploy/Caddyfile`](../deploy/Caddyfile) is a working Caddy configuration with automatic TLS:
+every path of the host goes to `ohs`. When the same host serves other pages too (a sign-in
+portal, a landing page), name the routes of `ohs` first and send only the rest elsewhere, as its
+second, commented example does: `/healthz`, `/readyz`, `/openapi.yaml`, `/metrics`, `/v1/*`,
+`/mcp`, `/oauth/*`, `/inbound/*`, `/connect`, `/connect/*`, `/shl/*` and `/console`. A
+catch-all redirect placed before them answers `/healthz` and `/readyz` with a 302, which an
+uptime monitor or a load balancer reads as down (and breaks the provider callbacks the same way).
+Check from outside with `curl -i https://health.example.org/healthz`: the answer is `200` and
+`ok`, with no `Location` header.
+
 ### Rate limits
 
 The provider-facing routes take no credential: `POST` and `GET /inbound/{provider}`

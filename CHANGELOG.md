@@ -9,6 +9,9 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `deploy/Caddyfile`: Caddy with automatic TLS in front of the compose stack, and the routes to
+  keep on `ohs` when the host serves other pages too, so `/healthz` and `/readyz` are never
+  redirected. See [docs/self-hosting.md](docs/self-hosting.md#reverse-proxy).
 - A synthetic data generator for every documented provider (`internal/synth`): an invented
   person's timeline rendered in each vendor's wire format, written from the vendor's published
   documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
