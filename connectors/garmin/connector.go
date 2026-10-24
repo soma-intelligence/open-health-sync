@@ -8,8 +8,9 @@
 // Program: https://developer.garmin.com/gc-developer-program/overview/
 // OAuth 2.0 PKCE: https://developerportal.garmin.com/sites/default/files/OAuth2PKCE.pdf
 //
-// Garmin keys are issued to approved businesses only, and Garmin paused the
-// review of new applications in 2026. This connector follows public sources
+// It needs the keys of a Garmin business app (Starter or Enterprise tier of
+// the program Garmin reopened on 2026-10-21); it does not use the Personal
+// API. This connector follows public sources
 // (Garmin's PKCE specification and API pages, payload examples published by
 // third parties); docs/connectors/garmin.md marks the points no public Garmin
 // page confirms.

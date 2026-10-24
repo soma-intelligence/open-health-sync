@@ -19,7 +19,7 @@ own site and pricing page, checked on 2026-10-18. They change, so check
 | Price | Free. You pay for your own server | Core: $399 a month for up to 750 active users. Core+: $999 for up to 5,000. Business: $1,999 for up to 15,000. Enterprise on request. Lab data billed apart, from $249 a month for 300 files ([pricing](https://www.tryrook.io/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | ROOK's cloud. Dedicated servers on Enterprise |
 | Sources | 18 available ([list](../connectors/README.md)) | 500+ devices through one integration advertised (its site also lists 72 data sources), plus medical devices |
-| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files | Yes |
+| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes |
 | Lab results | No | Lab Data API, with biomarkers coded in LOINC and FHIR R4 output |
 | Health records (EHR) | Planned, after the SDKs: SMART on FHIR patient access ([connectors](../connectors/README.md)) | EHR/EMR API with FHIR R4 output, on a waitlist on the pricing page |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | ROOK's normalized data |
