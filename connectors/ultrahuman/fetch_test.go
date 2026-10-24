@@ -30,7 +30,8 @@ func TestFetch_OneCallPerDay(t *testing.T) {
 		asked = append(asked, r.Query.Get("date"))
 		require.Equal(t, "Bearer fake-access-token-1", r.Auth)
 	}
-	require.Equal(t, []string{"2026-03-07", "2026-03-08", "2026-03-09", "2026-03-10"}, asked)
+	require.Equal(t, []string{"2026-03-06", "2026-03-07", "2026-03-08", "2026-03-09", "2026-03-10"}, asked,
+		"March 6 runs until 12:00 UTC on March 7 in UTC-12")
 
 	// Only the two days with data are stored, one line each.
 	require.Len(t, sink.calls, 2)
@@ -45,7 +46,7 @@ func TestFetch_OneCallPerDay(t *testing.T) {
 		require.Equal(t, want, rd.Date)
 	}
 	f.mu.Lock()
-	require.Len(t, f.slept, 3, "days are paced")
+	require.Len(t, f.slept, 4, "days are paced")
 	f.mu.Unlock()
 
 	res := mapEmitted(t, c, sink)
@@ -102,7 +103,7 @@ func TestFetch_RateLimited(t *testing.T) {
 	require.True(t, errors.As(err, &rl))
 	require.Equal(t, 120*time.Second, rl.RetryAfter)
 	require.NotErrorIs(t, err, connector.ErrNeedsReauth)
-	require.Len(t, f.Calls("/api/partners/v1/user_data/metrics"), 2, "stops at the rate limit")
+	require.Len(t, f.Calls("/api/partners/v1/user_data/metrics"), 3, "March 7 and 8, then stops at the rate limit")
 }
 
 func TestFetch_NoDataAndServerErrors(t *testing.T) {
@@ -161,4 +162,32 @@ func TestFetch_MapDeterministic(t *testing.T) {
 		require.Equal(t, a.QuantitySamples[i].ContentHash, b.QuantitySamples[i].ContentHash)
 	}
 	require.Equal(t, a.SleepSessions[0].ContentHash, b.SleepSessions[0].ContentHash)
+}
+
+// Ultrahuman dates are the user's local days. A window asks every date whose
+// local day can overlap it, in any zone from UTC-12 to UTC+14: a pull at
+// 02:00 to 04:00 UTC on March 10 still asks March 9, which in California
+// (UTC-7) runs until 07:00 UTC on March 10.
+func TestFetch_AsksEveryLocalDayOfTheWindow(t *testing.T) {
+	day := func(ds []time.Time) []string {
+		var out []string
+		for _, d := range ds {
+			out = append(out, d.Format("2006-01-02"))
+		}
+		return out
+	}
+	require.Equal(t, []string{"2026-03-09", "2026-03-10"},
+		day(localDates(time.Date(2026, 3, 10, 2, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 4, 0, 0, 0, time.UTC))))
+	require.Equal(t, []string{"2026-03-10", "2026-03-11"},
+		day(localDates(time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 14, 0, 0, 0, time.UTC))),
+		"UTC+14 is already on March 11 at 10:00 UTC")
+
+	f := newFake(t)
+	require.NoError(t, f.connector().Fetch(context.Background(), testConn(),
+		time.Date(2026, 3, 10, 2, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 4, 0, 0, 0, time.UTC), &recordingSink{}))
+	var asked []string
+	for _, r := range f.Calls("/api/partners/v1/user_data/metrics") {
+		asked = append(asked, r.Query.Get("date"))
+	}
+	require.Equal(t, []string{"2026-03-09", "2026-03-10"}, asked)
 }

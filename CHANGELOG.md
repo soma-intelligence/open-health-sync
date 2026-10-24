@@ -54,6 +54,9 @@ release may change the API, the configuration or the database schema.
   are written. Suspect figures of these records are flagged like suspect samples.
 - Every record kind refuses a time before 1990-01-01 UTC: a zero date (0001-01-01), the Unix
   epoch or the FIT epoch was stored as a measurement, and a year 0001 sample lost its end.
+- Ultrahuman: a pull asks every date whose local day overlaps its window instead of the UTC
+  dates only. West of UTC the end of every day was never pulled (in California its last 7
+  hours, the closing step count among them).
 
 ## [0.2.0] - 2026-10-21
 
