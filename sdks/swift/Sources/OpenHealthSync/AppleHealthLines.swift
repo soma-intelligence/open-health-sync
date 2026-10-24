@@ -281,6 +281,23 @@ public struct CorrelationLine: AppleHealthLine, Equatable {
     }
 }
 
+/// A deleted sample: `deletedUuid`, the UUID of an `HKDeletedObject`. The server removes the
+/// records it stored from the sample of that UUID and never stores it again. The line has no
+/// day of its own, so it is not an `AppleHealthLine`: put it in the parts of its query round
+/// with `AppleHealthPartBuilder.addToEveryPart(line:)`.
+public struct DeletionLine: Sendable, Equatable {
+    /// The HealthKit UUID of the deleted sample, as `UUID.uuidString` writes it.
+    public var uuid: String
+
+    public init(uuid: String) {
+        self.uuid = uuid
+    }
+
+    public func jsonObject() -> JSONObject {
+        return ["deletedUuid": .string(uuid)]
+    }
+}
+
 /// The units the SDK writes values in, one per HealthKit quantity type the server stores.
 /// Each is a spelling the server converts to its storage unit (connectors/applehealth/units.go
 /// and internal/model/units.go).

@@ -32,8 +32,9 @@ let package = Package(
         ),
         .testTarget(
             name: "OpenHealthSyncTests",
-            // OpenHealthSyncBluetooth too, so `swift test` on macOS compiles it.
-            dependencies: ["OpenHealthSync", "OpenHealthSyncBluetooth"]
+            // OpenHealthSyncBluetooth and OpenHealthSyncHealthKit too, so `swift test` on macOS
+            // compiles them; the anchored sync is tested with fakes on every platform.
+            dependencies: ["OpenHealthSync", "OpenHealthSyncBluetooth", "OpenHealthSyncHealthKit"]
         ),
     ]
 )

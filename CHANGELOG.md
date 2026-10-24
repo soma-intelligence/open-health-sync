@@ -17,8 +17,27 @@ release may change the API, the configuration or the database schema.
   through a running server and database (`test/synthflow`). See
   [docs/specs/synthetic-data.md](docs/specs/synthetic-data.md).
 
+### Changed
+
+- Swift SDK: the anchored sync of one type is `AnchoredSync`, over `AnchoredChangeSource` and
+  `AppleHealthPartUploader`, so it is tested with fakes on every platform; `HealthKitSync` runs
+  it over `HKAnchoredObjectQuery`. `SyncReport` (same module, `OpenHealthSyncHealthKit`) now
+  compiles on every platform and gains `deletionsByType` and `deletionsUploaded`.
+
 ### Fixed
 
+- Apple Health: deleted and edited HealthKit samples are removed from the server. The Swift SDK
+  used to drop the deleted objects of its anchored queries and move the anchor past them, and
+  since HealthKit edits a sample by deleting it and saving a new one, every edited weight or
+  blood pressure reading stayed stored twice. The upload contract has a deletion line,
+  `{"deletedUuid":"<uuid>"}`: quantity, category, dietary, food, blood pressure and workout
+  records now keep their HealthKit `uuid` as `external_id`, and the deletion removes them and
+  tombstones the UUID ([docs](docs/connectors/apple-health.md#deletions)). `HealthKitSync` sends
+  the deletions of a round in every part of that round and saves the anchor only once samples and
+  deletions are all uploaded. Sleep stages are not covered, and records stored by 0.2.0 carry no
+  UUID, so a deletion does not find them.
+- A provider deletion recomputes the derived daily totals of the days of the samples it removed,
+  and a derived day left without samples is dropped.
 - Sleep phases, ECG recordings, daily summaries and observations are now validated, and an end
   before the start or far in the future is refused on every record kind.
 - Apple Health glucose in mmol/L and the `yd`, `in`, `s`, `oz` and `lb` unit spellings are

@@ -153,8 +153,8 @@ After the upload, your backend polls `getCoverage` until `pendingJobs` is 0, or 
 
 ## HealthKit sync
 
-`HealthKitSync` reads HealthKit with anchored queries and uploads the samples added since the last
-run, with the app's upload client.
+`HealthKitSync` reads HealthKit with anchored queries and uploads the samples added and deleted
+since the last run, with the app's upload client.
 
 **Set up the app.** In Xcode, add the HealthKit capability (the `com.apple.developer.healthkit`
 entitlement) and, for background delivery, tick *Background Delivery* under it. Add
@@ -215,13 +215,25 @@ sample `uuid`, and `metadata`: HealthKit's metadata with numbers and booleans ke
 RFC 3339 and quantities as text (`1.25 m/s`). When HealthKit recorded no `HKTimeZone`, the device
 zone is written there, so the server counts the sample on the user's local day. A quantity type
 the server does not store, or whose unit does not fit, is left out and counted in
-`report.skippedSamples`. Deleted samples are not sent: the upload route has no deletion yet.
+`report.skippedSamples`.
+
+**Deleted and edited samples.** The anchored query also returns the samples deleted since the
+anchor (`HKDeletedObject`). Each becomes a [deletion line](../connectors/apple-health.md#deletions),
+`{"deletedUuid":"<uuid>"}`, and the server removes what it stored from that sample. HealthKit
+never edits a sample in place: an app that edits a weight or a blood pressure reading deletes the
+old sample and saves a new one, so without the deletion both would stay stored. The deletions of
+a round open every part of that round (a round with deletions only sends one part dated today),
+because the server applies a part's deletions before its records: an edit that keeps value and
+time replaces the stored copy whichever part is processed first. `report.deletionsUploaded`
+counts them, once each. Sleep stage deletions are sent but change nothing stored (see the
+connector page).
 
 **Anchors.** Each type has its own `HKQueryAnchor`, archived in `UserDefaults` by default (pass
-another `AnchorStore` to keep them elsewhere). A sync reads at most `queryLimit` samples (5000) per
-round, uploads them under a fresh batch id, and saves the new anchor only after every part of that
-round is uploaded. If the app is killed or an upload fails, the next sync reads the same samples
-again; the server keeps each record once, so nothing is doubled. `resetAnchor(for:)` makes the next
+another `AnchorStore` to keep them elsewhere). A sync reads at most `queryLimit` objects (5000),
+new and deleted samples together, per round, uploads them under a fresh batch id, and saves the
+new anchor only after every part of that round, samples and deletions, is uploaded. If the app is
+killed or an upload fails, the next sync reads the same samples and deletions again; the server
+keeps each record once and applies a deletion once, so nothing is doubled or lost. `resetAnchor(for:)` makes the next
 sync send a type's whole history. Calls to `sync` run one after the other.
 
 ## Bluetooth devices

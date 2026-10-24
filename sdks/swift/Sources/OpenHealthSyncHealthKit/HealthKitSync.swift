@@ -5,25 +5,6 @@ import Foundation
 import HealthKit
 import OpenHealthSync
 
-/// What one `sync` call sent.
-public struct SyncReport: Sendable, Equatable {
-    /// The batch ids used, one per query round that had new samples.
-    public var batchIds: [String] = []
-    /// Parts uploaded (duplicates included).
-    public var partsUploaded = 0
-    /// Parts the server already had (`duplicate: true`).
-    public var duplicateParts = 0
-    /// Lines uploaded, by HealthKit type identifier.
-    public var linesByType: [String: Int] = [:]
-    /// New samples left out because the server does not store their type or unit.
-    public var skippedSamples = 0
-
-    public init() {}
-
-    /// Lines uploaded, all types together.
-    public var linesUploaded: Int { linesByType.values.reduce(0, +) }
-}
-
 /// Errors of the HealthKit side.
 public enum HealthKitSyncError: Error, Sendable, Equatable {
     /// HealthKit answered `false` without an error.
@@ -34,9 +15,10 @@ public enum HealthKitSyncError: Error, Sendable, Equatable {
 ///
 /// For each type, the samples added since the stored anchor are converted into upload lines,
 /// grouped into parts by type and local day (in the sample's `HKTimeZone`), and uploaded
-/// under a fresh batch id. The new anchor is saved only once every part of that type is
-/// uploaded, so an interrupted sync sends the same samples again next time, and the server
-/// stores them once.
+/// under a fresh batch id, with the UUIDs of the samples deleted since that anchor as
+/// deletion lines in each part (see `AnchoredSync`). The new anchor is saved only once every
+/// part of the round is uploaded, so an interrupted sync sends the same samples and deletions
+/// again next time, and the server applies them once.
 @available(macOS 13.0, *)
 public final class HealthKitSync: @unchecked Sendable {
     public let store: HKHealthStore
@@ -90,8 +72,8 @@ public final class HealthKitSync: @unchecked Sendable {
         }
     }
 
-    /// Uploads the samples of `types` added since the last sync. Calls are serialized: a sync
-    /// started while another runs waits for it.
+    /// Uploads the samples of `types` added or deleted since the last sync. Calls are
+    /// serialized: a sync started while another runs waits for it.
     public func sync(types: Set<HKSampleType>) async throws -> SyncReport {
         let sorted = types.sorted { $0.identifier < $1.identifier }
         return try await queue.run { [self] in
@@ -172,77 +154,67 @@ public final class HealthKitSync: @unchecked Sendable {
     // MARK: - One type
 
     private func syncType(_ type: HKSampleType, report: inout SyncReport) async throws {
-        var anchor = loadAnchor(type.identifier)
-        while true {
-            let (samples, newAnchor) = try await anchoredQuery(type: type, anchor: anchor)
-            if samples.isEmpty {
-                saveAnchor(newAnchor, for: type.identifier)
-                return
+        let sync = AnchoredSync(
+            source: HealthKitChangeSource(store: store, type: type),
+            uploader: client, anchors: anchors, batchPrefix: batchPrefix, queryLimit: queryLimit)
+        try await sync.sync(type.identifier, report: &report)
+    }
+}
+
+/// Runs `HKAnchoredObjectQuery` for one type and converts what it returns: the new samples
+/// into upload lines, the deleted objects into their UUIDs.
+@available(macOS 13.0, *)
+struct HealthKitChangeSource: AnchoredChangeSource {
+    let store: HKHealthStore
+    let type: HKSampleType
+
+    func changes(of typeIdentifier: String, after anchor: Data?, limit: Int) async throws -> AnchoredChanges {
+        let (samples, deleted, newAnchor) = try await query(after: unarchive(anchor), limit: limit)
+        var changes = AnchoredChanges(
+            deletedUUIDs: deleted.map { $0.uuid.uuidString },
+            limitReached: samples.count + deleted.count >= limit,
+            newAnchor: archive(newAnchor))
+        for sample in samples {
+            if let line = HealthKitLines.line(for: sample) {
+                changes.lines.append(line)
+            } else {
+                changes.skippedSamples += 1
             }
-            let batch = AppleHealthPartBuilder.newBatchId(prefix: batchPrefix)
-            var builder = try AppleHealthPartBuilder(batch: batch)
-            var lines = 0
-            for sample in samples {
-                guard let line = HealthKitLines.line(for: sample) else {
-                    report.skippedSamples += 1
-                    continue
-                }
-                let zone = line.timeZoneIdentifier.flatMap { TimeZone(identifier: $0) } ?? TimeZone.current
-                try builder.add(
-                    type: line.typeIdentifier,
-                    day: AppleHealthPartBuilder.localDay(line.startDate, timeZone: zone),
-                    line: line.jsonObject())
-                lines += 1
-            }
-            if !builder.isEmpty {
-                let parts = builder.build()
-                let results = try await client.uploadParts(parts)
-                report.batchIds.append(batch)
-                report.partsUploaded += results.count
-                report.duplicateParts += results.filter { $0.duplicate }.count
-                report.linesByType[type.identifier, default: 0] += lines
-            }
-            // Every part of this round is on the server: the anchor can move.
-            saveAnchor(newAnchor, for: type.identifier)
-            if samples.count < queryLimit {
-                return
-            }
-            anchor = newAnchor
         }
+        return changes
     }
 
-    private func anchoredQuery(type: HKSampleType, anchor: HKQueryAnchor?) async throws -> ([HKSample], HKQueryAnchor?) {
+    private func query(after anchor: HKQueryAnchor?, limit: Int) async throws
+        -> ([HKSample], [HKDeletedObject], HKQueryAnchor?)
+    {
         let store = self.store
-        let limit = queryLimit
         return try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<([HKSample], HKQueryAnchor?), Error>) in
+            (continuation: CheckedContinuation<([HKSample], [HKDeletedObject], HKQueryAnchor?), Error>) in
             let query = HKAnchoredObjectQuery(
                 type: type, predicate: nil, anchor: anchor, limit: limit
-            ) { _, samples, _, newAnchor, error in
+            ) { _, samples, deleted, newAnchor, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                 } else {
-                    continuation.resume(returning: (samples ?? [], newAnchor))
+                    continuation.resume(returning: (samples ?? [], deleted ?? [], newAnchor))
                 }
             }
             store.execute(query)
         }
     }
 
-    private func loadAnchor(_ identifier: String) -> HKQueryAnchor? {
-        guard let data = anchors.anchorData(for: identifier) else {
+    private func unarchive(_ data: Data?) -> HKQueryAnchor? {
+        guard let data = data else {
             return nil
         }
         return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
     }
 
-    private func saveAnchor(_ anchor: HKQueryAnchor?, for identifier: String) {
-        guard let anchor = anchor,
-              let data = try? NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true)
-        else {
-            return
+    private func archive(_ anchor: HKQueryAnchor?) -> Data? {
+        guard let anchor = anchor else {
+            return nil
         }
-        anchors.setAnchorData(data, for: identifier)
+        return try? NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true)
     }
 }
 

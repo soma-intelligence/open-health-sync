@@ -36,7 +36,8 @@ public struct AppleHealthPart: Sendable, Equatable {
 
 /// Turns upload lines into parts the way `ohs import apple-health` does: one part per
 /// HealthKit type and local day, at most `maxPartBytes` of NDJSON before compression,
-/// gzip compressed, numbered from 0 across the whole batch.
+/// gzip compressed, numbered from 0 across the whole batch. Lines added with
+/// `addToEveryPart(line:)` open every part.
 public struct AppleHealthPartBuilder: Sendable {
     public static let defaultMaxPartBytes = 8 * 1024 * 1024
 
@@ -50,6 +51,7 @@ public struct AppleHealthPartBuilder: Sendable {
 
     private var order: [GroupKey] = []
     private var groups: [GroupKey: [Data]] = [:]
+    private var shared: [Data] = []
 
     /// - Parameters:
     ///   - batch: the batch id, letters, digits, `_` and `-`, 1 to 128 characters. Use a
@@ -66,7 +68,7 @@ public struct AppleHealthPartBuilder: Sendable {
         self.maxPartBytes = maxPartBytes
     }
 
-    /// Whether no line was added.
+    /// Whether no line was added with `add`. Lines for every part alone make no part.
     public var isEmpty: Bool { order.isEmpty }
 
     /// Adds one line, a JSON object in the server's line format.
@@ -91,6 +93,16 @@ public struct AppleHealthPartBuilder: Sendable {
         }
     }
 
+    /// Adds a line that opens every part built, whatever its type and day: a deletion, which
+    /// names no day, goes with every part of its query round. The server applies the
+    /// deletions of a part before its records, so an edited sample (HealthKit deletes the old
+    /// one and adds a new one) replaces the stored copy whichever part is processed first.
+    public mutating func addToEveryPart(line: JSONObject) {
+        var bytes = JSONValue.object(line).compactJSONData()
+        bytes.append(0x0a)
+        shared.append(bytes)
+    }
+
     /// Adds a typed line; its day is the local day of its start in the line's `HKTimeZone`,
     /// or in `defaultTimeZone` when the line has none.
     public mutating func add<Line: AppleHealthLine>(_ line: Line, defaultTimeZone: TimeZone = .current) throws {
@@ -107,16 +119,17 @@ public struct AppleHealthPartBuilder: Sendable {
         var number = 0
         for key in order {
             let lines = groups[key] ?? []
-            var current = Data()
+            let opening = shared.reduce(into: Data()) { $0.append($1) }
+            var current = opening
             var count = 0
             func flush() {
                 guard count > 0 else { return }
                 parts.append(AppleHealthPart(
                     type: key.type, day: key.day, batch: batch, partNumber: number,
-                    body: Gzip.compress(current), lineCount: count,
+                    body: Gzip.compress(current), lineCount: shared.count + count,
                     uncompressedBytes: current.count))
                 number += 1
-                current = Data()
+                current = opening
                 count = 0
             }
             for line in lines {
