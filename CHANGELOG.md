@@ -33,6 +33,12 @@ release may change the API, the configuration or the database schema.
   instead of one lookup per record: on second by second data the default export streamed about
   110 rows a second; an Apple Health account of 57 575 merged samples now exports in under a
   second instead of 10 minutes, record for record the same.
+- Fitbit / Google Health: Apple Health data relayed by Google (`platform` `HEALTH_KIT`) stores
+  its HRV as `hrv_sdnn` instead of `hrv_rmssd`, since HealthKit only measures SDNN (#205), and a
+  deep sleep RMSSD of 0 is left out of metadata. Points relayed from Apple Health or Health
+  Connect are attributed to that store (source `apple_health` or `health_connect`), so they no
+  longer add up with the tracker's own minutes in one stream. Rows stored earlier keep their
+  type and source.
 
 ## [0.2.0] - 2026-10-21
 
