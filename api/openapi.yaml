@@ -2236,7 +2236,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }
@@ -2309,7 +2309,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }
@@ -2382,7 +2382,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }
@@ -2461,7 +2461,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }
@@ -2542,7 +2542,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }

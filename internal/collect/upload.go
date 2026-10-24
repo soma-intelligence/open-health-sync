@@ -33,10 +33,19 @@ import (
 // never a truncated store.
 const MaxUploadBytes = 64 << 20
 
-// MaxDecompressedBytes caps how far one part may expand while it is validated.
-// It matches the ETL reader's cap, so an accepted part is one the ETL can read
-// to the end, and a gzip bomb costs at most this much decompression.
-const MaxDecompressedBytes int64 = 512 << 20
+// DefaultMaxDecompressedBytes caps how far one part may expand while it is
+// validated, unless UploadDeps.MaxDecompressedBytes says otherwise
+// (OHS_INGEST_MAX_DECOMPRESSED_MIB). The clients write parts of at most
+// 8 MiB of NDJSON (or one line, at most 32 MiB, on its own), so 64 MiB
+// leaves room; a gzip bomb costs at most this much decompression while it
+// holds an ingest slot. It stays at or under the ETL reader's cap
+// (etl.DefaultMaxDecompressedBytes), so an accepted part is one the ETL can
+// read to the end.
+const DefaultMaxDecompressedBytes int64 = 64 << 20
+
+// MaxMaxDecompressedBytes is the largest UploadDeps.MaxDecompressedBytes:
+// the ETL reader's cap.
+const MaxMaxDecompressedBytes int64 = 512 << 20
 
 // uploadReadTimeout bounds how long one part may take to arrive. The server
 // has no global read timeout (it would cut long requests), so a stalled client
@@ -63,6 +72,20 @@ type UploadDeps struct {
 	// Allowed reports whether a tenant may upload to the provider, as
 	// Deps.Allowed does. Nil allows every tenant.
 	Allowed func(tenant uuid.UUID, slug string) bool
+	// MaxDecompressedBytes caps how far one part may expand (413 above).
+	// 0 means DefaultMaxDecompressedBytes; above MaxMaxDecompressedBytes it
+	// is cut to it.
+	MaxDecompressedBytes int64
+}
+
+func (d UploadDeps) maxDecompressed() int64 {
+	switch {
+	case d.MaxDecompressedBytes <= 0:
+		return DefaultMaxDecompressedBytes
+	case d.MaxDecompressedBytes > MaxMaxDecompressedBytes:
+		return MaxMaxDecompressedBytes
+	}
+	return d.MaxDecompressedBytes
 }
 
 func (d UploadDeps) allowed(tenantID uuid.UUID, slug string) bool {
@@ -338,7 +361,8 @@ func (h *uploadHandler) validate(meta connector.UploadMeta, body []byte) (int, s
 		return http.StatusBadRequest, "the body is not gzip"
 	}
 	defer zr.Close()
-	err = h.d.Device.ParseUpload(meta, &guardedReader{r: zr, left: MaxDecompressedBytes}, nil)
+	limit := h.d.maxDecompressed()
+	err = h.d.Device.ParseUpload(meta, &guardedReader{r: zr, left: limit}, nil)
 	if err == nil {
 		return 0, ""
 	}
@@ -346,7 +370,7 @@ func (h *uploadHandler) validate(meta connector.UploadMeta, body []byte) (int, s
 	switch {
 	case errors.Is(err, errTooLarge):
 		return http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("a part may expand to at most %d bytes", MaxDecompressedBytes)
+			fmt.Sprintf("a part may expand to at most %d bytes (%d MiB); send smaller parts", limit, limit>>20)
 	case errors.As(err, &se):
 		return http.StatusBadRequest, "the gzip stream is truncated or corrupt"
 	default:

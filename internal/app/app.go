@@ -281,8 +281,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			// WebhookAllowPrivate relaxes the endpoint URL checks.
 			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.
-			IngestLimit: cfg.IngestConcurrency,
-			Version:     Version,
+			IngestLimit:                cfg.IngestConcurrency,
+			IngestTenantLimit:          cfg.IngestTenantConcurrency,
+			IngestMaxDecompressedBytes: int64(cfg.IngestMaxDecompressedMiB) << 20,
+			Version:                    Version,
 			// Non-empty mounts the first-run setup routes (/v1/setup).
 			SetupToken: cfg.SetupToken,
 			// Zero (a Config not built by Load) means no rate limit.

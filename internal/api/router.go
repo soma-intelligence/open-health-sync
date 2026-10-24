@@ -80,6 +80,13 @@ type Deps struct {
 	SelfReport connector.DeviceConnector
 	// IngestLimit bounds uploads in flight (0 means DefaultIngestLimit).
 	IngestLimit int
+	// IngestTenantLimit bounds the uploads in flight of one tenant (0 means
+	// DefaultIngestTenantLimit of IngestLimit; IngestLimit or more means no
+	// share).
+	IngestTenantLimit int
+	// IngestMaxDecompressedBytes caps how far one uploaded part may expand
+	// (0 means collect.DefaultMaxDecompressedBytes).
+	IngestMaxDecompressedBytes int64
 	// Metrics mounts GET /metrics (OHS_METRICS).
 	Metrics bool
 	// Console mounts the admin console at /console (OHS_CONSOLE);

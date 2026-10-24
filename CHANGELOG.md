@@ -19,6 +19,11 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- Device uploads: one tenant holds at most half of the ingest slots by default
+  (`OHS_INGEST_TENANT_CONCURRENCY`), and a part may expand to at most 64 MiB once decompressed
+  instead of 512 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`, up to 512). Eight gzip bombs of 611 KB
+  held every slot of the instance for 14 s, and every other tenant's uploads got 503 meanwhile.
+  The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON, so they are not affected.
 - A call that fails because the database cannot be reached (Postgres restarting, out of
   connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
   429 keep the upload or the read. Other failures stay 500.

@@ -179,6 +179,8 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_PULLS_PER_PROVIDER` | `4` | Pulls of one provider running at once, across every `collect` instance. See [provider rate limits](background-sync.md#provider-rate-limits) |
 | `OHS_BACKFILLS_PER_PROVIDER` | `2` | Of those, backfills of new connections |
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
+| `OHS_INGEST_TENANT_CONCURRENCY` | half of `OHS_INGEST_CONCURRENCY`, rounded up | Of those, how many one tenant may hold, so one tenant (a large import, a gzip bomb) cannot refuse every other tenant's uploads. From 1 to `OHS_INGEST_CONCURRENCY`; set it equal to `OHS_INGEST_CONCURRENCY` on a single-tenant instance to give that tenant every slot |
+| `OHS_INGEST_MAX_DECOMPRESSED_MIB` | `64` | How far one uploaded part may expand once decompressed, in MiB (1 to 512); a larger part answers 413. The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON. 0.2.0 and earlier allowed 512 |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Turns on OpenTelemetry traces, sent over OTLP to this address. The other standard `OTEL_` variables apply; see [observability](observability.md) |
 | `OHS_RATE_LIMIT_INBOUND` | `30/120` | Notification requests (`/inbound/{provider}`) per client address: `rate/burst` in requests per second, `0` disables. See [rate limits](#rate-limits). 0.2.0 and later |
@@ -428,8 +430,10 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   existing install its first run builds the whole history once (about 11 s for 10 million
   samples in our test). `SELECT * FROM timescaledb_information.job_stats` shows its runs.
 - **Large uploads.** An instance processes a bounded number of uploads at once
-  (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi) and answers 503 with `Retry-After` above it;
-  clients retry.
+  (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi), one tenant at most half of them
+  (`OHS_INGEST_TENANT_CONCURRENCY`), and answers 503 with `Retry-After` above either; clients
+  retry. A part is decompressed to check it, up to 64 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`), so
+  a gzip bomb costs a fraction of a second of one slot, not the instance.
 - **Rate limits on the provider-facing routes.** Notifications and OAuth callbacks over the
   limits answer 429 with `Retry-After`; see [rate limits](self-hosting.md#rate-limits). Behind a
   reverse proxy, set `OHS_TRUSTED_PROXIES`, or every request counts against the proxy's address.
