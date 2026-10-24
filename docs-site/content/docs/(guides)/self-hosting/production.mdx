@@ -21,6 +21,11 @@ ohs.example.org {
 }
 ```
 
+If the host serves other pages too, name the routes of `ohs` before any catch-all redirect, or
+`/healthz` and `/readyz` answer 302 and monitors read the instance as down: `deploy/Caddyfile`
+has both forms, and [Configuration](/documentation/self-hosting/configuration#reverse-proxy) the
+list of paths.
+
 </Step>
 <Step>
 
@@ -79,9 +84,20 @@ roles across processes, size each Postgres pool with `pool_max_conns`: see
 </Step>
 <Step>
 
+### Bound its memory
+
+Each upload in flight holds up to 64 MiB of body. The compose file caps `ohs` at 1 GB with
+`GOMEMLIMIT=768MiB`, so the kernel restarts `ohs` alone if it ever goes over, never Postgres.
+Elsewhere, set a container limit (`ohs` then sets `GOMEMLIMIT` itself) or `GOMEMLIMIT`. See
+[Configuration](/documentation/self-hosting/configuration#memory) for the profiles.
+
+</Step>
+<Step>
+
 ### Watch it
 
 `GET /readyz` answers 503 when the database or the raw store fails; `GET /healthz` is liveness.
+Check both from outside (`curl -i https://ohs.example.org/healthz`): `200`, no `Location` header.
 Logs are JSON on stderr, and every line about a request carries its `request_id`, the same value
 as the `X-Request-Id` response header. A non-zero `parked_jobs` in a user's coverage report needs
 an operator.
