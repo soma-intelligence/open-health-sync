@@ -124,6 +124,8 @@ func TestDecodeJSON(t *testing.T) {
 		{`{"count":"two"}`, "field count has the wrong type"},
 		{`{"other":1}`, `unknown field "other"`},
 		{`{"name":"a"} {"name":"b"}`, "more than one JSON value"},
+		{`{"name":"a\u0000b"}`, "NUL character"},
+		{`{"count":1,"name":"\u0000"}`, `field "name" holds a NUL character`},
 	} {
 		_, ok, w := decode(tc.raw, false)
 		assert.False(t, ok, tc.raw)
@@ -131,6 +133,10 @@ func TestDecodeJSON(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, status, tc.raw)
 		assert.Contains(t, detail, tc.detail, tc.raw)
 	}
+
+	v, ok, _ = decode(`{"name":"a\\u0000b"}`, false)
+	assert.True(t, ok, "an escaped backslash before u0000 is not a NUL")
+	assert.Equal(t, `a\u0000b`, v.Name)
 
 	_, ok, w = decode(`{"name":"`+strings.Repeat("x", maxJSONBody)+`"}`, false)
 	assert.False(t, ok)
@@ -210,4 +216,23 @@ func TestProviderErrStatus(t *testing.T) {
 	w := httptest.NewRecorder()
 	assert.True(t, providerErr(w, httptest.NewRequest("PATCH", "/", nil), nil))
 	assert.Equal(t, 0, w.Body.Len(), "no error writes nothing")
+}
+
+func TestNULFreeNamesTheMember(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{"a":"x\u0000"}`:                           "a",
+		`{"a":{"b":1},"c":["ok","\u0000"]}`:         "c",
+		`{"a":[{"b":"\u0000"}]}`:                    "b",
+		`{"a\u0000":1}`:                             "a",
+		`["\u0000"]`:                                "",
+		`{"a":{"b":{"c":2}},"d":null,"e":"\u0000"}`: "e",
+	} {
+		name, ok := nulFree([]byte(raw))
+		assert.False(t, ok, raw)
+		assert.Equal(t, want, name, raw)
+	}
+	for _, raw := range []string{`{"a":"x"}`, `{"a":"\\u0000"}`, `{"u0000":1}`} {
+		_, ok := nulFree([]byte(raw))
+		assert.True(t, ok, raw)
+	}
 }

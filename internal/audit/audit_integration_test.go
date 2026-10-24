@@ -88,3 +88,23 @@ func TestRecordListAppendOnlyPrune(t *testing.T) {
 	_, err = pool.Exec(ctx, `DELETE FROM ohs_core.audit_events`)
 	require.Error(t, err)
 }
+
+// A NUL or invalid UTF-8 in a value the event names (a path value a caller
+// chose) is cleaned, never a reason to drop the event: Postgres refuses
+// \u0000 in jsonb.
+func TestRecordCleansText(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+
+	tenant := uuid.New()
+	require.NoError(t, audit.Record(ctx, pool, audit.Event{Tenant: tenant, ActorType: audit.APIKey, ActorID: "k\x001",
+		Action: audit.ConnectionSync, Method: "POST", Route: "POST /v1/users/{id}/connections/{provider}/sync",
+		Status: 404, RequestID: "r\xff", Detail: map[string]any{"provider": "oura\x00", "bad\xffname": []string{"a\x00"}}}))
+	got, _, err := audit.List(ctx, pool, tenant, audit.Filter{})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, map[string]any{"provider": "oura", "bad�name": []any{"a"}}, got[0].Detail)
+	assert.Equal(t, "k1", got[0].Actor.ID)
+}

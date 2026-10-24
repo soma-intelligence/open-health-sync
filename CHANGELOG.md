@@ -19,6 +19,11 @@ release may change the API, the configuration or the database schema.
 
 ### Fixed
 
+- A NUL character or invalid UTF-8 in a path, a query parameter or a JSON string no longer ends
+  in a 500 (31 operations did) or an MCP "internal error": the path and the query are checked
+  before routing and answer 400, a JSON body with a `\u0000` answers 400 naming the field, and an
+  MCP tool refuses the argument by name. An audit event whose path value held a NUL was dropped;
+  its text is now cleaned and the event written.
 - Sleep phases, ECG recordings, daily summaries and observations are now validated, and an end
   before the start or far in the future is refused on every record kind.
 - Apple Health glucose in mmol/L and the `yd`, `in`, `s`, `oz` and `lb` unit spellings are

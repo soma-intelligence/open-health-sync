@@ -179,7 +179,7 @@ func NewRouter(d Deps) http.Handler {
 		}
 		notFound(w, "route")
 	})
-	return s.instrument(mux)
+	return s.instrument(textOK(mux))
 }
 
 // allowedMethods lists the methods a route other than the catch-all serves

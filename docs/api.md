@@ -50,6 +50,10 @@ configuration. The response is `Cache-Control: no-store`; the token is shown onc
   `{"type":"about:blank","title":"Bad Request","status":400,"detail":"..."}`.
   A user, workout or sleep session of another tenant is a 404, never a 403. A 401 carries
   `WWW-Authenticate: Bearer`.
+- **Text.** A path, a query parameter (name or value) or a JSON string must be UTF-8 without a
+  NUL character (`%00`, `\u0000`): the database cannot store either. A path or query that breaks
+  this is a 400 before authentication; a JSON body that holds a NUL is a 400 naming the field.
+  Invalid UTF-8 inside a JSON string is replaced by U+FFFD, as JSON decoders do.
 - **Request ids.** Every response carries `X-Request-Id`, and a problem body repeats it as
   `request_id`. Send your own `X-Request-Id` (1 to 128 letters, digits, `-`, `_`, `.`) to have
   it kept, for example your proxy's. Every log line about the call carries it as `request_id`,

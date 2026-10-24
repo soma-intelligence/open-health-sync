@@ -206,3 +206,33 @@ func TestCheckTenantName(t *testing.T) {
 		assert.Equal(t, ok, checkTenantName(name) == "", "%q", name)
 	}
 }
+
+func TestNULAndInvalidUTF8RefusedAtTheEdge(t *testing.T) {
+	h := offlineRouter(t)
+	for _, target := range []string{
+		"/v1/users/abc/samples?type=heart_rate%00",
+		"/v1/users/abc/samples?type=%ff%fe",
+		"/v1/users/abc/samples?ty%00pe=heart_rate",
+		"/v1/users/abc/connections/oura%00/sync",
+		"/v1/users/%ff/samples",
+		"/v1/audit?action=%00",
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
+		require.Equal(t, http.StatusBadRequest, rec.Code, target)
+		status, detail := problemOf(t, rec)
+		assert.Equal(t, http.StatusBadRequest, status, target)
+		assert.Contains(t, detail, "NUL character or invalid UTF-8", target)
+		assert.NotEmpty(t, rec.Header().Get("X-Request-Id"), target)
+	}
+	// Valid text, escaped or not, reaches the route: 401 without a key.
+	for _, target := range []string{
+		"/v1/users/abc/samples?type=heart_rate",
+		"/v1/users/abc/samples?note=caf%C3%A9",
+		"/v1/users/abc/samples?type=a%2Fb",
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code, target)
+	}
+}
