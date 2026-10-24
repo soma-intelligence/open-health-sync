@@ -70,6 +70,8 @@ job's tenant and user only:
   of the days its removed samples name in `Metadata["summary_date"]`
   (`model.MetadataSummaryDate`, `YYYY-MM-DD`), and deletes a summary left without any figure.
   Only summary figure names are accepted; any other name is ignored;
+- sums the derived daily totals (steps, energy, distance, flights) of the days of its removed
+  samples again, and drops a derived day left without any sample;
 - records a tombstone in `ohs_data.deleted_records`. A record whose id is tombstoned is never
   written again, so a re-pull, an old raw object processed again, or a deletion that arrives
   before the record cannot bring it back. Applying a deletion twice is harmless.

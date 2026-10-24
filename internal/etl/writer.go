@@ -163,10 +163,13 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	if acc == nil {
 		return c, nil
 	}
+	var staleDays map[dayKey]*time.Location
 	if len(acc.Deletions) > 0 {
-		if err := applyDeletions(ctx, tx, sc, acc.Deletions, c); err != nil {
+		days, err := applyDeletions(ctx, tx, sc, acc.Deletions, c)
+		if err != nil {
 			return nil, fmt.Errorf("apply deletions: %w", err)
 		}
+		staleDays = days
 	}
 	if err := dropTombstoned(ctx, tx, sc, acc, c); err != nil {
 		return nil, err
@@ -229,6 +232,21 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	for _, s := range steps {
 		if err := s.run(); err != nil {
 			return nil, fmt.Errorf("write %s: %w", s.name, err)
+		}
+	}
+	// The days whose additive samples a deletion removed are summed again.
+	// The days the batch's own samples touch are left to the caller, which
+	// derives them after this write.
+	for k := range touchedDays(sc, acc) {
+		delete(staleDays, k)
+	}
+	if len(staleDays) > 0 {
+		n, k, err := deriveDailySummaries(ctx, tx, sc, staleDays)
+		if err != nil {
+			return nil, fmt.Errorf("derive daily summaries after deletions: %w", err)
+		}
+		if n+k > 0 {
+			c.add(tDaily, n, k)
 		}
 	}
 	return c, nil

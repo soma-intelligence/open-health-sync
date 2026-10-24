@@ -79,11 +79,50 @@ Other line kinds are recognized by their discriminator field:
 | `timeSinceSampleStart` and `value` | ECG voltage samples |
 | `heartbeats` | beat to beat RR intervals (see below) |
 | `latitude` and `longitude` | workout route points |
+| `deletedUuid` | the removal of the records of a deleted sample ([below](#deletions)) |
 
 ECG recordings and their voltage samples are served by `GET /v1/users/{id}/ecg` and as FHIR
 Observations ([api.md](../api.md#ecg-recordings)); heartbeat intervals by
 `GET /v1/users/{id}/rr-intervals` and `/hrv`. Clinical record and FHIR resource lines are
 accepted and dropped on purpose.
+
+### Deletions
+
+HealthKit reports the samples deleted since an anchor (`HKDeletedObject`), and a sample is
+never edited in place: an edit is the deletion of the old sample and a new one under a new
+UUID. A deletion line names the UUID of a deleted sample, and nothing else:
+
+```json
+{"deletedUuid":"6F1A9D2B-0C4E-4B8A-9E61-3D2B7A5C1F00"}
+```
+
+The server removes what it stored from the sample of that UUID, and keeps a tombstone so a
+later copy of it (a part sent again, a raw file processed again) is never stored. That works
+because every line with a `uuid` stores it as the record's `external_id`:
+
+| Line | Removed by the deletion of |
+|---|---|
+| quantity, category (sleep excepted), dietary quantity, food correlation, workout | its `uuid` |
+| blood pressure correlation | its `uuid`, both members (stored as `<uuid>_<type>`), or a member's own `uuid` when the members were uploaded as quantity lines |
+
+- The line has no type and no day of its own. Put it in any part; the SDK puts the deletions
+  of a query round in every part of that round, because the deletions of a part are applied
+  before its records. So an edit that keeps value and time (an app that rewrites its samples)
+  replaces the stored copy instead of losing it. Sent in another part, an edit can be
+  processed before the deletion: the new sample is then taken for the stored copy and the
+  deletion removes both.
+- A removed step, energy, distance or flight sample is taken out of its day's derived total.
+- A `deletedUuid` that is not a string of 1 to 128 bytes rejects the line.
+- The UUID is not part of the content hash: the same reading from an export (no UUID) and
+  from an app is still stored once.
+- **Not covered:** sleep, ECG, heartbeat series, audiograms and state of mind. Sleep nights are
+  rebuilt from several samples, so one stage sample's deletion has no stored record of its
+  own to remove; such a deletion only adds a tombstone.
+- Records stored by 0.2.0 and earlier have no `external_id`, so a deletion does not find them,
+  and a new upload of the same sample is de-duplicated into the old row. To clean a person's
+  history, delete their Apple Health rows in `psql` (as for [sleep](#sleep), on each table),
+  then have the app upload everything again (`HealthKitSync.resetAnchor(for:)` on each type).
+  Re-processing their raw files is not enough: the old files hold no deletion lines.
 
 ### Sleep
 
@@ -232,6 +271,7 @@ to 6 tries per part. 401 and 403 stop the import at once: check the token and it
 ## Processing notes
 
 - Content is de-duplicated by hash, so the same reading uploaded twice is stored once.
+- A deletion line removes the records of a deleted HealthKit sample ([Deletions](#deletions)).
 - A running total HealthKit re-sends with a newer value (a day's step count) replaces the stored
   one.
 - Daily step, energy, distance and flight totals are derived per local day from samples. When an

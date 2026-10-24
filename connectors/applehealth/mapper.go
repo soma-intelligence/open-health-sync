@@ -52,6 +52,11 @@ func newMapper() *mapper {
 // mapRecord dispatches a raw JSON record to the appropriate handler based on
 // type discriminator fields in the record.
 func (m *mapper) mapRecord(record map[string]any, userID string) (*model.MapResult, error) {
+	// A deletion line names only the UUID of a sample HealthKit deleted.
+	if _, ok := record[deletedField]; ok {
+		return m.mapDeletion(record)
+	}
+
 	// Audiogram records arrive with quantity_type = "HKDataTypeIdentifierAudiogramSample".
 	if record["quantity_type"] == "HKDataTypeIdentifierAudiogramSample" {
 		return m.mapAudiogram(record, userID)
