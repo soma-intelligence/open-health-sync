@@ -236,8 +236,8 @@ to 6 tries per part. 401 and 403 stop the import at once: check the token and it
   one.
 - Daily step, energy, distance and flight totals are derived per local day from samples. When an
   iPhone and an Apple Watch both report, the larger source total wins instead of being added.
-- A value outside its hard plausible range rejects the record; outside the soft range it is
-  stored and flagged in its metadata.
+- A value outside its hard plausible range is refused, that sample only (the rest of the
+  record is written); outside the soft range it is stored and flagged in its metadata.
 - Dietary values, single samples and food entries alike, are converted to the unit of their
   nutrient ([the nutrient table](../api.md#nutrition-logs)): a mass in kilograms, grams,
   milligrams or micrograms, a volume in litres, millilitres or fluid ounces, an energy in

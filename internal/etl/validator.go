@@ -58,27 +58,56 @@ func filterSeverity(errs []ValidationError, want Severity) []ValidationError {
 	return out
 }
 
-// FlagSuspects annotates the samples named by errs so the implausible value is
+// FlagSuspects annotates the records named by errs so the implausible value is
 // visible after the write. Metadata is already persisted as JSONB on every
-// quantity sample, so this needs no migration and stays queryable.
+// record kind flagged here, so this needs no migration and stays queryable.
 //
-// Only quantity samples carry flags today, because they are the only record type
-// with a value band. Errors for other record types are ignored here.
+// Quantity samples are flagged for their value; sleep sessions, daily
+// summaries and workouts for one of their figures. Errors for other record
+// types are ignored here.
 func FlagSuspects(mr *model.MapResult, errs []ValidationError) {
 	if mr == nil {
 		return
 	}
 	for _, e := range errs {
-		if e.RecordType != "quantity_sample" || e.Index < 0 || e.Index >= len(mr.QuantitySamples) {
+		md := recordMetadata(mr, e)
+		if md == nil {
 			continue
 		}
-		s := &mr.QuantitySamples[e.Index]
-		if s.Metadata == nil {
-			s.Metadata = map[string]any{}
-		}
-		s.Metadata["quality_flag"] = string(SeveritySuspect)
-		s.Metadata["quality_note"] = e.Message
+		md["quality_flag"] = string(SeveritySuspect)
+		md["quality_note"] = e.Message
 	}
+}
+
+// recordMetadata returns the metadata of the record e names, creating it when
+// the record has none, or nil when e names no record that carries flags.
+func recordMetadata(mr *model.MapResult, e ValidationError) map[string]any {
+	var md *map[string]any
+	switch e.RecordType {
+	case "quantity_sample":
+		if e.Index >= 0 && e.Index < len(mr.QuantitySamples) {
+			md = &mr.QuantitySamples[e.Index].Metadata
+		}
+	case "sleep_session":
+		if e.Index >= 0 && e.Index < len(mr.SleepSessions) {
+			md = &mr.SleepSessions[e.Index].Metadata
+		}
+	case "daily_summary":
+		if e.Index >= 0 && e.Index < len(mr.DailySummaries) {
+			md = &mr.DailySummaries[e.Index].Metadata
+		}
+	case "workout":
+		if e.Index >= 0 && e.Index < len(mr.Workouts) {
+			md = &mr.Workouts[e.Index].Metadata
+		}
+	}
+	if md == nil {
+		return nil
+	}
+	if *md == nil {
+		*md = map[string]any{}
+	}
+	return *md
 }
 
 // ValidateMapResult validates all records in a MapResult against type-specific rules.
@@ -315,7 +344,7 @@ func validateSleepPhase(p *model.SleepPhase, now time.Time) []ValidationError {
 	return errs
 }
 
-// validateSleepSession checks ordering and timestamps.
+// validateSleepSession checks ordering, timestamps and the night's figures.
 func validateSleepSession(s *model.SleepSession, now time.Time) []ValidationError {
 	var errs []ValidationError
 
@@ -345,6 +374,19 @@ func validateSleepSession(s *model.SleepSession, now time.Time) []ValidationErro
 			Message:    "bedtime_start must be before bedtime_end",
 		})
 	}
+
+	errs = append(errs, checkFigures("sleep_session", []figure{
+		intFigure("total_sleep_seconds", s.TotalSleepSeconds, sleepSeconds),
+		intFigure("deep_sleep_seconds", s.DeepSleepSeconds, sleepSeconds),
+		intFigure("rem_sleep_seconds", s.REMSleepSeconds, sleepSeconds),
+		intFigure("light_sleep_seconds", s.LightSleepSeconds, sleepSeconds),
+		intFigure("awake_seconds", s.AwakeSeconds, sleepSeconds),
+		{"sleep_score", s.SleepScore, rangeRules[model.QTSleepScore]},
+		{"hrv_avg_ms", s.HRVAvgMs, rangeRules[model.QTHRVRMSSD]},
+		{"resting_hr", s.RestingHR, rangeRules[model.QTRestingHeartRate]},
+		{"respiratory_rate", s.RespiratoryRate, rangeRules[model.QTRespiratoryRate]},
+		{"spo2_avg", s.SpO2Avg, rangeRules[model.QTOxygenSaturation]},
+	})...)
 
 	return errs
 }
@@ -389,11 +431,7 @@ func validateWorkout(w *model.Workout, now time.Time) []ValidationError {
 		})
 	}
 
-	for _, f := range []struct {
-		field string
-		v     *float64
-		rule  rangeRule
-	}{
+	errs = append(errs, checkFigures("workout", []figure{
 		{"avg_heart_rate", w.AvgHeartRate, workoutHeartRate},
 		{"max_heart_rate", w.MaxHeartRate, workoutHeartRate},
 		{"active_energy_kcal", w.ActiveEnergyKcal, rangeRules[model.QTActiveEnergyBurned]},
@@ -401,11 +439,7 @@ func validateWorkout(w *model.Workout, now time.Time) []ValidationError {
 		{"avg_speed_mps", w.AvgSpeedMps, workoutSpeed},
 		{"elevation_gain_m", w.ElevationGainM, workoutElevationGain},
 		{"vo2_max", w.VO2Max, rangeRules["vo2_max"]},
-	} {
-		if e := checkValue("workout", f.field, f.v, f.rule); e != nil {
-			errs = append(errs, *e)
-		}
-	}
+	})...)
 
 	return errs
 }
@@ -418,6 +452,39 @@ var (
 	workoutSpeed         = rangeRule{HardMin: 0, HardMax: 150, SoftMin: 0, SoftMax: 40}
 	workoutElevationGain = rangeRule{HardMin: 0, HardMax: 20000, SoftMin: 0, SoftMax: 10000}
 )
+
+// sleepSeconds bounds a stage duration of one night: a stage longer than a
+// day is a unit error, not a sleep.
+var sleepSeconds = rangeRule{HardMin: 0, HardMax: 86400, SoftMin: 0, SoftMax: 86400}
+
+// figure is one optional figure of a sleep session, a workout or a daily
+// summary, with the band it must fall in.
+type figure struct {
+	field string
+	v     *float64
+	rule  rangeRule
+}
+
+func intFigure(field string, v *int, r rangeRule) figure {
+	f := figure{field: field, rule: r}
+	if v != nil {
+		x := float64(*v)
+		f.v = &x
+	}
+	return f
+}
+
+// checkFigures range-checks the figures of one record. A figure outside its
+// hard band is dropped from the record by pruneRejected, not the record.
+func checkFigures(recordType string, figures []figure) []ValidationError {
+	var errs []ValidationError
+	for _, f := range figures {
+		if e := checkValue(recordType, f.field, f.v, f.rule); e != nil {
+			errs = append(errs, *e)
+		}
+	}
+	return errs
+}
 
 // checkValue range-checks one optional figure of a record: outside the hard
 // band parks the record, outside the soft band flags it.
@@ -545,18 +612,39 @@ func sortedKeys(m map[string]any) []string {
 	return keys
 }
 
-// validateDailySummary rejects a summary of a day that has not begun.
+// validateDailySummary rejects a summary of a day that has not begun and
+// range-checks its figures.
 func validateDailySummary(d *model.DailySummary, now time.Time) []ValidationError {
-	if !isFutureTimestamp(d.SummaryDate, now) {
-		return nil
+	var errs []ValidationError
+	if isFutureTimestamp(d.SummaryDate, now) {
+		errs = append(errs, ValidationError{
+			RecordType: "daily_summary",
+			Field:      "summary_date",
+			Value:      d.SummaryDate,
+			Message:    "timestamp is in the future (more than 48h ahead)",
+		})
 	}
-	return []ValidationError{{
-		RecordType: "daily_summary",
-		Field:      "summary_date",
-		Value:      d.SummaryDate,
-		Message:    "timestamp is in the future (more than 48h ahead)",
-	}}
+	errs = append(errs, checkFigures("daily_summary", []figure{
+		intFigure("step_count", d.StepCount, rangeRules[model.QTStepCount]),
+		{"active_kcal", d.ActiveKcal, rangeRules[model.QTActiveEnergyBurned]},
+		{"total_kcal", d.TotalKcal, rangeRules[model.QTTotalEnergyBurned]},
+		{"distance_m", d.DistanceM, rangeRules[model.QTDistanceWalkingRunning]},
+		intFigure("floors_climbed", d.FloorsClimbed, rangeRules[model.QTFlightsClimbed]),
+		{"resting_hr", d.RestingHR, rangeRules[model.QTRestingHeartRate]},
+		{"hrv_avg_ms", d.HRVAvgMs, rangeRules[model.QTHRVRMSSD]},
+		{"readiness_score", d.ReadinessScore, dayScore},
+		{"activity_score", d.ActivityScore, dayScore},
+		{"sleep_score", d.SleepScore, dayScore},
+		{"recovery_score", d.RecoveryScore, dayScore},
+		{"strain_score", d.StrainScore, rangeRules[model.QTStrain]},
+	})...)
+	return errs
 }
+
+// dayScore bounds the 0 to 100 scores of a day. A score of 0 is possible
+// (a day with no activity), so unlike the readiness and sleep score samples
+// nothing below 1 is flagged.
+var dayScore = rangeRule{HardMin: 0, HardMax: 100, SoftMin: 0, SoftMax: 100}
 
 // validateObservation checks an observation's instant and interval.
 func validateObservation(o *model.Observation, now time.Time) []ValidationError {

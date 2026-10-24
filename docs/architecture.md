@@ -43,8 +43,14 @@ deployment that runs `api` without `etl` anywhere never completes user deletions
 3. **Map.** The ETL reads the object, parses each line and hands it to the owning connector's
    `Map`, a pure function that returns canonical records (see [data-model.md](data-model.md)).
 4. **Process.** Units are converted to the storage unit of each quantity name, values are
-   validated against plausible ranges (hard bounds reject a record, soft bounds flag it),
-   duplicates are dropped by content hash, and sources are attributed.
+   validated against plausible ranges, duplicates are dropped by content hash, and sources are
+   attributed. The figures of sleep sessions, workouts and daily summaries are checked with the
+   bands of the matching quantity names. A value outside its hard bounds, or a unit that cannot
+   be converted, drops that sample or that figure only: the rest of the record is written, the
+   record is kept in `failed_records` for a replay, and a record that lost a figure lists it
+   under `quality_dropped` in its metadata. A value outside the soft bounds is written and
+   flagged (`quality_flag: suspect` and `quality_note` in metadata). A bad time on a sleep,
+   workout or day still parks the whole record.
 5. **Write.** A deletion the provider reported (`MapResult.Deletions`) is applied first: the
    stored rows of that provider record go (its sleep or workout with their children, and the
    samples stored under its id or `<id>_<suffix>`, found through an index on provider and

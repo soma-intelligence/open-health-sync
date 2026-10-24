@@ -396,6 +396,9 @@ type UnitError struct {
 	Unit         string
 	Value        float64
 	Err          error
+	// Index is the position of the sample in MapResult.QuantitySamples, so
+	// the caller can drop that one sample.
+	Index int
 }
 
 func (e UnitError) Error() string { return e.Err.Error() }
@@ -423,6 +426,7 @@ func CanonicalizeUnits(mr *MapResult) []UnitError {
 				Unit:         s.Unit,
 				Value:        s.Value,
 				Err:          err,
+				Index:        i,
 			})
 			continue
 		}

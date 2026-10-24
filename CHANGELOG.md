@@ -42,6 +42,16 @@ release may change the API, the configuration or the database schema.
 - FHIR: the `hrv_avg_ms` component of sleep sessions and daily summaries no longer carries LOINC
   80404-7, the SDNN code: the value is RMSSD, which has no LOINC code, so it keeps the Open
   Health Sync component code only, as `hrv_rmssd` samples do.
+- Validation: an oxygen saturation under 50 % or a body fat percentage under 2 % or over 75 % is
+  refused instead of stored with a suspect flag, so a fraction sent with a percent unit (0.97)
+  no longer reaches the exports. The figures of sleep sessions (stage durations, score, HRV,
+  resting heart rate, respiratory rate, SpO2) and of daily summaries (steps, energy, distance,
+  floors, resting heart rate, HRV, scores) are range-checked like the matching samples.
+- One bad measurement no longer costs the whole record: a sample whose unit cannot be converted
+  is dropped on its own (the record used to be parked with every sample beside it), and a
+  figure of a sleep session, workout or daily summary outside its hard band is removed from that
+  record, listed under `quality_dropped` in its metadata, while the record and its other figures
+  are written. Suspect figures of these records are flagged like suspect samples.
 
 ## [0.2.0] - 2026-10-21
 
