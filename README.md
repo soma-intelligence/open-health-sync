@@ -18,7 +18,7 @@
 
 ### One open API for wearable and health data. On your own server.
 
-Apple Health, Withings, Oura, WHOOP, Fitbit, Health Connect, Dexcom, OMRON and five more.<br>
+Apple Health, Withings, Oura, WHOOP, Fitbit, Health Connect, Dexcom, OMRON and ten more.<br>
 One clean model out, over REST, FHIR R4 and a read-only MCP server for AI agents.<br>
 Free, one Go binary plus Postgres, runs on a Raspberry Pi.<br>
 An open source, self-hosted alternative to hosted wearable APIs such as Terra.
@@ -46,6 +46,10 @@ An open source, self-hosted alternative to hosted wearable APIs such as Terra.
 <a href="docs/connectors/dexcom.md"><img alt="Dexcom: available" src="https://img.shields.io/badge/Dexcom-available-0e9f8e?style=flat-square"></a>
 <a href="docs/connectors/omron.md"><img alt="OMRON: available" src="https://img.shields.io/badge/OMRON-available-0e9f8e?style=flat-square"></a>
 <a href="docs/connectors/garmin.md"><img alt="Garmin: available" src="https://img.shields.io/badge/Garmin-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/eight-sleep.md"><img alt="Eight Sleep: available" src="https://img.shields.io/badge/Eight_Sleep-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/xiaomi.md"><img alt="Xiaomi: available" src="https://img.shields.io/badge/Xiaomi-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/activity-files.md"><img alt="Activity files: available" src="https://img.shields.io/badge/Activity_files-available-0e9f8e?style=flat-square"></a>
+<a href="docs/connectors/bluetooth.md"><img alt="Bluetooth devices: available" src="https://img.shields.io/badge/Bluetooth_devices-available-0e9f8e?style=flat-square"></a>
 </p>
 
 ```bash
@@ -174,10 +178,10 @@ and the server stays free under the AGPL.
 | ✅ | CSV and Parquet exports ([docs](docs/exports.md)) | ✅ | Dexcom (CGM), OMRON |
 | ✅ | Outgoing webhooks ([docs](docs/webhooks.md)) | ✅ | Health Connect (Android app upload) |
 | ✅ | Background sync and `/freshness` | ✅ | Health app export import |
-| ✅ | Prometheus metrics and OpenTelemetry traces, off by default ([docs](docs/observability.md)) | | |
-| ✅ | A merged view across sources, with priorities per user and metric ([docs](docs/api.md#several-sources-of-one-metric-the-merged-view)) | | |
-| ✅ | Admin console at `/console`: run the pipeline and turn providers on from the browser ([docs](docs/console.md)) | | |
-| ✅ | Consent per user, source and category, with a revocation webhook ([docs](docs/consent.md)) | | |
+| ✅ | Prometheus metrics and OpenTelemetry traces, off by default ([docs](docs/observability.md)) | ✅ | Garmin (business app), Eight Sleep |
+| ✅ | A merged view across sources, with priorities per user and metric ([docs](docs/api.md#several-sources-of-one-metric-the-merged-view)) | ✅ | Xiaomi (Mi Fitness data copy) |
+| ✅ | Admin console at `/console`: run the pipeline and turn providers on from the browser ([docs](docs/console.md)) | ✅ | Activity files (FIT, GPX, TCX) |
+| ✅ | Consent per user, source and category, with a revocation webhook ([docs](docs/consent.md)) | ✅ | Bluetooth health devices |
 | ✅ | Complete per-user archive for data portability ([docs](docs/exports.md#complete-user-archive-data-portability)) | | |
 | ✅ | Append-only audit log of every authenticated request, read with `GET /v1/audit` ([docs](docs/audit-log.md)) | | |
 | ✅ | Backup and restore scripts, tested in CI ([docs](docs/backup-and-restore.md)) | | |
@@ -339,7 +343,7 @@ Integration paths, vendor programs and tracking issues for each:
 | FreeStyle Libre | No public API | through Health Connect or Apple Health ([notes](docs/connectors/freestyle-libre.md)) |
 | Coros | 🛠 Planned | cloud API, OAuth |
 | Zepp / Amazfit, RingConn | ✅ Available, via Health Connect | their apps write to Health Connect on Android; records keep their own source (`zepp`, `ringconn`) ([details](docs/connectors/README.md)) |
-| Samsung Health | 🛠 Planned, via Health Connect | its app writes to Health Connect on Android |
+| Samsung Health | ✅ Available, via Health Connect | its app writes to Health Connect on Android; records keep their own source (`samsung_health`) ([details](docs/connectors/README.md)) |
 | Google Fit | Deprecated by Google | use Health Connect |
 | Eight Sleep | ✅ Available | no public API: the sign-in the Eight Sleep app uses, scheduled pulls of sleep stages, heart rate, HRV, breathing and bed temperature ([guide](docs/connectors/eight-sleep.md)) |
 
@@ -355,7 +359,7 @@ Want one sooner? Connectors are self-contained: read
 | RR intervals and HRV (RMSSD, SDNN, pNN50, mean RR and heart rate) per heartbeat series, over REST and MCP ([docs/hrv.md](docs/hrv.md)) | ✅ Available |
 | Menstrual cycles derived from recorded flow, over REST and MCP; no predictions ([docs/menstrual-cycles.md](docs/menstrual-cycles.md)) | ✅ Available |
 | Time tags (illness, injury, travel, jet lag, vaccination, medication, alcohol) that give context to the data, over REST, webhooks and MCP ([docs/time-tags.md](docs/time-tags.md)) | ✅ Available |
-| Read routes for ECG recordings, which are stored today | 🛠 Planned |
+| ECG recordings over REST (`/v1/users/{id}/ecg`), FHIR, MCP and exports ([docs/api.md](docs/api.md#ecg-recordings)) | ✅ Available |
 | FHIR R4 bulk export (`$export`) | 🛠 Planned |
 | Open mHealth ([docs/open-mhealth.md](docs/open-mhealth.md)) | ✅ Available |
 | CSV and Parquet exports ([docs/exports.md](docs/exports.md)) | ✅ Available |
@@ -582,7 +586,7 @@ and units):
 - **Workout** and **RoutePoint**: a session with its metrics, then its GPS track.
 - **NutritionLog**: a food or drink entry with its nutrients.
 - **ECGRecording** and **ECGVoltageSample**: the recording's metadata, then the voltage trace.
-  Stored, not served yet: the read route is planned.
+  Read with `/ecg` ([docs/api.md](docs/api.md#ecg-recordings)).
 - **HeartbeatSample**: one beat-to-beat (RR) interval. Served with HRV derived per series by
   `/rr-intervals` and `/hrv` ([docs/hrv.md](docs/hrv.md)).
 - **DailySummary**: totals per local day, from the provider or rolled up from samples.
@@ -716,8 +720,10 @@ HealthKit and uploads what changed, or your app implements the
 loads the export the Health app writes, history included. Withings scales, watches and sleep devices
 through the user's Withings account. Oura rings, WHOOP bands, Polar watches, Strava
 activities, Suunto watches, Fitbit devices (through the Google Health API), Ultrahuman rings,
-intervals.icu accounts, Dexcom CGMs and OMRON blood pressure monitors and scales work through
-the user's own account with each. Fitbit, Suunto, Ultrahuman and OMRON need keys their vendor gives to approved
+intervals.icu accounts, Dexcom CGMs, OMRON blood pressure monitors and scales, and Eight Sleep
+pods work through the user's own account with each. Xiaomi data comes from the Mi Fitness data
+copy, FIT, GPX and TCX files from any device with `ohs import files`, and standard Bluetooth
+health devices (heart rate straps, cuffs, scales, meters) through `ohs-bridge`. Fitbit, Suunto, Ultrahuman and OMRON need keys their vendor gives to approved
 developers only. On Android, anything that writes to Health Connect (Samsung Health, CGM apps
 such as FreeStyle Libre) arrives through an app that uploads it
 ([contract](docs/connectors/health-connect.md)). Garmin watches work through the user's Garmin

@@ -7,20 +7,14 @@ import { latestVersion, repoUrl, signupUrl } from "@/lib/shared";
 
 // The README's "Sources and outputs" table, in short.
 const available = [
-  "Apple Health, Withings, Oura, WHOOP, Strava and Polar",
+  "Eighteen sources: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom, OMRON and more",
   "REST API described by OpenAPI 3.1",
   "Read-only MCP server",
-  "FHIR R4 Observations",
-];
-const planned = [
-  "Open mHealth output",
-  "Outgoing webhooks",
-  "CSV and Parquet exports",
+  "FHIR R4 and Open mHealth",
+  "CSV and Parquet exports, outgoing webhooks",
   "Swift, Kotlin, React Native and Flutter SDKs",
-  "Garmin, Fitbit and more",
-  "Dexcom, FreeStyle Libre, Omron and Health Connect",
-  "Health records (EHR) through SMART on FHIR",
 ];
+const planned = ["Coros and a Garmin Personal API connector", "Health records (EHR) through SMART on FHIR"];
 
 export const metadata: Metadata = { alternates: { canonical: asset("") || "/" } };
 
@@ -107,7 +101,7 @@ export default function HomePage() {
             ))}
           </ul>
           <p className="mt-4 text-xs text-fd-muted-foreground">
-            Oura, WHOOP, Strava, Polar and FHIR R4 are on main and ship after v{latestVersion}.{" "}
+            All of it ships in v{latestVersion}.{" "}
             <Link
               href="/documentation/connectors/sources"
               className="text-fd-primary underline-offset-4 hover:underline"
