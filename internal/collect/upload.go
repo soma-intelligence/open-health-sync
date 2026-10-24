@@ -24,6 +24,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
@@ -172,6 +173,10 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.ErrorContext(r.Context(), "collect: upload failed",
 			"tenant_id", req.tenant, "user_id", req.user, "provider", h.provider, "error", err)
+		if db.Unavailable(err) {
+			auth.WriteUnavailable(w)
+			return
+		}
 		auth.WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "the part could not be stored, retry later")
 		return
 	}

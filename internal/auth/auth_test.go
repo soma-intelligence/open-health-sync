@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 )
 
@@ -171,6 +173,27 @@ func TestMiddlewareLogsLookupErrorWithoutSecrets(t *testing.T) {
 	require.Contains(t, buf.String(), "db down")
 	require.NotContains(t, buf.String(), key)
 	require.NotContains(t, buf.String(), Hash(key))
+}
+
+// A lookup that cannot reach the database is a 503 the caller can retry; any
+// other failure stays a 500.
+func TestMiddlewareDatabaseDownIs503(t *testing.T) {
+	key, _, _ := NewSecret("ohs_sk_")
+	down := func(context.Context, string) (Principal, error) {
+		return Principal{}, fmt.Errorf("tenant: lookup: %w", &pgconn.ConnectError{})
+	}
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	rec := do(t, Middleware(down, TenantKey)(next), "Bearer "+key)
+	requireProblem(t, rec, http.StatusServiceUnavailable)
+	require.Equal(t, "5", rec.Header().Get("Retry-After"))
+	require.Contains(t, rec.Body.String(), "the database is unavailable")
+
+	broken := func(context.Context, string) (Principal, error) {
+		return Principal{}, &pgconn.PgError{Code: "42P01"}
+	}
+	rec = do(t, Middleware(broken, TenantKey)(next), "Bearer "+key)
+	requireProblem(t, rec, http.StatusInternalServerError)
+	require.Empty(t, rec.Header().Get("Retry-After"))
 }
 
 func TestMiddlewareAny(t *testing.T) {

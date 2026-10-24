@@ -10,10 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
@@ -142,7 +144,7 @@ func TestSetupOffByDefault(t *testing.T) {
 
 // The refusals answered before any query: a bad or oversized body. With the
 // database unreachable the setup state is unknown, so a well-formed call
-// fails closed (500) without the token being checked. None of them echoes
+// fails closed (503, retry later) without the token being checked. None of them echoes
 // the token.
 func TestSetupRefusals(t *testing.T) {
 	pool, err := pgxpool.New(context.Background(), "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")
@@ -159,7 +161,9 @@ func TestSetupRefusals(t *testing.T) {
 		return rec
 	}
 	for _, body := range []string{`{"setup_token":"the-wrong-setup-token"}`, `{"setup_token":""}`, `{}`, `{"setup_token":"the-right-setup-toke"}`} {
-		assert.Equal(t, http.StatusInternalServerError, post(body).Code, body)
+		rec := post(body)
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, body)
+		assert.Equal(t, "5", rec.Header().Get("Retry-After"), body)
 	}
 	assert.Equal(t, http.StatusBadRequest, post(`not json`).Code)
 	assert.Equal(t, http.StatusBadRequest, post(``).Code, "a body is required")
@@ -235,4 +239,25 @@ func TestNULAndInvalidUTF8RefusedAtTheEdge(t *testing.T) {
 		h.ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
 		assert.Equal(t, http.StatusUnauthorized, rec.Code, target)
 	}
+}
+
+// With the database unreachable an authenticated route answers 503 with
+// Retry-After, which clients retry, not 500.
+func TestDatabaseDownIs503(t *testing.T) {
+	h := offlineRouter(t)
+	key, _, err := auth.NewSecret(auth.PrefixSecretKey)
+	require.NoError(t, err)
+	for _, target := range []string{"/v1/users", "/v1/users/" + uuid.NewString() + "/samples?type=heart_rate"} {
+		req := httptest.NewRequest("GET", target, nil)
+		req.Header.Set("Authorization", "Bearer "+key)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, target)
+		assert.Equal(t, "5", rec.Header().Get("Retry-After"), target)
+		status, _ := problemOf(t, rec)
+		assert.Equal(t, http.StatusServiceUnavailable, status)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	assert.Equal(t, http.StatusOK, rec.Code, "liveness does not need the database")
 }

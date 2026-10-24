@@ -49,7 +49,9 @@ configuration. The response is `Cache-Control: no-store`; the token is shown onc
 - **Errors** are RFC 9457 `application/problem+json`:
   `{"type":"about:blank","title":"Bad Request","status":400,"detail":"..."}`.
   A user, workout or sleep session of another tenant is a 404, never a 403. A 401 carries
-  `WWW-Authenticate: Bearer`.
+  `WWW-Authenticate: Bearer`. When the instance cannot reach its database (Postgres restarting,
+  out of connections) a call answers 503 with `Retry-After` in seconds: send the same request
+  again then. A 500 is a fault worth reporting with its `request_id`.
 - **Text.** A path, a query parameter (name or value) or a JSON string must be UTF-8 without a
   NUL character (`%00`, `\u0000`): the database cannot store either. A path or query that breaks
   this is a 400 before authentication; a JSON body that holds a NUL is a 400 naming the field.

@@ -17,6 +17,12 @@ release may change the API, the configuration or the database schema.
   through a running server and database (`test/synthflow`). See
   [docs/specs/synthetic-data.md](docs/specs/synthetic-data.md).
 
+### Changed
+
+- A call that fails because the database cannot be reached (Postgres restarting, out of
+  connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
+  429 keep the upload or the read. Other failures stay 500.
+
 ### Fixed
 
 - A NUL character or invalid UTF-8 in a path, a query parameter or a JSON string no longer ends

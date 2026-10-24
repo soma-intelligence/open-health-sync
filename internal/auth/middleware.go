@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/soma-intelligence/open-health-sync/internal/db"
 )
 
 // Scope is what a route demands of the caller.
@@ -110,6 +112,10 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 			if err != nil {
 				// The cause may name infrastructure; it is logged, never sent. No token or hash.
 				slog.ErrorContext(r.Context(), "auth: lookup failed", "error", err)
+				if db.Unavailable(err) {
+					WriteUnavailable(w)
+					return
+				}
 				WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "authentication is temporarily unavailable")
 				return
 			}

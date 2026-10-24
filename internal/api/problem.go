@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
 )
 
@@ -29,9 +30,15 @@ func notFound(w http.ResponseWriter, what string) {
 	problem(w, http.StatusNotFound, what+" not found")
 }
 
-// internalError logs the cause (never sent) and answers 500.
+// internalError logs the cause (never sent) and answers 500, or 503 with
+// Retry-After when the database could not be reached: that request can be
+// retried as is.
 func internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
 	slog.ErrorContext(r.Context(), msg, "error", err, "route", r.Pattern)
+	if db.Unavailable(err) {
+		auth.WriteUnavailable(w)
+		return
+	}
 	problem(w, http.StatusInternalServerError, "an internal error occurred")
 }
 
