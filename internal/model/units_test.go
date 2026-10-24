@@ -398,3 +398,35 @@ func TestToStorageUnit_HealthKitSpellings(t *testing.T) {
 		}
 	}
 }
+
+// The US units an Apple Health export.xml writes on a US phone: height in
+// feet, masses in pounds or ounces, distances in miles, feet or inches,
+// temperatures in degF, volumes in fluid ounces.
+func TestToStorageUnit_USUnitsOfAnAppleExport(t *testing.T) {
+	cases := []struct {
+		qt, unit string
+		in, want float64
+		to       string
+	}{
+		{"height", "ft", 5.75, 175.26, "cm"},
+		{"height", "in", 69, 175.26, "cm"},
+		{"waist_circumference", "ft", 2.5, 76.2, "cm"},
+		{"body_mass", "lb", 154, 69.853225, "kg"},
+		{"body_mass", "oz", 112, 3.175146, "kg"},
+		{"lean_body_mass", "lb", 120, 54.431084, "kg"},
+		{QTDistanceWalkingRunning, "mi", 3.1, 4988.9664, "m"},
+		{QTDistanceWalkingRunning, "ft", 1000, 304.8, "m"},
+		{"running_stride_length", "in", 40, 1.016, "m"},
+		{"distance_swimming", "yd", 100, 91.44, "m"},
+		{QTBodyTemperature, "degF", 98.6, 37, "celsius"},
+		{"forced_vital_capacity", "fl_oz_us", 100, 2.957353, "L"},
+		{"forced_vital_capacity", "mL", 4200, 4.2, "L"},
+		{"walking_speed", "ft/s", 4, 1.2192, "m/s"},
+	}
+	for _, c := range cases {
+		v, u, err := ToStorageUnit(c.qt, c.in, c.unit)
+		require.NoError(t, err, "%s in %s", c.qt, c.unit)
+		assert.InDelta(t, c.want, v, 1e-4, "%s in %s", c.qt, c.unit)
+		assert.Equal(t, c.to, u, "%s in %s", c.qt, c.unit)
+	}
+}

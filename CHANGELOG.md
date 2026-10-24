@@ -61,6 +61,9 @@ release may change the API, the configuration or the database schema.
   notification is stored as data and Garmin signs nothing, so without the token anyone who knew
   a connected user's Garmin id could store invented summaries for them. Pulls need no token;
   set it and add `?token=<value>` to the notification URLs to keep receiving notifications.
+- Apple Health export.xml from a phone set to US units: a height in feet (every height record
+  was refused as a unit error), masses in ounces, lengths in inches, speeds in ft/s and volumes in
+  mL or fluid ounces are converted to their storage unit.
 
 ## [0.2.0] - 2026-10-21
 

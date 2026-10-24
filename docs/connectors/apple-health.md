@@ -60,7 +60,9 @@ Quantity samples:
 ```
 
 `value` and `unit` are what HealthKit reports; the server converts to the storage unit (here
-`count/min` becomes `bpm`, a 0.97 oxygen saturation fraction becomes 97 percent). The
+`count/min` becomes `bpm`, a 0.97 oxygen saturation fraction becomes 97 percent). The units of
+a phone set to US units are converted too: a height in `ft` or `in`, a mass in `lb` or `oz`, a
+distance in `mi`, `yd`, `ft` or `in`, a temperature in `degF`, a volume in `fl_oz_us`. The
 `HKTimeZone` metadata key is kept as the sample's `timezone` and decides its local day.
 A line of a quantity or category type the server does not know, or a quantity line without
 `value`, is skipped without an error: nothing is stored for it and it does not appear in
