@@ -39,10 +39,9 @@ import (
 // raw line per item) for every connection of its userId. Garmin signs
 // nothing (as far as public sources show), so a push body is trusted on its
 // shape alone: whoever knows a connected Garmin user id could store invented
-// summaries for that user. Set OHS_GARMIN_INBOUND_TOKEN and add
-// ?token=<value> to every notification URL in Garmin's portal to close
-// that; or configure the app for ping mode, where nothing is stored from the
-// body.
+// summaries for that user. So notifications are refused (401) until
+// OHS_GARMIN_INBOUND_TOKEN is set, and then must carry ?token=<value>, added
+// to every notification URL in Garmin's portal. Pulls do not need it.
 //
 // "deregistrations" and "userPermissionsChange" are answered 200 and
 // otherwise ignored: the next pull with a revoked grant fails and the
@@ -52,6 +51,10 @@ import (
 // ErrBadToken reports a notification without the configured inbound token.
 // The inbound route answers it with 401.
 var ErrBadToken = errors.New("garmin: notification token missing or invalid")
+
+// ErrNoInboundToken reports a notification while no inbound token is
+// configured. It wraps ErrBadToken, so the route answers 401 as well.
+var ErrNoInboundToken = fmt.Errorf("%w: OHS_GARMIN_INBOUND_TOKEN is not set, notifications are refused", ErrBadToken)
 
 // TokenParam is the notification URL query parameter carrying
 // OHS_GARMIN_INBOUND_TOKEN.
@@ -70,18 +73,20 @@ const pingFallback = 24 * time.Hour
 
 // HandleInbound validates a Garmin notification and returns the pulls (ping)
 // and raw lines (push) it carries. HEAD and GET give no event and no error.
-// A body that is not a Garmin notification, or that lacks the configured
-// token, is an error (401); summary types this connector does not store
+// A body that is not a Garmin notification, one that lacks the configured
+// token, or any notification while no token is configured, is an error
+// (401); summary types this connector does not store
 // are ignored (200), so Garmin does not retry them.
 func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connector.InboundEvent, error) {
 	if r.Method == http.MethodHead || r.Method == http.MethodGet {
 		return nil, nil
 	}
-	if want := c.inboundToken(); want != "" {
-		got := r.URL.Query().Get(TokenParam)
-		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
-			return nil, ErrBadToken
-		}
+	want := c.inboundToken()
+	if want == "" {
+		return nil, ErrNoInboundToken
+	}
+	if got := r.URL.Query().Get(TokenParam); subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		return nil, ErrBadToken
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxInboundBody+1))
 	if err != nil {

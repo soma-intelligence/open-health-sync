@@ -19,8 +19,17 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 )
 
+// inbound posts body to target, with the fake connector's token unless
+// target names one.
 func inbound(t *testing.T, c *Connector, target, body string) ([]connector.InboundEvent, error) {
 	t.Helper()
+	if !strings.Contains(target, TokenParam+"=") {
+		sep := "?"
+		if strings.Contains(target, "?") {
+			sep = "&"
+		}
+		target += sep + TokenParam + "=" + testInboundToken
+	}
 	r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
 	return c.HandleInbound(context.Background(), r)
 }
@@ -125,6 +134,23 @@ func TestHandleInbound_InboundToken(t *testing.T) {
 	evs, err := inbound(t, c, "/inbound/garmin?token=s3cret", body)
 	require.NoError(t, err)
 	assert.Len(t, evs, 1)
+}
+
+// Without OHS_GARMIN_INBOUND_TOKEN nothing tells a forged push from Garmin's,
+// so every notification is refused, a ping included.
+func TestHandleInbound_RefusedWithoutAConfiguredToken(t *testing.T) {
+	c := newFakeGarmin(t).connector(func(o *Options) { o.InboundToken = "" })
+	for _, body := range []string{
+		`{"dailies":[{"userId":"u","callbackURL":"https://x"}]}`,
+		`{"dailies":[{"userId":"u","summaryId":"s","steps":10}]}`,
+	} {
+		_, err := inbound(t, c, "/inbound/garmin?token=", body)
+		assert.ErrorIs(t, err, ErrNoInboundToken)
+		assert.ErrorIs(t, err, ErrBadToken, "answered 401 like a wrong token")
+	}
+	r := httptest.NewRequest(http.MethodHead, "/inbound/garmin", nil)
+	_, err := c.HandleInbound(context.Background(), r)
+	assert.NoError(t, err, "a HEAD check of the URL still answers")
 }
 
 func TestHandleInbound_CapsBody(t *testing.T) {

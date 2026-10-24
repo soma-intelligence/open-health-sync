@@ -57,6 +57,10 @@ release may change the API, the configuration or the database schema.
 - Ultrahuman: a pull asks every date whose local day overlaps its window instead of the UTC
   dates only. West of UTC the end of every day was never pulled (in California its last 7
   hours, the closing step count among them).
+- Garmin: notifications are refused (401) while `OHS_GARMIN_INBOUND_TOKEN` is unset. A push
+  notification is stored as data and Garmin signs nothing, so without the token anyone who knew
+  a connected user's Garmin id could store invented summaries for them. Pulls need no token;
+  set it and add `?token=<value>` to the notification URLs to keep receiving notifications.
 
 ## [0.2.0] - 2026-10-21
 
