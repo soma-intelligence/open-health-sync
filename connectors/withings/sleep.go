@@ -21,9 +21,11 @@ var sleepStates = map[int]string{
 }
 
 // sleepColumns are the data fields that land in typed session columns; every
-// other data field is kept in the session metadata.
+// other data field is kept in the session metadata. The resting heart rate is
+// hr_min, the night's lowest heart rate (as Oura defines it); hr_average, the
+// mean heart rate asleep, has no column and stays in metadata.
 var sleepColumns = map[string]bool{
-	"hr_average": true, "rr_average": true, "sleep_score": true,
+	"hr_min": true, "rr_average": true, "sleep_score": true,
 	"deepsleepduration": true, "remsleepduration": true,
 	"lightsleepduration": true, "wakeupduration": true,
 }
@@ -74,7 +76,7 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		REMSleepSeconds:   optInt(data, "remsleepduration"),
 		LightSleepSeconds: optInt(data, "lightsleepduration"),
 		AwakeSeconds:      optInt(data, "wakeupduration"),
-		RestingHR:         optFloat(data, "hr_average"),
+		RestingHR:         optFloat(data, "hr_min"),
 		RespiratoryRate:   optFloat(data, "rr_average"),
 		SleepScore:        optFloat(data, "sleep_score"),
 		Metadata:          md,

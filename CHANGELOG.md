@@ -64,6 +64,9 @@ release may change the API, the configuration or the database schema.
 - Apple Health export.xml from a phone set to US units: a height in feet (every height record
   was refused as a unit error), masses in ounces, lengths in inches, speeds in ft/s and volumes in
   mL or fluid ounces are converted to their storage unit.
+- Withings: a sleep session's resting heart rate is the night's lowest heart rate (`hr_min`),
+  as for Oura, instead of the mean heart rate asleep (`hr_average`), which now stays in
+  metadata. Sessions stored earlier keep the mean.
 
 ## [0.2.0] - 2026-10-21
 
