@@ -26,6 +26,14 @@ guides.
   other apps: the API lists them as stubs without figures, and no webhook fires for them. Such
   activities are skipped. Activities that reach intervals.icu directly (Garmin, Wahoo, Zwift,
   uploads, and so on) are collected.
+- **Garmin data may stop flowing through intervals.icu.** Garmin's developer agreement bars
+  licensees from passing Garmin user data to services Garmin has not approved in writing, and
+  the press reports that Garmin's October 2026 revisions enforce this. Intervals Pro, a coaching
+  app built on intervals.icu data, closed on 2026-10-12 over it, and intervals.icu may have to
+  hold back Garmin-sourced activities and wellness from its API; no change or date is announced
+  (**reported**, [the5krunner, 2026-10-14](https://the5krunner.com/2026/10/14/garmin-api-intervals-third-party-apps/)).
+  If that happens, Garmin workouts and wellness stop arriving through this connector while
+  other upstreams keep working. For Garmin data, see the [Garmin guide](garmin.md).
 - **Rate limits.** intervals.icu does not publish its API rate limits **(to confirm)**. An
   HTTP 429 defers the connection's job until `Retry-After` (one minute when it is missing).
 
