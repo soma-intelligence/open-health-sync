@@ -202,7 +202,7 @@ func (s *Scorer) Score(in Input) Quality {
 
 	// Stage 4: the residual model scales sigma for this figure's context.
 	mlFactor := 1.0
-	if s.Model != nil && s.Model.Ensemble != nil && s.Model.Covers(in.Metric) {
+	if s.Model != nil && len(s.Model.Ensembles) > 0 && s.Model.Covers(in.Metric) {
 		sML := s.Model.Scale(in, ctx, m)
 		// The model predicts the whole scale around the prior bias; the part
 		// the prior's bias uncertainty explains is taken out.

@@ -152,7 +152,11 @@ func TestScore_ModelScalesSigma(t *testing.T) {
 	in := Input{Metric: MetricHeartRate, Value: 70, Device: Device{Family: "galaxy_watch", Sensor: SensorWristPPG}, Context: ContextRest}
 	base := sc.Score(in)
 	sTarget := 3 * math.Hypot(base.BiasSD, base.Sigma)
-	sc.Model = &Model{Version: "m1", Nu: 4, Ensemble: &Ensemble{Features: []string{"value"}, Base: math.Log(sTarget) + MeanLogAbsT(4), LearningRate: 1}}
+	// Two ensembles average in log space: log 2s and log 4.5s give 3s.
+	sc.Model = &Model{Version: "m1", Nu: 4, Ensembles: []*Ensemble{
+		{Features: []string{"value"}, Base: math.Log(sTarget/1.5) + MeanLogAbsT(4), LearningRate: 1},
+		{Features: []string{"value"}, Base: math.Log(sTarget*1.5) + MeanLogAbsT(4), LearningRate: 1},
+	}}
 	q := sc.Score(in)
 	assert.InDelta(t, sTarget, math.Hypot(q.BiasSD, q.Sigma), 1e-9)
 	assert.Greater(t, q.Components.ML.Factor, 2.5)
@@ -163,7 +167,8 @@ func TestScore_ModelScalesSigma(t *testing.T) {
 	sc.Model.Metrics = []string{MetricHeartRate}
 
 	// A prediction far outside the prior is held to a factor of four.
-	sc.Model.Ensemble.Base = math.Log(100*sTarget) + MeanLogAbsT(4)
+	sc.Model.Ensembles = sc.Model.Ensembles[:1]
+	sc.Model.Ensembles[0].Base = math.Log(100*sTarget) + MeanLogAbsT(4)
 	assert.InDelta(t, 4, sc.Score(in).Components.ML.Factor, 1e-12)
 	assert.Equal(t, "m1", q.Evidence.ModelVersion)
 }

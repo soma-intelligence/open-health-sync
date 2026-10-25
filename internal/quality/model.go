@@ -12,13 +12,14 @@ import (
 	"sync"
 )
 
-// Model is the residual model of stage 4: a tree ensemble that predicts the
+// Model is the residual model of stage 4: tree ensembles that predict the
 // mean log absolute error of a figure around its prior bias, from its
-// context. Nu is the t the prediction is turned into a scale with.
+// context. Several ensembles (one per cross-fitting fold) are averaged in
+// log space. Nu is the t the prediction is turned into a scale with.
 type Model struct {
-	Version  string    `json:"version"`
-	Nu       float64   `json:"nu"`
-	Ensemble *Ensemble `json:"ensemble,omitempty"`
+	Version   string      `json:"version"`
+	Nu        float64     `json:"nu"`
+	Ensembles []*Ensemble `json:"ensembles,omitempty"`
 	// Metrics lists the metrics the model was fitted on with enough figures;
 	// it leaves the others to the priors. Empty means every metric.
 	Metrics []string `json:"metrics,omitempty"`
@@ -51,7 +52,11 @@ func NewFeatures() Features {
 
 // Scale returns the predicted scale of the error of a figure.
 func (m *Model) Scale(in Input, ctx Context, metric Metric) float64 {
-	return math.Exp(m.Ensemble.Predict(EncodeFeatures(m.Ensemble.Features, in, ctx, metric)) - MeanLogAbsT(m.Nu))
+	var sum float64
+	for _, e := range m.Ensembles {
+		sum += e.Predict(EncodeFeatures(e.Features, in, ctx, metric))
+	}
+	return math.Exp(sum/float64(len(m.Ensembles)) - MeanLogAbsT(m.Nu))
 }
 
 // EncodeFeatures builds the vector the ensemble reads, by feature name:
@@ -126,15 +131,17 @@ func ParseModel(b []byte) (*Model, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}
-	if m.Ensemble == nil {
+	if len(m.Ensembles) == 0 {
 		return nil, nil
 	}
-	raw, err := json.Marshal(m.Ensemble)
-	if err != nil {
-		return nil, err
-	}
-	if m.Ensemble, err = ParseEnsemble(raw); err != nil {
-		return nil, err
+	for i, e := range m.Ensembles {
+		raw, err := json.Marshal(e)
+		if err != nil {
+			return nil, err
+		}
+		if m.Ensembles[i], err = ParseEnsemble(raw); err != nil {
+			return nil, err
+		}
 	}
 	if m.Version == "" {
 		return nil, errors.New("model: no version")

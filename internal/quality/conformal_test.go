@@ -205,3 +205,28 @@ func TestConformal_QMapCalibratesQ(t *testing.T) {
 	assert.Greater(t, ECE(raw, hit, 10), 0.03, "the t alone is off on this mixture")
 	assert.Less(t, ECE(cal, hit, 10), 0.015)
 }
+
+// Autocorrelated figures of a few people are not many people: a group with
+// thousands of points from three subjects falls back to its parent, and so
+// does its q map.
+func TestConformal_FallbackBySubjects(t *testing.T) {
+	var pts []CalPoint
+	for i, p := range calData(11, map[string]int{"right": 6000, "small": 3000}, 4) {
+		p.Tol = 1
+		if p.Path[2] == "small" {
+			p.Subject = []string{"a", "b", "c"}[i%3]
+		} else {
+			p.Subject = string(rune('A' + i%20))
+		}
+		pts = append(pts, p)
+	}
+	c := FitCalibration(pts, CalOptions{Version: "s"})
+	_, key, _ := c.Lookup([]string{"heart_rate", "dev", "small"})
+	assert.Equal(t, "heart_rate|dev", key)
+	g, key, _ := c.Lookup([]string{"heart_rate", "dev", "right"})
+	assert.Equal(t, "heart_rate|dev|right", key)
+	assert.Equal(t, 20, g.Subjects)
+	_, hasSmall := c.QMaps["heart_rate|dev|small"]
+	assert.False(t, hasSmall)
+	assert.NotEmpty(t, c.QMaps["heart_rate|dev|right"])
+}
