@@ -249,6 +249,36 @@ func TestLoadIngestConcurrency(t *testing.T) {
 	}
 }
 
+func TestLoadIngestShareAndCap(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.IngestTenantConcurrency != 4 || c.IngestMaxDecompressedMiB != DefaultIngestMaxDecompressedMiB {
+		t.Fatalf("default: %d %d %v", c.IngestTenantConcurrency, c.IngestMaxDecompressedMiB, err)
+	}
+	m := base()
+	m["OHS_INGEST_CONCURRENCY"] = "3"
+	if c, err = load(t, m); err != nil || c.IngestTenantConcurrency != 2 {
+		t.Fatalf("half of 3: %d %v", c.IngestTenantConcurrency, err)
+	}
+	m["OHS_INGEST_TENANT_CONCURRENCY"] = "3"
+	m["OHS_INGEST_MAX_DECOMPRESSED_MIB"] = "512"
+	if c, err = load(t, m); err != nil || c.IngestTenantConcurrency != 3 || c.IngestMaxDecompressedMiB != 512 {
+		t.Fatalf("set: %d %d %v", c.IngestTenantConcurrency, c.IngestMaxDecompressedMiB, err)
+	}
+	for name, vals := range map[string][]string{
+		"OHS_INGEST_TENANT_CONCURRENCY":   {"0", "4", "x"},
+		"OHS_INGEST_MAX_DECOMPRESSED_MIB": {"0", "513", "64MiB"},
+	} {
+		for _, v := range vals {
+			m := base()
+			m["OHS_INGEST_CONCURRENCY"] = "3"
+			m[name] = v
+			if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), name) {
+				t.Errorf("%s=%q: %v", name, v, err)
+			}
+		}
+	}
+}
+
 func TestLoadPublicURL(t *testing.T) {
 	for _, v := range []string{"localhost:8080", "ftp://x", "https://", "https://x/?a=1", "https://x/#f", "not a url"} {
 		m := base()

@@ -25,6 +25,7 @@ keep the same `-f` files on every later command.
 | `timescaledb.max_background_workers` | `4` |
 | `ohs` memory limit | 512 MB, with `GOMEMLIMIT=256MiB` |
 | `OHS_INGEST_CONCURRENCY` | `2` uploads at once; more answer 503 with `Retry-After` |
+| `OHS_INGEST_TENANT_CONCURRENCY` | `2`: the household's one tenant may use both |
 
 <Callout title="Use an SSD">
   Postgres writes a lot during a large first upload. A USB 3 SSD or an NVMe HAT lasts much longer

@@ -47,6 +47,14 @@ services:
       # pool_max_conns: the size docs/self-hosting.md recommends for all roles
       # in one process (pgx would otherwise size it to the CPU count).
       OHS_DATABASE_URL: postgres://ohs:${POSTGRES_PASSWORD:-ohs}@postgres:5432/ohs?sslmode=disable&pool_max_conns=20
+      # Empty (the default) lets ohs set the Go runtime's soft limit to three
+      # quarters of mem_limit, whatever OHS_MEM_LIMIT is; set OHS_GOMEMLIMIT
+      # (768MiB...) only to override it. See docs/self-hosting.md#memory.
+      GOMEMLIMIT: ${OHS_GOMEMLIMIT:-}
+    # Above it the kernel restarts ohs alone, never Postgres or another
+    # service of the host. Each upload in flight holds up to 64 MiB of body:
+    # raise it with OHS_INGEST_CONCURRENCY (default 8), about 100 MB a slot.
+    mem_limit: ${OHS_MEM_LIMIT:-1g}
     command: ["up"] # ohs migrate up && ohs serve
     # On SIGTERM ohs gives work in flight 25 s plus a 3 s margin; compose
     # must not kill it before (its default is 10 s).

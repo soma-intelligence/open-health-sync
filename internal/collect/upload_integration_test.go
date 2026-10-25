@@ -42,7 +42,7 @@ type env struct {
 	token   string
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, tweak ...func(*collect.UploadDeps)) *env {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := db.Open(ctx, db.TestDB(t))
@@ -59,9 +59,11 @@ func newEnv(t *testing.T) *env {
 	tok, _, err := st.MintUserToken(ctx, ten.ID, u.ID, []string{"upload"}, time.Hour)
 	require.NoError(t, err)
 
-	h := auth.Middleware(st.LookupKey, auth.UserUpload)(collect.NewUploadHandler(collect.UploadDeps{
-		Pool: pool, Raw: raw, Device: applehealth.New(),
-	}))
+	deps := collect.UploadDeps{Pool: pool, Raw: raw, Device: applehealth.New()}
+	for _, f := range tweak {
+		f(&deps)
+	}
+	h := auth.Middleware(st.LookupKey, auth.UserUpload)(collect.NewUploadHandler(deps))
 	return &env{pool: pool, raw: raw, store: st, handler: h, tenant: ten.ID, user: u.ID, token: tok}
 }
 
@@ -318,6 +320,25 @@ func TestUploadTooLarge(t *testing.T) {
 	problem(t, e.post(t, e.token, stdHeaders(), body), http.StatusRequestEntityTooLarge)
 	assert.Empty(t, e.files(t))
 	assert.Equal(t, 0, e.count(t, "etl_jobs"))
+}
+
+// A part that expands past the cap is refused before anything is stored: by
+// default 64 MiB, which a gzip bomb of blank lines (about 65 KB of gzip)
+// reaches in well under a second. A lower cap applies as set.
+func TestUploadDecompressionCap(t *testing.T) {
+	e := newEnv(t)
+	bomb := gz(t, strings.Repeat("\n", int(collect.DefaultMaxDecompressedBytes)+1))
+	start := time.Now()
+	detail := problem(t, e.post(t, e.token, stdHeaders(), bomb), http.StatusRequestEntityTooLarge)
+	assert.Contains(t, detail, "64 MiB")
+	assert.Less(t, time.Since(start), 5*time.Second)
+	assert.Empty(t, e.files(t))
+	assert.Equal(t, 0, e.count(t, "etl_jobs"))
+
+	small := newEnv(t, func(d *collect.UploadDeps) { d.MaxDecompressedBytes = 1 << 10 })
+	big := strings.Repeat(`{"type":"HKQuantityTypeIdentifierHeartRate","value":60,"unit":"count/min","startDate":"2026-01-10T08:00:00Z","endDate":"2026-01-10T08:00:00Z"}`+"\n", 20)
+	problem(t, small.post(t, small.token, stdHeaders(), gz(t, big)), http.StatusRequestEntityTooLarge)
+	assert.Equal(t, http.StatusOK, e.post(t, e.token, stdHeaders(), fixtureBody(t)).Code, "the default cap takes a real part")
 }
 
 func TestUploadMissingHeader(t *testing.T) {
