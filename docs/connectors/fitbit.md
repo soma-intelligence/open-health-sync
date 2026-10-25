@@ -6,13 +6,19 @@ in) over Google OAuth; Open Health Sync pulls their data from the
 schedule and when Google sends a webhook notification. You create your own Google Cloud project
 and OAuth client: nothing is shared between instances.
 
+> **Notice, 2026-10-24.** Google turns off the legacy Fitbit Web API and the Fitbit OAuth
+> endpoints on **2026-11-02**; after that they answer `410 Gone`
+> ([Google Health API, about](https://developers.google.com/health/about), updated 2026-10-23).
+> This connector does not use them. If you still run anything on `api.fitbit.com`, move it to
+> this connector before that date: each user connects again with their Google Account.
+
 Status: **available.** You set up your own Google Health API project; until Google verifies it,
 it serves at most 100 users (see [Access](#access-read-this-first)). Field names follow the
 API's public reference and discovery document, checked on 2026-10-12; points marked
 **(to confirm)** are the ones to check first against a live project.
 
 The connector is built on the Google Health API only. The legacy Fitbit Web API
-(`api.fitbit.com`) lost support on 2026-09-30 and is turned off on 2026-10-30; it is not used, and
+(`api.fitbit.com`) lost support on 2026-09-30 and is turned off on 2026-11-02; it is not used, and
 legacy Fitbit tokens cannot be carried over (every user consents again).
 
 ## Access: read this first
