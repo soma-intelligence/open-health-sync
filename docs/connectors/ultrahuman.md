@@ -106,10 +106,11 @@ The metrics endpoint answers **one date per call**:
 included) with a short pause between calls, and stores each date's answer verbatim as one raw
 line of data type `daily_metrics`. A date with no metric is not stored. A new connection is
 backfilled over the last 30 days in 7 day windows (about 30 calls in all). Since Ultrahuman
-sends no notifications, the connection is then pulled every 3 hours; each regular pull covers the
-dates since the previous one, usually one or two calls (today's date is asked again until it is
-over, and its figures are replaced). How far back Ultrahuman serves data is not documented
-**(to confirm)**.
+sends no notifications, the connection is then pulled every 3 hours; each regular pull starts 48
+hours before the previous one ended (the lookback in
+[background sync](../background-sync.md#sync-policy-per-provider)), so it asks three dates,
+sometimes four, and a date's figures are replaced each time it is asked again. How far back
+Ultrahuman serves data is not documented **(to confirm)**.
 
 No webhooks are documented, so the connector is **pull only** **(to confirm that none exist)**.
 
