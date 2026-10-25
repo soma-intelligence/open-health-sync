@@ -9,6 +9,7 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -125,7 +126,7 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 	detail := []byte("{}")
 	if len(ev.Detail) > 0 {
 		var err error
-		if detail, err = json.Marshal(cleanDetail(ev.Detail)); err != nil {
+		if detail, err = detailJSON(ev.Detail); err != nil {
 			return fmt.Errorf("audit: detail: %w", err)
 		}
 	}
@@ -145,36 +146,42 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 	return nil
 }
 
-// cleanDetail returns d with every string, member names included, as
-// Postgres stores it: an identifier a caller chose (a path value) may hold a
-// NUL or invalid UTF-8, which jsonb refuses, and the event must still be
-// written.
-func cleanDetail(d map[string]any) map[string]any {
-	out := make(map[string]any, len(d))
-	for k, v := range d {
-		out[pgtext.Clean(k)] = cleanValue(v)
+// detailJSON encodes d with every string, member names included, as Postgres
+// stores it: an identifier a caller chose (a path value) may hold a NUL or
+// invalid UTF-8, which jsonb refuses, and the event must still be written.
+// Whatever the value types (strings, slices, structs, a Stringer...), d goes
+// through JSON once, so the strings are cleaned where they end up.
+func detailJSON(d map[string]any) ([]byte, error) {
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	if !bytes.Contains(raw, []byte(`\u0000`)) && !bytes.Contains(raw, []byte(`\ufffd`)) {
+		return raw, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber() // numbers stay as written
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return json.Marshal(cleanValue(v))
 }
 
 func cleanValue(v any) any {
 	switch t := v.(type) {
 	case string:
 		return pgtext.Clean(t)
-	case []string:
-		out := make([]string, len(t))
-		for i, s := range t {
-			out[i] = pgtext.Clean(s)
-		}
-		return out
 	case []any:
-		out := make([]any, len(t))
 		for i, e := range t {
-			out[i] = cleanValue(e)
+			t[i] = cleanValue(e)
+		}
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			out[pgtext.Clean(k)] = cleanValue(e)
 		}
 		return out
-	case map[string]any:
-		return cleanDetail(t)
 	}
 	return v
 }
