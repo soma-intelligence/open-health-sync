@@ -323,6 +323,7 @@ MapResult holds all canonical records produced from a single input record.
 | `HighFrequency` | `bool` | The result holds high volume data and is written with COPY. |
 | `SourceKey` | `string` | Raw object the batch was mapped from. Child records use it to find a parent that arrived in another object. |
 | `Deletions` | `[]Deletion` | Provider records the provider deleted: their stored rows are removed and a tombstone in `ohs_data.deleted_records` keeps them from being written again. |
+| `AliasExternalIDs` | `bool` | The ExternalIDs name source objects that de-duplication can fold into one row (HealthKit samples): one alias per id and row is kept in `ohs_data.record_aliases`, and a deletion removes a row only once no alias of it remains. |
 
 ## Quantity names and storage units
 

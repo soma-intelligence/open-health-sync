@@ -5,6 +5,7 @@ package applehealth
 import (
 	"fmt"
 
+	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
@@ -16,6 +17,15 @@ import (
 // HealthKit samples are immutable, so an edit arrives as the deletion of the
 // old sample and a new sample under a new UUID.
 const deletedField = "deletedUuid"
+
+// FeatureDeletionLines is the upload feature of the deletion line: an upload
+// answer that lists it comes from a server that applies deletion lines.
+const FeatureDeletionLines = "deletion_lines"
+
+// UploadFeatures lists FeatureDeletionLines in every upload answer.
+func (c *Connector) UploadFeatures() []string { return []string{FeatureDeletionLines} }
+
+var _ connector.UploadFeatures = (*Connector)(nil)
 
 // maxUUIDLength bounds the id a deletion line names. A HealthKit UUID string
 // is 36 characters; the bound only keeps a malformed line out of the
@@ -37,19 +47,8 @@ func (m *mapper) mapDeletion(record map[string]any) (*model.MapResult, error) {
 
 // sampleExternalID is the external id of the records a line gives: the
 // HealthKit UUID the SDK sends as "uuid", so that a deletion line of that
-// UUID removes them. A line without one (a Health app export) gives "".
+// UUID removes them. Both members of a blood pressure correlation carry the
+// correlation's UUID. A line without one (a Health app export) gives "".
 func sampleExternalID(record map[string]any) string {
 	return stringField(record, "uuid")
-}
-
-// memberExternalID is the external id of one member of a correlation line:
-// "<correlation uuid>_<canonical type>", so that the deletion of the
-// correlation removes every member (the "<id>_<suffix>" convention of
-// model.Deletion). It is "" when the line has no UUID.
-func memberExternalID(record map[string]any, canonicalType string) string {
-	id := sampleExternalID(record)
-	if id == "" {
-		return ""
-	}
-	return id + "_" + canonicalType
 }

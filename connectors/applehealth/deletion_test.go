@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
@@ -21,6 +22,19 @@ func TestDeletionLine(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, []model.Deletion{{ExternalID: testUUID}}, result.Deletions)
 	assert.Equal(t, 1, result.RecordCount(), "a deletion line gives nothing but the deletion")
+}
+
+// Every result of the connector asks for record aliases, and the upload
+// answer advertises the deletion line.
+func TestMapAsksForAliases(t *testing.T) {
+	c := New()
+	res, err := c.Map(connector.RawRecord{Fields: map[string]any{"deletedUuid": testUUID}})
+	require.NoError(t, err)
+	assert.True(t, res.AliasExternalIDs)
+	res, err = c.Map(connector.RawRecord{Fields: map[string]any{"futureField": 1}})
+	require.NoError(t, err)
+	assert.True(t, res.IsEmpty())
+	assert.Equal(t, []string{FeatureDeletionLines}, c.UploadFeatures())
 }
 
 // The deletion field wins over any other discriminator on the line.
@@ -104,8 +118,8 @@ func TestRecordsCarryTheirHealthKitUUID(t *testing.T) {
 	require.Len(t, res.Workouts, 1)
 	assert.Equal(t, testUUID, res.Workouts[0].ExternalID)
 
-	// Blood pressure: each member is "<correlation uuid>_<type>", so the
-	// deletion of the correlation removes both.
+	// Blood pressure: both members carry the correlation's UUID, so its
+	// deletion removes both.
 	res, err = m.mapRecord(base(map[string]any{
 		"correlationType": "HKCorrelationTypeIdentifierBloodPressure",
 		"objects": []any{
@@ -116,7 +130,7 @@ func TestRecordsCarryTheirHealthKitUUID(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.QuantitySamples, 2)
 	for _, s := range res.QuantitySamples {
-		assert.Equal(t, testUUID+"_"+s.QuantityType, s.ExternalID)
+		assert.Equal(t, testUUID, s.ExternalID)
 	}
 
 	noUUID := base(map[string]any{"quantityType": "HKQuantityTypeIdentifierBodyMass", "value": 78.4, "unit": "kg"})

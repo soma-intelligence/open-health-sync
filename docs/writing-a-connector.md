@@ -83,6 +83,16 @@ samples (`Metadata["summary_date"]`), set `DailySummary.RecordID` to the record 
 summary carries that record's figures only (a tombstoned record's summary is then not written
 again), and list the figures in the deletion's `ClearSummaryFields`.
 
+When your source de-duplicates poorly by id, because the content hash can fold two of its
+objects into one stored row (HealthKit samples of one reading written by two apps), set
+`MapResult.AliasExternalIDs`. The writer then keeps one alias per `ExternalID` and stored row in
+`ohs_data.record_aliases`, de-duplicated records included, and a deletion removes its id's
+aliases and a row only once no alias of it remains, instead of the rows stored under the id.
+Only quantity samples, category samples, nutrition logs and workouts get aliases; give the
+samples of one record its id (not `<id>_<suffix>`). A device connector whose line format gains a
+line an older server would only store can list it in `connector.UploadFeatures`: every upload
+answer then names it in `features`, so a client can check before it sends one.
+
 ### Records whose start moves
 
 A Replaceable record is updated in place when its copy comes back under the same content hash

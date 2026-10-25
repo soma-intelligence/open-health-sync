@@ -134,3 +134,63 @@ func TestAppleHealthDeletionWithoutUUIDFails(t *testing.T) {
 	assert.Equal(t, 1, e.count("failed_records"))
 	assert.Equal(t, 0, e.count("deleted_records"))
 }
+
+// Two live HealthKit samples of one reading are stored as one row: deleting
+// one of them leaves the row, which goes with the last one.
+func TestAppleHealthRowStaysWhileAnotherSampleHoldsIt(t *testing.T) {
+	e := newEnv(t)
+	e.reg.Register(applehealth.New())
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkWeight(hkWeightOld, 78.4)))
+	// Another app writes the same reading, in a later sync.
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkWeight(hkWeightNew, 78.4)))
+	require.Equal(t, []float64{78.4}, e.weights())
+	assert.Equal(t, 2, e.count("record_aliases"))
+
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkDeleted(hkWeightOld)))
+	assert.Equal(t, []float64{78.4}, e.weights(), "the other sample still stands for the row")
+	assert.Equal(t, 1, e.count("record_aliases"))
+
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkDeleted(hkWeightNew)))
+	assert.Empty(t, e.weights())
+	assert.Equal(t, 0, e.count("record_aliases"))
+}
+
+// An app that saves the new copy in one sync and deletes the old one in the
+// next keeps the reading.
+func TestAppleHealthSaveNewThenDeleteOldAcrossSyncs(t *testing.T) {
+	e := newEnv(t)
+	e.reg.Register(applehealth.New())
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkWeight(hkWeightOld, 78.4)))
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkWeight(hkWeightNew, 78.4)))
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkDeleted(hkWeightOld)))
+	assert.Equal(t, []float64{78.4}, e.weights())
+}
+
+// A row stored without a UUID (a 0.2.0 upload, a Health app export) gets the
+// alias of the sample a later upload de-duplicates into it, so uploading the
+// history again (resetAnchor) is enough for its deletion to find it.
+func TestAppleHealthReuploadAliasesAnOldRow(t *testing.T) {
+	e := newEnv(t)
+	e.reg.Register(applehealth.New())
+	old := `{"quantityType":"HKQuantityTypeIdentifierBodyMass","value":78.4,"unit":"kg","startDate":"2026-03-01T07:00:00Z","endDate":"2026-03-01T07:00:00Z","metadata":{"HKTimeZone":"Europe/Paris"}}`
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", old))
+	assert.Equal(t, 0, e.count("record_aliases"))
+
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkWeight(hkWeightOld, 78.4)))
+	require.Equal(t, []float64{78.4}, e.weights(), "de-duplicated into the old row")
+	assert.Equal(t, 1, e.count("record_aliases"))
+
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkDeleted(hkWeightOld)))
+	assert.Empty(t, e.weights())
+}
+
+// A deletion of a UUID nothing was stored under only adds its tombstone.
+func TestAppleHealthDeletionOfAnUnknownUUID(t *testing.T) {
+	e := newEnv(t)
+	e.reg.Register(applehealth.New())
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkWeight(hkWeightOld, 78.4)))
+	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass",
+		hkDeleted(hkWeightNew), hkDeleted(hkWeightNew)))
+	assert.Equal(t, []float64{78.4}, e.weights())
+	assert.Equal(t, 1, e.count("deleted_records"))
+}

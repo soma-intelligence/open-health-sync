@@ -163,7 +163,7 @@ func (m *mapper) handleCorrelation(record map[string]any, userID string) (*model
 			SourceName:     stringField(record, "sourceName"),
 			SourceBundleID: stringField(record, "sourceBundleId"),
 			DeviceID:       stringField(record, "device"),
-			ExternalID:     memberExternalID(record, canonicalType),
+			ExternalID:     sampleExternalID(record),
 			QuantityType:   canonicalType,
 			Value:          value,
 			Unit:           unit,

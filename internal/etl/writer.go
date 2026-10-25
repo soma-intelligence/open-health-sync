@@ -147,6 +147,7 @@ func Accumulate(dst, src *model.MapResult) {
 	dst.Observations = append(dst.Observations, src.Observations...)
 	dst.Deletions = append(dst.Deletions, src.Deletions...)
 	dst.HighFrequency = dst.HighFrequency || src.HighFrequency
+	dst.AliasExternalIDs = dst.AliasExternalIDs || src.AliasExternalIDs
 	// Every MapResult in one accumulation comes from the same raw object, so the
 	// first non-empty key describes the whole batch.
 	if dst.SourceKey == "" {
@@ -157,15 +158,26 @@ func Accumulate(dst, src *model.MapResult) {
 // WriteAccumulated writes one flattened batch of canonical records for sc in
 // tx. The caller owns the transaction boundary. The batch's deletions are
 // applied first, then every record of a tombstoned provider record is dropped
-// (see writer_deletions.go): acc is filtered in place.
+// (see writer_deletions.go): acc is filtered in place. An aliased batch
+// (acc.AliasExternalIDs) applies its deletions through the record aliases and
+// writes the aliases of its records last (see writer_aliases.go).
 func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) (Counts, error) {
 	c := Counts{}
 	if acc == nil {
 		return c, nil
 	}
+	if acc.AliasExternalIDs {
+		if err := lockAliases(ctx, tx, sc); err != nil {
+			return nil, err
+		}
+	}
 	var staleDays map[dayKey]*time.Location
 	if len(acc.Deletions) > 0 {
-		days, err := applyDeletions(ctx, tx, sc, acc.Deletions, c)
+		apply := applyDeletions
+		if acc.AliasExternalIDs {
+			apply = applyAliasDeletions
+		}
+		days, err := apply(ctx, tx, sc, acc.Deletions, c)
 		if err != nil {
 			return nil, fmt.Errorf("apply deletions: %w", err)
 		}
@@ -232,6 +244,11 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	for _, s := range steps {
 		if err := s.run(); err != nil {
 			return nil, fmt.Errorf("write %s: %w", s.name, err)
+		}
+	}
+	if acc.AliasExternalIDs {
+		if err := writeAliases(ctx, tx, sc, acc); err != nil {
+			return nil, err
 		}
 	}
 	// The days whose additive samples a deletion removed are summed again.

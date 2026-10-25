@@ -58,6 +58,15 @@ type OptionalKeyed interface {
 	OptionalKeys() []string
 }
 
+// UploadFeatures is optionally implemented by a device connector whose line
+// format gained something an older server would not understand. Every 200
+// answer of its upload route lists them, so a client can tell an instance
+// that applies them from one that would only store them ("deletion_lines":
+// the Apple Health deletion line).
+type UploadFeatures interface {
+	UploadFeatures() []string
+}
+
 // DataTypes is optionally implemented by a connector whose mapper builds its
 // quantity names at run time, so its source cannot tell what it delivers
 // (self reports). Every other connector gets its list generated from its
