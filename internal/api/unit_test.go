@@ -60,50 +60,92 @@ func TestLimitInFlight(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "a slot frees up after each request")
 }
 
-// One tenant holds at most its share of the slots: the others still upload
-// while it saturates its share.
-func TestIngestTenantShare(t *testing.T) {
-	release := make(chan struct{})
-	entered := make(chan struct{}, 8)
-	m := newHTTPMetrics()
-	l := newIngestLimiter(4, 2, m)
-	h := l.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		entered <- struct{}{}
-		<-release
-		w.WriteHeader(http.StatusOK)
-	}))
-	a, b, c := uuid.New(), uuid.New(), uuid.New()
-	as := func(tenant uuid.UUID) *http.Request {
-		r := httptest.NewRequest("POST", "/", nil)
-		return r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{TenantID: tenant}))
-	}
-	var wg sync.WaitGroup
-	for _, tn := range []uuid.UUID{a, a, b, b} {
+// holdN starts n uploads as tenant through h and waits until they hold
+// their slots; release lets them finish.
+func holdN(t *testing.T, h http.Handler, entered chan struct{}, wg *sync.WaitGroup, tenant uuid.UUID, n int) {
+	t.Helper()
+	for range n {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			h.ServeHTTP(httptest.NewRecorder(), as(tn))
+			h.ServeHTTP(httptest.NewRecorder(), asTenant(tenant))
 		}()
 	}
-	for range 4 {
+	for range n {
 		<-entered
 	}
+}
+
+func asTenant(tenant uuid.UUID) *http.Request {
+	r := httptest.NewRequest("POST", "/", nil)
+	return r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{TenantID: tenant}))
+}
+
+// A lone tenant uses every slot but the reserve: the share does not halve a
+// single-tenant instance.
+func TestIngestLoneTenantUsesFreeSlots(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 8)
+	m := newHTTPMetrics()
+	l := newIngestLimiter(8, 4, m)
+	h := l.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		<-release
+	}))
+	a := uuid.New()
+	var wg sync.WaitGroup
+	holdN(t, h, entered, &wg, a, 7)
+	assert.Equal(t, int64(7), m.ingestInFlight.Load(), "past its share of 4 while slots are free")
+
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, as(a))
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "tenant a is at its share")
+	h.ServeHTTP(rec, asTenant(a))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "the reserve stays free")
 	assert.Equal(t, "5", rec.Header().Get("Retry-After"))
-	assert.Contains(t, rec.Body.String(), "this tenant")
+	assert.Contains(t, rec.Body.String(), "kept for other tenants")
+
+	b := uuid.New()
+	holdN(t, h, entered, &wg, b, 1)
+	assert.Equal(t, int64(8), m.ingestInFlight.Load(), "another tenant gets the reserve")
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, as(c))
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "the instance is full")
+	h.ServeHTTP(rec, asTenant(uuid.New()))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Contains(t, rec.Body.String(), "too many uploads in progress")
-	assert.Equal(t, int64(2), m.ingestRejected.Load())
 
 	close(release)
 	wg.Wait()
-	h.ServeHTTP(httptest.NewRecorder(), as(a))
 	assert.Equal(t, int64(0), m.ingestInFlight.Load())
 	assert.Empty(t, l.held, "every share is given back")
+	assert.Zero(t, l.inUse)
+}
+
+// A tenant within its share always gets a free slot, even when another
+// tenant went past its own: the other tenants cannot be starved.
+func TestIngestTenantShareProtectsOthers(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 8)
+	m := newHTTPMetrics()
+	h := newIngestLimiter(8, 4, m).wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		<-release
+	}))
+	a, b := uuid.New(), uuid.New()
+	var wg sync.WaitGroup
+	holdN(t, h, entered, &wg, a, 7)
+	holdN(t, h, entered, &wg, b, 1)
+	close(release)
+	wg.Wait()
+
+	// b at 3 of its share of 4, a over its share: a waits, b goes on.
+	release = make(chan struct{})
+	holdN(t, h, entered, &wg, b, 3)
+	holdN(t, h, entered, &wg, a, 4)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, asTenant(a))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "a past its share, one slot left")
+	holdN(t, h, entered, &wg, b, 1)
+	assert.Equal(t, int64(8), m.ingestInFlight.Load(), "b within its share takes the last slot")
+	close(release)
+	wg.Wait()
 }
 
 func TestIngestTenantShareDefault(t *testing.T) {

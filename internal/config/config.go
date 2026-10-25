@@ -55,9 +55,11 @@ type Config struct {
 	// IngestConcurrency bounds the device uploads one api process handles at
 	// once (OHS_INGEST_CONCURRENCY, default 8).
 	IngestConcurrency int
-	// IngestTenantConcurrency bounds those of one tenant
-	// (OHS_INGEST_TENANT_CONCURRENCY, default half of IngestConcurrency,
-	// rounded up); IngestConcurrency turns the share off.
+	// IngestTenantConcurrency is the share of those one tenant is sure to
+	// get (OHS_INGEST_TENANT_CONCURRENCY, default half of IngestConcurrency,
+	// rounded up): past it a tenant takes a slot only while more than a
+	// small reserve stays free for the others. IngestConcurrency turns the
+	// share off.
 	IngestTenantConcurrency int
 	// IngestMaxDecompressedMiB caps how far one uploaded part may expand, in
 	// MiB (OHS_INGEST_MAX_DECOMPRESSED_MIB, default 64, at most 512).

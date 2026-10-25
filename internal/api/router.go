@@ -80,9 +80,10 @@ type Deps struct {
 	SelfReport connector.DeviceConnector
 	// IngestLimit bounds uploads in flight (0 means DefaultIngestLimit).
 	IngestLimit int
-	// IngestTenantLimit bounds the uploads in flight of one tenant (0 means
-	// DefaultIngestTenantLimit of IngestLimit; IngestLimit or more means no
-	// share).
+	// IngestTenantLimit is the share of the upload slots one tenant is sure
+	// to get; past it, it takes a slot only while more than the reserve
+	// (ingestReserve) stays free (0 means DefaultIngestTenantLimit of
+	// IngestLimit; IngestLimit or more means no share).
 	IngestTenantLimit int
 	// IngestMaxDecompressedBytes caps how far one uploaded part may expand
 	// (0 means collect.DefaultMaxDecompressedBytes).
