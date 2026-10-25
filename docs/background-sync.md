@@ -25,7 +25,8 @@ The `collect` role does the work. Three mechanisms stack:
    Each pull starts again a little before the previous one ended (its *lookback*, an hour by
    default) for data that reached the provider late. After an outage, or when a window's pull
    failed, it reaches back to the end of the last complete pull, up to 7 days. A pull that a
-   notification asked for, which fetches only one data type, does not count as complete.
+   notification asked for, which fetches only one data type, does not count as complete, and
+   neither does a short pull that starts after a gap.
    Each provider sets its own values: see [sync policy per provider](#sync-policy-per-provider).
 3. **Repair.** A subscription that has heard nothing for 24 hours and is more than 7 days old
    is renewed at the provider, at most once a week per connection. Some providers drop a
@@ -78,18 +79,20 @@ So each connector declares how it is pulled (`connector.SyncPolicy`, see
 | Default (Garmin) | 6 h | 1 h | 1 h | 30 days | none |
 | Dexcom | | 1 h | 6 h | 90 days | 2 days |
 | Eight Sleep | | 3 h | 36 h | 30 days | 7 days |
-| Fitbit | 6 h | 1 h | 24 h | 30 days | 3 days |
+| Fitbit | 6 h | 3 h | 6 h | 30 days | 3 days |
 | intervals.icu | 6 h | 1 h | 24 h | 30 days | 7 days |
 | OMRON | | 3 h | 72 h | 30 days | 14 days |
 | Oura | 6 h | 1 h | 24 h | 90 days | 7 days |
 | Polar | 6 h | 1 h | 24 h | 28 days | 7 days |
 | Strava | 12 h | 3 h | 24 h | 30 days | 7 days |
-| Suunto | 24 h | 12 h | 24 h | 28 days | none |
+| Suunto | 24 h | 24 h | 24 h | 28 days | none |
 | Ultrahuman | | 3 h | 48 h | 30 days | 7 days |
 | WHOOP | 6 h | 1 h | 24 h | 90 days | 7 days |
-| Withings | 6 h | 1 h | 24 h | 90 days | 7 days |
+| Withings | 6 h | 1 h | 24 h | 90 days | 3 days |
 
-An empty cell means the provider sends no notifications. Garmin pulls by upload time, so the
+An empty cell means the provider sends no notifications. A Suunto pull makes 4 calls, so on the
+Development API (about 200 calls a week) an application serves about 7 users; more needs
+Suunto's Production API. Garmin pulls by upload time, so the
 default lookback is enough there. `pull_every_seconds` and `next_pull_at` in the freshness
 response follow the provider's interval.
 

@@ -140,3 +140,32 @@ func TestFreshnessReportsProviderInterval(t *testing.T) {
 	require.NotNil(t, f.Data[0].NextPullAt)
 	assert.Equal(t, time.Date(2026, 10, 10, 15, 0, 0, 0, time.UTC), *f.Data[0].NextPullAt)
 }
+
+// A short pull that starts after a gap does not move synced_through over
+// the gap; one that starts inside the synced span does.
+func TestShortPullAfterGapKeepsSyncedThrough(t *testing.T) {
+	e := newPolicyEnv(t, latePolicy)
+	ctx := context.Background()
+	e.setNow(time.Date(2026, 10, 10, 13, 5, 0, 0, time.UTC))
+	e.connect(t, e.keyA, e.userA, "pu-1")
+	e.drain(t)
+
+	now := time.Date(2026, 10, 12, 19, 0, 0, 0, time.UTC)
+	gap := now.Add(-14 * time.Hour)
+	_, err := e.pool.Exec(ctx, `UPDATE ohs_sync.connections SET synced_through = $1`, gap)
+	require.NoError(t, err)
+	e.setNow(now)
+	syncedThrough := func() time.Time {
+		var at time.Time
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT synced_through FROM ohs_sync.connections WHERE user_id = $1`, e.userA).Scan(&at))
+		return at.UTC()
+	}
+
+	e.notify(t, "pu-1", now.Add(-30*time.Minute).Unix(), now.Unix())
+	e.drain(t)
+	assert.Equal(t, gap, syncedThrough(), "the gap before the notified window stays to be pulled")
+
+	e.notify(t, "pu-1", gap.Add(-time.Hour).Unix(), now.Unix())
+	e.drain(t)
+	assert.Equal(t, now, syncedThrough())
+}

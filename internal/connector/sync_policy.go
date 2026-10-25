@@ -47,6 +47,7 @@ const (
 	maxCatchUpLimit = 30 * 24 * time.Hour
 	maxBackfill     = 365 * 24 * time.Hour
 	maxReconcile    = 14 * 24 * time.Hour
+	maxBackfillJobs = 100
 )
 
 // DefaultSyncPolicy is the policy of a connector that declares none.
@@ -94,6 +95,14 @@ func (p SyncPolicy) Normalize() SyncPolicy {
 	p.MaxCatchUp = bounded(p.MaxCatchUp, d.MaxCatchUp, time.Hour, maxCatchUpLimit)
 	p.Backfill = bounded(p.Backfill, d.Backfill, time.Hour, maxBackfill)
 	p.BackfillChunk = bounded(p.BackfillChunk, d.BackfillChunk, time.Hour, p.Backfill)
+	if p.Backfill/p.BackfillChunk > maxBackfillJobs {
+		p.BackfillChunk = p.Backfill / maxBackfillJobs
+	}
+	// Catch-up must at least cover a regular window, else its floor would
+	// cut every pull short.
+	if base := max(p.PullEvery, p.PullEveryWithoutPush) + p.Lookback; p.MaxCatchUp < base {
+		p.MaxCatchUp = base
+	}
 	if p.Reconcile != 0 {
 		p.Reconcile = bounded(p.Reconcile, 0, time.Hour, maxReconcile)
 	}

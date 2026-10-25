@@ -510,7 +510,7 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 	// own policy (connector.SyncPolicy), passed as one row per provider: its
 	// slot ends (the long interval's while its notifications arrive, the
 	// short one's otherwise), spans (interval plus lookback), lookback,
-	// catch-up bound and reconciliation start for each slot. $4 = silence
+	// catch-up bound and reconciliation start for each slot. $3 = silence
 	// cutoff.
 	pp := s.policyRows(slugs, now)
 	rows, err := tx.Query(ctx, `
@@ -830,7 +830,12 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 // recordSuccess moves the connection's freshness forward and restores it if
 // it was broken. synced_through only moves forward, never past now (a
 // notification may name a window ending later), and only for a pull of
-// every type: one type does not make the rest current.
+// every type that leaves no gap behind it: its window starts at or before
+// synced_through, or reaches the provider's catch-up bound (an older gap is
+// past what a regular pull would fetch anyway). Backfill jobs, which run
+// concurrently and finish in any order, always count. A short notification or
+// manual pull after failed windows thus leaves synced_through where the gap
+// starts, and the next regular pull reaches back to it.
 func (s *Scheduler) recordSuccess(ctx context.Context, job queue.PullJob) error {
 	now := s.d.now()
 	tx, err := s.d.Pool.Begin(ctx)
@@ -842,11 +847,15 @@ func (s *Scheduler) recordSuccess(ctx context.Context, job queue.PullJob) error 
 	err = tx.QueryRow(ctx, `
 		UPDATE ohs_sync.connections SET last_sync_at = $4, last_attempt_at = $4,
 			synced_through = CASE WHEN $6 THEN synced_through
-				ELSE greatest(synced_through, least($5::timestamptz, $4::timestamptz)) END,
+				WHEN $9 OR synced_through IS NULL OR $7::timestamptz <= synced_through
+				     OR $5::timestamptz - $7::timestamptz >= make_interval(secs => $8::double precision)
+				THEN greatest(synced_through, least($5::timestamptz, $4::timestamptz))
+				ELSE synced_through END,
 			last_error = NULL, consecutive_failures = 0, updated_at = now()
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
 		RETURNING status`,
-		job.TenantID, job.UserID, job.Provider, now, job.To, job.DataType != "").Scan(&status)
+		job.TenantID, job.UserID, job.Provider, now, job.To, job.DataType != "", job.From,
+		s.d.syncPolicy(job.Provider).MaxCatchUp.Seconds(), job.Trigger == queue.TriggerBackfill).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

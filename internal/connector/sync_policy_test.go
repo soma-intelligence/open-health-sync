@@ -40,6 +40,10 @@ func TestSyncPolicyNormalize(t *testing.T) {
 	assert.Equal(t, d.BackfillChunk, p.BackfillChunk, "a chunk longer than the backfill")
 	assert.Zero(t, p.Reconcile, "an out of bounds reconciliation is turned off")
 
+	p = SyncPolicy{MaxCatchUp: 2 * time.Hour, Lookback: 36 * time.Hour, Backfill: 365 * 24 * time.Hour, BackfillChunk: time.Hour}.Normalize()
+	assert.Equal(t, 42*time.Hour, p.MaxCatchUp, "catch-up covers at least one regular window")
+	assert.Equal(t, 365*24*time.Hour/100, p.BackfillChunk, "at most 100 backfill jobs")
+
 	p = SyncPolicy{PullEvery: 12 * time.Hour, PullEveryWithoutPush: 3 * time.Hour, Reconcile: 7 * 24 * time.Hour}.Normalize()
 	assert.Equal(t, 12*time.Hour, p.PullEvery)
 	assert.Equal(t, 3*time.Hour, p.PullEveryWithoutPush)

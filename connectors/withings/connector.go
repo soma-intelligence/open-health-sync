@@ -172,7 +172,7 @@ func (c *Connector) SyncPolicy() connector.SyncPolicy {
 	return connector.SyncPolicy{
 		Lookback:  24 * time.Hour,
 		Backfill:  90 * 24 * time.Hour,
-		Reconcile: 7 * 24 * time.Hour,
+		Reconcile: 3 * 24 * time.Hour,
 	}
 }
 
