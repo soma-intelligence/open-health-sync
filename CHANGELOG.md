@@ -34,7 +34,7 @@ release may change the API, the configuration or the database schema.
   blood pressure reading stayed stored twice. The upload contract has a deletion line,
   `{"deletedUuid":"<uuid>"}` ([docs](docs/connectors/apple-health.md#deletions)). Records keep
   their HealthKit `uuid` as `external_id`, and every sample UUID leaves an alias on the row it was
-  stored as or de-duplicated into (`ohs_data.record_aliases`, migration 0046): a deletion removes
+  stored as or de-duplicated into (`ohs_data.record_aliases`, migration 0043): a deletion removes
   a row only once no live sample stands for it, so two apps writing the same reading, or a new
   copy saved a sync before the old one is deleted, keep it. Uploading the history again
   (`resetAnchor`) makes rows stored by 0.2.0 deletable. Upload answers list
