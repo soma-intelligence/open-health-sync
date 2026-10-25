@@ -56,7 +56,9 @@ release may change the API, the configuration or the database schema.
   epoch or the FIT epoch was stored as a measurement, and a year 0001 sample lost its end.
 - Ultrahuman: a pull asks every date whose local day overlaps its window instead of the UTC
   dates only. West of UTC the end of every day was never pulled (in California its last 7
-  hours, the closing step count among them).
+  hours, the closing step count among them). No date after the one UTC+14 has reached is
+  asked, and a refusal (400, 422) or an empty answer for a date after the current UTC day is no
+  data, not a failed pull.
 - Garmin: notifications are refused (401) while `OHS_GARMIN_INBOUND_TOKEN` is unset. A push
   notification is stored as data and Garmin signs nothing, so without the token anyone who knew
   a connected user's Garmin id could store invented summaries for them. Pings are refused too,

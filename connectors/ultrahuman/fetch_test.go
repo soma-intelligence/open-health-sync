@@ -177,9 +177,9 @@ func TestFetch_AsksEveryLocalDayOfTheWindow(t *testing.T) {
 		return out
 	}
 	require.Equal(t, []string{"2026-03-09", "2026-03-10"},
-		day(localDates(time.Date(2026, 3, 10, 2, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 4, 0, 0, 0, time.UTC))))
+		day(localDates(time.Date(2026, 3, 10, 2, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 4, 0, 0, 0, time.UTC), fakeNow)))
 	require.Equal(t, []string{"2026-03-10", "2026-03-11"},
-		day(localDates(time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 14, 0, 0, 0, time.UTC))),
+		day(localDates(time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 14, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 14, 0, 0, 0, time.UTC))),
 		"UTC+14 is already on March 11 at 10:00 UTC")
 
 	f := newFake(t)
@@ -190,4 +190,41 @@ func TestFetch_AsksEveryLocalDayOfTheWindow(t *testing.T) {
 		asked = append(asked, r.Query.Get("date"))
 	}
 	require.Equal(t, []string{"2026-03-09", "2026-03-10"}, asked)
+}
+
+// A date ahead of the current UTC day is asked only up to now + 14 hours,
+// where UTC+14 already is, and a refusal or an empty answer for it is no data,
+// not a failed pull.
+func TestFetch_FutureDatesAreCappedAndMayBeRefused(t *testing.T) {
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	for _, st := range []int{http.StatusBadRequest, http.StatusUnprocessableEntity, http.StatusNotFound, http.StatusNoContent} {
+		f := newFake(t)
+		f.MetricsStatus = func(date string) int {
+			if date > "2026-03-10" {
+				return st
+			}
+			return 0
+		}
+		c := f.connector()
+		c.now = func() time.Time { return now }
+		sink := &recordingSink{}
+		require.NoError(t, c.Fetch(context.Background(), testConn(), now.Add(-2*time.Hour), now.Add(72*time.Hour), sink), "status %d", st)
+		var asked []string
+		for _, r := range f.Calls("/api/partners/v1/user_data/metrics") {
+			asked = append(asked, r.Query.Get("date"))
+		}
+		require.Equal(t, []string{"2026-03-09", "2026-03-10", "2026-03-11"}, asked, "nothing after now + 14 h")
+	}
+
+	f := newFake(t)
+	f.MetricsStatus = func(date string) int {
+		if date == "2026-03-10" {
+			return http.StatusBadRequest
+		}
+		return 0
+	}
+	c := f.connector()
+	c.now = func() time.Time { return now }
+	err := c.Fetch(context.Background(), testConn(), now.Add(-2*time.Hour), now, &recordingSink{})
+	require.ErrorContains(t, err, "HTTP 400", "a refused date that has begun is still an error")
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -42,7 +43,9 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 	if token == "" {
 		return fmt.Errorf("ultrahuman: connection has no access token: %w", connector.ErrNeedsReauth)
 	}
-	days := localDates(from, to)
+	now := c.now().UTC()
+	today := utcDay(now)
+	days := localDates(from, to, now)
 	for i, day := range days {
 		if i > 0 {
 			if err := c.sleep(ctx, c.dayDelay); err != nil {
@@ -50,9 +53,14 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 			}
 		}
 		date := day.Format("2006-01-02")
-		body, _, err := c.get(ctx, token, metricsPath, url.Values{"date": {date}})
+		body, status, err := c.get(ctx, token, metricsPath, url.Values{"date": {date}})
 		if errors.Is(err, errUnauthorized) || errors.Is(err, errForbidden) {
 			return fmt.Errorf("ultrahuman: metrics %s: %w: %w", date, err, connector.ErrNeedsReauth)
+		}
+		if day.After(today) && (status == http.StatusBadRequest || status == http.StatusUnprocessableEntity) {
+			// A date that has begun only east of UTC: Ultrahuman may refuse a
+			// date it sees as in the future. Nothing to store yet.
+			continue
 		}
 		if err != nil {
 			return fmt.Errorf("ultrahuman: metrics %s: %w", date, err)
@@ -84,8 +92,14 @@ const (
 // missed the end of every local day west of UTC (in California the last 7
 // hours of the day, its closing step count among them). Asking one more date
 // costs one call; a date that has not begun yet answers nothing.
-func localDates(from, to time.Time) []time.Time {
-	return dates(from.Add(-maxWestOffset), to.Add(maxEastOffset))
+// No date after the one UTC+14 has reached at now is asked: it has begun
+// nowhere.
+func localDates(from, to, now time.Time) []time.Time {
+	to = to.Add(maxEastOffset)
+	if limit := now.Add(maxEastOffset); to.After(limit) {
+		to = limit
+	}
+	return dates(from.Add(-maxWestOffset), to)
 }
 
 // dates lists the UTC dates a pull of [from, to] covers, oldest first, at
