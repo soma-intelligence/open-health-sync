@@ -16,10 +16,11 @@ import (
 
 // The backtest hides the reference, scores every figure, and compares. The
 // split is leave one subject out: for each subject, the residual model is
-// fitted on all the other subjects, and the conformal factors on their
-// out-of-fold residuals (three folds of subjects, each scored by a model
-// fitted on the two others). No figure is ever scored by a model or a
-// calibration that saw its subject.
+// the average of three ensembles, each fitted on two of three folds of the
+// other subjects, and the conformal factors are fitted on each fold's
+// residuals under the ensemble that did not see it (crossFit). No figure is
+// ever scored by a model or a calibration that saw its subject, and the
+// shipped model is built the same way on everyone.
 
 // Variants of the score the report compares.
 const (
@@ -42,11 +43,7 @@ type Outcome struct {
 	Width90 float64
 	IS90    float64
 	CRPS    float64
-	// Residual, Tol and Bias are the figure's calibration point before
-	// calibration, for the out-of-fold calibration of the final model.
-	Residual, Tol, Bias float64
-	Scored              bool
-	Grade               string
+	Grade   string
 }
 
 // Params are the residual model's fitting parameters.
@@ -101,8 +98,9 @@ func target(r *Record, pri *quality.Priors) float64 {
 	return math.Log(math.Abs(errorOf(r)-q.Bias) + floor)
 }
 
-// FitModel fits the residual model on records.
-func FitModel(recs []Record, names []string, pri *quality.Priors) (*quality.Model, error) {
+// fitEnsemble fits one tree ensemble on records and lists the metrics with
+// enough figures for it to apply to.
+func fitEnsemble(recs []Record, names []string, pri *quality.Priors) (*quality.Ensemble, []string, error) {
 	X := make([][]float64, len(recs))
 	y := make([]float64, len(recs))
 	for i := range recs {
@@ -117,7 +115,7 @@ func FitModel(recs []Record, names []string, pri *quality.Priors) (*quality.Mode
 	}
 	e, err := quality.FitGBRT(X, y, names, Params)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	count := map[string]int{}
 	for _, r := range recs {
@@ -130,7 +128,47 @@ func FitModel(recs []Record, names []string, pri *quality.Priors) (*quality.Mode
 		}
 	}
 	sort.Strings(covered)
-	return &quality.Model{Version: "bench", Nu: ModelNu, Ensemble: e, Metrics: covered}, nil
+	return e, covered, nil
+}
+
+// crossFit is the procedure the backtest validates and the repository
+// ships: the training subjects in three folds; for each fold an ensemble
+// fitted on the two others scores it, and those out-of-fold residuals fit
+// the calibration. The model is the three ensembles averaged, applying to
+// the metrics all three cover. It also returns the calibration of the
+// priors alone on the same subjects, the calibrated baseline.
+func crossFit(train [3][]Record, names []string, pri *quality.Priors, version string) (*quality.Model, *quality.Calibration, *quality.Calibration, error) {
+	prior := &quality.Scorer{Priors: pri}
+	model := &quality.Model{Version: version, Nu: ModelNu}
+	var priorPts, fullPts []quality.CalPoint
+	covered := map[string]int{}
+	for k := range 3 {
+		var fit []Record
+		for j := range 3 {
+			if j != k {
+				fit = append(fit, train[j]...)
+			}
+		}
+		e, cov, err := fitEnsemble(fit, names, pri)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for _, m := range cov {
+			covered[m]++
+		}
+		model.Ensembles = append(model.Ensembles, e)
+		one := &quality.Model{Version: version, Nu: ModelNu, Ensembles: []*quality.Ensemble{e}, Metrics: cov}
+		priorPts = append(priorPts, calPoints(train[k], prior)...)
+		fullPts = append(fullPts, calPoints(train[k], &quality.Scorer{Priors: pri, Model: one})...)
+	}
+	for m, n := range covered {
+		if n == 3 {
+			model.Metrics = append(model.Metrics, m)
+		}
+	}
+	sort.Strings(model.Metrics)
+	return model, quality.FitCalibration(fullPts, quality.CalOptions{Version: version}),
+		quality.FitCalibration(priorPts, quality.CalOptions{Version: version}), nil
 }
 
 // MinModelFigures is the fewest training figures of a metric for the
@@ -161,7 +199,7 @@ func calPoints(recs []Record, sc *quality.Scorer) []quality.CalPoint {
 			continue
 		}
 		raw := q.Predictive.Scale
-		pts = append(pts, quality.CalPoint{Path: calPath(r), Residual: residual(r, q), Tol: q.Tolerance / raw, Bias: q.Predictive.Location / raw})
+		pts = append(pts, quality.CalPoint{Path: calPath(r), Residual: residual(r, q), Tol: q.Tolerance / raw, Bias: q.Predictive.Location / raw, Subject: r.Subject})
 	}
 	return pts
 }
@@ -184,12 +222,6 @@ func outcome(r *Record, sc *quality.Scorer) Outcome {
 	}
 	if q.Predictive.Scale > 0 {
 		o.CRPS = quality.CRPSStudentT(m.Forward(r.Ref), q.Predictive.Center, q.Predictive.Scale, nu)
-		// Undo the calibration: raw scale, and the bias before the shift.
-		raw := q.Predictive.Scale / q.Evidence.Gamma
-		loc := q.Predictive.Location - q.Evidence.Shift*raw
-		o.Residual = (errorOf(r) - loc) / raw
-		o.Tol, o.Bias = q.Tolerance/raw, loc/raw
-		o.Scored = true
 	}
 	return o
 }
@@ -245,30 +277,13 @@ func Backtest(recs []Record, pri *quality.Priors, maxTrain int) *Result {
 					train[fold3(s)] = append(train[fold3(s)], recs[i])
 				}
 			}
-			prior := &quality.Scorer{Priors: pri}
-			var priorPts, fullPts []quality.CalPoint
-			var all []Record
-			for k := range 3 {
-				var fit []Record
-				for j := range 3 {
-					if j != k {
-						fit = append(fit, train[j]...)
-					}
-				}
-				all = append(all, train[k]...)
-				m, err := FitModel(fit, names, pri)
-				if err != nil {
-					panic(err)
-				}
-				priorPts = append(priorPts, calPoints(train[k], prior)...)
-				fullPts = append(fullPts, calPoints(train[k], &quality.Scorer{Priors: pri, Model: m})...)
-			}
-			model, err := FitModel(all, names, pri)
+			model, fullCalib, priorCalib, err := crossFit(train, names, pri, "fold")
 			if err != nil {
 				panic(err)
 			}
-			priorCal := &quality.Scorer{Priors: pri, Calibration: quality.FitCalibration(priorPts, quality.CalOptions{Version: "fold"})}
-			fullCal := &quality.Scorer{Priors: pri, Model: model, Calibration: quality.FitCalibration(fullPts, quality.CalOptions{Version: "fold"})}
+			prior := &quality.Scorer{Priors: pri}
+			priorCal := &quality.Scorer{Priors: pri, Calibration: priorCalib}
+			fullCal := &quality.Scorer{Priors: pri, Model: model, Calibration: fullCalib}
 			for _, i := range bySubject[held] {
 				r := &recs[i]
 				res.Outcomes[VariantPrior][i] = outcome(r, prior)
@@ -315,36 +330,26 @@ func thin(idx []int, n int) []int {
 	return out
 }
 
-// FinalModel fits the model shipped in the repository on every subject,
-// and its calibration on the out-of-fold scores of the backtest.
-func FinalModel(res *Result, pri *quality.Priors, maxTrain int, version string) (*quality.Model, *quality.Calibration, error) {
+// FinalModel runs the validated procedure on every subject: the shipped
+// model is the three cross-fitted ensembles, its calibration their
+// out-of-fold residuals, exactly what each backtest fold did without its
+// held out subject.
+func FinalModel(recs []Record, names []string, pri *quality.Priors, maxTrain int, version string) (*quality.Model, *quality.Calibration, error) {
 	bySubject := map[string][]int{}
-	for i, r := range res.Records {
+	var subs []string
+	for i, r := range recs {
+		if _, ok := bySubject[r.Subject]; !ok {
+			subs = append(subs, r.Subject)
+		}
 		bySubject[r.Subject] = append(bySubject[r.Subject], i)
 	}
-	var all []Record
-	subs := make([]string, 0, len(bySubject))
-	for s := range bySubject {
-		subs = append(subs, s)
-	}
 	sort.Strings(subs)
+	var train [3][]Record
 	for _, s := range subs {
-		for _, i := range thinStrata(res.Records, bySubject[s], maxTrain) {
-			all = append(all, res.Records[i])
+		for _, i := range thinStrata(recs, bySubject[s], maxTrain) {
+			train[fold3(s)] = append(train[fold3(s)], recs[i])
 		}
 	}
-	model, err := FitModel(all, res.Names, pri)
-	if err != nil {
-		return nil, nil, err
-	}
-	model.Version = version
-	pts := make([]quality.CalPoint, 0, len(res.Records))
-	for i := range res.Records {
-		o := res.Outcomes[VariantFull][i]
-		if o.Grade == "X" || !o.Scored {
-			continue
-		}
-		pts = append(pts, quality.CalPoint{Path: calPath(&res.Records[i]), Residual: o.Residual, Tol: o.Tol, Bias: o.Bias})
-	}
-	return model, quality.FitCalibration(pts, quality.CalOptions{Version: version}), nil
+	model, cal, _, err := crossFit(train, names, pri, version)
+	return model, cal, err
 }
