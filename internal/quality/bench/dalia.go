@@ -51,8 +51,10 @@ func daliaLag(subjects map[string][2]series) float64 {
 }
 
 // LoadDalia reads the converted CSV files. Every 4th reference window is
-// kept, so the windows do not overlap.
-func LoadDalia(dir string) ([]Record, float64, error) {
+// kept, so the windows do not overlap. With fitLag, each window is matched
+// with the E4 reading taken the fitted lag later; without, with the reading
+// stamped at the window's centre, as production would.
+func LoadDalia(dir string, fitLag bool) ([]Record, float64, error) {
 	files := glob(filepath.Join(dir, "ppg-dalia", "csv", "S*_windows.csv"))
 	if len(files) == 0 {
 		return nil, 0, ErrMissing
@@ -88,7 +90,10 @@ func LoadDalia(dir string) ([]Record, float64, error) {
 		subs = append(subs, s)
 		pairs[name] = [2]series{s.ref, s.dev}
 	}
-	lag := daliaLag(pairs)
+	lag := 0.0
+	if fitLag {
+		lag = daliaLag(pairs)
+	}
 	var out []Record
 	for _, s := range subs {
 		var recs []Record
@@ -98,11 +103,12 @@ func LoadDalia(dir string) ([]Record, float64, error) {
 				continue
 			}
 			recs = append(recs, Record{Dataset: "ppg_dalia", Subject: "dalia/" + s.name, Metric: quality.MetricHeartRate,
-				Device: DaliaE4, T: s.ref.t[i] + lag, Value: v, Ref: s.ref.v[i], Label: s.act[i], Sources: 1})
+				Device: DaliaE4, T: s.ref.t[i] + lag, RefT: s.ref.t[i], Value: v, Ref: s.ref.v[i], Label: s.act[i], Sources: 1})
 		}
+		// The E4's motion and heart rate share the E4's clock.
 		enmo := s.enmo
 		annotate(recs, s.dev, func(t float64) float64 {
-			v, ok := enmo.at(t-lag, 2)
+			v, ok := enmo.at(t, 2)
 			if !ok {
 				return math.NaN()
 			}

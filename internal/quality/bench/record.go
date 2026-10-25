@@ -26,8 +26,13 @@ type Record struct {
 	Subject string
 	Metric  string
 	Device  quality.Device
-	// T is seconds since the start of the subject's recording.
-	T     float64
+	// T is when the device stamped the figure, on its own clock, in
+	// seconds: the timestamp production sees. Features and context read the
+	// device's series at T.
+	T float64
+	// RefT is the reference time the figure was compared with: T, or T plus
+	// the device's fitted lag in the fitted-lag variant.
+	RefT  float64
 	Value float64
 	Ref   float64
 	// Context is what the pipeline infers from device-side data; Label is
@@ -146,7 +151,8 @@ func (s series) at(t, tol float64) (float64, bool) {
 // annotate fills the device-side features and the inferred context of a
 // subject's heart rate records: the resting heart rate is the 5th
 // percentile of the device's own readings, the baseline their median, the
-// rate the change over the previous 30 s.
+// rate the change over the previous 30 s. Everything is read on the
+// device's clock, at r.T.
 func annotate(recs []Record, dev series, motion func(t float64) float64, asleep func(t float64) bool) {
 	rest := percentile(dev.v, 0.05)
 	base := percentile(dev.v, 0.5)

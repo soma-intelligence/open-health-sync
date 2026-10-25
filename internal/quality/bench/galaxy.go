@@ -187,8 +187,9 @@ type GalaxyResult struct {
 }
 
 // LoadGalaxy reads the extracted GalaxyPPG files. Device figures are kept
-// every 5 s.
-func LoadGalaxy(dir string) ([]Record, GalaxyResult, error) {
+// every 5 s. With fitLag, a device reading at t is compared with the strap
+// at t plus the device's fitted lag; without, at t, as production would.
+func LoadGalaxy(dir string, fitLag bool) ([]Record, GalaxyResult, error) {
 	root := filepath.Join(dir, "galaxyppg", "extracted", "Dataset")
 	ents, err := os.ReadDir(root)
 	if err != nil {
@@ -217,10 +218,14 @@ func LoadGalaxy(dir string) ([]Record, GalaxyResult, error) {
 			ep = append(ep, [2]series{s.e4, s.polar})
 		}
 	}
-	res := GalaxyResult{WatchLag: bestLag(wp), E4Lag: bestLag(ep)}
+	var res GalaxyResult
+	if fitLag {
+		res.WatchLag, res.E4Lag = bestLag(wp), bestLag(ep)
+	}
 	var out []Record
 	for _, s := range subs {
-		inWindow := func(t float64) bool { return !s.hasEvents || (t >= s.start && t < s.finish) }
+		// The protocol's window and labels are on the reference's time.
+		inWindow := func(refT float64) bool { return !s.hasEvents || (refT >= s.start && refT < s.finish) }
 		both := len(s.watch.t) > 0 && len(s.e4.t) > 0
 		sources := 1
 		if both {
@@ -230,7 +235,7 @@ func LoadGalaxy(dir string) ([]Record, GalaxyResult, error) {
 			var recs []Record
 			last := math.Inf(-1)
 			for i, t := range dev.t {
-				if t-last < 5 || !inWindow(t) {
+				if t-last < 5 || !inWindow(t+lag) {
 					continue
 				}
 				ref, ok := s.polar.at(t+lag, 1)
@@ -239,7 +244,7 @@ func LoadGalaxy(dir string) ([]Record, GalaxyResult, error) {
 				}
 				last = t
 				r := Record{Dataset: "galaxyppg", Subject: "galaxyppg/" + s.name, Metric: quality.MetricHeartRate, Device: d,
-					T: t + lag, Value: dev.v[i], Ref: ref, Label: s.labelAt(t + lag), Sources: sources}
+					T: t, RefT: t + lag, Value: dev.v[i], Ref: ref, Label: s.labelAt(t + lag), Sources: sources}
 				if status != nil && status[t] != 1 {
 					r.Flags = []quality.Flag{quality.FlagLowSignal}
 				}
@@ -247,7 +252,7 @@ func LoadGalaxy(dir string) ([]Record, GalaxyResult, error) {
 			}
 			// Motion over the 10 s bucket before the figure, on the device's clock.
 			annotate(recs, dev, func(t float64) float64 {
-				if v, ok := enmo[int64(math.Floor((t-lag)/10))]; ok {
+				if v, ok := enmo[int64(math.Floor(t/10))]; ok {
 					return v
 				}
 				return math.NaN()
