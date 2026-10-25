@@ -96,6 +96,8 @@ func (d UploadDeps) allowed(tenantID uuid.UUID, slug string) bool {
 type UploadResponse struct {
 	Key       string `json:"key"`
 	Duplicate bool   `json:"duplicate"`
+	// Features are the connector's connector.UploadFeatures, if any.
+	Features []string `json:"features,omitempty"`
 }
 
 // NewUploadHandler returns the device upload handler. It expects to run behind
@@ -208,6 +210,9 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		auth.WriteProblem(w, http.StatusConflict, "Conflict",
 			"(batch, part) already used for this day with different content; batch and part must be unique across types")
 		return
+	}
+	if f, ok := h.d.Device.(connector.UploadFeatures); ok {
+		resp.Features = f.UploadFeatures()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

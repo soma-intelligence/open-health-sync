@@ -38,7 +38,7 @@ Responses:
 
 | Status | Meaning |
 |---|---|
-| 200 | `{"key": "raw/...", "duplicate": false}`: stored and queued for processing |
+| 200 | `{"key": "raw/...", "duplicate": false, "features": ["deletion_lines"]}`: stored and queued for processing. `features` lists what this server applies beyond the base line format; `deletion_lines` means it applies [deletion lines](#deletions) (a server older than the field leaves it out) |
 | 400 | A header is missing or invalid (the message names it), the body is empty, not gzip, truncated, or a line is not a JSON object |
 | 401, 403 | Missing or expired token, a token without the `upload` scope, or a user being deleted (their tokens stop working at once) |
 | 409 | Other bytes are already stored under this day, batch and part, whatever their type: batch and part must be unique across types |
@@ -81,11 +81,55 @@ Other line kinds are recognized by their discriminator field:
 | `timeSinceSampleStart` and `value` | ECG voltage samples |
 | `heartbeats` | beat to beat RR intervals (see below) |
 | `latitude` and `longitude` | workout route points |
+| `deletedUuid` | the removal of the records of a deleted sample ([below](#deletions)) |
 
 ECG recordings and their voltage samples are served by `GET /v1/users/{id}/ecg` and as FHIR
 Observations ([api.md](../api.md#ecg-recordings)); heartbeat intervals by
 `GET /v1/users/{id}/rr-intervals` and `/hrv`. Clinical record and FHIR resource lines are
 accepted and dropped on purpose.
+
+### Deletions
+
+HealthKit reports the samples deleted since an anchor (`HKDeletedObject`), and a sample is
+never edited in place: an edit is the deletion of the old sample and a new one under a new
+UUID. A deletion line names the UUID of a deleted sample, and nothing else:
+
+```json
+{"deletedUuid":"6F1A9D2B-0C4E-4B8A-9E61-3D2B7A5C1F00"}
+```
+
+Send deletion lines only to a server whose upload answers list `deletion_lines` in `features`
+([responses](#upload-contract)): an older server stores them and never applies them. The line
+has no type and no day of its own; put it in any part.
+
+**Aliases.** Records are de-duplicated by content, so one stored row can stand for several
+HealthKit samples: two apps writing the same reading, or an app that saves a new copy before it
+deletes the old one, perhaps a sync later. For every line with a `uuid` the server keeps an
+alias of that UUID on the row the line was stored as or de-duplicated into
+(`ohs_data.record_aliases`). A deletion line removes its UUID's aliases, and a row only once no
+alias of it remains; a tombstone keeps a later copy of that UUID (a part sent again, a raw file
+processed again) from being stored. The order the parts are processed in does not matter.
+
+| Line | Removed by the deletion of |
+|---|---|
+| quantity, audiogram, category (sleep excepted), state of mind, dietary quantity, food correlation, workout (with its route) | its `uuid` |
+| blood pressure correlation | its `uuid` (both members), or a member's own `uuid` when the members were uploaded as quantity lines |
+
+- A removed step, energy, distance or flight sample is taken out of its day's derived total.
+- A `deletedUuid` that is not a string of 1 to 128 bytes rejects the line. A UUID nothing was
+  stored under only gets its tombstone.
+- The UUID is not part of the content hash: the same reading from an export (no UUID) and
+  from an app is still stored once.
+- **Not covered:** sleep, ECG and heartbeat series. Sleep nights are rebuilt from several
+  samples, so one stage sample's deletion has no stored record of its own to remove; such a
+  deletion only adds a tombstone.
+- **History stored by 0.2.0 and earlier** has no alias. Uploading it again is enough: each
+  sample is de-duplicated into its old row and leaves its alias there, so its deletion finds
+  it. With the Swift SDK, call `HealthKitSync.resetAnchor(for:)` on each type once. Rows whose
+  sample is already gone from HealthKit (a duplicate left by an edit) are not re-sent, so they
+  stay; delete the person's Apple Health rows in `psql` (as for [sleep](#sleep), on each
+  table) before the new upload to drop them too. Re-processing raw files is not enough: the old
+  files hold no deletion lines.
 
 ### Sleep
 
@@ -234,6 +278,7 @@ to 6 tries per part. 401 and 403 stop the import at once: check the token and it
 ## Processing notes
 
 - Content is de-duplicated by hash, so the same reading uploaded twice is stored once.
+- A deletion line removes the records of a deleted HealthKit sample ([Deletions](#deletions)).
 - A running total HealthKit re-sends with a newer value (a day's step count) replaces the stored
   one.
 - Daily step, energy, distance and flight totals are derived per local day from samples. When an

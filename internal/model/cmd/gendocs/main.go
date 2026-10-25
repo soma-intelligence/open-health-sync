@@ -89,6 +89,7 @@ var notes = map[string]string{
 	"MapResult.HighFrequency":            "The result holds high volume data and is written with COPY.",
 	"MapResult.SourceKey":                "Raw object the batch was mapped from. Child records use it to find a parent that arrived in another object.",
 	"MapResult.Deletions":                "Provider records the provider deleted: their stored rows are removed and a tombstone in `ohs_data.deleted_records` keeps them from being written again.",
+	"MapResult.AliasExternalIDs":         "The ExternalIDs name source objects that de-duplication can fold into one row (HealthKit samples): one alias per id and row is kept in `ohs_data.record_aliases`, and a deletion removes a row only once no alias of it remains.",
 }
 
 const header = `# Data model

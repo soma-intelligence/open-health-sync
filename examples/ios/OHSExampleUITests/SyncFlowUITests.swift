@@ -53,7 +53,7 @@ final class SyncFlowUITests: XCTestCase {
         XCTAssertTrue(scrollUntilExists(allow, in: app, towardTop: true), dump(app))
         allow.tap()
         tapInHealthSheet(app, "Turn On All", retapping: allow)
-        tapInHealthSheet(app, "Allow")
+        tapAllowInHealthSheet(app)
         XCTAssertTrue(scrollUntilExists(element(app, startingWith: "Health access requested"), in: app), dump(app))
 
         // First sync: the seeded readings go up.
@@ -90,6 +90,40 @@ final class SyncFlowUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
         }
         XCTFail("no \"\(label)\" in the Health sheet\n" + dump(app))
+    }
+
+    /// Taps the sheet's Allow button once it is enabled. Allow stays disabled until a type is
+    /// turned on, and a "Turn On All" tap made while the sheet is still settling can be lost
+    /// (seen on CI runners), so "Turn On All" is tapped again while Allow stays disabled.
+    private func tapAllowInHealthSheet(_ app: XCUIApplication) {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let deadline = Date().addingTimeInterval(timeout)
+        var turnOnAt = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            for root in [app, springboard] {
+                let done = root.buttons
+                    .matching(NSPredicate(format: "identifier == %@ OR label == %@",
+                                          "UIA.Health.AuthSheet.DoneButton", "Allow")).firstMatch
+                guard done.exists else {
+                    continue
+                }
+                if done.isEnabled && done.isHittable {
+                    done.tap()
+                    return
+                }
+                if Date() >= turnOnAt {
+                    let all = root.descendants(matching: .any)
+                        .matching(NSPredicate(format: "label == %@ OR identifier == %@",
+                                              "Turn On All", "UIA.Health.AuthSheet.AllCategoryButton")).firstMatch
+                    if all.exists && all.isHittable {
+                        all.tap()
+                    }
+                    turnOnAt = Date().addingTimeInterval(3)
+                }
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTFail("no enabled \"Allow\" in the Health sheet\n" + dump(app))
     }
 
     /// The list is lazy: rows off screen are not in the accessibility tree until shown. Swipes

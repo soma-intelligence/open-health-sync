@@ -138,6 +138,8 @@ func (e *env) seed(t *testing.T, user uuid.UUID, provider, connStatus string) []
 		VALUES ($1, $2, $3, $4, 1, 'parse')`, ten, user, provider, key)
 	e.exec(t, `INSERT INTO ohs_data.deleted_records (tenant_id, user_id, provider, external_id)
 		VALUES ($1, $2, $3, 'removed-1')`, ten, user, provider)
+	e.exec(t, `INSERT INTO ohs_data.record_aliases (tenant_id, user_id, provider, external_id, record_table, content_hash, start_time)
+		VALUES ($1, $2, $3, 'alias-1', 'quantity_samples', 'h', now())`, ten, user, provider)
 	e.exec(t, `INSERT INTO ohs_sync.consents (tenant_id, user_id, provider, category, granted, granted_at)
 		VALUES ($1, $2, $3, 'heart', true, now())`, ten, user, provider)
 	e.exec(t, `INSERT INTO ohs_sync.consent_events (tenant_id, user_id, provider, category, action)
@@ -149,7 +151,7 @@ func (e *env) seed(t *testing.T, user uuid.UUID, provider, connStatus string) []
 		"ohs_data.category_samples", "ohs_data.daily_summaries", "ohs_data.deleted_records",
 		"ohs_data.ecg_recordings", "ohs_data.ecg_samples", "ohs_data.failed_records",
 		"ohs_data.heartbeat_samples", "ohs_data.nutrition_logs", "ohs_data.observations",
-		"ohs_data.quantity_samples", "ohs_data.route_points", "ohs_data.sleep_phases",
+		"ohs_data.quantity_samples", "ohs_data.record_aliases", "ohs_data.route_points", "ohs_data.sleep_phases",
 		"ohs_data.sleep_sessions", "ohs_data.workout_tracks", "ohs_data.workouts",
 		"ohs_sync.connections", "ohs_sync.consent_events", "ohs_sync.consent_purges", "ohs_sync.consents",
 		"ohs_sync.etl_jobs", "ohs_sync.inbound_subscriptions",

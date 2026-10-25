@@ -155,6 +155,7 @@ func TestUploadStoresRegistersAndQueues(t *testing.T) {
 	wantKey := "raw/" + e.tenant.String() + "/" + e.user.String() + "/apple_health/2026-01-10/batch-1_0.ndjson.gz"
 	assert.Equal(t, wantKey, resp.Key)
 	assert.False(t, resp.Duplicate)
+	assert.Equal(t, []string{"deletion_lines"}, resp.Features, "the answer advertises the deletion line")
 
 	// Stored verbatim.
 	rc, err := e.raw.Get(context.Background(), wantKey)

@@ -2225,6 +2225,14 @@ paths:
                 properties:
                   key: { type: string, description: Raw object key. }
                   duplicate: { type: boolean }
+                  features:
+                    type: array
+                    items: { type: string, enum: [deletion_lines] }
+                    description: |
+                      What this server applies beyond the base line format. `deletion_lines`:
+                      `{"deletedUuid": ...}` lines remove the records of a deleted HealthKit
+                      sample. Send deletion lines only to a server that lists it: an older
+                      server stores them and never applies them.
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
