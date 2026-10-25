@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     -o /out/ohs ./cmd/ohs
 RUN mkdir -p /out/raw
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
 LABEL io.modelcontextprotocol.server.name="io.github.soma-intelligence/open-health-sync" \
       org.opencontainers.image.source="https://github.com/soma-intelligence/open-health-sync" \
       org.opencontainers.image.description="Self-hosted health data aggregator: eighteen sources in one canonical model, REST API, read-only MCP server, FHIR R4 and Open mHealth." \
