@@ -22,7 +22,8 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
 
-// Pull windows.
+// Pull windows. The intervals, lookback, catch-up and backfill below are the
+// defaults: each provider can declare its own (connector.SyncPolicy).
 const (
 	// PullEvery is how often a connection is pulled while its provider's
 	// notifications arrive: the pull is only a backstop for a lost one.
@@ -278,13 +279,13 @@ func (s *Scheduler) PullOnce(ctx context.Context, n int) (int, error) {
 	return len(jobs), nil
 }
 
-// backfillWindows splits the BackfillWindow ending at now into BackfillChunk
-// jobs, oldest first.
-func backfillWindows(now time.Time) [][2]time.Time {
+// backfillWindows splits the policy's Backfill ending at now into
+// BackfillChunk jobs, oldest first.
+func backfillWindows(now time.Time, p connector.SyncPolicy) [][2]time.Time {
 	end := now.UTC().Truncate(time.Second)
 	var out [][2]time.Time
-	for from := end.Add(-BackfillWindow); from.Before(end); from = from.Add(BackfillChunk) {
-		to := from.Add(BackfillChunk)
+	for from := end.Add(-p.Backfill); from.Before(end); from = from.Add(p.BackfillChunk) {
+		to := from.Add(p.BackfillChunk)
 		if to.After(end) {
 			to = end
 		}
@@ -293,9 +294,10 @@ func backfillWindows(now time.Time) [][2]time.Time {
 	return out
 }
 
-// enqueueBackfill adds the backfill jobs of a new connection in tx.
-func enqueueBackfill(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID, provider string, now time.Time) error {
-	for _, w := range backfillWindows(now) {
+// enqueueBackfill adds the backfill jobs of a new connection in tx, over its
+// provider's backfill policy.
+func enqueueBackfill(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID, provider string, p connector.SyncPolicy, now time.Time) error {
+	for _, w := range backfillWindows(now, p) {
 		if err := queue.EnqueuePull(ctx, tx, queue.PullJob{
 			TenantID: tenantID, UserID: userID, Provider: provider, From: w[0], To: w[1],
 			Trigger: queue.TriggerBackfill,
@@ -306,13 +308,14 @@ func enqueueBackfill(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID,
 	return nil
 }
 
-// pullEvery is the regular pull interval of a connection: PullEvery while
-// its notifications arrive, PullEveryWithoutPush otherwise.
-func pullEvery(pushHealthy bool) time.Duration {
+// pullEvery is the regular pull interval of a connection under its
+// provider's policy: PullEvery while its notifications arrive,
+// PullEveryWithoutPush otherwise.
+func pullEvery(p connector.SyncPolicy, pushHealthy bool) time.Duration {
 	if pushHealthy {
-		return PullEvery
+		return p.PullEvery
 	}
-	return PullEveryWithoutPush
+	return p.PullEveryWithoutPush
 }
 
 // pushHealthy reports whether a connection's notifications count as
@@ -321,20 +324,35 @@ func pushHealthy(push bool, lastEvent *time.Time, now time.Time) bool {
 	return push && lastEvent != nil && now.Sub(*lastEvent) < PushSilence
 }
 
-// regularWindow is the pull window of the slot ending at slotEnd: the last
-// interval (every) plus an overlap, reaching back to the last successful sync
-// after an outage (at most maxCatchUp).
-func regularWindow(slotEnd time.Time, every time.Duration, lastSync *time.Time) (time.Time, time.Time) {
-	from := slotEnd.Add(-every - pullOverlap)
-	if lastSync != nil {
-		if back := lastSync.Add(-pullOverlap); back.Before(from) {
+// regularWindow is the pull window of the slot ending at slotEnd under
+// policy p: the last interval (every) plus the provider's lookback, reaching
+// back to the end of the last complete pull (syncedThrough) after an outage or
+// a failed window, at most MaxCatchUp. The first slot of each UTC day reaches
+// back Reconcile further when the policy sets it.
+func regularWindow(slotEnd time.Time, every time.Duration, p connector.SyncPolicy, syncedThrough *time.Time) (time.Time, time.Time) {
+	from := slotEnd.Add(-every - p.Lookback)
+	if syncedThrough != nil {
+		if back := syncedThrough.Add(-p.Lookback); back.Before(from) {
 			from = back
 		}
 	}
-	if floor := slotEnd.Add(-maxCatchUp); from.Before(floor) {
+	if floor := slotEnd.Add(-p.MaxCatchUp); from.Before(floor) {
 		from = floor
 	}
+	if rf := reconcileFrom(slotEnd, p); rf.Before(from) {
+		from = rf
+	}
 	return from, slotEnd
+}
+
+// reconcileFrom is where the slot ending at slotEnd must start for the
+// policy's daily reconciliation: Reconcile back when slotEnd is a UTC
+// midnight and the policy reconciles, else slotEnd (no constraint).
+func reconcileFrom(slotEnd time.Time, p connector.SyncPolicy) time.Time {
+	if p.Reconcile > 0 && slotEnd.UTC().Truncate(24*time.Hour).Equal(slotEnd) {
+		return slotEnd.Add(-p.Reconcile)
+	}
+	return slotEnd
 }
 
 // Schedule runs one scheduling pass and returns the number of connections it
@@ -476,7 +494,7 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 		return 0, fmt.Errorf("find connections to backfill: %w", err)
 	}
 	for _, k := range fresh {
-		if err := enqueueBackfill(ctx, tx, k.tenant, k.user, k.provider, now); err != nil {
+		if err := enqueueBackfill(ctx, tx, k.tenant, k.user, k.provider, s.d.syncPolicy(k.provider), now); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -488,22 +506,29 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 		n++
 	}
 
-	// Regular pulls, the least recently synced first. Each connection's
-	// slot follows its interval: the long one while its notifications
-	// arrive ($7 = providers that send them, $8 = silence cutoff), the
-	// short one otherwise.
-	longSlot, shortSlot := now.UTC().Truncate(PullEvery), now.UTC().Truncate(PullEveryWithoutPush)
+	// Regular pulls, the least recently synced first. Each provider has its
+	// own policy (connector.SyncPolicy), passed as one row per provider: its
+	// slot ends (the long interval's while its notifications arrive, the
+	// short one's otherwise), spans (interval plus lookback), lookback,
+	// catch-up bound and reconciliation start for each slot. $4 = silence
+	// cutoff.
+	pp := s.policyRows(slugs, now)
 	rows, err := tx.Query(ctx, `
-		SELECT c.tenant_id, c.user_id, c.provider, c.last_sync_at, s.slot_end, s.healthy
+		SELECT c.tenant_id, c.user_id, c.provider, c.synced_through, s.slot_end, s.healthy
 		FROM ohs_sync.connections c
 		JOIN ohs_core.end_users u ON u.tenant_id = c.tenant_id AND u.id = c.user_id AND u.status = 'active'
+		JOIN unnest($1::text[], $4::bool[], $5::timestamptz[], $6::timestamptz[], $7::float8[], $8::float8[],
+		            $9::float8[], $10::float8[], $11::timestamptz[], $12::timestamptz[])
+		     AS p(provider, push, long_slot, short_slot, long_span, short_span, lookback, catchup, long_recon, short_recon)
+		  ON p.provider = c.provider
 		CROSS JOIN LATERAL (
 			SELECT h.healthy,
-			       CASE WHEN h.healthy THEN $1::timestamptz ELSE $9::timestamptz END AS slot_end,
-			       CASE WHEN h.healthy THEN $4::double precision ELSE $10::double precision END AS span
-			FROM (SELECT coalesce(c.provider = ANY($7) AND c.last_event_at > $8, false) AS healthy) h
+			       CASE WHEN h.healthy THEN p.long_slot ELSE p.short_slot END AS slot_end,
+			       CASE WHEN h.healthy THEN p.long_span ELSE p.short_span END AS span,
+			       CASE WHEN h.healthy THEN p.long_recon ELSE p.short_recon END AS recon_from
+			FROM (SELECT coalesce(p.push AND c.last_event_at > $3, false) AS healthy) h
 		) s
-		WHERE c.status = 'active' AND c.provider = ANY($3) AND `+providerOn+`
+		WHERE c.status = 'active' AND `+providerOn+`
 		  AND c.initial_backfill_at IS NOT NULL AND c.initial_backfill_at < s.slot_end
 		  AND NOT EXISTS (
 			SELECT 1 FROM ohs_sync.pull_jobs j
@@ -512,34 +537,37 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 			  AND j.data_type IS NULL
 			  AND (j.to_time = s.slot_end
 			       -- any other job counts only if it covers the whole window
-			       -- regularWindow would pull (catch-up included), e.g. a slot
-			       -- job an inbound burst widened
-			       OR (j.to_time > s.slot_end AND j.from_time <= greatest(
-					s.slot_end - make_interval(secs => $6::double precision),
+			       -- regularWindow would pull (catch-up and reconciliation
+			       -- included), e.g. a slot job an inbound burst widened
+			       OR (j.to_time > s.slot_end AND j.from_time <= least(s.recon_from, greatest(
+					s.slot_end - make_interval(secs => p.catchup),
 					least(s.slot_end - make_interval(secs => s.span),
-					      coalesce(c.last_sync_at, s.slot_end) - make_interval(secs => $5::double precision))))))
+					      coalesce(c.synced_through, s.slot_end) - make_interval(secs => p.lookback)))))))
 		ORDER BY c.last_sync_at NULLS FIRST, c.tenant_id, c.user_id, c.provider
 		LIMIT $2
-		FOR SHARE OF u`, longSlot, s.cfg.Batch, slugs, (PullEvery + pullOverlap).Seconds(), pullOverlap.Seconds(),
-		maxCatchUp.Seconds(), s.pushSlugs(slugs), now.Add(-PushSilence), shortSlot, (PullEveryWithoutPush + pullOverlap).Seconds())
+		FOR SHARE OF u`, pp.provider, s.cfg.Batch, now.Add(-PushSilence), pp.push, pp.longSlot, pp.shortSlot,
+		pp.longSpan, pp.shortSpan, pp.lookback, pp.catchup, pp.longRecon, pp.shortRecon)
 	if err != nil {
 		return 0, fmt.Errorf("find due connections: %w", err)
 	}
 	type dueConn struct {
-		key
-		slotEnd time.Time
-		healthy bool
+		tenant, user  uuid.UUID
+		provider      string
+		syncedThrough *time.Time
+		slotEnd       time.Time
+		healthy       bool
 	}
 	due, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (dueConn, error) {
 		var k dueConn
-		err := r.Scan(&k.tenant, &k.user, &k.provider, &k.lastSync, &k.slotEnd, &k.healthy)
+		err := r.Scan(&k.tenant, &k.user, &k.provider, &k.syncedThrough, &k.slotEnd, &k.healthy)
 		return k, err
 	})
 	if err != nil {
 		return 0, fmt.Errorf("find due connections: %w", err)
 	}
 	for _, k := range due {
-		from, to := regularWindow(k.slotEnd, pullEvery(k.healthy), k.lastSync)
+		p := s.d.syncPolicy(k.provider)
+		from, to := regularWindow(k.slotEnd, pullEvery(p, k.healthy), p, k.syncedThrough)
 		if err := queue.EnqueuePull(ctx, tx, queue.PullJob{
 			TenantID: k.tenant, UserID: k.user, Provider: k.provider, From: from, To: to,
 		}); err != nil {
@@ -548,6 +576,40 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 		n++
 	}
 	return n, nil
+}
+
+// policyRows are the per-provider columns of the regular pull query, one
+// entry per slug, in the same order.
+type policyRows struct {
+	provider              []string
+	push                  []bool
+	longSlot, shortSlot   []time.Time
+	longSpan, shortSpan   []float64
+	lookback, catchup     []float64
+	longRecon, shortRecon []time.Time
+}
+
+func (s *Scheduler) policyRows(slugs []string, now time.Time) policyRows {
+	push := map[string]bool{}
+	for _, slug := range s.pushSlugs(slugs) {
+		push[slug] = true
+	}
+	var r policyRows
+	for _, slug := range slugs {
+		p := s.d.syncPolicy(slug)
+		long, short := now.UTC().Truncate(p.PullEvery), now.UTC().Truncate(p.PullEveryWithoutPush)
+		r.provider = append(r.provider, slug)
+		r.push = append(r.push, push[slug])
+		r.longSlot = append(r.longSlot, long)
+		r.shortSlot = append(r.shortSlot, short)
+		r.longSpan = append(r.longSpan, (p.PullEvery + p.Lookback).Seconds())
+		r.shortSpan = append(r.shortSpan, (p.PullEveryWithoutPush + p.Lookback).Seconds())
+		r.lookback = append(r.lookback, p.Lookback.Seconds())
+		r.catchup = append(r.catchup, p.MaxCatchUp.Seconds())
+		r.longRecon = append(r.longRecon, reconcileFrom(long, p))
+		r.shortRecon = append(r.shortRecon, reconcileFrom(short, p))
+	}
+	return r
 }
 
 // handle runs one pull job and settles it. A lost claim (ErrNotRunning)

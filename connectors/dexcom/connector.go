@@ -150,6 +150,17 @@ func New(o Options) *Connector {
 // Slug returns "dexcom".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// Readings from the Dexcom apps reach the API 1 hour late in the US and 3
+// hours late elsewhere: each pull re-reads 6 hours, and the history is long.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		Lookback:  6 * time.Hour,
+		Backfill:  90 * 24 * time.Hour,
+		Reconcile: 2 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET. REGION
 // is optional and not listed.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }

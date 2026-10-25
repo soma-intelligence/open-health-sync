@@ -4,6 +4,7 @@ package all_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,3 +55,36 @@ func TestEveryOAuthConnectorTakesTenantKeys(t *testing.T) {
 	}
 	assert.Positive(t, n)
 }
+
+// A sync policy a connector declares must be valid as written: Normalize
+// replaces a field it refuses with the default, which would silently change
+// how the provider is pulled. The declared policy of a tenant instance is the
+// registered one's.
+func TestEveryDeclaredSyncPolicyIsValid(t *testing.T) {
+	for _, c := range connector.All() {
+		p, ok := c.(connector.SyncPolicied)
+		if !ok {
+			continue
+		}
+		declared := p.SyncPolicy()
+		got := connector.SyncPolicyOf(c)
+		d := connector.DefaultSyncPolicy()
+		check := func(field string, v, norm, def any) {
+			if v != norm && !(isZero(v) && norm == def) {
+				t.Errorf("%s: %s %v is out of bounds (used: %v)", c.Slug(), field, v, norm)
+			}
+		}
+		check("PullEvery", declared.PullEvery, got.PullEvery, d.PullEvery)
+		check("PullEveryWithoutPush", declared.PullEveryWithoutPush, got.PullEveryWithoutPush, d.PullEveryWithoutPush)
+		check("Lookback", declared.Lookback, got.Lookback, d.Lookback)
+		check("MaxCatchUp", declared.MaxCatchUp, got.MaxCatchUp, d.MaxCatchUp)
+		check("Backfill", declared.Backfill, got.Backfill, d.Backfill)
+		check("BackfillChunk", declared.BackfillChunk, got.BackfillChunk, d.BackfillChunk)
+		check("Reconcile", declared.Reconcile, got.Reconcile, d.Reconcile)
+		if inst, ok := c.(connector.Instancer); ok {
+			assert.Equal(t, got, connector.SyncPolicyOf(inst.NewInstance()), c.Slug())
+		}
+	}
+}
+
+func isZero(v any) bool { d, ok := v.(time.Duration); return ok && d == 0 }

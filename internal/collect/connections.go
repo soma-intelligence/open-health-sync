@@ -94,6 +94,15 @@ func (d Deps) capable(slug string) (connector.Connector, bool) {
 	return d.TenantKeys.Any(slug)
 }
 
+// syncPolicy is the sync policy of a provider (connector.SyncPolicyOf), the
+// default one for a provider this instance does not run.
+func (d Deps) syncPolicy(slug string) connector.SyncPolicy {
+	if c, ok := d.capable(slug); ok {
+		return connector.SyncPolicyOf(c)
+	}
+	return connector.DefaultSyncPolicy()
+}
+
 // capableOAuth is capable for an OAuth provider.
 func (d Deps) capableOAuth(slug string) (connector.OAuthConnector, bool) {
 	c, ok := d.capable(slug)

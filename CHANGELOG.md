@@ -9,6 +9,14 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Each provider is pulled on its own sync policy (`connector.SyncPolicy`): interval with and
+  without notifications, lookback for late data, catch-up bound, backfill length and an optional
+  daily reconciliation that widens the 00:00 UTC pull. Dexcom re-reads 6 hours (its readings
+  reach the API up to 3 hours late outside the US, so they were missed after the backfill),
+  OMRON 72 hours, Ultrahuman 48, Eight Sleep 36 and the others 24. Oura, WHOOP, Withings and
+  Dexcom are backfilled over 90 days, Polar and Suunto over the 28 days their APIs serve, and
+  Strava and Suunto are pulled less often to stay inside their rate limits. See
+  [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
 - A synthetic data generator for every documented provider (`internal/synth`): an invented
   person's timeline rendered in each vendor's wire format, written from the vendor's published
   documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
@@ -19,6 +27,9 @@ release may change the API, the configuration or the database schema.
 
 ### Fixed
 
+- A failed pull window is fetched again: the regular pull now reaches back to the end of the
+  last complete pull (`synced_through`) instead of the last successful job, which a pull of one
+  notified data type moved forward.
 - Sleep phases, ECG recordings, daily summaries and observations are now validated, and an end
   before the start or far in the future is refused on every record kind.
 - Apple Health glucose in mmol/L and the `yd`, `in`, `s`, `oz` and `lb` unit spellings are

@@ -173,6 +173,17 @@ func newHTTPClient() *http.Client {
 // Slug returns "oura".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// The ring syncs when the app opens, so the night arrives in the morning and
+// scores are revised; the history is long.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		Lookback:  24 * time.Hour,
+		Backfill:  90 * 24 * time.Hour,
+		Reconcile: 7 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET.
 // VERIFICATION_TOKEN is optional: pulls work without it.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }

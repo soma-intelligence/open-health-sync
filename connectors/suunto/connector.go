@@ -179,6 +179,19 @@ func newHTTPClient() *http.Client {
 // Slug returns "suunto".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// The Development API allows about 200 calls a week, so pulls are rare and
+// notifications carry new workouts; windows are at most 28 days.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEvery:            24 * time.Hour,
+		PullEveryWithoutPush: 12 * time.Hour,
+		Lookback:             24 * time.Hour,
+		Backfill:             28 * 24 * time.Hour,
+		BackfillChunk:        14 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID, CLIENT_SECRET and
 // SUBSCRIPTION_KEY. NOTIFICATION_SECRET is optional: pulls work without it.
 func (c *Connector) RequiredKeys() []string {
