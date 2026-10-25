@@ -47,7 +47,7 @@ func TestRegIncBeta_Goldens(t *testing.T) {
 	// I_x(1, 1) = x; I_x(a, 1) = x^a; I_x(1, b) = 1 - (1-x)^b.
 	assert.InDelta(t, 0.3, RegIncBeta(0.3, 1, 1), 1e-14)
 	assert.InDelta(t, math.Pow(0.6, 2.5), RegIncBeta(0.6, 2.5, 1), 1e-13)
-	assert.InDelta(t, 1-math.Pow(0.6, 3), RegIncBeta(0.4, 1, 3), 1e-13)
+	assert.InDelta(t, 1-0.6*0.6*0.6, RegIncBeta(0.4, 1, 3), 1e-13)
 	// Symmetry I_x(a, b) = 1 - I_{1-x}(b, a).
 	assert.InDelta(t, 1-RegIncBeta(0.8, 4, 2.5), RegIncBeta(0.2, 2.5, 4), 1e-13)
 	assert.Equal(t, 0.0, RegIncBeta(0, 2, 3))

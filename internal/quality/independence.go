@@ -74,8 +74,7 @@ func GroupCopies(obs []Obs, window time.Duration, valueTol float64) []CopyGroup 
 	for i := range parent {
 		parent[i] = i
 	}
-	var find func(int) int
-	find = func(i int) int {
+	find := func(i int) int {
 		for parent[i] != i {
 			parent[i] = parent[parent[i]]
 			i = parent[i]

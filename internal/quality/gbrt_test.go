@@ -69,8 +69,9 @@ func TestGBRT_LearnsScaleAndIsDeterministic(t *testing.T) {
 	var mseModel, mseBase float64
 	mean := e1.Base
 	for i := range Xt {
-		mseModel += math.Pow(e1.Predict(Xt[i])-yt[i], 2)
-		mseBase += math.Pow(mean-yt[i], 2)
+		dm, db := e1.Predict(Xt[i])-yt[i], mean-yt[i]
+		mseModel += dm * dm
+		mseBase += db * db
 	}
 	assert.Less(t, mseModel, 0.9*mseBase)
 	// Predictions rise with the true scale.

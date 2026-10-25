@@ -60,9 +60,9 @@ func LoadDalia(dir string, fitLag bool) ([]Record, float64, error) {
 		return nil, 0, ErrMissing
 	}
 	type subj struct {
-		name                 string
-		ref, dev, enmo, actv series
-		act                  []string
+		name           string
+		ref, dev, enmo series
+		act            []string
 	}
 	var subs []subj
 	pairs := map[string][2]series{}
