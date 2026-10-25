@@ -132,6 +132,18 @@ func TestScore_Calibration(t *testing.T) {
 	assert.Equal(t, "c1", q.Evidence.CalibrationVersion)
 	assert.Equal(t, "resting_heart_rate|oura", q.Evidence.CalibrationGroup)
 	assert.InDelta(t, 2, q.Evidence.Gamma, 1e-12)
+
+	// A shift moves the bias by shift times the uncalibrated scale.
+	sc.Calibration.Groups["resting_heart_rate|oura"] = GroupCal{N: 100, Shift: 0.5, Gamma: 1, Nu: 4}
+	q = sc.Score(in)
+	assert.InDelta(t, base.Bias+0.5*s, q.Bias, 1e-12)
+	assert.InDelta(t, 0.5, q.Evidence.Shift, 1e-12)
+
+	// A q map recalibrates q, and the grade follows.
+	sc.Calibration.QMaps = map[string]QMap{"resting_heart_rate": {{0, 0.6}, {1, 0.6}}}
+	q = sc.Score(in)
+	assert.InDelta(t, 0.6, q.Q, 1e-12)
+	assert.Equal(t, "C", q.Grade)
 }
 
 // The residual model scales sigma per figure.
@@ -139,11 +151,20 @@ func TestScore_ModelScalesSigma(t *testing.T) {
 	sc := priorOnly()
 	in := Input{Metric: MetricHeartRate, Value: 70, Device: Device{Family: "galaxy_watch", Sensor: SensorWristPPG}, Context: ContextRest}
 	base := sc.Score(in)
-	sTarget := 4 * math.Hypot(base.BiasSD, base.Sigma)
+	sTarget := 3 * math.Hypot(base.BiasSD, base.Sigma)
 	sc.Model = &Model{Version: "m1", Nu: 4, Ensemble: &Ensemble{Features: []string{"value"}, Base: math.Log(sTarget) + MeanLogAbsT(4), LearningRate: 1}}
 	q := sc.Score(in)
 	assert.InDelta(t, sTarget, math.Hypot(q.BiasSD, q.Sigma), 1e-9)
-	assert.Greater(t, q.Components.ML.Factor, 3.0)
+	assert.Greater(t, q.Components.ML.Factor, 2.5)
+
+	// A model that names its metrics leaves the others alone.
+	sc.Model.Metrics = []string{MetricRestingHeartRate}
+	assert.Equal(t, 1.0, sc.Score(in).Components.ML.Factor)
+	sc.Model.Metrics = []string{MetricHeartRate}
+
+	// A prediction far outside the prior is held to a factor of four.
+	sc.Model.Ensemble.Base = math.Log(100*sTarget) + MeanLogAbsT(4)
+	assert.InDelta(t, 4, sc.Score(in).Components.ML.Factor, 1e-12)
 	assert.Equal(t, "m1", q.Evidence.ModelVersion)
 }
 

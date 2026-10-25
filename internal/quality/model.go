@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -18,8 +19,16 @@ type Model struct {
 	Version  string    `json:"version"`
 	Nu       float64   `json:"nu"`
 	Ensemble *Ensemble `json:"ensemble,omitempty"`
+	// Metrics lists the metrics the model was fitted on with enough figures;
+	// it leaves the others to the priors. Empty means every metric.
+	Metrics []string `json:"metrics,omitempty"`
 	// Trained says what the model was fitted on, for the report.
 	Trained string `json:"trained,omitempty"`
+}
+
+// Covers says whether the model applies to a metric.
+func (m *Model) Covers(metric string) bool {
+	return len(m.Metrics) == 0 || slices.Contains(m.Metrics, metric)
 }
 
 // Features is what is known around a figure for the residual model. A NaN

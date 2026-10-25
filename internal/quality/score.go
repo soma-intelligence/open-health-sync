@@ -88,7 +88,13 @@ type Evidence struct {
 	CalibrationVersion string  `json:"calibration_version"`
 	CalibrationGroup   string  `json:"calibration_group,omitempty"`
 	Gamma              float64 `json:"gamma"`
+	// Shift is the calibration group's bias correction, in units of the
+	// uncalibrated scale.
+	Shift float64 `json:"shift"`
 }
+
+// maxMLFactor bounds the residual model's scaling of the prior sigma.
+const maxMLFactor = 4
 
 // Scorer scores figures. Priors is required; Model and Calibration are
 // optional, and without them the score comes from the priors alone.
@@ -196,15 +202,15 @@ func (s *Scorer) Score(in Input) Quality {
 
 	// Stage 4: the residual model scales sigma for this figure's context.
 	mlFactor := 1.0
-	if s.Model != nil && s.Model.Ensemble != nil {
+	if s.Model != nil && s.Model.Ensemble != nil && s.Model.Covers(in.Metric) {
 		sML := s.Model.Scale(in, ctx, m)
 		// The model predicts the whole scale around the prior bias; the part
-		// the prior's bias uncertainty explains is taken out, with a floor so
-		// one figure is never scored as near perfect.
-		floor := 0.25 * sigmaPrior
+		// the prior's bias uncertainty explains is taken out.
 		bsd := priorBiasSD(p, m, z)
-		sigmaML := math.Sqrt(math.Max(sML*sML-bsd*bsd, floor*floor))
-		mlFactor = sigmaML / sigmaPrior
+		sigmaML := math.Sqrt(math.Max(sML*sML-bsd*bsd, 0))
+		// The model scales the prior within a factor of four either way: a
+		// figure unlike any it was trained on must not get an absurd sigma.
+		mlFactor = math.Min(maxMLFactor, math.Max(1/maxMLFactor, sigmaML/sigmaPrior))
 		out.Evidence.ModelVersion = s.Model.Version
 	}
 	out.Components.ML.Factor = mlFactor
@@ -223,18 +229,25 @@ func (s *Scorer) Score(in Input) Quality {
 	out.Components.Plausibility.Factor = plaus
 	sigma := sigmaPrior * agreeRatio * mlFactor * plaus
 
-	// Stage 5: calibration.
-	gamma, nu := 1.0, p.Nu
+	// Stage 5: calibration. The group's shift moves the bias by what the
+	// prior missed against the references, in units of the uncalibrated
+	// scale; gamma rescales.
+	gamma, nu, shift := 1.0, p.Nu, 0.0
 	if g, key, ok := s.Calibration.Lookup([]string{in.Metric, in.Device.Group(), string(ctx)}); ok {
-		gamma, nu = g.Gamma, g.Nu
+		gamma, nu, shift = g.Gamma, g.Nu, g.Shift
 		out.Evidence.CalibrationVersion = s.Calibration.Version
 		out.Evidence.CalibrationGroup = key
 	}
-	out.Evidence.Gamma = gamma
-	scale := gamma * math.Hypot(biasSD, sigma)
+	out.Evidence.Gamma, out.Evidence.Shift = gamma, shift
+	raw := math.Hypot(biasSD, sigma)
+	bias += shift * raw
+	scale := gamma * raw
 
 	out.Bias, out.BiasSD, out.Sigma = bias, biasSD, sigma
 	out.Q = ProbWithin(out.Tolerance, bias, scale, nu)
+	if qm := s.Calibration.QMapFor([]string{in.Metric, in.Device.Group(), string(ctx)}); qm != nil {
+		out.Q = qm.Apply(out.Q)
+	}
 	out.Grade = gradeOf(out.Q)
 	space := "linear"
 	if m.Scale == Log {

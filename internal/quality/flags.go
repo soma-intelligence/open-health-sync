@@ -10,6 +10,7 @@ const (
 	FlagSuspectRange       Flag = "suspect_range"       // outside the metric's soft limits
 	FlagRateJump           Flag = "rate_jump"           // changed faster than the body can
 	FlagSpike              Flag = "spike"               // an isolated value far from its neighbours
+	FlagLowSignal          Flag = "low_signal"          // the device's own quality field says the signal was weak
 	FlagRejected           Flag = "rejected"            // outside the hard limits, grade X
 	FlagRelayCopy          Flag = "relay_copy"          // a copy of a figure read elsewhere
 	FlagDefinitionMismatch Flag = "definition_mismatch" // compared with a figure of another definition
@@ -21,7 +22,7 @@ const (
 // inflating says whether a flag inflates sigma.
 func (f Flag) inflating() bool {
 	switch f {
-	case FlagSuspectRange, FlagRateJump, FlagSpike:
+	case FlagSuspectRange, FlagRateJump, FlagSpike, FlagLowSignal:
 		return true
 	}
 	return false
