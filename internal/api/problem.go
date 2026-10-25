@@ -36,7 +36,8 @@ func notFound(w http.ResponseWriter, what string) {
 func internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
 	slog.ErrorContext(r.Context(), msg, "error", err, "route", r.Pattern)
 	if db.Unavailable(err) {
-		auth.WriteUnavailable(w)
+		// The cause may be the raw store's network as well as the database's.
+		auth.WriteUnavailable(w, "storage is unavailable; retry in a few seconds")
 		return
 	}
 	problem(w, http.StatusInternalServerError, "an internal error occurred")

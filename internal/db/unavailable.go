@@ -3,9 +3,11 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -20,19 +22,21 @@ const RetryAfterSeconds = 5
 // (no connection, a connection lost mid-query, a server shutting down,
 // starting up or out of connection slots), as opposed to a query that ran
 // and failed. A request failing for that reason can be retried as is: the
-// API answers 503 with Retry-After instead of 500.
+// API answers 503 with Retry-After instead of 500. A canceled request, a
+// refused login (SQLSTATE class 28) and a protocol violation (08P01) are not
+// outages: retrying them does not help.
 func Unavailable(err error) bool {
-	if err == nil {
+	if err == nil || errors.Is(err, context.Canceled) {
 		return false
 	}
-	var connErr *pgconn.ConnectError
-	if errors.As(err, &connErr) {
-		return true
-	}
+	// A server error decides, also inside a ConnectError (a refused login
+	// fails the connect).
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch {
-		case len(pgErr.Code) == 5 && pgErr.Code[:2] == "08": // connection exception
+		case pgErr.Code == "08P01": // protocol violation: a bug, not an outage
+			return false
+		case strings.HasPrefix(pgErr.Code, "08"): // connection exception
 			return true
 		case pgErr.Code == "57P01", pgErr.Code == "57P02", pgErr.Code == "57P03": // shutdown, crash, starting up
 			return true
@@ -40,6 +44,10 @@ func Unavailable(err error) bool {
 			return true
 		}
 		return false
+	}
+	var connErr *pgconn.ConnectError
+	if errors.As(err, &connErr) {
+		return true
 	}
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {

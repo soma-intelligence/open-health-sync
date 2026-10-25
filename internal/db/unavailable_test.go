@@ -43,7 +43,12 @@ func TestUnavailable(t *testing.T) {
 		&pgconn.PgError{Code: "22021"}, // a query that ran and failed
 		&pgconn.PgError{Code: "23505"},
 		&pgconn.PgError{Code: "57014"}, // canceled statement
+		&pgconn.PgError{Code: "08P01"}, // protocol violation
+		&pgconn.PgError{Code: "28P01"}, // wrong password
+		&pgconn.PgError{Code: "28000"}, // no such role
 		context.Canceled,
+		fmt.Errorf("acquire: %w", context.Canceled),
+		&net.OpError{Op: "read", Err: context.Canceled},
 		context.DeadlineExceeded,
 	} {
 		assert.False(t, Unavailable(e), "%v", e)

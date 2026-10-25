@@ -30,11 +30,10 @@ func WriteProblem(w http.ResponseWriter, status int, title, detail string) {
 	_ = json.NewEncoder(w).Encode(problem{Type: "about:blank", Title: title, Status: status, Detail: detail, RequestID: id})
 }
 
-// WriteUnavailable answers 503 with Retry-After for a request that failed
-// because the database could not be reached (db.Unavailable): the same
-// request can be sent again once it is back.
-func WriteUnavailable(w http.ResponseWriter) {
+// WriteUnavailable answers 503 with Retry-After and detail for a request
+// that failed because a backing service could not be reached
+// (db.Unavailable): the same request can be sent again once it is back.
+func WriteUnavailable(w http.ResponseWriter, detail string) {
 	w.Header().Set("Retry-After", strconv.Itoa(db.RetryAfterSeconds))
-	WriteProblem(w, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable),
-		"the database is unavailable; retry in a few seconds")
+	WriteProblem(w, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), detail)
 }

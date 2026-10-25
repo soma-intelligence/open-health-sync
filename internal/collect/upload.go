@@ -197,7 +197,8 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.ErrorContext(r.Context(), "collect: upload failed",
 			"tenant_id", req.tenant, "user_id", req.user, "provider", h.provider, "error", err)
 		if db.Unavailable(err) {
-			auth.WriteUnavailable(w)
+			// The raw store's network or the database's: say neither.
+			auth.WriteUnavailable(w, "storage is unavailable; retry in a few seconds")
 			return
 		}
 		auth.WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "the part could not be stored, retry later")

@@ -113,7 +113,7 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 				// The cause may name infrastructure; it is logged, never sent. No token or hash.
 				slog.ErrorContext(r.Context(), "auth: lookup failed", "error", err)
 				if db.Unavailable(err) {
-					WriteUnavailable(w)
+					WriteUnavailable(w, "the database is unavailable; retry in a few seconds")
 					return
 				}
 				WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "authentication is temporarily unavailable")
