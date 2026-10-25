@@ -67,16 +67,20 @@ func TestValidate_BodyFatPercentageRange(t *testing.T) {
 	assert.Empty(t, ValidateMapResult(qs("body_fat_percentage", 22.5)))
 
 	// 0 and 100 are a scale that failed to measure (essential fat is about 3
-	// percent, and 0.18 is a fraction sent as percent): refused. 72 is possible
-	// but rare, so it comes back flagged.
+	// percent, and 0.18 is a fraction sent as percent): refused.
 	for _, v := range []float64{0, 0.18, 100} {
 		errs := ValidateMapResult(qs("body_fat_percentage", v))
 		require.Lenf(t, errs, 1, "body_fat_percentage=%v", v)
 		assert.Equal(t, SeverityReject, errs[0].Severity)
 	}
-	errs := ValidateMapResult(qs("body_fat_percentage", 72))
-	require.Len(t, errs, 1)
-	assert.Equal(t, SeveritySuspect, errs[0].Severity)
+	// 72 to 80 is possible in severe obesity but rare, so it comes back
+	// flagged; only above 80 is refused.
+	for _, v := range []float64{72, 78, 80} {
+		errs := ValidateMapResult(qs("body_fat_percentage", v))
+		require.Lenf(t, errs, 1, "body_fat_percentage=%v", v)
+		assert.Equal(t, SeveritySuspect, errs[0].Severity)
+	}
+	require.Len(t, Rejections(ValidateMapResult(qs("body_fat_percentage", 80.5))), 1)
 
 	require.Len(t, ValidateMapResult(qs("body_fat_percentage", 150)), 1)
 	require.Len(t, ValidateMapResult(qs("body_fat_percentage", -5)), 1)
@@ -169,7 +173,7 @@ func TestValidate_FractionUnderPercentIsRejected(t *testing.T) {
 	for _, c := range []struct {
 		qt string
 		v  float64
-	}{{"oxygen_saturation", 0.97}, {"oxygen_saturation", 49}, {"body_fat_percentage", 0.18}, {"body_fat_percentage", 1.5}, {"body_fat_percentage", 80}} {
+	}{{"oxygen_saturation", 0.97}, {"oxygen_saturation", 49}, {"body_fat_percentage", 0.18}, {"body_fat_percentage", 1.5}, {"body_fat_percentage", 85}} {
 		errs := ValidateMapResult(qs(c.qt, c.v))
 		require.Lenf(t, Rejections(errs), 1, "%s=%v", c.qt, c.v)
 	}

@@ -189,10 +189,11 @@ var rangeRules = map[string]rangeRule{
 	},
 	"body_fat_percentage": {
 		// Essential fat is about 3 percent in men and 10 in women, so a reading
-		// under 2 (a fraction sent as percent among them) or over 75 is a scale
-		// that failed to measure, not a body.
+		// under 2 (a fraction sent as percent among them) or over 80 is a scale
+		// that failed to measure, not a body. 70 to 80 happens in severe
+		// obesity: kept and flagged.
 		Unit:    "percent",
-		HardMin: 2, HardMax: 75, SoftMin: 2, SoftMax: 70,
+		HardMin: 2, HardMax: 80, SoftMin: 2, SoftMax: 70,
 	},
 	"visceral_fat_rating": {
 		Unit:    "index",
