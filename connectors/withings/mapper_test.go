@@ -303,12 +303,12 @@ func TestMapSleep(t *testing.T) {
 	require.NotNil(t, s.TotalSleepSeconds)
 	assert.Equal(t, 5400+7200+10800, *s.TotalSleepSeconds, "total = deep + rem + light")
 	require.NotNil(t, s.RestingHR)
-	assert.Equal(t, 55.0, *s.RestingHR)
+	assert.Equal(t, 48.0, *s.RestingHR, "the night's lowest heart rate, as Oura's resting heart rate")
+	assert.EqualValues(t, 55, s.Metadata["hr_average"], "the mean heart rate asleep is no resting heart rate: kept in metadata")
 	assert.Equal(t, 16.0, *s.RespiratoryRate)
 	assert.Equal(t, 85.0, *s.SleepScore)
 	assert.NotEmpty(t, s.ContentHash)
 	assert.Equal(t, "Europe/Paris", s.Metadata["timezone"])
-	assert.EqualValues(t, 48, s.Metadata["hr_min"], "unmapped data fields stay queryable in metadata")
 	assert.Nil(t, res.SleepPhases, "no phase segments, no synthetic phases")
 }
 

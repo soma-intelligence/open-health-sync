@@ -130,8 +130,8 @@ In Garmin's developer portal, for your Starter or Enterprise app:
 3. Copy the **consumer key** (client id) and **consumer secret** (client secret).
 4. Set the notification URL of every summary type you enable (see
    [Notifications](#notifications)) to `<OHS_PUBLIC_URL>/inbound/garmin`, with
-   `?token=<OHS_GARMIN_INBOUND_TOKEN>` added if you set one. On Enterprise, prefer **ping/pull**
-   mode; a Starter app only has **push**.
+   `?token=<OHS_GARMIN_INBOUND_TOKEN>` added (without the token every notification is refused).
+   On Enterprise, prefer **ping/pull** mode; a Starter app only has **push**.
 
 ## 2. Configure the instance
 
@@ -141,7 +141,9 @@ In `.env`:
 OHS_PUBLIC_URL=https://ohs.example.org
 OHS_GARMIN_CLIENT_ID=...
 OHS_GARMIN_CLIENT_SECRET=...
-# Optional: a long random secret that every notification URL carries as ?token=...
+# A long random secret that every notification URL carries as ?token=...
+# Without it every notification is refused (401), pings included: only the scheduled
+# pulls then bring data, and a warning is logged at startup.
 OHS_GARMIN_INBOUND_TOKEN=...
 ```
 
@@ -156,7 +158,10 @@ ok    connector garmin
 ```
 
 `CLIENT_ID` and `CLIENT_SECRET` are required. If either is missing, the connector stays off.
-`INBOUND_TOKEN` is optional. `GET /v1/providers` lists `garmin` when the connector is on.
+`INBOUND_TOKEN` is optional, but without it every notification is refused (401), pings
+included: in ping mode the notification is what triggers a pull, so only the scheduled pulls
+bring data. The server logs a warning at startup and, at most every 10 minutes, for refusals.
+`GET /v1/providers` lists `garmin` when the connector is on.
 
 **Do not rotate the client secret while a user is mid-connect**: the PKCE code verifier is
 derived from it (below), so a consent started under the old secret fails its exchange and the
@@ -254,11 +259,11 @@ Garmin uses for each).
 **Trust.** Garmin does not sign notifications in any way we could find documented
 (**to confirm**). A ping is harmless: at worst it makes the server pull a connected user's own
 data again. A push body, however, is stored as data: anyone who knows a connected user's Garmin
-user id could store invented summaries for that user. To close that, set
-`OHS_GARMIN_INBOUND_TOKEN` to a long random value and add `?token=<value>` to every notification
-URL in Garmin's portal; notifications without it are refused (401). Whether Garmin keeps a query
-string on a notification URL is **to confirm**: check a first delivery. Or configure the app
-for ping mode, where nothing is stored from the body.
+user id could store invented summaries for that user. So notifications are refused (401) until
+`OHS_GARMIN_INBOUND_TOKEN` is set to a long random value, and then must carry `?token=<value>`,
+added to every notification URL in Garmin's portal. Whether Garmin keeps a query
+string on a notification URL is **to confirm**: check a first delivery. Ping mode, where nothing
+is stored from the body, is still the safer choice.
 
 Garmin retries a notification that does not get HTTP 200 quickly; the route answers at once and
 pulls in the background. Data exists only after the user's device syncs with Garmin Connect.

@@ -66,6 +66,8 @@ var notes = map[string]string{
 	"QuantitySample.Replaceable":         "Writer instruction, not a column: a later value for a still open window replaces the stored one.",
 	"QuantitySample.SupersedeMoved":      "Writer instruction, not a column: the external id names one figure of one record, so a stored copy under another start is deleted.",
 	"DailySummary.SummaryDate":           "The user's local calendar day.",
+	"SleepSession.HRVAvgMs":              "Average RMSSD of the night in ms, never SDNN. Exported to FHIR without a LOINC code (none is RMSSD).",
+	"DailySummary.HRVAvgMs":              "Average RMSSD of the day in ms, never SDNN. Exported to FHIR without a LOINC code (none is RMSSD).",
 	"DailySummary.Replaceable":           "Writer instruction, not a column: the latest summary for the day wins.",
 	"DailySummary.RecordID":              "Writer instruction, not a column: the provider record whose figures the summary carries; not written once that record is deleted.",
 	"NutritionLog.Replaceable":           "Writer instruction, not a column.",

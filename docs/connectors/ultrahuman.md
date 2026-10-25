@@ -102,13 +102,19 @@ erase everything held from Ultrahuman for that user (see
 
 The metrics endpoint answers **one date per call**:
 `GET https://partner.ultrahuman.com/api/partners/v1/user_data/metrics?date=YYYY-MM-DD` with
-`Authorization: Bearer <token>`. A pull walks every date of its window (UTC dates, both ends
-included) with a short pause between calls, and stores each date's answer verbatim as one raw
-line of data type `daily_metrics`. A date with no metric is not stored. A new connection is
-backfilled over the last 30 days in 7 day windows (about 30 calls in all). Since Ultrahuman
-sends no notifications, the connection is then pulled every hour; each regular pull covers the
-dates since the previous one, usually one or two calls (today's date is asked again until it is
-over, and its figures are replaced). How far back Ultrahuman serves data is not documented
+`Authorization: Bearer <token>`. A date is the user's local day, and the connection does not
+know the user's zone, so a pull walks every date whose local day can overlap its window in any
+zone from UTC-12 to UTC+14 (the window widened by 12 hours before and 14 hours after, then its
+UTC dates), with a short pause between calls, and stores each date's answer verbatim as one raw
+line of data type `daily_metrics`. No date after the one UTC+14 has reached is asked. A date
+with no metric is not stored, and for a date after the current UTC day an answer of 400, 422,
+404 or 204 counts as no data rather than failing the pull (Ultrahuman may refuse a date it
+sees as in the future). A new connection is backfilled over the last 30 days in 7 day windows (about 40
+calls in all). Since Ultrahuman sends no notifications, the connection is then pulled every
+hour; each regular pull asks two dates, sometimes three: a local day is asked again until it is
+over in every zone, and its figures are replaced. Asking UTC dates only, as before, missed the
+end of every local day west of UTC (the last 7 hours of a day in California, the closing step
+count among them). How far back Ultrahuman serves data is not documented
 **(to confirm)**.
 
 No webhooks are documented, so the connector is **pull only** **(to confirm that none exist)**.

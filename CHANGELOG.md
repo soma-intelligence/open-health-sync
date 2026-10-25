@@ -61,6 +61,48 @@ release may change the API, the configuration or the database schema.
   instead of one lookup per record: on second by second data the default export streamed about
   110 rows a second; an Apple Health account of 57 575 merged samples now exports in under a
   second instead of 10 minutes, record for record the same.
+- Fitbit / Google Health: Apple Health data relayed by Google (`platform` `HEALTH_KIT`) stores
+  its HRV as `hrv_sdnn` instead of `hrv_rmssd`, since HealthKit only measures SDNN (#205), and a
+  deep sleep RMSSD of 0 is left out of metadata. Points relayed from Apple Health or Health
+  Connect are attributed to that store (source `apple_health` or `health_connect`), so they no
+  longer add up with the tracker's own minutes in one stream. Rows stored earlier keep their
+  type and source until you run `docs/how-to/fitbit-relayed-points.sql` (see
+  [the guide](docs/how-to/fitbit-relayed-points.md)): a script rather than a migration, because
+  it has to decompress the compressed chunks of `quantity_samples` it scans.
+- FHIR: the `hrv_avg_ms` component of sleep sessions and daily summaries no longer carries LOINC
+  80404-7, the SDNN code: the value is RMSSD, which has no LOINC code, so it keeps the Open
+  Health Sync component code only, as `hrv_rmssd` samples do.
+- Validation: an oxygen saturation under 50 % or a body fat percentage under 2 % or over 80 % is
+  refused instead of stored with a suspect flag (body fat from 70 to 80 % is kept and flagged),
+  so a fraction sent with a percent unit (0.97) no longer reaches the exports. The figures of
+  sleep sessions (stage durations, score, HRV, resting heart rate, respiratory rate, SpO2) and
+  of daily summaries (steps, energy, distance, floors, resting heart rate, HRV, scores) are
+  range-checked like the matching samples.
+- One bad measurement no longer costs the whole record: a sample whose unit cannot be converted
+  is dropped on its own (the record used to be parked with every sample beside it), and a
+  figure of a sleep session, workout or daily summary outside its hard band is removed from that
+  record, listed under `quality_dropped` in its metadata, while the record and its other figures
+  are written. Suspect figures of these records are flagged like suspect samples.
+- Every record kind refuses a time before 1990-01-01 UTC: a zero date (0001-01-01), the Unix
+  epoch or the FIT epoch was stored as a measurement, and a year 0001 sample lost its end.
+- Ultrahuman: a pull asks every date whose local day overlaps its window instead of the UTC
+  dates only. West of UTC the end of every day was never pulled (in California its last 7
+  hours, the closing step count among them). No date after the one UTC+14 has reached is
+  asked, and a refusal (400, 422) or an empty answer for a date after the current UTC day is no
+  data, not a failed pull.
+- Garmin: notifications are refused (401) while `OHS_GARMIN_INBOUND_TOKEN` is unset. A push
+  notification is stored as data and Garmin signs nothing, so without the token anyone who knew
+  a connected user's Garmin id could store invented summaries for them. Pings are refused too,
+  and in ping mode the notification is what triggers a pull, so without the token only the
+  scheduled pulls bring data: set it and add `?token=<value>` to the notification URLs. A
+  warning is logged at startup when the keys are set without it, and refusals are logged at
+  warning level, at most every 10 minutes.
+- Apple Health export.xml from a phone set to US units: a height in feet (every height record
+  was refused as a unit error), masses in ounces, lengths in inches, speeds in ft/s and volumes in
+  mL or fluid ounces are converted to their storage unit.
+- Withings: a sleep session's resting heart rate is the night's lowest heart rate (`hr_min`),
+  as for Oura, instead of the mean heart rate asleep (`hr_average`), which now stays in
+  metadata. Sessions stored earlier keep the mean.
 
 ### Security
 

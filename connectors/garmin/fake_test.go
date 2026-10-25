@@ -19,6 +19,7 @@ import (
 const (
 	testClientID     = "test-client-id"
 	testClientSecret = "test-client-secret"
+	testInboundToken = "test-inbound-token"
 	testUserID       = "00000000-0000-0000-0000-000000000001"
 )
 
@@ -41,7 +42,7 @@ func newFakeGarmin(t *testing.T) *fakeGarmin {
 // no pacing, a fixed clock and a recording sleeper.
 func (f *fakeGarmin) connector(opts ...func(*Options)) *Connector {
 	o := Options{
-		ClientID: testClientID, ClientSecret: testClientSecret,
+		ClientID: testClientID, ClientSecret: testClientSecret, InboundToken: testInboundToken,
 		AuthURL:    f.URL() + "/oauth2Confirm",
 		TokenURL:   f.URL() + garminfake.TokenPath,
 		APIBase:    f.URL(),

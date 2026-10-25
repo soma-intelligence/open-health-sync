@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -28,10 +29,10 @@ type rawDay struct {
 	Body json.RawMessage `json:"body"`
 }
 
-// Fetch pulls the metrics of every date from from to to (both UTC dates,
-// inclusive; a to at midnight excludes that date) with one call per date,
-// and emits each day's answer as one raw line of DataTypeMetrics. A date
-// without data (404, 204, or an empty metric list) emits nothing.
+// Fetch pulls the metrics of every date whose local day can overlap [from,
+// to] (see localDates) with one call per date, and emits each day's answer as
+// one raw line of DataTypeMetrics. A date without data (404, 204, or an empty
+// metric list) emits nothing.
 //
 // A token Ultrahuman refuses (401, 403) gives an error wrapping
 // connector.ErrNeedsReauth: the scheduler then refreshes once and retries.
@@ -42,7 +43,9 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 	if token == "" {
 		return fmt.Errorf("ultrahuman: connection has no access token: %w", connector.ErrNeedsReauth)
 	}
-	days := dates(from, to)
+	now := c.now().UTC()
+	today := utcDay(now)
+	days := localDates(from, to, now)
 	for i, day := range days {
 		if i > 0 {
 			if err := c.sleep(ctx, c.dayDelay); err != nil {
@@ -50,9 +53,14 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 			}
 		}
 		date := day.Format("2006-01-02")
-		body, _, err := c.get(ctx, token, metricsPath, url.Values{"date": {date}})
+		body, status, err := c.get(ctx, token, metricsPath, url.Values{"date": {date}})
 		if errors.Is(err, errUnauthorized) || errors.Is(err, errForbidden) {
 			return fmt.Errorf("ultrahuman: metrics %s: %w: %w", date, err, connector.ErrNeedsReauth)
+		}
+		if day.After(today) && (status == http.StatusBadRequest || status == http.StatusUnprocessableEntity) {
+			// A date that has begun only east of UTC: Ultrahuman may refuse a
+			// date it sees as in the future. Nothing to store yet.
+			continue
 		}
 		if err != nil {
 			return fmt.Errorf("ultrahuman: metrics %s: %w", date, err)
@@ -69,6 +77,29 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 		}
 	}
 	return nil
+}
+
+// Earliest and latest UTC offsets in use: a local day runs from 14 hours
+// before its UTC midnight (UTC+14) to 12 hours after the next one (UTC-12).
+const (
+	maxEastOffset = 14 * time.Hour
+	maxWestOffset = 12 * time.Hour
+)
+
+// localDates lists the dates whose local day overlaps [from, to] in some zone.
+// Ultrahuman keys a date by the user's local midnight, and the connection
+// does not carry the user's zone, so asking only the UTC dates of the window
+// missed the end of every local day west of UTC (in California the last 7
+// hours of the day, its closing step count among them). Asking one more date
+// costs one call; a date that has not begun yet answers nothing.
+// No date after the one UTC+14 has reached at now is asked: it has begun
+// nowhere.
+func localDates(from, to, now time.Time) []time.Time {
+	to = to.Add(maxEastOffset)
+	if limit := now.Add(maxEastOffset); to.After(limit) {
+		to = limit
+	}
+	return dates(from.Add(-maxWestOffset), to)
 }
 
 // dates lists the UTC dates a pull of [from, to] covers, oldest first, at

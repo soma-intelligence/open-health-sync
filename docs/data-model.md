@@ -92,7 +92,7 @@ Stored in `ohs_data.sleep_sessions`.
 | `LightSleepSeconds` | `*int` |  |
 | `AwakeSeconds` | `*int` |  |
 | `SleepScore` | `*float64` |  |
-| `HRVAvgMs` | `*float64` |  |
+| `HRVAvgMs` | `*float64` | Average RMSSD of the night in ms, never SDNN. Exported to FHIR without a LOINC code (none is RMSSD). |
 | `RestingHR` | `*float64` |  |
 | `RespiratoryRate` | `*float64` |  |
 | `SpO2Avg` | `*float64` |  |
@@ -253,7 +253,7 @@ Stored in `ohs_data.daily_summaries`.
 | `DistanceM` | `*float64` |  |
 | `FloorsClimbed` | `*int` |  |
 | `RestingHR` | `*float64` |  |
-| `HRVAvgMs` | `*float64` |  |
+| `HRVAvgMs` | `*float64` | Average RMSSD of the day in ms, never SDNN. Exported to FHIR without a LOINC code (none is RMSSD). |
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
 | `Replaceable` | `bool` | Writer instruction, not a column: the latest summary for the day wins. |

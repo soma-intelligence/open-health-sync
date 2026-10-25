@@ -3,6 +3,7 @@
 package etl
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -606,4 +607,36 @@ func TestValidateNutritionLog_Amounts(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A time before 1990 is a zero or epoch default (0001-01-01, 1970, the FIT
+// epoch of 1989-12-31), not a measurement: refused on every record kind.
+func TestValidateMapResult_TimesBeforeTheFloor(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	for _, at := range []time.Time{{}, time.Unix(0, 0).UTC(), time.Date(1989, 12, 31, 0, 0, 0, 0, time.UTC)} {
+		mr := &model.MapResult{
+			QuantitySamples:  []model.QuantitySample{{QuantityType: "heart_rate", Value: 60, Unit: "bpm", StartDate: at, EndDate: at}},
+			CategorySamples:  []model.CategorySample{{StartDate: at}},
+			SleepSessions:    []model.SleepSession{{BedtimeStart: at, BedtimeEnd: now.Add(-time.Hour)}},
+			SleepPhases:      []model.SleepPhase{{StartDate: at}},
+			Workouts:         []model.Workout{{StartDate: at, EndDate: now.Add(-time.Hour)}},
+			RoutePoints:      []model.RoutePoint{{Timestamp: at}},
+			NutritionLogs:    []model.NutritionLog{{StartDate: at}},
+			DailySummaries:   []model.DailySummary{{SummaryDate: at}},
+			Observations:     []model.Observation{{TS: at}},
+			ECGRecordings:    []model.ECGRecording{{StartDate: at}},
+			HeartbeatSamples: []model.HeartbeatSample{{Timestamp: at, RRMS: 800}},
+		}
+		kinds := map[string]bool{}
+		for _, e := range Rejections(ValidateMapResultAt(mr, now)) {
+			if strings.Contains(e.Message, "before 1990") {
+				kinds[e.RecordType] = true
+			}
+		}
+		assert.Len(t, kinds, 11, "%v: %v", at, kinds)
+	}
+	ok := time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)
+	assert.Empty(t, ValidateMapResultAt(&model.MapResult{
+		QuantitySamples: []model.QuantitySample{{QuantityType: "heart_rate", Value: 60, Unit: "bpm", StartDate: ok}},
+	}, now), "1990-01-01 itself is accepted")
 }
