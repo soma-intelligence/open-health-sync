@@ -201,20 +201,23 @@ large part at once; real parts from the SDKs and `ohs import` are 8 MiB of NDJSO
 
 | Profile | `mem_limit` | `GOMEMLIMIT` | `OHS_INGEST_CONCURRENCY` | Where |
 |---|---|---|---|---|
-| Default | `1g` | `768MiB` | `8` | `deploy/docker-compose.yml`, the Helm chart (`resources.limits.memory: 1Gi`) |
-| Low memory (Raspberry Pi 5 4 GB, a 1 GB VPS) | `512m` | `256MiB` | `2` | `deploy/docker-compose.pi.yml` |
-| Large (several tenants importing at once) | `2g` | `1536MiB` | `16` | set `OHS_MEM_LIMIT`, `OHS_GOMEMLIMIT` and `OHS_INGEST_CONCURRENCY` |
+| Default | `1g` | derived: `768MiB` | `8` | `deploy/docker-compose.yml`, the Helm chart (`resources.limits.memory: 1Gi`) |
+| Low memory (Raspberry Pi 5 4 GB, a 1 GB VPS) | `512m` | `256MiB`, set by the overlay | `2` | `deploy/docker-compose.pi.yml` |
+| Large (several tenants importing at once) | `2g` | derived: `1536MiB` | `16` | set `OHS_MEM_LIMIT=2g` and `OHS_INGEST_CONCURRENCY=16` |
+
+Keep the two together: about 200 MB plus 100 MB per slot of `OHS_INGEST_CONCURRENCY` in
+`mem_limit`. Raising the slots without the limit lets a burst of large uploads reach it.
 
 - **`mem_limit`** (compose; `OHS_MEM_LIMIT` in `deploy/.env` or the shell changes it) is the
   container's hard limit: above it the kernel restarts `ohs` alone (the restart policy brings it
   back in a second, and an upload cut short is retried by its client), instead of the host's
   out-of-memory killer picking a process, Postgres included.
-- **`GOMEMLIMIT`** (compose sets it from `OHS_GOMEMLIMIT`) is the Go runtime's soft limit: it
-  collects garbage harder as the heap gets near it. Keep it at about three quarters of the hard
-  limit. When it is unset, `ohs` sets it itself to three quarters of the container's memory
-  limit (cgroup v1 or v2) and logs `memory limit set from the container's`; without a
-  container limit (a plain VM, `ohs` run by systemd without `MemoryMax`) there is none, so set
-  `GOMEMLIMIT` there.
+- **`GOMEMLIMIT`** is the Go runtime's soft limit: it collects garbage harder as the heap gets
+  near it. When it is unset or empty, `ohs` sets it itself to three quarters of the container's
+  memory limit (cgroup v1 or v2) and logs `memory limit set from the container's`, so it follows
+  `OHS_MEM_LIMIT`. The compose file leaves it empty; `OHS_GOMEMLIMIT` overrides it (keep it
+  under `mem_limit`). Without a container limit (a plain VM, `ohs` run by systemd without
+  `MemoryMax`) nothing is derived, so set `GOMEMLIMIT` there.
 - **Fewer slots, less memory.** Lowering `OHS_INGEST_CONCURRENCY` is what bounds the peak: a
   client over the limit gets 503 with `Retry-After` and retries (the SDKs and `ohs import` do).
 

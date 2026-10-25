@@ -86,9 +86,10 @@ roles across processes, size each Postgres pool with `pool_max_conns`: see
 
 ### Bound its memory
 
-Each upload in flight holds up to 64 MiB of body. The compose file caps `ohs` at 1 GB with
-`GOMEMLIMIT=768MiB`, so the kernel restarts `ohs` alone if it ever goes over, never Postgres.
-Elsewhere, set a container limit (`ohs` then sets `GOMEMLIMIT` itself) or `GOMEMLIMIT`. See
+Each upload in flight holds up to 64 MiB of body. The compose file caps `ohs` at 1 GB
+(`OHS_MEM_LIMIT`), and `ohs` sets `GOMEMLIMIT` to three quarters of it, so the kernel restarts
+`ohs` alone if it ever goes over, never Postgres. Raise the limit with `OHS_INGEST_CONCURRENCY`
+(about 100 MB a slot). Elsewhere, set a container limit or `GOMEMLIMIT`. See
 [Configuration](/documentation/self-hosting/configuration#memory) for the profiles.
 
 </Step>

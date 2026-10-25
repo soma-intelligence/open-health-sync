@@ -64,6 +64,11 @@ func TestApply(t *testing.T) {
 	assert.Equal(t, Env, src, "the operator's GOMEMLIMIT wins")
 	assert.Equal(t, int64(math.MaxInt64), debug.SetMemoryLimit(-1), "and is left as the runtime read it")
 
+	empty := func(k string) (string, bool) { return "", k == "GOMEMLIMIT" }
+	n, src = Apply(empty, root)
+	assert.Equal(t, Cgroup, src, "an empty GOMEMLIMIT (the compose default) is unset")
+	assert.Equal(t, int64(768<<20), n)
+
 	n, src = Apply(none, t.TempDir())
 	assert.Equal(t, None, src)
 	assert.Zero(t, n)
