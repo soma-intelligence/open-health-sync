@@ -20,6 +20,16 @@ release may change the API, the configuration or the database schema.
   Dexcom are backfilled over 90 days, Polar and Suunto over the 28 days their APIs serve, and
   Strava and Suunto are pulled less often to stay inside their rate limits. See
   [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
+- A data quality score for every figure (`internal/quality`, no API change yet): the probability
+  that a figure is within its metric's tolerance of the truth, a grade, the source's bias and
+  random error in the figure's context, and calibrated 68 and 95% intervals. It combines published
+  error figures with citations and evidence tags, copy detection, agreement between a user's
+  sources (Bland-Altman, triple collocation), a gradient boosted residual model and split conformal
+  calibration. A leave one subject out backtest on GalaxyPPG, PPG-DaLiA and synthetic data
+  (`go test -tags bench ./internal/quality/bench`) publishes its numbers in
+  [docs/quality/report.md](docs/quality/report.md), and Walch et al. 2019, held out, scores the
+  frozen model in [docs/quality/walch-eval.md](docs/quality/walch-eval.md). See
+  [docs/quality.md](docs/quality.md).
 - A synthetic data generator for every documented provider (`internal/synth`): an invented
   person's timeline rendered in each vendor's wire format, written from the vendor's published
   documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
@@ -47,7 +57,6 @@ release may change the API, the configuration or the database schema.
   connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
   429 keep the upload or the read. Other failures stay 500, a refused database login, a
   protocol error and a canceled request included.
-
 - Swift SDK: the anchored sync of one type is `AnchoredSync`, over `AnchoredChangeSource` and
   `AppleHealthPartUploader`, so it is tested with fakes on every platform; `HealthKitSync` runs
   it over `HKAnchoredObjectQuery`. `SyncReport` (same module, `OpenHealthSyncHealthKit`) now
