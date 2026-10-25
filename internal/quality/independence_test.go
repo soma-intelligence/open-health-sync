@@ -55,6 +55,21 @@ func TestGroupCopies_ByValueAndTime(t *testing.T) {
 	assert.Equal(t, ReasonValueTime, gs[0].Reason)
 }
 
+// A relay without a producer is one copy, of one reading: when two direct
+// reads match its value, it goes with the nearest in time and does not glue
+// them together.
+func TestGroupCopies_RelayJoinsOnlyTheNearest(t *testing.T) {
+	obs := []Obs{
+		{ID: "garmin", Provider: "garmin", Source: "garmin", Start: t0, Value: 64},
+		{ID: "watch", Provider: "apple_watch", Source: "apple_watch", Start: t0.Add(9 * time.Second), Value: 64},
+		{ID: "relay", Provider: "apple_health", Start: t0.Add(time.Second), Value: 64},
+	}
+	gs := GroupCopies(obs, time.Minute, 1e-9)
+	require.Len(t, gs, 2)
+	assert.Equal(t, []int{0, 2}, gs[0].Members)
+	assert.Equal(t, []int{1}, gs[1].Members)
+}
+
 // Two readings of one device through the same pipe are two observations.
 func TestGroupCopies_SameSourceSamePipeIsNotACopy(t *testing.T) {
 	obs := []Obs{

@@ -63,9 +63,10 @@ type CopyGroup struct {
 
 // GroupCopies groups obs into observations. Two figures through different
 // pipes are copies when they share a producer and an original id, or share
-// a producer and start within window; or, when either lacks provenance,
-// when their values differ by at most valueTol and they start within
-// window. Figures of one pipe are never copies of each other.
+// a producer and start within window. A figure without provenance is a
+// copy of the nearest figure of another pipe that starts within window
+// with a value at most valueTol away. Figures of one pipe are never copies
+// of each other.
 func GroupCopies(obs []Obs, window time.Duration, valueTol float64) []CopyGroup {
 	n := len(obs)
 	parent := make([]int, n)
@@ -115,6 +116,7 @@ func GroupCopies(obs []Obs, window time.Duration, valueTol float64) []CopyGroup 
 			}
 		}
 	}
+	// Same producer through two pipes: copies.
 	for a := range idx {
 		i := idx[a]
 		for b := a + 1; b < n; b++ {
@@ -122,19 +124,44 @@ func GroupCopies(obs []Obs, window time.Duration, valueTol float64) []CopyGroup 
 			if obs[j].Start.Sub(obs[i].Start) > window {
 				break
 			}
-			oi, oj := obs[i], obs[j]
-			if oi.Provider == oj.Provider {
-				continue
-			}
-			pi, pj := oi.producer(), oj.producer()
-			switch {
-			case pi != "" && pi == pj:
+			if obs[i].Provider != obs[j].Provider && obs[i].producer() != "" && obs[i].producer() == obs[j].producer() {
 				union(i, j, ReasonProvenance)
-			case (pi == "" || pj == "") && math.Abs(oi.Value-oj.Value) <= valueTol:
-				// A relay that does not say who produced the figure: only an
-				// equal value at the same start marks a copy.
-				union(i, j, ReasonValueTime)
 			}
+		}
+	}
+	// A figure that does not say who produced it is a copy of at most one
+	// figure: the nearest in time with an equal value through another
+	// pipe. Matching all of them would glue two devices that happened to
+	// read the same value together.
+	for a := range idx {
+		i := idx[a]
+		if obs[i].producer() != "" {
+			continue
+		}
+		best, bestDt := -1, time.Duration(math.MaxInt64)
+		consider := func(j int) bool {
+			dt := obs[j].Start.Sub(obs[i].Start)
+			if dt < 0 {
+				dt = -dt
+			}
+			if dt > window {
+				return false
+			}
+			if obs[j].Provider == obs[i].Provider || math.Abs(obs[j].Value-obs[i].Value) > valueTol {
+				return true
+			}
+			// Nearest wins; at equal distance a figure that names its producer.
+			if dt < bestDt || (dt == bestDt && obs[j].producer() != "" && obs[best].producer() == "") {
+				best, bestDt = j, dt
+			}
+			return true
+		}
+		for b := a - 1; b >= 0 && consider(idx[b]); b-- {
+		}
+		for b := a + 1; b < n && consider(idx[b]); b++ {
+		}
+		if best >= 0 {
+			union(i, best, ReasonValueTime)
 		}
 	}
 	groups := map[int]*CopyGroup{}
