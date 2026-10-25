@@ -59,8 +59,11 @@ release may change the API, the configuration or the database schema.
   hours, the closing step count among them).
 - Garmin: notifications are refused (401) while `OHS_GARMIN_INBOUND_TOKEN` is unset. A push
   notification is stored as data and Garmin signs nothing, so without the token anyone who knew
-  a connected user's Garmin id could store invented summaries for them. Pulls need no token;
-  set it and add `?token=<value>` to the notification URLs to keep receiving notifications.
+  a connected user's Garmin id could store invented summaries for them. Pings are refused too,
+  and in ping mode the notification is what triggers a pull, so without the token only the
+  scheduled pulls bring data: set it and add `?token=<value>` to the notification URLs. A
+  warning is logged at startup when the keys are set without it, and refusals are logged at
+  warning level, at most every 10 minutes.
 - Apple Health export.xml from a phone set to US units: a height in feet (every height record
   was refused as a unit error), masses in ounces, lengths in inches, speeds in ft/s and volumes in
   mL or fluid ounces are converted to their storage unit.

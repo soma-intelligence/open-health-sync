@@ -5,6 +5,7 @@ package garmin
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -181,3 +182,39 @@ func TestHandleInbound_EventsAreDeterministic(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// warnLog captures the WARN lines logged while a test runs.
+func warnLog(t *testing.T) *strings.Builder {
+	t.Helper()
+	var buf strings.Builder
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// Keys without the inbound token are a working connector whose notifications
+// all bounce: say so once at configure time.
+func TestConfigureWarnsWithoutInboundToken(t *testing.T) {
+	buf := warnLog(t)
+	c := New(Options{})
+	require.NoError(t, c.Configure(connector.Config{KeyClientID: "id", KeyClientSecret: "secret"}))
+	assert.Contains(t, buf.String(), "OHS_GARMIN_INBOUND_TOKEN")
+	assert.Contains(t, buf.String(), "level=WARN")
+
+	buf.Reset()
+	require.NoError(t, c.Configure(connector.Config{KeyClientID: "id", KeyClientSecret: "secret", KeyInboundToken: "t"}))
+	assert.Empty(t, buf.String())
+}
+
+// A refusal for a missing token is logged at WARN, at most once per interval:
+// Garmin retries every notification, so a log line per request would flood.
+func TestRefusalWithoutTokenIsWarnedRateLimited(t *testing.T) {
+	buf := warnLog(t)
+	c := newFakeGarmin(t).connector(func(o *Options) { o.InboundToken = "" })
+	for range 5 {
+		_, err := inbound(t, c, "/inbound/garmin?token=", `{"dailies":[{"userId":"u","callbackURL":"https://x"}]}`)
+		require.ErrorIs(t, err, ErrNoInboundToken)
+	}
+	assert.Equal(t, 1, strings.Count(buf.String(), "notification refused"), buf.String())
+}

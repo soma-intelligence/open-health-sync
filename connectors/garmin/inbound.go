@@ -83,6 +83,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	}
 	want := c.inboundToken()
 	if want == "" {
+		c.warnRefused()
 		return nil, ErrNoInboundToken
 	}
 	if got := r.URL.Query().Get(TokenParam); subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
@@ -96,6 +97,26 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 		return nil, fmt.Errorf("garmin: notification body exceeds %d bytes", maxInboundBody)
 	}
 	return parseNotification(body, c.now().UTC())
+}
+
+// refusalWarnEvery spaces the WARN lines of notifications refused for a
+// missing inbound token: Garmin retries each one, so a line per request would
+// flood the log, and one per interval is enough to be seen.
+const refusalWarnEvery = 10 * time.Minute
+
+// warnRefused logs a refusal for a missing inbound token, at most once per
+// refusalWarnEvery.
+func (c *Connector) warnRefused() {
+	now := c.now().UnixNano()
+	last := c.refusedWarnAt.Load()
+	if last != 0 && now-last < int64(refusalWarnEvery) {
+		return
+	}
+	if !c.refusedWarnAt.CompareAndSwap(last, now) {
+		return
+	}
+	slog.Warn("garmin: notification refused, OHS_GARMIN_INBOUND_TOKEN is not set", "provider", Slug,
+		"every", refusalWarnEvery.String())
 }
 
 // pingKey groups ping items by user and data type.

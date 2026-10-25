@@ -116,7 +116,8 @@ OHS_PUBLIC_URL=https://ohs.example.org
 OHS_GARMIN_CLIENT_ID=...
 OHS_GARMIN_CLIENT_SECRET=...
 # A long random secret that every notification URL carries as ?token=...
-# Without it every notification is refused (401); pulls still work.
+# Without it every notification is refused (401), pings included: only the scheduled
+# pulls then bring data, and a warning is logged at startup.
 OHS_GARMIN_INBOUND_TOKEN=...
 ```
 
@@ -131,7 +132,9 @@ ok    connector garmin
 ```
 
 `CLIENT_ID` and `CLIENT_SECRET` are required. If either is missing, the connector stays off.
-`INBOUND_TOKEN` is optional for pulls, but without it every notification is refused (401).
+`INBOUND_TOKEN` is optional, but without it every notification is refused (401), pings
+included: in ping mode the notification is what triggers a pull, so only the scheduled pulls
+bring data. The server logs a warning at startup and, at most every 10 minutes, for refusals.
 `GET /v1/providers` lists `garmin` when the connector is on.
 
 **Do not rotate the client secret while a user is mid-connect**: the PKCE code verifier is
