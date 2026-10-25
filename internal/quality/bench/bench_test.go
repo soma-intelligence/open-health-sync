@@ -16,8 +16,10 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/quality"
 )
 
-// ModelVersion names the model and calibration this run writes.
-const ModelVersion = "2026-10-24.1"
+// ModelVersion names the model and calibration this run writes. It is
+// frozen: Walch evaluates this version untouched, and a new fit takes a new
+// version.
+const ModelVersion = "2026-10-25.1"
 
 // maxTrain caps the figures of one metric and device a subject brings to a
 // fit, so dense series and the synthetic people (weeks of data each) do not
@@ -45,47 +47,62 @@ func datasetInfo() map[string]*DatasetInfo {
 	}
 }
 
-func TestBench(t *testing.T) {
+// load reads the reference datasets with or without each device's fitted
+// lag, and the synthetic source. Walch is not loaded: it is the held out
+// evaluation of the frozen model (TestWalchEval).
+func load(t *testing.T, fitLag bool, in *ReportInput, info map[string]*DatasetInfo) []Record {
 	dir := DataDir()
-	info := datasetInfo()
 	var recs []Record
-	in := ReportInput{Version: ModelVersion, ContextConf: map[string]map[string]map[quality.Context]int{}}
-
-	start := time.Now()
-	if d, lag, err := LoadDalia(dir); err == nil {
+	if d, lag, err := LoadDalia(dir, fitLag); err == nil {
 		recs = append(recs, d...)
-		in.DaliaLag = lag
 		info["ppg_dalia"].Loaded = true
-		t.Logf("ppg_dalia: %d figures, lag %.0f s", len(d), lag)
+		if fitLag {
+			in.DaliaLag = lag
+		}
+		t.Logf("ppg_dalia (fitted lag %v): %d figures, lag %.0f s", fitLag, len(d), lag)
 	} else {
 		info["ppg_dalia"].Note = notRun(err)
 		t.Logf("ppg_dalia: %v", err)
 	}
-	if g, gr, err := LoadGalaxy(dir); err == nil {
+	if g, gr, err := LoadGalaxy(dir, fitLag); err == nil {
 		recs = append(recs, g...)
-		in.Galaxy = gr
 		info["galaxyppg"].Loaded = true
-		in.GalaxyTC = galaxyTC(gr)
-		t.Logf("galaxyppg: %d figures, lags watch %.0f s, E4 %.0f s", len(g), gr.WatchLag, gr.E4Lag)
+		if fitLag {
+			in.Galaxy = gr
+		} else {
+			in.GalaxyTC = galaxyTC(gr)
+		}
+		t.Logf("galaxyppg (fitted lag %v): %d figures, lags watch %.0f s, E4 %.0f s", fitLag, len(g), gr.WatchLag, gr.E4Lag)
 	} else {
 		info["galaxyppg"].Note = notRun(err)
 		t.Logf("galaxyppg: %v", err)
 	}
-	if w, wr, err := LoadWalch(dir); err == nil {
-		recs = append(recs, w...)
-		in.Walch = wr
-		info["walch"].Loaded = true
-		t.Logf("walch: %d nights", len(w))
-	} else {
-		info["walch"].Note = notRun(err)
-		t.Logf("walch: %v", err)
-	}
 	s, sr := LoadSynthetic(12, 28)
 	recs = append(recs, s...)
-	in.Synth = sr
 	info["synthetic"].Loaded = true
-	t.Logf("synthetic: %d figures; loaded in %s", len(s), time.Since(start).Round(time.Second))
+	if !fitLag {
+		in.SynthRes = sr
+	}
+	return recs
+}
 
+func logGates(t *testing.T, name string, a *Analysis) {
+	for _, g := range a.Gates() {
+		t.Logf("gate (%s) %-60s %-32s %s", name, g.Name, g.Value, passFail(g))
+	}
+	for _, f := range a.GroupsFailing() {
+		t.Logf("failing (%s): %s", name, f)
+	}
+}
+
+func TestBench(t *testing.T) {
+	info := datasetInfo()
+	info["walch"].Note = "Held out: an untouched evaluation of the frozen model, see walch-eval.md"
+	in := ReportInput{Version: ModelVersion, ContextConf: map[string]map[string]map[quality.Context]int{}}
+	pri := quality.DefaultPriors()
+
+	start := time.Now()
+	recs := load(t, false, &in, info)
 	for _, r := range recs {
 		c := in.ContextConf[r.Dataset]
 		if c == nil {
@@ -96,6 +113,7 @@ func TestBench(t *testing.T) {
 			c[r.Label] = map[quality.Context]int{}
 		}
 		c[r.Label][r.Context]++
+		info[r.Dataset].Figures++
 	}
 	subj := map[string]map[string]bool{}
 	for _, r := range recs {
@@ -103,34 +121,33 @@ func TestBench(t *testing.T) {
 			subj[r.Dataset] = map[string]bool{}
 		}
 		subj[r.Dataset][r.Subject] = true
-		info[r.Dataset].Figures++
 	}
 	for _, k := range []string{"walch", "galaxyppg", "ppg_dalia", "synthetic"} {
 		info[k].Subjects = len(subj[k])
 		in.Datasets = append(in.Datasets, *info[k])
 	}
+	res := Backtest(recs, pri, maxTrain)
+	t.Logf("backtest, lag 0: %d figures in %s", len(recs), time.Since(start).Round(time.Second))
+	start = time.Now()
+	in.Lag0, in.Synth = Analyze(res, Real), Analyze(res, Synthetic)
+	t.Logf("bootstrap, lag 0: %s", time.Since(start).Round(time.Second))
+	logGates(t, "lag 0", in.Lag0)
 
 	start = time.Now()
-	pri := quality.DefaultPriors()
-	res := Backtest(recs, pri, maxTrain)
-	in.Res = res
-	t.Logf("backtest: %d figures in %s", len(recs), time.Since(start).Round(time.Second))
-	for _, g := range Gates(res, Real) {
-		t.Logf("gate (reference) %-50s %-24s %s", g.Name, g.Value, passFail(g.Passed))
-	}
-	for _, o := range GroupsOutside(res, Real) {
-		t.Logf("outside: %s", o)
-	}
-	for _, g := range Gates(res, Synthetic) {
-		t.Logf("gate (synthetic) %-50s %-24s %s", g.Name, g.Value, passFail(g.Passed))
-	}
+	fitted := load(t, true, &in, datasetInfo())
+	resFitted := Backtest(fitted, pri, maxTrain)
+	in.Fitted = Analyze(resFitted, Real)
+	t.Logf("fitted lag: %s", time.Since(start).Round(time.Second))
+	logGates(t, "fitted lag", in.Fitted)
+
 	md := Markdown(in)
 	if os.Getenv("OHS_QUALITY_WRITE") != "1" {
 		t.Log("set OHS_QUALITY_WRITE=1 to write the report and the model")
 		t.Log("\n" + md)
 		return
 	}
-	model, cal, err := FinalModel(res, pri, maxTrain, ModelVersion)
+	// The shipped model: the validated procedure on every subject, at lag 0.
+	model, cal, err := FinalModel(recs, res.Names, pri, maxTrain, ModelVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,19 +161,20 @@ func TestBench(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, "internal", "quality", "model.json"), append(mb, '\n'), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "internal", "quality", "calibration.json"), append(cb, '\n'), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(repo, "docs", "quality"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "docs", "quality", "report.md"), []byte(md), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(repo, "internal", "quality", "model.json"), append(mb, '\n'))
+	write(t, filepath.Join(repo, "internal", "quality", "calibration.json"), append(cb, '\n'))
+	write(t, filepath.Join(repo, "docs", "quality", "report.md"), []byte(md))
 	t.Log("wrote internal/quality/model.json, internal/quality/calibration.json, docs/quality/report.md")
+}
+
+func write(t *testing.T, path string, b []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func notRun(err error) string {

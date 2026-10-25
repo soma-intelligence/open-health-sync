@@ -2,7 +2,10 @@
 
 package quality
 
-import "math"
+import (
+	"math"
+	"sort"
+)
 
 // Scoring rules the backtest reports (research note, section 5.2). They are
 // here rather than in the bench so they are unit tested with the rest.
@@ -103,4 +106,44 @@ func Brier(q []float64, hit []bool) float64 {
 		s += (p - o) * (p - o)
 	}
 	return s / float64(len(q))
+}
+
+// ECEEqualMass is the expected calibration error over bins that each hold
+// the same number of forecasts (sorted by q), the bin-weighted mean of
+// |mean q - hit rate|. Ties at a bin edge stay together.
+func ECEEqualMass(q []float64, hit []bool, bins int) float64 {
+	n := len(q)
+	if n == 0 {
+		return 0
+	}
+	idx := make([]int, n)
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.Slice(idx, func(a, b int) bool { return q[idx[a]] < q[idx[b]] })
+	var e float64
+	start := 0
+	for b := 1; b <= bins && start < n; b++ {
+		end := b * n / bins
+		if b == bins {
+			end = n
+		}
+		for end < n && end > start && q[idx[end]] == q[idx[end-1]] {
+			end++
+		}
+		if end <= start {
+			continue
+		}
+		var sq, sh float64
+		for _, i := range idx[start:end] {
+			sq += q[i]
+			if hit[i] {
+				sh++
+			}
+		}
+		m := float64(end - start)
+		e += m / float64(n) * math.Abs(sq/m-sh/m)
+		start = end
+	}
+	return e
 }

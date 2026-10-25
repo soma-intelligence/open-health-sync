@@ -71,3 +71,28 @@ func TestPICPAndMPIW(t *testing.T) {
 	assert.InDelta(t, 0.5, PICP(lo, hi, r), 1e-12)
 	assert.InDelta(t, 2.5, MPIW(lo, hi), 1e-12)
 }
+
+// Equal-mass bins hold the same number of forecasts each, so a cluster of
+// similar q's is split rather than lumped.
+func TestECEEqualMass(t *testing.T) {
+	q := []float64{0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9}
+	hit := []bool{false, false, true, false, true, true, false, true}
+	// Two bins of four: mean q 0.25 vs hit rate 0.25, mean q 0.75 vs 0.75.
+	assert.InDelta(t, 0, ECEEqualMass(q, hit, 2), 1e-12)
+	// Always 0.9 when the truth is 0.5, in any binning: 0.4.
+	q2 := make([]float64, 1000)
+	h2 := make([]bool, 1000)
+	for i := range q2 {
+		q2[i], h2[i] = 0.9, i%2 == 0
+	}
+	assert.InDelta(t, 0.4, ECEEqualMass(q2, h2, 20), 0.02)
+	r := rand.New(rand.NewPCG(3, 4))
+	var q3 []float64
+	var h3 []bool
+	for range 100000 {
+		p := r.Float64()
+		q3 = append(q3, p)
+		h3 = append(h3, r.Float64() < p)
+	}
+	assert.Less(t, ECEEqualMass(q3, h3, 20), 0.01)
+}
