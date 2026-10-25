@@ -14,9 +14,11 @@ release may change the API, the configuration or the database schema.
   random error in the figure's context, and calibrated 68 and 95% intervals. It combines published
   error figures with citations and evidence tags, copy detection, agreement between a user's
   sources (Bland-Altman, triple collocation), a gradient boosted residual model and split conformal
-  calibration. A leave one subject out backtest on GalaxyPPG, PPG-DaLiA, Walch et al. and synthetic
-  data (`go test -tags bench ./internal/quality/bench`) publishes its numbers in
-  [docs/quality/report.md](docs/quality/report.md). See [docs/quality.md](docs/quality.md).
+  calibration. A leave one subject out backtest on GalaxyPPG, PPG-DaLiA and synthetic data
+  (`go test -tags bench ./internal/quality/bench`) publishes its numbers in
+  [docs/quality/report.md](docs/quality/report.md), and Walch et al. 2019, held out, scores the
+  frozen model in [docs/quality/walch-eval.md](docs/quality/walch-eval.md). See
+  [docs/quality.md](docs/quality.md).
 - A synthetic data generator for every documented provider (`internal/synth`): an invented
   person's timeline rendered in each vendor's wire format, written from the vendor's published
   documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
