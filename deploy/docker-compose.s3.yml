@@ -23,7 +23,7 @@ services:
       retries: 20
 
   s3-init:
-    image: amazon/aws-cli:2.38.1
+    image: amazon/aws-cli:2.38.4
     restart: "no"
     depends_on:
       s3:
