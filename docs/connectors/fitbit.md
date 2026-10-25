@@ -235,8 +235,8 @@ Notes on the mapping:
   `heart-rate-variability` sample type holds Apple's SDNN is **(to confirm)**: the standard
   deviation is used when set, else the RMSSD field. Sleep sessions and workouts of these
   platforms are still stored as Fitbit's, with `platform` in metadata. Rows written before this
-  change keep the type and source they were stored with: an Apple HRV stored as `hrv_rmssd`
-  stays there next to the new `hrv_sdnn` row.
+  change keep the type and source they were stored with until you run the repair script of
+  [Repair Fitbit rows of relayed data](../how-to/fitbit-relayed-points.md).
 - **Time zones.** Every point carries a UTC offset (`startUtcOffset`, `utcOffset`, as
   `"3600s"`), never an IANA name. The metadata keeps `utc_offset` (`+01:00`) and, as
   `timezone`, a zone with that offset (`Etc/GMT-1`, or a place for a half-hour offset), which is

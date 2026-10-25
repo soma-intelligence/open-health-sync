@@ -38,7 +38,9 @@ release may change the API, the configuration or the database schema.
   deep sleep RMSSD of 0 is left out of metadata. Points relayed from Apple Health or Health
   Connect are attributed to that store (source `apple_health` or `health_connect`), so they no
   longer add up with the tracker's own minutes in one stream. Rows stored earlier keep their
-  type and source.
+  type and source until you run `docs/how-to/fitbit-relayed-points.sql` (see
+  [the guide](docs/how-to/fitbit-relayed-points.md)): a script rather than a migration, because
+  it has to decompress the compressed chunks of `quantity_samples` it scans.
 - FHIR: the `hrv_avg_ms` component of sleep sessions and daily summaries no longer carries LOINC
   80404-7, the SDNN code: the value is RMSSD, which has no LOINC code, so it keeps the Open
   Health Sync component code only, as `hrv_rmssd` samples do.
