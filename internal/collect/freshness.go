@@ -93,10 +93,10 @@ type freshRow struct {
 }
 
 // oauthFreshness derives the view of a connection at now. push says whether
-// the provider sends notifications.
-func oauthFreshness(r freshRow, push bool, now time.Time) SourceFreshness {
+// the provider sends notifications, p is its sync policy.
+func oauthFreshness(r freshRow, push bool, p connector.SyncPolicy, now time.Time) SourceFreshness {
 	healthy := pushHealthy(push, r.lastEvent, now)
-	every := pullEvery(healthy)
+	every := pullEvery(p, healthy)
 	f := SourceFreshness{
 		Provider: r.provider, Kind: KindOAuth, Status: r.status,
 		SyncedThrough: utcPtr(r.syncedThrough), LastSyncAt: utcPtr(r.lastSync),
@@ -223,7 +223,7 @@ func (d Deps) Freshness(ctx context.Context, tenantID, userID uuid.UUID) (Freshn
 	connected := map[string]bool{}
 	for _, c := range conns {
 		connected[c.provider] = true
-		out.Data = append(out.Data, oauthFreshness(c, d.isPush(c.provider), now))
+		out.Data = append(out.Data, oauthFreshness(c, d.isPush(c.provider), d.syncPolicy(c.provider), now))
 	}
 
 	// Device sources have no connection row: their last upload is the
@@ -303,6 +303,7 @@ func (h *Handlers) SyncMetrics(ctx context.Context) ([]ProviderSync, error) {
 	now := d.now()
 	by := map[string]*ProviderSync{}
 	push := map[string]bool{}
+	policy := map[string]connector.SyncPolicy{}
 	rows, err := d.Pool.Query(ctx, `
 		SELECT provider, status, synced_through, last_sync_at, last_event_at, last_attempt_at,
 			last_error, consecutive_failures
@@ -322,8 +323,9 @@ func (h *Handlers) SyncMetrics(ctx context.Context) ([]ProviderSync, error) {
 			p = &ProviderSync{Provider: x.provider, States: map[string]int64{}}
 			by[x.provider] = p
 			push[x.provider] = d.isPush(x.provider)
+			policy[x.provider] = d.syncPolicy(x.provider)
 		}
-		f := oauthFreshness(x, push[x.provider], now)
+		f := oauthFreshness(x, push[x.provider], policy[x.provider], now)
 		p.States[f.State]++
 		if f.LagSeconds != nil && *f.LagSeconds > p.MaxLagSeconds {
 			p.MaxLagSeconds = *f.LagSeconds

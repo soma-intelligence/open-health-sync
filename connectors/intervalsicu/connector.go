@@ -164,6 +164,16 @@ func newHTTPClient() *http.Client {
 // Slug returns "intervals_icu".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// Activities are often uploaded or re-analyzed days after they start, and
+// wellness records are edited the same day.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		Lookback:  24 * time.Hour,
+		Reconcile: 7 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET. The
 // webhook secret is optional: pulls work without it.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }

@@ -159,6 +159,17 @@ func New(o Options) *Connector {
 // Slug returns "omron".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// Cuff readings reach OMRON when the phone app syncs, often days later, and
+// the measurement API is rate limited.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEveryWithoutPush: 3 * time.Hour,
+		Lookback:             72 * time.Hour,
+		Reconcile:            14 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET.
 // ENVIRONMENT is optional and not listed.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }

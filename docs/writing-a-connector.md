@@ -52,6 +52,29 @@ Rules that matter:
   without counting a failed attempt.
 - **Never log tokens or health values.**
 
+## Sync policy
+
+A pulled connector is backstop-pulled every 6 hours while its notifications arrive and every hour
+otherwise; each pull re-reads the hour before the previous window, and a new connection is
+backfilled over 30 days in 7 day jobs. When the provider needs other values, implement
+`connector.SyncPolicied`:
+
+```go
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEveryWithoutPush: 3 * time.Hour,  // the API is rate limited
+		Lookback:             72 * time.Hour, // readings reach the provider days late
+		Backfill:             90 * 24 * time.Hour,
+		Reconcile:            14 * 24 * time.Hour, // the 00:00 UTC pull reaches back 14 days
+	}
+}
+```
+
+A zero field keeps its default. Intervals must divide a day (15 minutes to 24 hours). A value out
+of bounds falls back to the default, and `connectors/all` has a test that fails for such a value.
+Say why in the method's comment: rate limits, how late data arrives, how much history the provider
+keeps. [Background sync](background-sync.md#sync-policy-per-provider) lists every provider's.
+
 ## Deleted records
 
 When the provider says one of its records is gone (a sleep the user removed, a deleted

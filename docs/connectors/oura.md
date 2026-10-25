@@ -81,7 +81,7 @@ curl -s -X POST $OHS/v1/users/$USER_ID/connections/oura \
 ```
 
 Send the user to the returned `authorize_url`. After consent they land on your `redirect_uri`
-with `status=connected`. A new connection is backfilled over the last 30 days in 7 day
+with `status=connected`. A new connection is backfilled over the last 90 days in 7 day
 windows, then pulled every 6 hours. Oura refresh tokens are single use: the `collect` role
 stores the new pair after each refresh.
 

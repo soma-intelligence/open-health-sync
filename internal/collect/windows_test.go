@@ -16,7 +16,7 @@ import (
 
 func TestBackfillWindows(t *testing.T) {
 	now := time.Date(2026, 10, 10, 13, 5, 7, 500, time.UTC)
-	w := backfillWindows(now)
+	w := backfillWindows(now, connector.DefaultSyncPolicy())
 	require.Len(t, w, 5)
 	end := now.Truncate(time.Second)
 	assert.Equal(t, end.Add(-30*24*time.Hour), w[0][0])
@@ -25,25 +25,50 @@ func TestBackfillWindows(t *testing.T) {
 	for i := 1; i < len(w); i++ {
 		assert.Equal(t, w[i-1][1], w[i][0])
 	}
+
+	// A provider keeping 28 days, in 14 day chunks.
+	w = backfillWindows(now, connector.SyncPolicy{Backfill: 28 * 24 * time.Hour, BackfillChunk: 14 * 24 * time.Hour}.Normalize())
+	require.Len(t, w, 2)
+	assert.Equal(t, end.Add(-28*24*time.Hour), w[0][0])
+	assert.Equal(t, end, w[1][1])
 }
 
 func TestRegularWindow(t *testing.T) {
+	def := connector.DefaultSyncPolicy()
 	slot := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
-	from, to := regularWindow(slot, PullEvery, nil)
+	from, to := regularWindow(slot, PullEvery, def, nil)
 	assert.Equal(t, slot, to)
 	assert.Equal(t, slot.Add(-7*time.Hour), from)
 
 	recent := slot.Add(-2 * time.Hour)
-	from, _ = regularWindow(slot, PullEvery, &recent)
+	from, _ = regularWindow(slot, PullEvery, def, &recent)
 	assert.Equal(t, slot.Add(-7*time.Hour), from, "a recent sync does not shrink the window")
 
 	old := slot.Add(-30 * time.Hour)
-	from, _ = regularWindow(slot, PullEvery, &old)
+	from, _ = regularWindow(slot, PullEvery, def, &old)
 	assert.Equal(t, old.Add(-time.Hour), from, "after an outage the window reaches back")
 
 	ancient := slot.Add(-60 * 24 * time.Hour)
-	from, _ = regularWindow(slot, PullEvery, &ancient)
+	from, _ = regularWindow(slot, PullEvery, def, &ancient)
 	assert.Equal(t, slot.Add(-7*24*time.Hour), from, "catch up is bounded")
+}
+
+func TestRegularWindowFollowsThePolicy(t *testing.T) {
+	late := connector.SyncPolicy{Lookback: 6 * time.Hour, Reconcile: 3 * 24 * time.Hour}.Normalize()
+	slot := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
+	from, _ := regularWindow(slot, time.Hour, late, nil)
+	assert.Equal(t, slot.Add(-7*time.Hour), from, "hourly pull re-reads the provider's 6 hour lookback")
+
+	synced := slot.Add(-3 * time.Hour)
+	from, _ = regularWindow(slot, time.Hour, late, &synced)
+	assert.Equal(t, slot.Add(-9*time.Hour), from, "catch-up starts a lookback before the last complete pull")
+
+	midnight := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
+	from, _ = regularWindow(midnight, time.Hour, late, nil)
+	assert.Equal(t, midnight.Add(-3*24*time.Hour), from, "the first slot of the day reconciles")
+
+	from, _ = regularWindow(midnight, time.Hour, connector.DefaultSyncPolicy(), nil)
+	assert.Equal(t, midnight.Add(-2*time.Hour), from, "no reconciliation by default")
 }
 
 func TestInboundWindow(t *testing.T) {

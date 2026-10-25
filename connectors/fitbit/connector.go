@@ -192,6 +192,19 @@ func newHTTPClient() *http.Client {
 // Slug returns "fitbit".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// Devices sync to the app hours after a measurement and daily figures settle
+// over the next day, but every type is read over the whole window (heart rate
+// at one point a second): a short lookback, a 3 hour pull without
+// notifications, and the daily reconciliation for what settles later.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEveryWithoutPush: 3 * time.Hour,
+		Lookback:             6 * time.Hour,
+		Reconcile:            3 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET.
 // WEBHOOK_SECRET and WEBHOOK_SIGNATURE are optional.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }

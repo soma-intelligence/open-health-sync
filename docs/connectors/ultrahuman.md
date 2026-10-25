@@ -111,11 +111,12 @@ with no metric is not stored, and for a date after the current UTC day an answer
 404 or 204 counts as no data rather than failing the pull (Ultrahuman may refuse a date it
 sees as in the future). A new connection is backfilled over the last 30 days in 7 day windows (about 40
 calls in all). Since Ultrahuman sends no notifications, the connection is then pulled every
-hour; each regular pull asks two dates, sometimes three: a local day is asked again until it is
-over in every zone, and its figures are replaced. Asking UTC dates only, as before, missed the
+3 hours; each regular pull starts 48 hours before the previous one ended (the lookback in
+[background sync](../background-sync.md#sync-policy-per-provider)), so it asks four dates,
+sometimes five: a local day is asked again until it is over in every zone and the lookback has
+passed, and its figures are replaced. Asking UTC dates only, as before, missed the
 end of every local day west of UTC (the last 7 hours of a day in California, the closing step
-count among them). How far back Ultrahuman serves data is not documented
-**(to confirm)**.
+count among them). How far back Ultrahuman serves data is not documented **(to confirm)**.
 
 No webhooks are documented, so the connector is **pull only** **(to confirm that none exist)**.
 
