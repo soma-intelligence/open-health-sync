@@ -67,38 +67,56 @@ curve says. The stages:
    log absolute error of a figure from its context: metric, device family, context, value, distance
    to the user's baseline, rate of change, hour, motion, steps, flags, number of independent
    sources. The prediction scales sigma, within a factor of four either way. It applies only to the
-   metrics it was trained on with at least 3000 figures; today that is heart rate.
+   metrics it was trained on with at least 3000 figures; today that is heart rate. The shipped model
+   is three such ensembles, each fitted on two of three folds of the subjects, averaged in log scale.
 6. **Calibration** (`conformal.go`). Split conformal, Mondrian per group (metric, device family,
    context), fitted on people the model never saw. Each group learns three things from the
    normalized residuals: a shift (the median, the part of the bias the prior missed against the
    references), a factor gamma that makes the 90% interval cover 90%, and the degrees of freedom
-   that make the 50 to 95% intervals follow. A group under 50 figures falls back to its parent
-   (metric and family, then metric), never to another metric; under 200 it takes its parent's
-   degrees of freedom.
+   that make the 50 to 95% intervals follow. Figures of one person are autocorrelated, so sizes
+   count people too: a group needs 50 figures and 8 subjects for its own shift and gamma (200 and
+   10 for its degrees of freedom), and otherwise falls back to its parent (metric and family, then
+   metric), never to another metric. The calibration is fitted on each fold's residuals under the
+   ensemble that did not see that fold, which is exactly what the backtest validates.
 7. **The score.** `q` is `T((tol - bias) / s) - T((-tol - bias) / s)` with the calibrated bias and
    scale, then passed through the group's q map: a monotone (isotonic) curve fitted on the same
    held-out figures, because a t with the right interval coverage can still put its central mass,
-   which `q` reads, in the wrong place. Intervals are `estimate +/- gamma * t(p) * s`.
-
-Steps 6 and 7 refine the spec's formulas: the spec's `q` uses the uncalibrated scale and no shift
-or q map. Without them the backtest misses the spec's own gate on `q` (ECE 0.028 with conformal
-factors alone, 0.045 with the priors alone, against 0.006 now).
+   which `q` reads, in the wrong place (a q map needs 300 figures and 10 subjects). Intervals are
+   `estimate +/- gamma * t(p) * s`. The spec writes these formulas out.
 
 ## The backtest
 
 The bench hides the reference, scores every figure, and compares. The split is leave one subject
-out: for each person, the residual model is fitted on everyone else, and the conformal factors on
-everyone else's out-of-fold residuals (three folds of people, each scored by a model fitted on the
-other two). It reports, per dataset, metric, device and context: coverage of the 50, 80, 90 and 95%
-intervals (PICP), mean width of the 90% interval, interval score, CRPS, the reliability of `q`
-(ECE) and its Brier score, each against the priors-only baseline. The latest numbers are in
-[quality/report.md](quality/report.md).
+out: for each person, the model and calibration are built by the shipped procedure on everyone
+else. It reports, per dataset, metric, device and context: coverage of the 50, 80, 90 and 95%
+intervals (PICP), mean width of the 90% interval, interval score, CRPS, the reliability of `q` (ECE
+over 20 equal-mass bins, and over 10 equal-width bins beside it) and its Brier score, against the
+priors alone and against the priors with conformal factors (the calibrated baseline). It also
+publishes coverage per subject. The latest numbers are in [quality/report.md](quality/report.md).
 
-The spec's gates for a model version are PICP90 in [0.88, 0.92] overall and in [0.85, 0.95] for
-every group of at least 50 figures, ECE of `q` below 0.03, and CRPS no worse than the priors alone.
-They are checked on the reference datasets. The synthetic source is reported beside them as a
-check of the machinery, not as a gate: its errors are drawn from the priors, so the priors are
-right there by construction and anything learned can only add noise.
+Figures of one person are autocorrelated (a missed reading sits next to other misses), so every
+headline number and gate carries a 95% subject-cluster bootstrap interval: people are resampled,
+all their figures with them, and comparisons between variants are paired on the same resamples.
+ECE over 20 bins is biased upward in small groups, so each group also shows the ECE a perfectly
+calibrated `q` would have on the same figures.
+
+Device timestamps are used as written (lag 0), as production sees them. The E4 stamps its heart
+rate 30 to 40 s after the beats it describes; a variant that shifts each device by the lag that
+best matches the reference is reported beside the headline, for comparison only. Production
+applies no lag.
+
+The gates for a model version are PICP90 in [0.88, 0.92] overall and in [0.85, 0.95] for every
+group of at least 50 figures and 5 subjects, ECE of `q` below 0.03 overall and per such group, and
+CRPS no worse than the priors alone and than the calibrated baseline. They are checked on the
+reference datasets. For model `2026-10-25.1` at lag 0, all pass except ECE per group: 7 of the 9
+heart rate groups sit between 0.038 and 0.072, above both the gate and their noise floor (0.019 to
+0.038), because people and protocols differ more than 15 to 24 subjects per device can calibrate.
+The synthetic source is reported beside them as a check of the machinery, not as a gate: its errors
+are drawn from the priors, so the priors are right there by construction.
+
+A model version is frozen once written. Walch et al. 2019 is held out of training and calibration
+entirely and scores the frozen version (`TestWalchEval`, [quality/walch-eval.md](quality/walch-eval.md)
+once its data are on disk).
 
 ### Datasets
 
@@ -139,19 +157,24 @@ python3 -I scripts/quality/dalia_to_csv.py "$OHS_QUALITY_DATA/ppg-dalia/ppg_dali
 Then:
 
 ```sh
-go test -tags bench ./internal/quality/bench -run TestBench -v                       # prints the report
-OHS_QUALITY_WRITE=1 go test -tags bench ./internal/quality/bench -run TestBench -v   # writes it
+go test -tags bench ./internal/quality/bench -run 'TestBench$' -v                       # prints the report
+OHS_QUALITY_WRITE=1 go test -tags bench ./internal/quality/bench -run 'TestBench$' -v   # writes it
+OHS_QUALITY_WRITE=1 go test -tags bench ./internal/quality/bench -run TestWalchEval -v  # held out evaluation
 ```
 
 The second form writes `docs/quality/report.md`, `internal/quality/model.json` and
-`internal/quality/calibration.json` (the last two are embedded in the binary). A dataset that is
-not on disk is skipped and the report says so. The run is deterministic: the same data give the
-same files.
+`internal/quality/calibration.json` (the last two are embedded in the binary); bump `ModelVersion`
+in the bench before refitting, since a written version is frozen. The third scores Walch with the
+embedded model and refuses to run against another version. A dataset that is not on disk is skipped
+and the report says so. The run is deterministic: the same data give the same files. It takes about
+two minutes, most of it the bootstrap.
 
 ## Limits
 
-- The reference datasets are small (15 and 24 people, a couple of hours each, plus 31 nights), young
-  and in a lab or semi-natural protocol. A calibration group's factors carry that sampling error.
+- The reference datasets are small (15 and 24 people, a couple of hours each, plus 31 held out
+  nights), young and in a lab or semi-natural protocol. A calibration group's factors carry that
+  sampling error: `q` is calibrated overall but not within each device and context (ECE 0.04 to
+  0.07 per group), and 9 of 39 people have PICP90 outside [0.85, 0.95].
 - Calibration groups for devices seen only in the synthetic source (Apple Watch, Garmin, Oura heart
   rate) reproduce the priors; they are not evidence about those devices.
 - Triple collocation assumes independent errors. On GalaxyPPG the two wrist devices err together

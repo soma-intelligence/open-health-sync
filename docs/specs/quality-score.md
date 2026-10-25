@@ -38,16 +38,21 @@ quality {
 }
 ```
 
-Score formula, with the predictive error distribution a Student t with location `bias`,
-scale `s = sqrt(bias_sd^2 + sigma^2)` and `nu` degrees of freedom:
+Score formula. The predictive error distribution of a figure (value minus truth) is a Student t
+with location `b`, scale `S` and `nu` degrees of freedom, where, with `s = sqrt(bias_sd^2 +
+sigma^2)` the uncalibrated scale of stages 2 to 4 and `g` the figure's calibration group (stage 5):
 
 ```
-q = T_nu((tol - bias) / s) - T_nu((-tol - bias) / s)
+b  = bias + shift_g * s          the calibrated bias (shift_g learned against the references)
+S  = gamma_g * s                 the calibrated scale
+nu = nu_g                        the group's degrees of freedom (the prior's without a group)
+q_raw = T_nu((tol - b) / S) - T_nu((-tol - b) / S)
+q  = M_g(q_raw)                  M_g the group's monotone q map (identity without one)
 ```
 
-Intervals are `estimate +/- gamma_g * t_nu(p) * s`, where `gamma_g` is the conformal scale factor
-of the figure's calibration group `g` (metric x device family x context), learned so that the
-backtested coverage equals the nominal one.
+The `bias` field reports `b`. Intervals are `estimate +/- t_nu(p) * S` with `estimate = value - b`.
+`shift_g`, `gamma_g`, `nu_g` and `M_g` are learned on held out subjects so that the backtested
+coverage equals the nominal one and `q` is calibrated (stage 5).
 
 ## Metrics and tolerances (v1)
 
@@ -117,8 +122,21 @@ to the user's baseline, rate of change, hour of day, flags, and the number of in
 sources. Trained offline on the reference datasets (below) and on synthetic data with known
 error; its trees are exported as JSON and embedded. At run time it scales `sigma` per figure.
 
-**Stage 5. Calibration.** Split conformal (Mondrian per calibration group) on held out subjects
-gives `gamma_g`. Groups with fewer than 50 calibration points fall back to their parent group.
+**Stage 5. Calibration.** Split conformal, Mondrian per calibration group (metric x device family x
+context), fitted on held out subjects. From the normalized residuals `r = (e - bias) / s` of a group
+it learns: the shift (the median `r`, the bias the prior missed against the references), gamma (so
+the 90% interval around the shifted bias covers 90% of the figures, with the finite sample conformal
+quantile), nu (from a grid, so the 50 to 95% intervals follow the observed tails), and a monotone
+q map (isotonic regression of the outcome `|e| <= tol` on `q_raw`, ties pooled, straight on to
+(0, 0) and (1, 1) outside its knots). Figures of one person are autocorrelated, so group sizes
+count subjects as well as figures: a group needs 50 figures and 8 subjects for its shift and gamma,
+200 and 10 for its own nu, 300 and 10 for its q map, and otherwise falls back to its parent
+(metric x family, then metric). Factors never cross metrics.
+
+The model and calibration shipped are built the way the backtest validates them: the training
+subjects in three folds, a residual model fitted on each pair of folds, the calibration fitted on
+each fold's residuals under the model that did not see it, and the three models averaged (in log
+scale) at run time.
 
 ## Where it runs
 
@@ -146,10 +164,16 @@ gives `gamma_g`. Groups with fewer than 50 calibration points fall back to their
 
 The bench hides the reference, runs stages 0 to 5, and reports per metric, device and context:
 coverage of the 50, 80, 90 and 95% intervals (PICP), mean interval width, interval score, CRPS,
-the reliability (expected calibration error) of `q`, and Brier score. Splits are leave one
-subject out. Acceptance gates for a model version: PICP90 in [0.88, 0.92] overall and in
-[0.85, 0.95] per group with at least 50 points, ECE of `q` below 0.03, CRPS no worse than the
-prior only baseline. The bench writes a report the docs publish with each model version.
+the reliability (expected calibration error, 20 equal-mass bins, with 10 equal-width beside it) of
+`q`, and Brier score, against the prior only and the prior plus conformal baselines. Splits are
+leave one subject out. Every headline number and gate carries a 95% subject-cluster bootstrap
+interval, and per subject coverage is published. Device timestamps are used as written (lag 0),
+as in production; a variant with each device's lag fitted on the reference is reported beside it
+only. Acceptance gates for a model version: PICP90 in [0.88, 0.92] overall and in [0.85, 0.95] per
+group with at least 50 figures and 5 subjects, ECE of `q` below 0.03 overall and per such group,
+CRPS no worse than the prior only baseline and than the prior plus conformal one. The bench writes
+a report the docs publish with each model version. A model version is frozen once written; data
+held out for evaluation (Walch et al. 2019) score that frozen version and are never fitted on.
 
 Only derived numbers (tree splits, conformal factors, summary error figures) enter the repo,
 with attribution to each dataset as its licence asks.
