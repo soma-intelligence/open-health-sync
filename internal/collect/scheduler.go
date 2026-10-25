@@ -41,8 +41,6 @@ const (
 	BackfillChunk = 7 * 24 * time.Hour
 	// pullOverlap re-reads the end of the previous window for late data.
 	pullOverlap = time.Hour
-	// maxCatchUp bounds how far back a regular pull reaches after an outage.
-	maxCatchUp = 7 * 24 * time.Hour
 	// defaultScheduleBatch bounds the connections one scheduling pass looks at.
 	defaultScheduleBatch = 1000
 )

@@ -70,7 +70,7 @@ func TestEveryDeclaredSyncPolicyIsValid(t *testing.T) {
 		got := connector.SyncPolicyOf(c)
 		d := connector.DefaultSyncPolicy()
 		check := func(field string, v, norm, def any) {
-			if v != norm && !(isZero(v) && norm == def) {
+			if v != norm && (!isZero(v) || norm != def) {
 				t.Errorf("%s: %s %v is out of bounds (used: %v)", c.Slug(), field, v, norm)
 			}
 		}
