@@ -201,7 +201,7 @@ func galaxyTC(gr GalaxyResult) []TCCheck {
 		sub := "galaxyppg/" + string(rune('A'+i))
 		out = append(out, TCCheck{sub, "galaxy_watch_5", math.Sqrt(tc.Var[0]), sdOf(dx), tc.Clipped[0]})
 		out = append(out, TCCheck{sub, "empatica_e4", math.Sqrt(tc.Var[1]), sdOf(dy), tc.Clipped[1]})
-		out = append(out, TCCheck{sub, "polar_h10 (no true SD)", math.Sqrt(tc.Var[2]), 0, tc.Clipped[2]})
+		out = append(out, TCCheck{sub, "polar_h10 (the reference)", math.Sqrt(tc.Var[2]), 0, tc.Clipped[2]})
 	}
 	return out
 }

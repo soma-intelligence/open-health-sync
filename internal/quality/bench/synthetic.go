@@ -28,17 +28,20 @@ type synthDevice struct {
 	dev     quality.Device
 	metrics []string
 	anchor  bool // a chest strap, worn only during workouts
+	// offset is when, after the minute, the device stamps its reading:
+	// devices never share a clock to the millisecond.
+	offset time.Duration
 }
 
 var synthDevices = []synthDevice{
 	{"apple_watch", quality.Device{Model: "apple_watch_s8", Family: "apple_watch", Sensor: quality.SensorWristPPG},
-		[]string{quality.MetricHeartRate, quality.MetricSleepDuration, quality.MetricStepCount}, false},
+		[]string{quality.MetricHeartRate, quality.MetricSleepDuration, quality.MetricStepCount}, false, 0},
 	{"garmin", quality.Device{Model: "garmin_vivosmart_4", Family: "garmin", Sensor: quality.SensorWristPPG},
-		[]string{quality.MetricHeartRate, quality.MetricSleepDuration, quality.MetricStepCount}, false},
+		[]string{quality.MetricHeartRate, quality.MetricSleepDuration, quality.MetricStepCount}, false, 7 * time.Second},
 	{"oura", quality.Device{Model: "oura_gen3", Family: "oura", Sensor: quality.SensorRingPPG},
-		[]string{quality.MetricHeartRate, quality.MetricRestingHeartRate, quality.MetricHRVRMSSD, quality.MetricSleepDuration}, false},
+		[]string{quality.MetricHeartRate, quality.MetricRestingHeartRate, quality.MetricHRVRMSSD, quality.MetricSleepDuration}, false, 13 * time.Second},
 	{"polar", quality.Device{Model: "polar_h10", Family: "polar_strap", Sensor: quality.SensorChestECG},
-		[]string{quality.MetricHeartRate}, true},
+		[]string{quality.MetricHeartRate}, true, 3 * time.Second},
 }
 
 func (d synthDevice) measures(metric string) bool {
@@ -127,7 +130,7 @@ func LoadSynthetic(n, days int) ([]Record, SynthResult) {
 			if metric == quality.MetricHeartRate || metric == quality.MetricRestingHeartRate || metric == quality.MetricStepCount {
 				v = math.Max(1, math.Round(v))
 			}
-			return synthSample{dev: d, metric: metric, t: t, value: v, truth: truth, err: m.Forward(v) - z, ctx: ctx}
+			return synthSample{dev: d, metric: metric, t: t.Add(d.offset), value: v, truth: truth, err: m.Forward(v) - z, ctx: ctx}
 		}
 		trueCtx := func(t time.Time) quality.Context {
 			if _, ok := tl.SleepAt(t); ok {
@@ -229,10 +232,11 @@ func LoadSynthetic(n, days int) ([]Record, SynthResult) {
 	return out, res
 }
 
-// synthStage0 relays every Garmin heart rate into Apple Health (half of the
-// relays lose the producer's name) and redelivers 5% of the ring's through
-// Health Connect, then checks that GroupCopies puts each copy back with its
-// original and merges nothing else.
+// synthStage0 relays every Garmin heart rate into Apple Health with its
+// start time (half of the relays lose the producer's name) and redelivers
+// 5% of the ring's through Health Connect with their original id, then
+// checks that GroupCopies puts each copy back with its original and merges
+// nothing else.
 func synthStage0(samples []synthSample, r *synth.Rand, res *SynthResult) {
 	var obs []quality.Obs
 	var origin []int // per obs: the index of the obs it copies, or its own
@@ -249,8 +253,7 @@ func synthStage0(samples []synthSample, r *synth.Rand, res *SynthResult) {
 		o := obs[i]
 		switch {
 		case o.Provider == "garmin":
-			c := quality.Obs{ID: o.ID + "-ah", Provider: "apple_health", Source: "garmin",
-				Start: o.Start.Add(time.Duration(r.Intn(20)) * time.Second), Value: o.Value}
+			c := quality.Obs{ID: o.ID + "-ah", Provider: "apple_health", Source: "garmin", Start: o.Start, Value: o.Value}
 			if r.Chance(0.5) {
 				c.Source = ""
 			}
@@ -260,7 +263,7 @@ func synthStage0(samples []synthSample, r *synth.Rand, res *SynthResult) {
 		case o.Provider == "oura" && r.Chance(0.05):
 			obs[i].OriginalID = o.ID
 			obs = append(obs, quality.Obs{ID: o.ID + "-hc", Provider: "health_connect", Source: "oura", OriginalID: o.ID,
-				Start: o.Start.Add(time.Hour), Value: o.Value})
+				Start: o.Start, Value: o.Value})
 			origin = append(origin, i)
 			res.CopiesInjected++
 		}

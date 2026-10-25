@@ -258,17 +258,17 @@ func Markdown(in ReportInput) string {
 	}
 
 	for _, part := range []struct {
-		title string
-		keep  func(*Record) bool
+		title, note string
+		keep        func(*Record) bool
 	}{
-		{"Acceptance gates on the reference datasets (full variant)", Real},
-		{"The same gates on the synthetic source (a machinery check: its errors are drawn from the priors, so the\npriors only baseline is right by construction and anything learned can only add noise)", Synthetic},
+		{"Acceptance gates on the reference datasets (full variant)", "", Real},
+		{"The same gates on the synthetic source", "A machinery check, not a gate: the synthetic errors are drawn from the priors, so the priors only\nbaseline is right by construction and anything learned can only add sampling noise. For metrics whose q\nis the same for every figure of a device (nightly and daily totals), leave one subject out makes ECE close\nto zero by construction, so it says nothing there.\n\n", Synthetic},
 	} {
 		gates := Gates(res, part.keep)
 		if gates == nil {
 			continue
 		}
-		w("\n## %s\n\n| Gate | Value | Result |\n|---|---|---|\n", part.title)
+		w("\n## %s\n\n%s| Gate | Value | Result |\n|---|---|---|\n", part.title, part.note)
 		for _, g := range gates {
 			w("| %s | %s | %s |\n", g.Name, g.Value, passFail(g.Passed))
 		}
@@ -309,7 +309,7 @@ func Markdown(in ReportInput) string {
 
 	w("\n## Triple collocation without a reference\n\n")
 	w("Error SD estimated by triple collocation (covariance form) against the SD of the actual errors. Target ratio 0.8 to 1.25.\n\n")
-	w("| Set | Device | Checks | Median ratio | Within 0.8 to 1.25 | Clipped |\n|---|---|---|---|---|---|\n")
+	w("| Set | Device | Checks | Median estimated SD | Median true SD | Median ratio | Within 0.8 to 1.25 | Clipped to 0 |\n|---|---|---|---|---|---|---|---|\n")
 	tcRows := func(set string, cs []TCCheck) {
 		by := map[string][]TCCheck{}
 		var devs []string
@@ -320,13 +320,15 @@ func Markdown(in ReportInput) string {
 			by[c.Device] = append(by[c.Device], c)
 		}
 		for _, d := range devs {
-			var ratios []float64
+			var ratios, est, tru []float64
 			within, clipped := 0, 0
 			for _, c := range by[d] {
+				est = append(est, c.Estimated)
 				if c.Clipped {
 					clipped++
 				}
 				if c.True > 0 {
+					tru = append(tru, c.True)
 					r := c.Estimated / c.True
 					ratios = append(ratios, r)
 					if r >= 0.8 && r <= 1.25 {
@@ -334,12 +336,19 @@ func Markdown(in ReportInput) string {
 					}
 				}
 			}
-			w("| %s | %s | %d | %s | %d | %d |\n", set, d, len(by[d]), f2(percentile(ratios, 0.5)), within, clipped)
+			na := func(x float64) string {
+				if math.IsNaN(x) {
+					return "n/a"
+				}
+				return f2(x)
+			}
+			w("| %s | %s | %d | %s | %s | %s | %d | %d |\n", set, d, len(by[d]), na(percentile(est, 0.5)), na(percentile(tru, 0.5)),
+				na(percentile(ratios, 0.5)), within, clipped)
 		}
 	}
 	tcRows("synthetic, three independent devices", in.Synth.TC)
 	tcRows("synthetic, the Garmin's relay copy counted as a source", in.Synth.TCWithCopy)
-	tcRows("GalaxyPPG, Galaxy Watch 5 + E4 + Polar H10, per subject", in.GalaxyTC)
+	tcRows("GalaxyPPG, Galaxy Watch 5 + E4 + Polar H10, per subject (10 s buckets)", in.GalaxyTC)
 
 	w("\n## Stage 0 copies (synthetic)\n\n| Injected copies | Grouped with their original | Readings wrongly merged |\n|---|---|---|\n")
 	w("| %d | %d | %d |\n", in.Synth.CopiesInjected, in.Synth.CopiesFound, in.Synth.FalseMerges)
