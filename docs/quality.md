@@ -115,8 +115,11 @@ The synthetic source is reported beside them as a check of the machinery, not as
 are drawn from the priors, so the priors are right there by construction.
 
 A model version is frozen once written. Walch et al. 2019 is held out of training and calibration
-entirely and scores the frozen version (`TestWalchEval`, [quality/walch-eval.md](quality/walch-eval.md)
-once its data are on disk).
+entirely and scores the frozen version (`TestWalchEval`, [quality/walch-eval.md](quality/walch-eval.md)).
+On its 31 nights the sleep duration intervals cover every night (PICP90 1.00) but are about 200
+minutes wide for an error of 28 minutes on average (SD 17): the sleep priors are far too cautious,
+and the synthetic-only calibration does not narrow them. Sleep scores are honest but not sharp until
+a sleep dataset can calibrate them.
 
 ### Datasets
 
