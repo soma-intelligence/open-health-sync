@@ -520,4 +520,19 @@ public struct UploadResult: Codable, Sendable, Equatable {
     public var key: String
     /// True when the same bytes were already stored under this key.
     public var duplicate: Bool
+    /// What the server applies beyond the base line format (`deletion_lines`); nil from a
+    /// server older than the field.
+    public var features: [String]?
+
+    public init(key: String, duplicate: Bool, features: [String]? = nil) {
+        self.key = key
+        self.duplicate = duplicate
+        self.features = features
+    }
+
+    /// The feature of the deletion line.
+    public static let deletionLines = "deletion_lines"
+
+    /// Whether the server applies deletion lines.
+    public var acceptsDeletionLines: Bool { features?.contains(UploadResult.deletionLines) ?? false }
 }

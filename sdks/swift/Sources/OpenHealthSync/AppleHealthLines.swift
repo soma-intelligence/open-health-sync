@@ -283,8 +283,9 @@ public struct CorrelationLine: AppleHealthLine, Equatable {
 
 /// A deleted sample: `deletedUuid`, the UUID of an `HKDeletedObject`. The server removes the
 /// records it stored from the sample of that UUID and never stores it again. The line has no
-/// day of its own, so it is not an `AppleHealthLine`: put it in the parts of its query round
-/// with `AppleHealthPartBuilder.addToEveryPart(line:)`.
+/// day of its own, so it is not an `AppleHealthLine`. Send it only to a server whose upload
+/// answers list `deletion_lines` (`UploadResult.acceptsDeletionLines`): an older one stores
+/// it and never applies it.
 public struct DeletionLine: Sendable, Equatable {
     /// The HealthKit UUID of the deleted sample, as `UUID.uuidString` writes it.
     public var uuid: String

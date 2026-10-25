@@ -221,20 +221,25 @@ the server does not store, or whose unit does not fit, is left out and counted i
 anchor (`HKDeletedObject`). Each becomes a [deletion line](../connectors/apple-health.md#deletions),
 `{"deletedUuid":"<uuid>"}`, and the server removes what it stored from that sample. HealthKit
 never edits a sample in place: an app that edits a weight or a blood pressure reading deletes the
-old sample and saves a new one, so without the deletion both would stay stored. The deletions of
-a round open every part of that round (a round with deletions only sends one part dated today),
-because the server applies a part's deletions before its records: an edit that keeps value and
-time replaces the stored copy whichever part is processed first. `report.deletionsUploaded`
-counts them, once each. Sleep stage deletions are sent but change nothing stored (see the
-connector page).
+old sample and saves a new one, so without the deletion both would stay stored. A round's
+deletions go once, in a part of their own dated today, after its samples. `report.deletionsUploaded`
+counts them. Sleep stage deletions are sent but change nothing stored (see the connector page).
+
+Deletions are sent only to a server whose upload answers list `deletion_lines`, learnt from the
+first upload of the run (`healthSync.features`). Until then, and against an older server, they
+are kept beside the anchor (`<type>.pendingDeletions` in the `AnchorStore`), counted in
+`report.deletionsPendingByType`, and sent by a later sync once the server lists the feature. So a
+new app against an old server loses no deletion, and catches up after the server's upgrade.
 
 **Anchors.** Each type has its own `HKQueryAnchor`, archived in `UserDefaults` by default (pass
 another `AnchorStore` to keep them elsewhere). A sync reads at most `queryLimit` objects (5000),
 new and deleted samples together, per round, uploads them under a fresh batch id, and saves the
 new anchor only after every part of that round, samples and deletions, is uploaded. If the app is
 killed or an upload fails, the next sync reads the same samples and deletions again; the server
-keeps each record once and applies a deletion once, so nothing is doubled or lost. `resetAnchor(for:)` makes the next
-sync send a type's whole history. Calls to `sync` run one after the other.
+keeps each record once and applies a deletion once, so nothing is doubled or lost. Pending
+deletions are saved before the anchor moves. `resetAnchor(for:)` makes the next
+sync send a type's whole history; once, after upgrading from 0.2.0, it makes the history stored
+then deletable (each sample leaves its UUID on its row). Calls to `sync` run one after the other.
 
 ## Bluetooth devices
 

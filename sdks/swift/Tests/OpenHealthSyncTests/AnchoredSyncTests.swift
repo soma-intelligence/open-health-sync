@@ -22,10 +22,12 @@ final class FakeChangeSource: AnchoredChangeSource {
 
 struct UploadFailed: Error {}
 
-/// Records the parts it is given; fails the calls whose index is in `failing`.
+/// Records the parts it is given; fails the calls whose index is in `failing`. Its answers
+/// list `features` (nil: a server older than the field).
 final class FakeUploader: AppleHealthPartUploader {
     var calls: [[AppleHealthPart]] = []
     var failing: Set<Int> = []
+    var features: [String]? = [UploadResult.deletionLines]
 
     func uploadParts(_ parts: [AppleHealthPart]) async throws -> [UploadResult] {
         let index = calls.count
@@ -33,7 +35,7 @@ final class FakeUploader: AppleHealthPartUploader {
         if failing.contains(index) {
             throw UploadFailed()
         }
-        return parts.map { UploadResult(key: "raw/\($0.partNumber)", duplicate: false) }
+        return parts.map { UploadResult(key: "raw/\($0.partNumber)", duplicate: false, features: features) }
     }
 }
 
@@ -57,80 +59,130 @@ final class AnchoredSyncTests: XCTestCase {
         return .object(["deletedUuid": .string(uuid)])
     }
 
-    func makeSync(_ source: FakeChangeSource, _ uploader: FakeUploader, _ anchors: AnchorStore) -> AnchoredSync {
+    func makeSync(
+        _ source: FakeChangeSource, _ uploader: FakeUploader, _ anchors: AnchorStore,
+        features: ServerFeatures = ServerFeatures()
+    ) -> AnchoredSync {
         return AnchoredSync(
-            source: source, uploader: uploader, anchors: anchors, queryLimit: 10, timeZone: paris,
-            now: { RFC3339.parse("2026-03-04T23:30:00Z")! })
+            source: source, uploader: uploader, anchors: anchors, features: features, queryLimit: 10,
+            timeZone: paris, now: { RFC3339.parse("2026-03-04T23:30:00Z")! })
     }
 
-    func testDeletionLinesOpenEveryPartOfTheirRound() async throws {
+    func knownServer() -> ServerFeatures {
+        let f = ServerFeatures()
+        f.learn(from: [UploadResult(key: "k", duplicate: false, features: [UploadResult.deletionLines])])
+        return f
+    }
+
+    // Samples first, then the round's deletions once, in a part of their own dated today.
+    func testDeletionsFollowTheSamplesInOnePart() async throws {
         let source = FakeChangeSource([AnchoredChanges(
             lines: [weight(78.0, at: "2026-03-01T07:00:00Z", uuid: "NEW-1"),
                     weight(77.5, at: "2026-03-02T07:00:00Z", uuid: "NEW-2")],
-            deletedUUIDs: ["OLD-1", "OLD-2"],
+            deletedUUIDs: ["OLD-1", "OLD-2", "OLD-1"],
             newAnchor: Data("a1".utf8))])
         let uploader = FakeUploader()
         let anchors = InMemoryAnchorStore()
         var report = SyncReport()
         try await makeSync(source, uploader, anchors).sync(type, report: &report)
 
-        XCTAssertEqual(uploader.calls.count, 1, "one upload call per round")
-        let parts = uploader.calls[0]
-        XCTAssertEqual(parts.map { $0.day }, ["2026-03-01", "2026-03-02"])
-        XCTAssertEqual(Set(parts.map { $0.batch }).count, 1)
-        for part in parts {
-            let got = try lines(of: part)
-            XCTAssertEqual(Array(got.prefix(2)), [deletion("OLD-1"), deletion("OLD-2")])
-            XCTAssertEqual(got.count, 3)
-            XCTAssertEqual(part.lineCount, 3)
+        XCTAssertEqual(uploader.calls.count, 2)
+        XCTAssertEqual(uploader.calls[0].map { $0.day }, ["2026-03-01", "2026-03-02"])
+        for part in uploader.calls[0] {
+            XCTAssertEqual(try lines(of: part).count, 1, "no deletion in the sample parts")
         }
+        let del = uploader.calls[1]
+        XCTAssertEqual(del.count, 1)
+        XCTAssertEqual(del[0].type, type)
+        XCTAssertEqual(del[0].day, "2026-03-05", "today in the sync's zone")
+        XCTAssertEqual(try lines(of: del[0]), [deletion("OLD-1"), deletion("OLD-2")])
+        XCTAssertEqual(report.batchIds.count, 2)
         XCTAssertEqual(anchors.anchorData(for: type), Data("a1".utf8))
         XCTAssertEqual(report.linesByType, [type: 2])
-        XCTAssertEqual(report.deletionsByType, [type: 2], "each deletion counted once")
-        XCTAssertEqual(report.partsUploaded, 2)
+        XCTAssertEqual(report.deletionsByType, [type: 2])
+        XCTAssertTrue(report.deletionsPendingByType.isEmpty)
+        XCTAssertTrue(makeSync(source, uploader, anchors).pendingDeletions(type).isEmpty)
     }
 
-    func testDeletionsOnlyGoInOnePartDatedToday() async throws {
-        let source = FakeChangeSource([AnchoredChanges(deletedUUIDs: ["OLD-1"], newAnchor: Data("a1".utf8))])
-        let uploader = FakeUploader()
+    func testDeletionsOnlyGoOutOnceTheServerIsKnown() async throws {
         let anchors = InMemoryAnchorStore()
+        let uploader = FakeUploader()
         var report = SyncReport()
-        try await makeSync(source, uploader, anchors).sync(type, report: &report)
-
-        let parts = try XCTUnwrap(uploader.calls.first)
-        XCTAssertEqual(parts.count, 1)
-        XCTAssertEqual(parts[0].type, type)
-        XCTAssertEqual(parts[0].day, "2026-03-05", "today in the sync's zone")
-        XCTAssertEqual(try lines(of: parts[0]), [deletion("OLD-1")])
+        // Nothing uploaded yet in this run: the server is not known, the deletion waits.
+        try await makeSync(FakeChangeSource([AnchoredChanges(deletedUUIDs: ["OLD-1"], newAnchor: Data("a1".utf8))]),
+                           uploader, anchors).sync(type, report: &report)
+        XCTAssertTrue(uploader.calls.isEmpty)
+        XCTAssertEqual(report.deletionsPendingByType, [type: 1])
         XCTAssertEqual(anchors.anchorData(for: type), Data("a1".utf8))
+
+        // Known: the pending deletion goes out even with nothing new.
+        report = SyncReport()
+        try await makeSync(FakeChangeSource([AnchoredChanges(newAnchor: Data("a2".utf8))]), uploader, anchors,
+                           features: knownServer()).sync(type, report: &report)
+        XCTAssertEqual(uploader.calls.count, 1)
+        XCTAssertEqual(try lines(of: uploader.calls[0][0]), [deletion("OLD-1")])
         XCTAssertEqual(report.deletionsUploaded, 1)
-        XCTAssertEqual(report.linesUploaded, 0)
+        XCTAssertTrue(makeSync(FakeChangeSource([]), uploader, anchors).pendingDeletions(type).isEmpty)
+    }
+
+    // A server whose answers do not list deletion_lines (older than the deletion line) gets
+    // the samples only; the deletions are kept, and go out once it lists the feature.
+    func testOldServerKeepsTheDeletions() async throws {
+        let anchors = InMemoryAnchorStore()
+        let uploader = FakeUploader()
+        uploader.features = nil
+        let features = ServerFeatures()
+        var report = SyncReport()
+        try await makeSync(FakeChangeSource([AnchoredChanges(
+            lines: [weight(78.0, at: "2026-03-01T07:00:00Z", uuid: "NEW-1")],
+            deletedUUIDs: ["OLD-1"], newAnchor: Data("a1".utf8))]), uploader, anchors, features: features)
+            .sync(type, report: &report)
+        XCTAssertEqual(uploader.calls.count, 1, "samples only")
+        XCTAssertEqual(features.acceptsDeletionLines, false)
+        XCTAssertEqual(report.deletionsPendingByType, [type: 1])
+        XCTAssertEqual(anchors.anchorData(for: type), Data("a1".utf8))
+
+        // The server is upgraded: the next upload answer lists the feature.
+        uploader.features = [UploadResult.deletionLines]
+        report = SyncReport()
+        try await makeSync(FakeChangeSource([AnchoredChanges(
+            lines: [weight(77.0, at: "2026-03-02T07:00:00Z", uuid: "NEW-2")],
+            deletedUUIDs: ["OLD-2"], newAnchor: Data("a2".utf8))]), uploader, anchors, features: features)
+            .sync(type, report: &report)
+        XCTAssertEqual(uploader.calls.count, 3)
+        XCTAssertEqual(try lines(of: uploader.calls[2][0]), [deletion("OLD-1"), deletion("OLD-2")])
+        XCTAssertTrue(report.deletionsPendingByType.isEmpty)
     }
 
     // The anchor moves only after the samples and the deletions of the round are uploaded:
     // a failed upload leaves it where it was, so the next sync sends both again.
     func testFailedUploadKeepsTheAnchor() async throws {
-        for round in [
-            AnchoredChanges(deletedUUIDs: ["OLD-1"], newAnchor: Data("a1".utf8)),
-            AnchoredChanges(lines: [weight(78.0, at: "2026-03-01T07:00:00Z", uuid: "NEW-1")],
-                            deletedUUIDs: ["OLD-1"], newAnchor: Data("a1".utf8)),
+        for (round, failing) in [
+            (AnchoredChanges(deletedUUIDs: ["OLD-1"], newAnchor: Data("a1".utf8)), 0),
+            (AnchoredChanges(lines: [weight(78.0, at: "2026-03-01T07:00:00Z", uuid: "NEW-1")],
+                             deletedUUIDs: ["OLD-1"], newAnchor: Data("a1".utf8)), 0),
+            (AnchoredChanges(lines: [weight(78.0, at: "2026-03-01T07:00:00Z", uuid: "NEW-1")],
+                             deletedUUIDs: ["OLD-1"], newAnchor: Data("a1".utf8)), 1),
         ] {
             let anchors = InMemoryAnchorStore()
             anchors.setAnchorData(Data("a0".utf8), for: type)
             let uploader = FakeUploader()
-            uploader.failing = [0]
+            uploader.failing = [failing]
             var report = SyncReport()
             do {
-                try await makeSync(FakeChangeSource([round]), uploader, anchors).sync(type, report: &report)
+                try await makeSync(FakeChangeSource([round]), uploader, anchors, features: knownServer())
+                    .sync(type, report: &report)
                 XCTFail("the upload error must reach the caller")
             } catch is UploadFailed {}
             XCTAssertEqual(anchors.anchorData(for: type), Data("a0".utf8))
 
             // Next sync: the same round is read from the same anchor and sent again.
             let source = FakeChangeSource([round])
-            try await makeSync(source, FakeUploader(), anchors).sync(type, report: &report)
+            let again = FakeUploader()
+            try await makeSync(source, again, anchors, features: knownServer()).sync(type, report: &report)
             XCTAssertEqual(source.anchorsAsked, [Data("a0".utf8)])
             XCTAssertEqual(anchors.anchorData(for: type), Data("a1".utf8))
+            XCTAssertEqual(try lines(of: again.calls.last![0]), [deletion("OLD-1")])
         }
     }
 
@@ -169,21 +221,11 @@ final class AnchoredSyncTests: XCTestCase {
         XCTAssertEqual(DeletionLine(uuid: "6F1A9D2B").jsonObject(), ["deletedUuid": "6F1A9D2B"])
     }
 
-    func testLinesForEveryPartOpenEachSplitPart() throws {
-        let line: JSONObject = ["quantityType": "HKQuantityTypeIdentifierHeartRate", "value": 60]
-        let size = JSONValue.object(line).compactJSONData().count + 1
-        var builder = try AppleHealthPartBuilder(batch: "b", maxPartBytes: size * 2)
-        builder.addToEveryPart(line: DeletionLine(uuid: "OLD").jsonObject())
-        XCTAssertTrue(builder.isEmpty, "lines for every part make no part on their own")
-        XCTAssertTrue(builder.build().isEmpty)
-        for _ in 0..<3 {
-            try builder.add(type: "HKQuantityTypeIdentifierHeartRate", day: "2026-01-10", line: line)
-        }
-        let parts = builder.build()
-        XCTAssertGreaterThan(parts.count, 1)
-        for part in parts {
-            XCTAssertEqual(try lines(of: part).first, deletion("OLD"))
-        }
-        XCTAssertEqual(parts.reduce(0) { $0 + $1.lineCount }, 3 + parts.count)
+    func testUploadResultReadsFeatures() throws {
+        let new = try JSONDecoder().decode(UploadResult.self, from: Data(#"{"key":"k","duplicate":false,"features":["deletion_lines"]}"#.utf8))
+        XCTAssertTrue(new.acceptsDeletionLines)
+        let old = try JSONDecoder().decode(UploadResult.self, from: Data(#"{"key":"k","duplicate":true}"#.utf8))
+        XCTAssertFalse(old.acceptsDeletionLines)
+        XCTAssertNil(old.features)
     }
 }

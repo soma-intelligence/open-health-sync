@@ -15,10 +15,10 @@ public enum HealthKitSyncError: Error, Sendable, Equatable {
 ///
 /// For each type, the samples added since the stored anchor are converted into upload lines,
 /// grouped into parts by type and local day (in the sample's `HKTimeZone`), and uploaded
-/// under a fresh batch id, with the UUIDs of the samples deleted since that anchor as
-/// deletion lines in each part (see `AnchoredSync`). The new anchor is saved only once every
-/// part of the round is uploaded, so an interrupted sync sends the same samples and deletions
-/// again next time, and the server applies them once.
+/// under a fresh batch id; the UUIDs of the samples deleted since that anchor follow as
+/// deletion lines, once the server has said it applies them (see `AnchoredSync`). The new
+/// anchor is saved only once every part of the round is uploaded, so an interrupted sync
+/// sends the same samples and deletions again next time, and the server applies them once.
 @available(macOS 13.0, *)
 public final class HealthKitSync: @unchecked Sendable {
     public let store: HKHealthStore
@@ -28,6 +28,9 @@ public final class HealthKitSync: @unchecked Sendable {
     public let batchPrefix: String
     /// The most samples one anchored query returns; a type with more is read in rounds.
     public let queryLimit: Int
+
+    /// What the server applies, learnt from its upload answers.
+    public let features = ServerFeatures()
 
     private let queue = SyncQueue()
     private let lock = NSLock()
@@ -146,7 +149,8 @@ public final class HealthKitSync: @unchecked Sendable {
     }
 
     /// Forgets the anchor of `type`: the next sync uploads all its samples again (the server
-    /// keeps each record once).
+    /// keeps each record once, and records each sample's UUID on the row it stands for, so the
+    /// history stored by an older version becomes deletable). Pending deletions are kept.
     public func resetAnchor(for type: HKSampleType) {
         anchors.setAnchorData(nil, for: type.identifier)
     }
@@ -156,7 +160,8 @@ public final class HealthKitSync: @unchecked Sendable {
     private func syncType(_ type: HKSampleType, report: inout SyncReport) async throws {
         let sync = AnchoredSync(
             source: HealthKitChangeSource(store: store, type: type),
-            uploader: client, anchors: anchors, batchPrefix: batchPrefix, queryLimit: queryLimit)
+            uploader: client, anchors: anchors, features: features, batchPrefix: batchPrefix,
+            queryLimit: queryLimit)
         try await sync.sync(type.identifier, report: &report)
     }
 }
