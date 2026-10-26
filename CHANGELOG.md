@@ -100,6 +100,11 @@ release may change the API, the configuration or the database schema.
   anchor only once both are uploaded. Sleep stages, ECG and heartbeat series are not covered.
 - A provider deletion recomputes the derived daily totals of the days of the samples it removed,
   and a derived day left without samples is dropped.
+- An upload whose every line fails validation or parsing (dates in the future, for example) is no
+  longer replayed at every process start. It got a recoverable job-level failure row, so the
+  drainer queued it again after each restart and its line failures were written again: one
+  restart of a loaded stack replayed 11086 such objects and added 391865 rows to
+  `failed_records`.
 - A client sending its headers and then the body a byte at a time held its connection and a
   goroutine for as long as it kept sending, on any route and without a key: 4000 such
   connections took 140 MB, and enough would push `ohs` past its memory limit. A request must
