@@ -273,7 +273,11 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		}
 		// All-failed object (nothing written or already stored): the per-line rows alone do not make it visible as one
 		// unit, so add a job-level row in the same transaction.
-		if written+counts.TotalSkipped() == 0 && recordsFailed > 0 {
+		// Only when a code fix may rescue it: an object whose every line
+		// failed parse or validation would fail the same way again, and a job
+		// row made the drainer replay it, and write its line failures again,
+		// at every process start.
+		if written+counts.TotalSkipped() == 0 && recordsFailed > 0 && anyRecoverable(failed) {
 			if err := writeJobFailure(ctx, tx, sc, job.Key,
 				fmt.Sprintf("all %d record(s) failed (0 written)", recordsFailed)); err != nil {
 				return nil, "", false, err

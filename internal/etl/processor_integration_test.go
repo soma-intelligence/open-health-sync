@@ -99,6 +99,28 @@ func TestProcess_AllFailedWritesAJobLevelRow(t *testing.T) {
 	assert.Equal(t, 3, e.count("failed_records"))
 }
 
+// An object whose every line fails validation gets no job-level row: the
+// drainer replays objects with one at every process start, and replaying
+// these only wrote their line failures again (392 k more rows for 11 k such
+// objects after one restart in a stress run).
+func TestProcess_AllInvalidWritesNoJobRow(t *testing.T) {
+	e := newEnv(t)
+	e.register("apple_health", quantityMap)
+	future := time.Now().Add(30 * 24 * time.Hour)
+	job := e.upload(e.tenant, e.user, "apple_health", "heart_rate",
+		q("heart_rate", 60, "bpm", future), q("heart_rate", 61, "bpm", future.Add(time.Minute)))
+
+	e.process(job)
+
+	var jobRows, lineRows int
+	require.NoError(t, e.pool.QueryRow(context.Background(), `
+		SELECT count(*) FILTER (WHERE reason_code = 'job'), count(*) FILTER (WHERE reason_code = 'validation')
+		FROM ohs_data.failed_records WHERE tenant_id = $1 AND user_id = $2`,
+		e.tenant, e.user).Scan(&jobRows, &lineRows))
+	assert.Equal(t, 0, jobRows)
+	assert.Equal(t, 2, lineRows)
+}
+
 func TestProcess_UnknownProviderIsAnError(t *testing.T) {
 	e := newEnv(t)
 	job := e.upload(e.tenant, e.user, "nobody", "x", q("heart_rate", 60, "bpm", recent()))
@@ -200,7 +222,7 @@ func TestProcess_StructuralRejectStillDiscardsTheRecord(t *testing.T) {
 	e.process(e.upload(e.tenant, e.user, "dev", "sleep", `{"type":"sleep"}`))
 	assert.Equal(t, 0, e.count("sleep_sessions"))
 	assert.Equal(t, 0, e.count("sleep_phases"))
-	assert.Equal(t, 2, e.count("failed_records"), "the validation row, and the job row of an all-failed object")
+	assert.Equal(t, 1, e.count("failed_records"), "the validation row; no job row, a replay would fail the same way")
 }
 
 func TestProcess_SuspectValuesAreWrittenAndFlagged(t *testing.T) {
