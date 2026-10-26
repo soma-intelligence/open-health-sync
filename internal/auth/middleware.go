@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -83,6 +84,11 @@ func WithPrincipal(ctx context.Context, p Principal) context.Context {
 	return context.WithValue(ctx, ctxKey{}, p)
 }
 
+// LookupTimeout bounds the credential lookup of a request. Past it the
+// request answers 503 with Retry-After, like a database that refuses
+// connections.
+var LookupTimeout = 10 * time.Second
+
 // Middleware authenticates the bearer secret with lookup and enforces want.
 func Middleware(lookup Lookup, want Scope) func(http.Handler) http.Handler {
 	return MiddlewareAny(lookup, want)
@@ -104,7 +110,20 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 				unauthorized(w)
 				return
 			}
-			p, err := lookup(r.Context(), Hash(raw))
+			// A database that does not answer (a frozen host, a network
+			// partition: no reset, no error) would hold the request, its
+			// goroutine and a pool connection for as long as it stays
+			// silent. The lookup is one indexed read; past LookupTimeout it
+			// is an outage.
+			lctx, cancel := context.WithTimeout(r.Context(), LookupTimeout)
+			p, err := lookup(lctx, Hash(raw))
+			timedOut := err != nil && errors.Is(lctx.Err(), context.DeadlineExceeded) && r.Context().Err() == nil
+			cancel()
+			if timedOut {
+				slog.ErrorContext(r.Context(), "auth: lookup timed out", "timeout", LookupTimeout.String())
+				WriteUnavailable(w, "the database did not answer in time; retry in a few seconds")
+				return
+			}
 			if errors.Is(err, ErrUnauthenticated) {
 				unauthorized(w)
 				return

@@ -8,10 +8,15 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// DefaultConnectTimeout bounds opening one connection of the pool when the
+// URL sets no connect_timeout.
+var DefaultConnectTimeout = 10 * time.Second
 
 // Option configures the pool Open creates.
 type Option func(*pgxpool.Config)
@@ -26,6 +31,13 @@ func Open(ctx context.Context, url string, opts ...Option) (*pgxpool.Pool, error
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
+	}
+	if cfg.ConnConfig.ConnectTimeout == 0 {
+		// pgx dials with no timeout: a database host that drops packets
+		// would hold every new connection, and the requests waiting on the
+		// pool, until the kernel gives up minutes later. connect_timeout in
+		// the URL overrides it.
+		cfg.ConnConfig.ConnectTimeout = DefaultConnectTimeout
 	}
 	for _, o := range opts {
 		o(cfg)
