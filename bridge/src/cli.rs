@@ -4,6 +4,8 @@
 
 use std::path::PathBuf;
 
+use crate::vendor::{self, polar};
+
 pub const USAGE: &str = "\
 ohs-bridge: sends what standard Bluetooth health devices and USB-mounted watches
 record to an Open Health Sync server.
@@ -11,11 +13,11 @@ record to an Open Health Sync server.
 Usage:
   ohs-bridge scan [--seconds N] [--all]
       List nearby devices that advertise a supported health service.
-  ohs-bridge watch [--device NAME]...
+  ohs-bridge watch [--device NAME]... [--polar STREAMS]
       Connect and print heart rate, RR intervals and battery as they arrive.
       Uploads nothing.
   ohs-bridge run [--device NAME]... [--any] [--device-user N] [--files DIR]...
-                 [--status-file PATH] [--allow-http]
+                 [--polar STREAMS] [--status-file PATH] [--allow-http]
       Connect (and reconnect) to the named devices, or to any supported
       device with --any, queue every value and upload it. With --files, also
       upload new .fit files from those folders (a watch mounted over USB).
@@ -28,6 +30,9 @@ Usage:
 
 --device NAME matches the advertised name, ignoring case, anywhere in it.
 --device-user N is your user index (0 to 254) on a shared scale or cuff.
+--polar STREAMS picks what a Polar strap or optical sensor streams besides
+  heart rate: ecg, ppg, acc, ppi, gyro, mag, separated by commas, or all, or
+  off. Default: ecg,ppi.
 
 Environment:
   OHS_URL            base URL of the server, for example https://ohs.example.org
@@ -43,6 +48,7 @@ pub enum Command {
     },
     Watch {
         devices: Vec<String>,
+        vendor: vendor::Config,
     },
     Run(Run),
     Files {
@@ -66,6 +72,7 @@ pub struct Run {
     pub files: Vec<PathBuf>,
     pub status_file: Option<PathBuf>,
     pub allow_http: bool,
+    pub vendor: vendor::Config,
 }
 
 struct Args<'a> {
@@ -128,14 +135,15 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::Scan { seconds, all })
         }
         "watch" => {
-            let mut devices = Vec::new();
+            let (mut devices, mut vendor) = (Vec::new(), vendor::Config::default());
             while let Some(arg) = a.rest.next() {
                 match arg.as_str() {
                     "--device" => devices.push(a.value("--device")?.clone()),
+                    "--polar" => vendor.polar = polar::parse_streams(a.value("--polar")?)?,
                     other => return Err(a.unknown(other)),
                 }
             }
-            Ok(Command::Watch { devices })
+            Ok(Command::Watch { devices, vendor })
         }
         "run" => {
             let mut r = Run::default();
@@ -157,6 +165,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                         r.status_file = Some(PathBuf::from(a.value("--status-file")?))
                     }
                     "--allow-http" => r.allow_http = true,
+                    "--polar" => r.vendor.polar = polar::parse_streams(a.value("--polar")?)?,
                     other => return Err(a.unknown(other)),
                 }
             }
@@ -228,12 +237,29 @@ mod tests {
                 all: true
             })
         );
-        assert_eq!(p("watch"), Ok(Command::Watch { devices: vec![] }));
         assert_eq!(
-            p("watch --device h10"),
+            p("watch"),
             Ok(Command::Watch {
-                devices: vec!["h10".into()]
+                devices: vec![],
+                vendor: vendor::Config::default()
             })
+        );
+        assert_eq!(
+            p("watch --device h10 --polar ecg,acc"),
+            Ok(Command::Watch {
+                devices: vec!["h10".into()],
+                vendor: vendor::Config {
+                    polar: vec![polar::Kind::Ecg, polar::Kind::Acc]
+                }
+            })
+        );
+        assert_eq!(
+            p("run --device H10 --polar off"),
+            Ok(Command::Run(Run {
+                devices: vec!["H10".into()],
+                vendor: vendor::Config { polar: vec![] },
+                ..Default::default()
+            }))
         );
         assert_eq!(
             p("run --device H10 --device BLEsmart --device-user 1 --files /Volumes/GARMIN --status-file /tmp/ohs.txt"),
@@ -281,6 +307,8 @@ mod tests {
             "files --watch",
             "flush now",
             "status --json",
+            "watch --polar",
+            "run --device h10 --polar ekg",
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }

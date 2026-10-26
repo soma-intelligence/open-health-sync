@@ -5,6 +5,7 @@ package bluetooth
 import (
 	"maps"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
@@ -78,20 +79,78 @@ func mapMeasurement(userID string, p parsed, m *measurement) model.MapResult {
 	// The RR intervals of one notification end at its arrival: the last beat
 	// is stamped then, each earlier one at the following beat minus the
 	// following interval.
-	if len(m.rr) > 0 {
-		res.HeartbeatSamples = make([]model.HeartbeatSample, len(m.rr))
-		beat := p.at
-		for i := len(m.rr) - 1; i >= 0; i-- {
-			res.HeartbeatSamples[i] = model.HeartbeatSample{
+	beat := p.at
+	for i := len(m.rr) - 1; i >= 0; i-- {
+		if m.rrValid == nil || m.rrValid[i] {
+			res.HeartbeatSamples = append(res.HeartbeatSamples, model.HeartbeatSample{
 				SeriesID:  p.Session,
 				UserID:    userID,
 				Timestamp: beat.UTC(),
 				RRMS:      m.rr[i],
-			}
-			beat = beat.Add(-time.Duration(math.Round(m.rr[i]*1e3)) * time.Microsecond)
+			})
 		}
+		beat = beat.Add(-time.Duration(math.Round(m.rr[i]*1e3)) * time.Microsecond)
 	}
+	slices.Reverse(res.HeartbeatSamples)
 	return res
+}
+
+// mapSample turns a sample the client decoded into a canonical record, with
+// the provenance and the hash of a decoded measurement.
+func mapSample(userID string, p parsed) model.MapResult {
+	d := p.sample
+	if d.qt == rrInterval {
+		return model.MapResult{HeartbeatSamples: []model.HeartbeatSample{{
+			SeriesID:  p.Session,
+			UserID:    userID,
+			Timestamp: d.start.UTC(),
+			RRMS:      d.value,
+		}}}
+	}
+	var dev device
+	if p.Device != nil {
+		dev = *p.Device
+	}
+	src := sourceOf(dev)
+	_, offset := p.at.Zone()
+	minutes := offset / 60
+	md := map[string]any{
+		"gatt_characteristic": p.char,
+		"session":             p.Session,
+		"clock":               "device",
+		"decoded_by":          "client",
+		"utc_offset_minutes":  minutes,
+	}
+	if z := offsetZone(minutes); z != "" {
+		md["timezone"] = z
+	}
+	if dev.Firmware != "" {
+		md["firmware"] = dev.Firmware
+	}
+	measured := false
+	return model.MapResult{QuantitySamples: []model.QuantitySample{{
+		UserID:         userID,
+		Provider:       Slug,
+		SourceSlug:     src.slug,
+		SourceName:     src.name,
+		DeviceID:       src.deviceID,
+		DeviceModel:    src.deviceModel,
+		WasUserEntered: &measured,
+		QuantityType:   d.qt,
+		Value:          d.value,
+		Unit:           d.unit,
+		StartDate:      d.start.UTC(),
+		EndDate:        d.end.UTC(),
+		Metadata:       md,
+		ContentHash: model.ComputeContentHash(map[string]string{
+			"user_id":       userID,
+			"provider":      Slug,
+			"source_slug":   src.slug,
+			"quantity_type": d.qt,
+			"start_date":    d.start.UTC().Format(time.RFC3339Nano),
+			"value":         model.CanonicalFloat(d.value),
+		}),
+	}}}
 }
 
 // when is the time of a measurement and where it comes from: the device's

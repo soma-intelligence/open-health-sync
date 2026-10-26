@@ -3,6 +3,8 @@
 Slug `bluetooth`. Heart rate straps, blood pressure cuffs, scales, glucose meters, thermometers
 and pulse oximeters that speak the standard Bluetooth health profiles send their readings
 straight to your own server: no vendor account, no partner program, no phone in the middle.
+Polar straps and optical sensors also send what their own measurement service streams: PP
+intervals, raw ECG and motion.
 
 | Path | What it brings | How |
 |---|---|---|
@@ -31,9 +33,23 @@ proprietary protocols are not used.
 and other watches also sync their activities without a phone: mounted over USB, their FIT files
 go to the [activity files](activity-files.md) route (`ohs-bridge files`).
 
+### Vendor services
+
+A few devices stream more on a service of their maker's than on the standard profiles. The
+client runs that service's protocol (it starts the streams) and forwards the values like any
+other, keyed by the characteristic's full UUID.
+
+| Service | Data characteristic | Typical devices | Streams |
+|---|---|---|---|
+| Polar Measurement Data `fb005c80-02e7-f387-1cad-8acd2d8df0c8` | `fb005c82-02e7-f387-1cad-8acd2d8df0c8` | Polar H10 and H9 straps, Verity Sense, OH1 and 360 | ECG (H10: 130 Hz, microvolts), PPG, accelerometer, PP intervals (optical sensors), gyroscope, magnetometer |
+
+`ohs-bridge` starts ECG and PP intervals by default and the other streams on request
+(`--polar`, see [the bridge guide](../bridge.md#polar-streams)). Polar documents this protocol
+with its BLE SDK; the bridge implements it from that description and uses no SDK code.
+
 Not supported: continuous glucose monitors, fitness machines (FTMS), cycling power and running
-speed sensors, and devices that only speak a vendor protocol (Withings, Oura, WHOOP, Xiaomi
-bands). Those reach Open Health Sync through their own connector or a phone store.
+speed sensors, and devices whose vendor protocol no client here speaks yet (Withings, Oura,
+WHOOP, Xiaomi bands). Those reach Open Health Sync through their own connector or a phone store.
 
 ## 2. Pairing
 
@@ -77,8 +93,10 @@ with the `upload` scope, the headers `X-OHS-Type` (always `gatt`), `X-OHS-Day`, 
 | Field | Required | Meaning |
 |---|---|---|
 | `at` | yes | RFC 3339 time the value arrived, with the uploader's UTC offset |
-| `char` | yes | Characteristic UUID, 16-bit (`2a37`) or the full Bluetooth base UUID form, any case |
-| `value` | yes | The value's bytes in hex, 1 to 512 bytes |
+| `char` | yes | Characteristic UUID: 16-bit (`2a37`), the full Bluetooth base UUID form, or the full 128-bit UUID of a vendor characteristic (`fb005c82-02e7-f387-1cad-8acd2d8df0c8`), any case |
+| `value` | yes, unless `sample` | The value's bytes in hex, 1 to 512 bytes |
+| `sample` | instead of `value` | A value the client decoded itself, for a vendor protocol this server does not decode: `type` (a declared quantity type, or `rr_interval`), `value` (a finite number), `unit` (the type's storage unit or one that converts to it; `ms` for `rr_interval`), `start` and optional `end` (RFC 3339, not before 2000, not more than ten minutes after `at`). See below |
+| `ctx` | no | Vendor values only: what the client sent to start the stream the value belongs to, in hex, at most 64 bytes, so each line decodes on its own. For Polar Measurement Data: the measurement type, then the settings of the start request and the factor the device answered, in the PMD settings encoding |
 | `session` | yes | 8 to 64 letters, digits, `_` or `-`, chosen per connection to one device. It names the RR series |
 | `device` | no | `name` (advertised name), `manufacturer`, `model`, `firmware` (Device Information service), at most 128 characters each |
 | `device_user` | no | This person's user index (0 to 254) on a shared device |
@@ -92,10 +110,22 @@ and part 0, and keeps each part's bytes until it gets a 200, so a retry is answe
 `duplicate: true`.
 
 The part is refused with 400, and nothing is stored, when a line is not a JSON object of this
-format (a field missing, `at` without an offset, `value` not hex), `X-OHS-Type` is not `gatt`, or
-the part holds no line. A value that does not decode (shorter than its flags say) is a failed
+format (a field missing, `at` without an offset, `value` or `ctx` not hex, `char` neither a
+16-bit nor a 128-bit UUID), `X-OHS-Type` is not `gatt`, or the part holds no line. A value that does not decode (shorter than its flags say) is a failed
 record of its own line, shown in sync health; the other lines are kept. A characteristic not in
 the mapping (battery level, a vendor service) is stored and not mapped.
+
+A client that speaks a vendor protocol the server does not decode (a driver built on
+`ohs-bridge`, see [bridge.md](../bridge.md)) sends what it decoded instead of the bytes:
+
+```json
+{"at":"2026-10-18T07:12:00+02:00","char":"61080003-8d6d-82b8-614a-1c8cb0f8dcc6","sample":{"type":"skin_temperature","value":33.25,"unit":"celsius","start":"2026-10-18T03:00:00.000Z"},"session":"9f2c4e1a7b3d5c60"}
+```
+
+A line carries `value` or `sample`, never both. The part is refused when a sample's type is not
+declared, its unit does not convert to the type's storage unit, its value is not finite, or its
+times are out of bounds. The server cannot re-decode such a line, so a client decoder fix does
+not re-map what was already sent.
 
 ## 7. Mapping
 
@@ -119,6 +149,10 @@ no sample).
 | Temperature Measurement `2a1c` | temperature (°C or °F) | `body_temperature`, stored in °C; metadata `measurement_location` (`armpit`, `ear`, `mouth`...) |
 | PLX Spot-check Measurement `2a5e` | SpO2, pulse rate | `oxygen_saturation` (percent); `heart_rate`, metadata `context` `pulse_oximeter` |
 | PLX Continuous Measurement `2a5f` | SpO2PR-Normal | the same, at `at` |
+| Polar Measurement Data `fb005c82-...`, PP interval frames | heart rate | `heart_rate`, bpm, at `at`, metadata `polar_measurement` `pp_interval`. None off the skin |
+| | PP intervals (ms) | RR intervals in ms, series `session`. One flagged as not valid is left out, and still places the beats before it in time. None off the skin |
+| Any characteristic, a `sample` line | | A quantity of its `type` in its storage unit, from `start` to `end` (or `start`), metadata `decoded_by` `client` and `clock` `device`; an `rr_interval` is an RR interval of series `session` at `start`. Hashed on type, start and value, so a record the device sends again maps to the same row |
+| Polar Measurement Data, ECG, PPG and motion frames | | Stored, not mapped yet: a continuous waveform (130 ECG samples a second) needs its own storage decision. The raw store keeps every frame with its `ctx`, so a later decoder maps what was already sent |
 
 - Pulse oximeter status: data for demonstration or testing, measurement unavailable and invalid
   measurement give no sample; early estimated data and questionable measurement are kept and
@@ -133,9 +167,10 @@ no sample).
 
 ## 8. Time
 
-- Heart rate, RR and continuous SpO2 have no time of their own: they are stamped with `at`. The
-  RR intervals of one notification end at `at`, the last beat then, each earlier beat at the next
-  one minus the next interval.
+- Heart rate, RR, PP intervals and continuous SpO2 have no time of their own: they are stamped
+  with `at`. The RR intervals of one notification end at `at`, the last beat then, each earlier
+  beat at the next one minus the next interval. Polar frames carry a timestamp on the device's
+  own clock, which nothing sets: it spaces samples and does not tell time.
 - Other measurements may carry the device's clock (a wall time without zone). It is read in the
   offset of `at` and used when it is a full date, not before 2000-01-01, not more than 10 minutes
   after `at`, and not flagged by the device as unset (pulse oximeter) or faulty (glucose).
@@ -162,7 +197,7 @@ no sample).
 ## 10. Testing
 
 `go test ./connectors/bluetooth/` runs the mapping tests: byte vectors built from the GATT
-Specification Supplement layouts with invented readings, for every flag that adds or moves a
+Specification Supplement layouts and Polar's published frame layouts with invented readings, for every flag that adds or moves a
 field, both unit systems, the float special values, device clocks, shared device indexes, glucose
 control solution and pulse oximeter status bits, and truncated values. `test/contract` uploads a
 part to a running server and reads the samples and RR intervals back. No test uses a capture

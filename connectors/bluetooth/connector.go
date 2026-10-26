@@ -11,6 +11,15 @@
 //
 // One decoder, here: clients never decode, so a fix re-maps stored data. The
 // line format and the mapping are documented in docs/connectors/bluetooth.md.
+//
+// A few vendor services carry what the standard profiles do not (a Polar
+// strap's PP intervals and raw ECG). Their values come on the same route,
+// keyed by the characteristic's full UUID, with `ctx`: the bytes the client
+// sent to start the stream, so each line still decodes on its own.
+//
+// A client that decodes a vendor protocol itself (a driver for a band whose
+// protocol this server does not know) sends `sample` instead of `value`: a
+// canonical type, value, unit and time, checked here and stored as sent.
 package bluetooth
 
 import (
@@ -21,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -42,6 +52,9 @@ const MaxValueBytes = 512
 
 // maxLineBytes bounds one line: a full value in hex and the device strings.
 const maxLineBytes = 16 * 1024
+
+// MaxCtxBytes is the longest context a line may carry.
+const MaxCtxBytes = 64
 
 // maxText bounds each device string, in characters.
 const maxText = 128
@@ -83,41 +96,80 @@ type device struct {
 	Firmware     string `json:"firmware"`
 }
 
+// sampleLine is a value the client decoded: a canonical quantity type, or
+// rrInterval.
+type sampleLine struct {
+	Type  string   `json:"type"`
+	Value *float64 `json:"value"`
+	Unit  string   `json:"unit"`
+	Start string   `json:"start"`
+	End   string   `json:"end"`
+}
+
+// rrInterval is the sample type of an RR interval in ms, stored as a beat.
+const rrInterval = "rr_interval"
+
+// maxUnit bounds a sample's unit, in bytes.
+const maxUnit = 32
+
 // line is one uploaded line.
 type line struct {
-	At         string  `json:"at"`
-	Char       string  `json:"char"`
-	Value      string  `json:"value"`
-	Session    string  `json:"session"`
-	Device     *device `json:"device"`
-	DeviceUser *int    `json:"device_user"`
+	At         string      `json:"at"`
+	Char       string      `json:"char"`
+	Value      string      `json:"value"`
+	Ctx        string      `json:"ctx"`
+	Sample     *sampleLine `json:"sample"`
+	Session    string      `json:"session"`
+	Device     *device     `json:"device"`
+	DeviceUser *int        `json:"device_user"`
+}
+
+// decoded is a sample that passed check, in its storage unit.
+type decoded struct {
+	qt         string
+	value      float64
+	unit       string
+	start, end time.Time
 }
 
 // parsed is a line that passed check.
 type parsed struct {
-	at    time.Time
-	char  string
-	value []byte
+	at     time.Time
+	char   string
+	value  []byte
+	ctx    []byte
+	sample *decoded
 	line
 }
 
 // baseUUIDSuffix is the Bluetooth base UUID after its 16-bit part.
 const baseUUIDSuffix = "-0000-1000-8000-00805f9b34fb"
 
-// shortUUID returns the 16-bit form of a characteristic UUID: four hex
-// digits, or the full form of the Bluetooth base UUID.
-func shortUUID(s string) (string, bool) {
+// charKey returns the key of a characteristic UUID: four lowercase hex
+// digits for a Bluetooth SIG number (written short, or in the full form of the
+// Bluetooth base UUID), the full lowercase UUID for a vendor characteristic.
+func charKey(s string) (string, bool) {
 	s = strings.ToLower(s)
 	if len(s) == 36 && strings.HasPrefix(s, "0000") && strings.HasSuffix(s, baseUUIDSuffix) {
 		s = s[4:8]
 	}
-	if len(s) != 4 {
-		return "", false
+	switch len(s) {
+	case 4:
+		if _, err := hex.DecodeString(s); err != nil {
+			return "", false
+		}
+		return s, true
+	case 36:
+		for i, c := range s {
+			dash := i == 8 || i == 13 || i == 18 || i == 23
+			hexDigit := c >= '0' && c <= '9' || c >= 'a' && c <= 'f'
+			if dash && c != '-' || !dash && !hexDigit {
+				return "", false
+			}
+		}
+		return s, true
 	}
-	if _, err := hex.DecodeString(s); err != nil {
-		return "", false
-	}
-	return s, true
+	return "", false
 }
 
 func validSession(s string) bool {
@@ -142,14 +194,29 @@ func (l line) check() (parsed, error) {
 		return p, fmt.Errorf("%w: at must be an RFC 3339 time with an offset", ErrInvalidLine)
 	}
 	var ok bool
-	if p.char, ok = shortUUID(l.Char); !ok {
-		return p, fmt.Errorf("%w: char must be a 16-bit or Bluetooth base UUID", ErrInvalidLine)
+	if p.char, ok = charKey(l.Char); !ok {
+		return p, fmt.Errorf("%w: char must be a 16-bit or a 128-bit UUID", ErrInvalidLine)
 	}
-	if len(l.Value) == 0 || len(l.Value) > 2*MaxValueBytes {
-		return p, fmt.Errorf("%w: value must hold 1 to %d bytes", ErrInvalidLine, MaxValueBytes)
+	switch {
+	case l.Sample != nil && l.Value != "":
+		return p, fmt.Errorf("%w: a line carries value or sample, not both", ErrInvalidLine)
+	case l.Sample != nil:
+		if p.sample, err = l.Sample.check(p.at); err != nil {
+			return p, err
+		}
+	default:
+		if len(l.Value) == 0 || len(l.Value) > 2*MaxValueBytes {
+			return p, fmt.Errorf("%w: value must hold 1 to %d bytes", ErrInvalidLine, MaxValueBytes)
+		}
+		if p.value, err = hex.DecodeString(l.Value); err != nil {
+			return p, fmt.Errorf("%w: value must be hex", ErrInvalidLine)
+		}
 	}
-	if p.value, err = hex.DecodeString(l.Value); err != nil {
-		return p, fmt.Errorf("%w: value must be hex", ErrInvalidLine)
+	if len(l.Ctx) > 2*MaxCtxBytes {
+		return p, fmt.Errorf("%w: ctx holds at most %d bytes", ErrInvalidLine, MaxCtxBytes)
+	}
+	if p.ctx, err = hex.DecodeString(l.Ctx); err != nil {
+		return p, fmt.Errorf("%w: ctx must be hex", ErrInvalidLine)
 	}
 	if !validSession(l.Session) {
 		return p, fmt.Errorf("%w: session must be 8 to 64 letters, digits, '_' or '-'", ErrInvalidLine)
@@ -165,6 +232,51 @@ func (l line) check() (parsed, error) {
 		return p, fmt.Errorf("%w: device_user must be 0 to 254", ErrInvalidLine)
 	}
 	return p, nil
+}
+
+// check validates a decoded sample of a line that arrived at `at`: a declared
+// type in a unit that converts to its storage unit, a finite value, and a
+// time that is not before 2000 nor more than deviceAhead after the arrival.
+func (s sampleLine) check(at time.Time) (*decoded, error) {
+	d := &decoded{qt: s.Type}
+	if s.Value == nil || math.IsNaN(*s.Value) || math.IsInf(*s.Value, 0) {
+		return nil, fmt.Errorf("%w: sample value must be a finite number", ErrInvalidLine)
+	}
+	if s.Unit == "" || len(s.Unit) > maxUnit {
+		return nil, fmt.Errorf("%w: sample unit must hold 1 to %d bytes", ErrInvalidLine, maxUnit)
+	}
+	if s.Type == rrInterval {
+		if !strings.EqualFold(s.Unit, "ms") || *s.Value <= 0 || *s.Value > 60000 {
+			return nil, fmt.Errorf("%w: an rr_interval is 0 to 60000 ms", ErrInvalidLine)
+		}
+		d.value, d.unit = *s.Value, "ms"
+	} else {
+		if _, ok := model.StorageUnit(s.Type); !ok {
+			return nil, fmt.Errorf("%w: sample type is not a declared quantity type", ErrInvalidLine)
+		}
+		v, u, err := model.ToStorageUnit(s.Type, *s.Value, s.Unit)
+		if err != nil {
+			return nil, fmt.Errorf("%w: sample unit does not convert to the type's unit", ErrInvalidLine)
+		}
+		d.value, d.unit = v, u
+	}
+	var err error
+	if d.start, err = time.Parse(time.RFC3339Nano, s.Start); err != nil {
+		return nil, fmt.Errorf("%w: sample start must be an RFC 3339 time with an offset", ErrInvalidLine)
+	}
+	if d.start.Before(earliestDeviceTime) || d.start.After(at.Add(deviceAhead)) {
+		return nil, fmt.Errorf("%w: sample start must be after 2000 and not after its arrival", ErrInvalidLine)
+	}
+	d.end = d.start
+	if s.End != "" {
+		if d.end, err = time.Parse(time.RFC3339Nano, s.End); err != nil {
+			return nil, fmt.Errorf("%w: sample end must be an RFC 3339 time with an offset", ErrInvalidLine)
+		}
+		if d.end.Before(d.start) || d.end.After(at.Add(deviceAhead)) {
+			return nil, fmt.Errorf("%w: sample end must be after its start and not after its arrival", ErrInvalidLine)
+		}
+	}
+	return d, nil
 }
 
 // ParseUpload validates a decompressed part: every non-blank line must meet
@@ -233,6 +345,9 @@ func (c *Connector) Map(raw connector.RawRecord) (model.MapResult, error) {
 	p, err := l.check()
 	if err != nil {
 		return model.MapResult{}, err
+	}
+	if p.sample != nil {
+		return mapSample(raw.UserID, p), nil
 	}
 	decode, ok := decoders[p.char]
 	if !ok {
