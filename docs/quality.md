@@ -62,7 +62,10 @@ curve says. The stages:
    flagged). The per-user figure is shrunk toward the prior in log space, the prior counting as
    50, 20 or 10 observations for a V, S or U figure and the data as its effective sample size
    after autocorrelation, `n (1 - r1) / (1 + r1)`. Bias is only identified against an anchor
-   (a chest strap, a cuff); otherwise it stays the prior's.
+   (a chest strap, a cuff); otherwise it stays the prior's. A series holding a NaN or an
+   infinity is refused (`ErrNotFinite`), and an agreement whose sigma or effective size is not a
+   positive finite number leaves the prior alone, so q stays in [0, 1] and nothing in the
+   result is NaN, whatever the input (`score_property_test.go`, `FuzzScore`).
 5. **Residual model** (`gbrt.go`, `model.go`). Gradient boosted trees, written in Go, predict the
    log absolute error of a figure from its context: metric, device family, context, value, distance
    to the user's baseline, rate of change, hour, motion, steps, flags, number of independent

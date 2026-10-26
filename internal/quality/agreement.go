@@ -26,6 +26,13 @@ const (
 // constant series, a zero covariance), so the estimators are undefined.
 var ErrDegenerate = errors.New("quality: degenerate series, no common signal")
 
+// ErrNotFinite is returned when a series holds a NaN or an infinity, or
+// values so large their differences overflow: the estimators would return
+// NaN without saying so.
+var ErrNotFinite = errors.New("quality: series holds a value that is not finite")
+
+func finite(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) }
+
 // Agreement is the per-user, per-source estimate stage 3 hands the score.
 // Values are in the metric's error space.
 type Agreement struct {
@@ -60,6 +67,9 @@ func BlandAltman(a, b []float64) (BA, error) {
 	d := make([]float64, len(a))
 	for i := range a {
 		d[i] = a[i] - b[i]
+		if !finite(a[i]) || !finite(b[i]) || !finite(d[i]) {
+			return BA{}, ErrNotFinite
+		}
 	}
 	m, v := meanVar(d)
 	sd := math.Sqrt(v)
@@ -122,6 +132,13 @@ func TripleCollocation(y1, y2, y3 []float64) (TC, error) {
 		return TC{}, errors.New("quality: triple collocation needs at least three points")
 	}
 	ys := [3][]float64{y1, y2, y3}
+	for _, y := range ys {
+		for _, v := range y {
+			if !finite(v) {
+				return TC{}, ErrNotFinite
+			}
+		}
+	}
 	var c [3][3]float64
 	for i := range 3 {
 		for j := i; j < 3; j++ {
@@ -183,7 +200,7 @@ func NEffAR1(x []float64) float64 {
 // precision weighted: the prior counts as w0 observations, the data as nEff.
 // Without data (nEff or sigmaData not positive) it returns the prior.
 func ShrinkSigma(sigmaPrior, sigmaData, nEff, w0 float64) float64 {
-	if nEff <= 0 || sigmaData <= 0 || sigmaPrior <= 0 {
+	if !(nEff > 0) || !(sigmaData > 0) || !(sigmaPrior > 0) || !finite(nEff) || !finite(sigmaData) || !finite(w0) || w0 < 0 {
 		return sigmaPrior
 	}
 	return math.Exp((w0*math.Log(sigmaPrior) + nEff*math.Log(sigmaData)) / (w0 + nEff))
@@ -191,12 +208,28 @@ func ShrinkSigma(sigmaPrior, sigmaData, nEff, w0 float64) float64 {
 
 // BiasPosterior is the normal update of a prior bias with the mean
 // difference against an anchor, dbar with SD sd over nEff observations.
+//
+// It is written with the two variances, not their precisions, so a tiny sd
+// or a tiny nEff cannot overflow a precision to infinity and turn the
+// result into NaN; any input that is not finite leaves the prior as is.
 func BiasPosterior(prior, priorSD, dbar, sd, nEff float64) (float64, float64) {
-	if nEff <= 0 || sd <= 0 || priorSD <= 0 {
+	if !(nEff > 0) || !(sd > 0) || !(priorSD > 0) || !finite(nEff) || !finite(sd) || !finite(priorSD) || !finite(dbar) || !finite(prior) {
 		return prior, priorSD
 	}
-	pp, pd := 1/(priorSD*priorSD), nEff/(sd*sd)
-	return (prior*pp + dbar*pd) / (pp + pd), math.Sqrt(1 / (pp + pd))
+	// The variance of the mean difference, sd / sqrt(nEff) squared.
+	se := sd / math.Sqrt(nEff)
+	vp, vd := priorSD*priorSD, se*se
+	if !finite(vp) || !finite(vd) || vp+vd == 0 || !finite(vp+vd) {
+		return prior, priorSD
+	}
+	w := vp / (vp + vd) // weight of the data
+	post := prior + w*(dbar-prior)
+	// sqrt(vp vd / (vp + vd)), as priorSD * sqrt(1 - w) so it cannot overflow.
+	postSD := priorSD * math.Sqrt(1-w)
+	if !finite(post) {
+		return prior, priorSD
+	}
+	return post, postSD
 }
 
 // SplitPairVariance splits the variance of the difference of two sources
