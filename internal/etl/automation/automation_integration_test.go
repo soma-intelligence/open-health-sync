@@ -268,6 +268,57 @@ func TestRetentionDeletesOldDataAndFilesPerUser(t *testing.T) {
 	require.EqualValues(t, 4, m.RetentionRows.Load())
 }
 
+// The record aliases of HealthKit samples (one per sample) used to stay after
+// retention removed their rows: on an instance with OHS_RETENTION_DAYS set the
+// table only ever grew.
+func TestRetentionPrunesRecordAliases(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	for _, a := range []struct {
+		id string
+		at time.Time
+	}{{"OLD-UUID", now.AddDate(0, 0, -200)}, {"NEW-UUID", now.AddDate(0, 0, -1)}} {
+		e.exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash, external_id)
+			VALUES ($1, $2, 'apple_health', 'heart_rate', 60, $3, $4, $4)`, e.tenant, e.user, a.at, a.id)
+		e.exec(`INSERT INTO ohs_data.record_aliases (tenant_id, user_id, provider, external_id, record_table, content_hash, start_time)
+			VALUES ($1, $2, 'apple_health', $3, 'quantity_samples', $3, $4)`, e.tenant, e.user, a.id, a.at)
+	}
+	_, err := (&Retention{Pool: e.pool, Store: e.rs, Days: 90, Now: func() time.Time { return now }}).Run(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, e.scalar(`SELECT count(*) FROM ohs_data.record_aliases WHERE external_id = 'OLD-UUID'`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.record_aliases WHERE external_id = 'NEW-UUID'`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`))
+}
+
+// Every ohs_data table that holds a user's rows is pruned by retention or
+// kept on purpose (retentionKept): a new table cannot be forgotten.
+func TestRetentionCoversEveryUserTable(t *testing.T) {
+	e := newEnv(t)
+	rows, err := e.pool.Query(context.Background(), `
+		SELECT table_name FROM information_schema.columns
+		WHERE table_schema = 'ohs_data' AND column_name = 'user_id'
+		  AND table_name IN (SELECT table_name FROM information_schema.tables WHERE table_schema = 'ohs_data' AND table_type = 'BASE TABLE')`)
+	require.NoError(t, err)
+	var tables []string
+	for rows.Next() {
+		var n string
+		require.NoError(t, rows.Scan(&n))
+		tables = append(tables, n)
+	}
+	require.NoError(t, rows.Err())
+	known := map[string]bool{}
+	for _, t := range retentionTables {
+		known[t.table] = true
+	}
+	for _, k := range retentionKept {
+		known[k] = true
+	}
+	for _, n := range tables {
+		require.True(t, known[n], "ohs_data.%s has a user_id but is neither in retentionTables nor in retentionKept", n)
+	}
+}
+
 func TestStartRegistersRetentionOnlyWhenEnabled(t *testing.T) {
 	e := newEnv(t)
 	names := func(days int) []string {
