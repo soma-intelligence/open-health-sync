@@ -21,20 +21,31 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
-// This test runs first in the package (tests run in file order): the
-// globals are still OpenTelemetry's defaults.
+// The globals are set to a no-op provider and an empty propagator first:
+// the test used to rely on running first in the package, and failed under
+// go test -shuffle=on after the test that installs the SDK, whose cleanup
+// cannot hand the globals back to OpenTelemetry's own defaults.
 func TestSetupDisabledInstallsNothing(t *testing.T) {
+	prevTP, prevProp := otel.GetTracerProvider(), otel.GetTextMapPropagator()
+	otel.SetTracerProvider(noop.NewTracerProvider())
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+	t.Cleanup(func() {
+		otel.SetTracerProvider(prevTP)
+		otel.SetTextMapPropagator(prevProp)
+	})
 	tp, prop := otel.GetTracerProvider(), otel.GetTextMapPropagator()
 	shutdown, err := Setup(t.Context(), Options{Enabled: false, Version: "v1"})
 	require.NoError(t, err)
 	require.NotNil(t, shutdown)
 	require.NoError(t, shutdown(t.Context()))
-	assert.Same(t, tp, otel.GetTracerProvider(), "the global provider is left alone")
+	assert.Equal(t, tp, otel.GetTracerProvider(), "the global provider is left alone")
 	assert.Equal(t, prop, otel.GetTextMapPropagator())
 	_, isSDK := otel.GetTracerProvider().(*sdktrace.TracerProvider)
 	assert.False(t, isSDK)

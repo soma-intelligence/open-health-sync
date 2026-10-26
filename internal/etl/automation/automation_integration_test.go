@@ -92,7 +92,12 @@ func TestUnregisteredFileIsCountedNotQueued(t *testing.T) {
 
 func TestReconcilerCounts(t *testing.T) {
 	e := newEnv(t)
-	old := e.stored("withings", "2026-10-01")
+	// Two hours old, well past StaleAfter (one hour). At exactly one hour
+	// the row's created_at comes from the database clock and the bound
+	// from the Go clock: with the database 60 ms ahead (colima) the row
+	// fell just inside the bound and was not counted.
+	old := e.file("withings", "2026-10-01")
+	e.register("withings", old, StaleAfter+time.Hour)
 	e.job(old, "parked")
 	finished := e.stored("withings", "2026-10-01")
 	e.job(finished, "done")
