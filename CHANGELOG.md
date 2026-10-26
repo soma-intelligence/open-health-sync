@@ -39,6 +39,10 @@ release may change the API, the configuration or the database schema.
   connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
   429 keep the upload or the read. Other failures stay 500, a refused database login, a
   protocol error and a canceled request included.
+- A database that does not answer at all (a frozen host, a network partition) no longer holds
+  every request until it comes back (300 s and more in a stress run with Postgres paused): the
+  credential lookup gives up after 10 s with the same 503, and a new pool connection gives up
+  after 10 s (`connect_timeout` in `OHS_DATABASE_URL` overrides it).
 
 ### Fixed
 

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -194,6 +195,38 @@ func TestMiddlewareDatabaseDownIs503(t *testing.T) {
 	rec = do(t, Middleware(broken, TenantKey)(next), "Bearer "+key)
 	requireProblem(t, rec, http.StatusInternalServerError)
 	require.Empty(t, rec.Header().Get("Retry-After"))
+}
+
+// A database that does not answer at all (paused, partitioned: no reset)
+// used to hold every request until it came back, 300 s and more in a
+// stress run. The lookup now gives up after LookupTimeout with a 503.
+func TestMiddlewareSilentDatabaseIs503(t *testing.T) {
+	old := LookupTimeout
+	LookupTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { LookupTimeout = old })
+	key, _, _ := NewSecret("ohs_sk_")
+	silent := func(ctx context.Context, _ string) (Principal, error) {
+		<-ctx.Done()
+		return Principal{}, fmt.Errorf("tenant: lookup: %w", ctx.Err())
+	}
+	called := false
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
+	start := time.Now()
+	rec := do(t, Middleware(silent, TenantKey)(next), "Bearer "+key)
+	require.Less(t, time.Since(start), 2*time.Second)
+	requireProblem(t, rec, http.StatusServiceUnavailable)
+	require.Equal(t, "5", rec.Header().Get("Retry-After"))
+	require.Contains(t, rec.Body.String(), "did not answer in time")
+	require.False(t, called)
+
+	// A caller that went away is not an outage.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+key)
+	rec = httptest.NewRecorder()
+	Middleware(silent, TenantKey)(next).ServeHTTP(rec, req)
+	require.NotEqual(t, http.StatusServiceUnavailable, rec.Code)
 }
 
 func TestMiddlewareAny(t *testing.T) {

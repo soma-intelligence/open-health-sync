@@ -420,6 +420,10 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   are replayed by the drainer once per process start, so deploy the fix and restart. Lines of a
   type the connector does not know are skipped, not failed, so the drainer never replays them:
   re-process the user (below) once a release maps that type.
+- **Database outages.** While Postgres cannot be reached, requests answer 503 with
+  `Retry-After: 5`, and so does a database that does not answer at all within 10 s (the
+  credential lookup is bounded; a new connection waits at most 10 s, or the URL's
+  `connect_timeout`). `/readyz` answers 503 within 3 s.
 - **Long outages.** The orphan scanner only looks at raw objects from the last 7 days. After an
   outage longer than that, raw objects that were stored but never queued stay unprocessed. Requeue
   them with this SQL, run once in `psql` (it queues every raw object that has no job; the
