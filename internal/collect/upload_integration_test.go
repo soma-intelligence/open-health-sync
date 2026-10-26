@@ -334,7 +334,8 @@ func TestUploadDecompressionCap(t *testing.T) {
 	start := time.Now()
 	detail := problem(t, e.post(t, e.token, stdHeaders(), bomb), http.StatusRequestEntityTooLarge)
 	assert.Contains(t, detail, "64 MiB")
-	assert.Less(t, time.Since(start), 5*time.Second)
+	// 5 s for 64 MiB of newlines; the race detector (go test -race) took 9 s.
+	assert.Less(t, time.Since(start), raceSlowdown*5*time.Second)
 	assert.Empty(t, e.files(t))
 	assert.Equal(t, 0, e.count(t, "etl_jobs"))
 
