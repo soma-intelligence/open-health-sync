@@ -97,15 +97,17 @@ func (d Deps) subscriber(provider string) (connector.Subscriber, bool) {
 }
 
 // enqueueSubscription writes (or resets) the pending subscription row of a
-// connection, in the connect transaction.
+// connection, in the connect transaction. The row is due at the application
+// clock's now, the clock the subscribe pass compares with: the database's
+// own now() can run ahead of it and keep a new row from being due.
 func (d Deps) enqueueSubscription(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID, provider string) error {
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO ohs_sync.inbound_subscriptions (tenant_id, user_id, provider, topic, callback_url, status)
-		VALUES ($1, $2, $3, $4, $5, 'pending')
+		INSERT INTO ohs_sync.inbound_subscriptions (tenant_id, user_id, provider, topic, callback_url, status, next_attempt_at)
+		VALUES ($1, $2, $3, $4, $5, 'pending', $6)
 		ON CONFLICT (tenant_id, user_id, provider, topic) DO UPDATE SET
 			callback_url = EXCLUDED.callback_url, status = 'pending', attempts = 0,
-			next_attempt_at = now(), last_error = NULL, updated_at = now()`,
-		tenantID, userID, provider, subscriptionTopic, d.InboundURL(provider)); err != nil {
+			next_attempt_at = EXCLUDED.next_attempt_at, last_error = NULL, updated_at = now()`,
+		tenantID, userID, provider, subscriptionTopic, d.InboundURL(provider), d.now()); err != nil {
 		return fmt.Errorf("enqueue subscription: %w", err)
 	}
 	return nil

@@ -100,6 +100,9 @@ release may change the API, the configuration or the database schema.
   anchor only once both are uploaded. Sleep stages, ECG and heartbeat series are not covered.
 - A provider deletion recomputes the derived daily totals of the days of the samples it removed,
   and a derived day left without samples is dropped.
+- A new provider subscription is due at once even when the database clock runs ahead of the
+  server's. Its row took the database's `now()` while the subscribe pass compares with the
+  server clock, so a few milliseconds of skew left it waiting for the next pass.
 - An upload whose every line fails validation or parsing (dates in the future, for example) is no
   longer replayed at every process start. It got a recoverable job-level failure row, so the
   drainer queued it again after each restart and its line failures were written again: one
