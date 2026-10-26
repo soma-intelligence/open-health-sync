@@ -2244,7 +2244,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance, or for this tenant.
+          description: Too many uploads in progress on this instance, or for this tenant, or the raw store is full or not writable (Retry-After 60).
           headers:
             Retry-After:
               schema: { type: integer }

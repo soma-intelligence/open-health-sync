@@ -65,6 +65,9 @@ release may change the API, the configuration or the database schema.
   compiles on every platform and gains `deletionsByType`, `deletionsUploaded` and
   `deletionsPendingByType`. `UploadResult` gains `features`, `acceptsDeletionLines` and a
   public initializer.
+- An upload to a full or read-only raw store (no space left, a quota, a read-only or
+  unwritable directory) answers 503 with `Retry-After: 60` instead of a 500 a client may give up
+  on; nothing is recorded, so the same part can be sent again once there is room.
 - A database that does not answer at all (a frozen host, a network partition) no longer holds
   every request until it comes back (300 s and more in a stress run with Postgres paused): the
   credential lookup gives up after 10 s with the same 503, and a new pool connection gives up

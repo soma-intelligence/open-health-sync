@@ -11,11 +11,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -332,7 +335,8 @@ func TestUploadDecompressionCap(t *testing.T) {
 	start := time.Now()
 	detail := problem(t, e.post(t, e.token, stdHeaders(), bomb), http.StatusRequestEntityTooLarge)
 	assert.Contains(t, detail, "64 MiB")
-	assert.Less(t, time.Since(start), 5*time.Second)
+	// 5 s for 64 MiB of newlines; the race detector (go test -race) took 9 s.
+	assert.Less(t, time.Since(start), raceSlowdown*5*time.Second)
 	assert.Empty(t, e.files(t))
 	assert.Equal(t, 0, e.count(t, "etl_jobs"))
 
@@ -435,4 +439,25 @@ func TestUploadConcurrentDuplicate(t *testing.T) {
 	assert.Len(t, e.files(t), 1)
 	assert.Equal(t, 1, e.count(t, "raw_objects"))
 	assert.Equal(t, 1, e.count(t, "etl_jobs"))
+}
+
+// fullStore refuses every Put the way a full disk does.
+type fullStore struct{ rawstore.Store }
+
+func (fullStore) Put(context.Context, string, io.Reader) error {
+	return fmt.Errorf("put: %w", &os.PathError{Op: "write", Path: "raw/x", Err: syscall.ENOSPC})
+}
+
+// A full (or read-only) raw store used to answer 500 "retry later" with no
+// Retry-After: a client that retries only 503 and 429 dropped the part. It
+// is now a 503 with Retry-After, and nothing is recorded.
+func TestUploadToFullRawStoreIs503(t *testing.T) {
+	e := newEnv(t, func(d *collect.UploadDeps) { d.Raw = fullStore{d.Raw} })
+	rec := e.post(t, e.token, stdHeaders(), fixtureBody(t))
+	detail := problem(t, rec, http.StatusServiceUnavailable)
+	require.Contains(t, detail, "storage is full")
+	require.Equal(t, "60", rec.Header().Get("Retry-After"))
+	var n int
+	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT count(*) FROM ohs_sync.raw_objects`).Scan(&n))
+	require.Zero(t, n)
 }

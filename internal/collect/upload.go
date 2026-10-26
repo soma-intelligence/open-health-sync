@@ -47,6 +47,11 @@ const DefaultMaxDecompressedBytes int64 = 64 << 20
 // the ETL reader's cap.
 const MaxMaxDecompressedBytes int64 = 512 << 20
 
+// storageFullRetryAfter is the Retry-After, in seconds, of an upload refused
+// because the raw store is full or read-only: freeing room takes an
+// operator, so clients wait longer than for a restart.
+const storageFullRetryAfter = 60
+
 // uploadReadTimeout bounds how long one part may take to arrive. The server
 // has no global read timeout (it would cut long requests), so a stalled client
 // cannot pin a goroutine and up to 64 MiB of buffer indefinitely.
@@ -201,6 +206,14 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if db.Unavailable(err) {
 			// The raw store's network or the database's: say neither.
 			auth.WriteUnavailable(w, "storage is unavailable; retry in a few seconds")
+			return
+		}
+		if rawstore.Unwritable(err) {
+			// A full or read-only raw store: the client keeps the part and
+			// sends it again later, instead of giving up on a 500.
+			w.Header().Set("Retry-After", strconv.Itoa(storageFullRetryAfter))
+			auth.WriteProblem(w, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable),
+				"storage is full or not writable; retry later")
 			return
 		}
 		auth.WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "the part could not be stored, retry later")
