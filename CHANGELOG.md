@@ -57,8 +57,10 @@ release may change the API, the configuration or the database schema.
   The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON, so they are not affected.
 - A call that fails because the database cannot be reached (Postgres restarting, out of
   connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
-  429 keep the upload or the read. Other failures stay 500, a refused database login, a
-  protocol error and a canceled request included.
+  429 keep the upload or the read. A pooled connection the server dropped mid-session (a
+  backend killed or restarted: pgx's "conn closed" at the next begin or commit) counts as an
+  outage too. Other failures stay 500, a refused database login, a protocol error and a
+  canceled request included.
 - Swift SDK: the anchored sync of one type is `AnchoredSync`, over `AnchoredChangeSource` and
   `AppleHealthPartUploader`, so it is tested with fakes on every platform; `HealthKitSync` runs
   it over `HKAnchoredObjectQuery`. `SyncReport` (same module, `OpenHealthSyncHealthKit`) now

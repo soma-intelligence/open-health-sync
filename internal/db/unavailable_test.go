@@ -34,6 +34,9 @@ func TestUnavailable(t *testing.T) {
 		&net.OpError{Op: "dial", Err: syscall.ECONNREFUSED},
 		fmt.Errorf("read: %w", io.ErrUnexpectedEOF),
 		syscall.ECONNRESET,
+		// A pooled connection Postgres dropped (OOM-killed backend): pgx
+		// answers "conn closed" at the next begin or commit.
+		fmt.Errorf("commit: %w", pgconn.ErrConnClosed),
 	} {
 		assert.True(t, Unavailable(e), "%v", e)
 	}

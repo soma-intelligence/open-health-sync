@@ -53,6 +53,11 @@ func Unavailable(err error) bool {
 	if errors.As(err, &netErr) {
 		return true
 	}
+	// pgx closed the connection under us: the server went away mid-session
+	// (a crashed or restarted backend), seen at the next begin or commit.
+	if errors.Is(err, pgconn.ErrConnClosed) {
+		return true
+	}
 	return errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
 }
