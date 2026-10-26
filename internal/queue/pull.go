@@ -308,7 +308,7 @@ func (q *Pull) PausedProviders(ctx context.Context) (map[string]time.Time, error
 
 // Complete marks the job done. It returns ErrNotRunning if the claim is gone.
 func (q *Pull) Complete(ctx context.Context, j PullJob) error {
-	tag, err := q.pool.Exec(ctx, `
+	tag, err := settleExec(ctx, q.pool, `
 		UPDATE ohs_sync.pull_jobs SET status = 'done', claimed_at = NULL, outcome = 'completed',
 			objects_stored = $3, started_at = $2, finished_at = now()
 		WHERE id = $1 AND status = 'running' AND claimed_at = $2`, j.ID, j.ClaimedAt, j.Stored)
@@ -329,7 +329,7 @@ func (q *Pull) Fail(ctx context.Context, j PullJob, cause error) error {
 	}
 	// The claim is gone now; the row is identified by id alone, and nothing
 	// else writes these columns.
-	if _, err := q.pool.Exec(ctx, `
+	if _, err := settleExec(ctx, q.pool, `
 		UPDATE ohs_sync.pull_jobs SET outcome = 'failed', objects_stored = $2, started_at = $3,
 			finished_at = CASE WHEN status = 'parked' THEN now() END
 		WHERE id = $1`, j.ID, j.Stored, j.ClaimedAt); err != nil {
@@ -341,7 +341,7 @@ func (q *Pull) Fail(ctx context.Context, j PullJob, cause error) error {
 // Defer puts a running job back to pending until the given time (provider
 // rate limit). No attempt is burned. It returns ErrNotRunning if the claim is gone.
 func (q *Pull) Defer(ctx context.Context, j PullJob, until time.Time) error {
-	tag, err := q.pool.Exec(ctx, `
+	tag, err := settleExec(ctx, q.pool, `
 		UPDATE ohs_sync.pull_jobs SET status = 'pending', not_before = $3, claimed_at = NULL,
 			outcome = 'rate_limited', started_at = $2
 		WHERE id = $1 AND status = 'running' AND claimed_at = $2`, j.ID, j.ClaimedAt, until)

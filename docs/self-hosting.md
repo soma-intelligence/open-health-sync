@@ -183,6 +183,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
 | `OHS_INGEST_TENANT_CONCURRENCY` | half of `OHS_INGEST_CONCURRENCY`, rounded up | Of those, the share one tenant is sure to get. Past it a tenant still takes free slots, but leaves a reserve of one slot in eight (at least one) to the other tenants, so one tenant (a large import, a gzip bomb) cannot refuse their uploads: a lone tenant uses 7 of the 8 default slots. From 1 to `OHS_INGEST_CONCURRENCY`; equal to it, there is no share and no reserve (a single-tenant instance that wants every slot) |
 | `OHS_INGEST_MAX_DECOMPRESSED_MIB` | `64` | How far one uploaded part may expand once decompressed, in MiB (1 to 512); a larger part answers 413. The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON. 0.2.0 and earlier allowed 512 |
+| `OHS_MAX_CONNECTIONS` | `4096` | HTTP connections the `api` process holds open at once (about 35 KB each); one over it is closed as soon as it is accepted, and the client retries |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Turns on OpenTelemetry traces, sent over OTLP to this address. The other standard `OTEL_` variables apply; see [observability](observability.md) |
 | `OHS_RATE_LIMIT_INBOUND` | `30/120` | Notification requests (`/inbound/{provider}`) per client address: `rate/burst` in requests per second, `0` disables. See [rate limits](#rate-limits). 0.2.0 and later |
@@ -411,7 +412,9 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
 - **Deletion and providers.** Deleting a user revokes their provider grants on a best effort
   basis. If a provider is down, the user's data is still deleted and the revocation is logged as
   failed; the grant may then stay valid at the provider until the user removes it there.
-- **After a crash.** A job interrupted mid-way is claimed again after 10 minutes. A failed job
+- **After a crash.** A job interrupted mid-way is claimed again after 10 minutes. When only the
+  database restarted, the jobs in flight are recorded as failed as soon as it is back and
+  retried after their backoff (30 s for a first failure), not after 10 minutes. A failed job
   is retried with backoff and parked after 5 attempts (`parked_jobs` in the coverage report).
   A raw file whose row was never written (the process died between the two) is not requeued:
   the daily file scanner reports it, and the data comes back when the client retries the
@@ -478,6 +481,11 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   (`OHS_INGEST_TENANT_CONCURRENCY`) only while a reserve stays free for the others, and answers
   503 with `Retry-After` above either; clients retry. A part is decompressed to check it, up to 64 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`), so
   a gzip bomb costs a fraction of a second of one slot, not the instance.
+- **Slow and idle clients.** A request, its body included, must arrive within 2 minutes (an
+  upload part within 5, a notification within 30 s), and at most `OHS_MAX_CONNECTIONS`
+  connections (default 4096) are open at once. A client that sends its headers and then a byte
+  every few seconds used to hold its connection for as long as it kept sending, on any route
+  and without a key.
 - **Rate limits on the provider-facing routes.** Notifications and OAuth callbacks over the
   limits answer 429 with `Retry-After`; see [rate limits](self-hosting.md#rate-limits). Behind a
   reverse proxy, set `OHS_TRUSTED_PROXIES`, or every request counts against the proxy's address.

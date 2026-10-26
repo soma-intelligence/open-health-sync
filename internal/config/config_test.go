@@ -227,6 +227,24 @@ func TestLoadBadMetrics(t *testing.T) {
 	}
 }
 
+func TestLoadMaxConnections(t *testing.T) {
+	c, err := load(t, base())
+	if err != nil || c.MaxConnections != DefaultMaxConnections {
+		t.Fatalf("default: %d %v", c.MaxConnections, err)
+	}
+	m := base()
+	m["OHS_MAX_CONNECTIONS"] = "100"
+	if c, err = load(t, m); err != nil || c.MaxConnections != 100 {
+		t.Fatalf("set: %d %v", c.MaxConnections, err)
+	}
+	for _, v := range []string{"0", "-1", "abc"} {
+		m["OHS_MAX_CONNECTIONS"] = v
+		if _, err := load(t, m); err == nil || !strings.Contains(err.Error(), "OHS_MAX_CONNECTIONS") {
+			t.Fatalf("%q: %v", v, err)
+		}
+	}
+}
+
 func TestLoadIngestConcurrency(t *testing.T) {
 	c, err := load(t, base())
 	if err != nil || c.IngestConcurrency != DefaultIngestConcurrency {

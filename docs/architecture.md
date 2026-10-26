@@ -133,6 +133,9 @@ connector needs none. See [writing-a-connector.md](writing-a-connector.md).
   orphan scanner queues. The scanner looks at the last 7 days only.
 - **Retries.** A failed ETL job is retried with exponential backoff (30 s, doubling) and parked
   after 5 attempts. A claimed job that is not settled within 10 minutes is claimed again.
+  While the database cannot be reached, a worker retries recording the outcome of its job
+  (250 ms doubling to 10 s, for up to 5 minutes), so a database restart does not leave the
+  jobs in flight running until that timeout.
   Parked jobs show in `parked_jobs` of the coverage report and need an operator.
 - **Drainer.** Records that failed for a recoverable reason (mapping, unit, or a whole object
   that failed) are replayed once per process start, so a fixed binary picks them up after a restart. Records

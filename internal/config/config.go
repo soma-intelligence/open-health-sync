@@ -64,6 +64,10 @@ type Config struct {
 	// IngestMaxDecompressedMiB caps how far one uploaded part may expand, in
 	// MiB (OHS_INGEST_MAX_DECOMPRESSED_MIB, default 64, at most 512).
 	IngestMaxDecompressedMiB int
+	// MaxConnections caps the HTTP connections the api role holds open at
+	// once (OHS_MAX_CONNECTIONS, default 4096); one over it is closed at
+	// once. 0 in a Config not built by Load means no cap.
+	MaxConnections int
 	// PullsPerProvider caps the pulls of one provider running at once across
 	// every instance (OHS_PULLS_PER_PROVIDER, default 4); BackfillsPerProvider
 	// caps its backfill pulls (OHS_BACKFILLS_PER_PROVIDER, default 2).
@@ -162,6 +166,10 @@ const (
 	DefaultIngestMaxDecompressedMiB = 64
 	MaxIngestMaxDecompressedMiB     = 512
 )
+
+// DefaultMaxConnections is OHS_MAX_CONNECTIONS when unset: about 140 MB of
+// idle connections at most, well inside the compose file's 1 GB limit.
+const DefaultMaxConnections = 4096
 
 // The rate limits when unset. Providers batch notifications and a user's
 // backfill comes in bursts, so the inbound limits stay well above what one
@@ -384,6 +392,15 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_INGEST_MAX_DECOMPRESSED_MIB: %q is not an integer from 1 to %d", v, MaxIngestMaxDecompressedMiB)
 		}
 		c.IngestMaxDecompressedMiB = n
+	}
+
+	c.MaxConnections = DefaultMaxConnections
+	if v := get("OHS_MAX_CONNECTIONS", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return Config{}, fmt.Errorf("OHS_MAX_CONNECTIONS: %q is not a positive integer", v)
+		}
+		c.MaxConnections = n
 	}
 
 	c.PullsPerProvider, c.BackfillsPerProvider = 4, 2

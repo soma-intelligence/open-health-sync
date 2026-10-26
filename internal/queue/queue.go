@@ -15,6 +15,64 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// settleBudget bounds how long a settle (Complete, Fail, Defer) is retried
+// while the database cannot be reached. Half the visibility timeout: a job
+// whose result could not be recorded by then is reclaimed as before.
+var settleBudget = VisibilityTimeout / 2
+
+// settleNow is the clock of the settle budget; tests replace it.
+var settleNow = time.Now
+
+// settleSleep waits d or until ctx ends; tests replace it.
+var settleSleep = func(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// retryableSettle says whether a settle error may pass once the database is
+// back: no answer from the server at all (a closed connection, a refused
+// dial, a pool that cannot connect), or the server's own connection and
+// shutdown classes (08, 57P01 to 57P03). An SQL error the server returned
+// would fail again, and a cancelled context is the caller's.
+func retryableSettle(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) {
+		return strings.HasPrefix(pg.Code, "08") || pg.Code == "57P01" || pg.Code == "57P02" || pg.Code == "57P03"
+	}
+	return true
+}
+
+// settleExec runs a settle statement, retrying it with a backoff (250 ms
+// doubling to 10 s, within settleBudget) while the database cannot be
+// reached. Without it a worker whose job ended during a database restart
+// dropped the outcome, and the job stayed running until the visibility
+// timeout reclaimed it ten minutes later. The statements are fenced on
+// claimed_at, so a retry of one that did commit matches no row and reports
+// ErrNotRunning, which the workers log as a lost claim.
+func settleExec(ctx context.Context, pool poolExec, sql string, args ...any) (pgconn.CommandTag, error) {
+	deadline := settleNow().Add(settleBudget)
+	wait := 250 * time.Millisecond
+	for {
+		tag, err := pool.Exec(ctx, sql, args...)
+		if !retryableSettle(ctx, err) || settleNow().Add(wait).After(deadline) {
+			return tag, err
+		}
+		if serr := settleSleep(ctx, wait); serr != nil {
+			return tag, err
+		}
+		wait = min(2*wait, 10*time.Second)
+	}
+}
+
 const (
 	// VisibilityTimeout is how long a claimed job may stay running before
 	// another worker can claim it again.
@@ -58,7 +116,7 @@ type poolExec interface {
 func fail(ctx context.Context, table string, pool poolExec, id int64, claimedAt time.Time, cause error) error {
 	// attempts is read before the increment: the first failure waits 30s, the
 	// second 60s, and so on. The fifth failure parks the job.
-	tag, err := pool.Exec(ctx, fmt.Sprintf(`
+	tag, err := settleExec(ctx, pool, fmt.Sprintf(`
 		UPDATE ohs_sync.%s SET
 			attempts   = attempts + 1,
 			status     = CASE WHEN attempts + 1 >= $4 THEN 'parked' ELSE 'pending' END,
@@ -77,7 +135,7 @@ func fail(ctx context.Context, table string, pool poolExec, id int64, claimedAt 
 }
 
 func complete(ctx context.Context, table string, pool poolExec, id int64, claimedAt time.Time) error {
-	tag, err := pool.Exec(ctx, fmt.Sprintf(`
+	tag, err := settleExec(ctx, pool, fmt.Sprintf(`
 		UPDATE ohs_sync.%s SET status = 'done', claimed_at = NULL
 		WHERE id = $1 AND status = 'running' AND claimed_at = $2`, table), id, claimedAt)
 	if err != nil {
