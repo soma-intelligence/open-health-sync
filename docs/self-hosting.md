@@ -365,7 +365,9 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
 - **Deletion and providers.** Deleting a user revokes their provider grants on a best effort
   basis. If a provider is down, the user's data is still deleted and the revocation is logged as
   failed; the grant may then stay valid at the provider until the user removes it there.
-- **After a crash.** A job interrupted mid-way is claimed again after 10 minutes. A failed job
+- **After a crash.** A job interrupted mid-way is claimed again after 10 minutes. When only the
+  database restarted, the jobs in flight are recorded as failed as soon as it is back and
+  retried after their backoff (30 s for a first failure), not after 10 minutes. A failed job
   is retried with backoff and parked after 5 attempts (`parked_jobs` in the coverage report).
   A raw file whose row was never written (the process died between the two) is not requeued:
   the daily file scanner reports it, and the data comes back when the client retries the

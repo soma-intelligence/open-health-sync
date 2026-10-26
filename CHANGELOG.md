@@ -19,6 +19,10 @@ release may change the API, the configuration or the database schema.
 
 ### Fixed
 
+- After a Postgres restart, the ETL and pull jobs that were in flight no longer wait out the 10
+  minute visibility timeout: recording a job's outcome is retried while the database cannot be
+  reached (up to 5 minutes), so the job is retried after its usual backoff. A stack whose
+  database was killed for 30 s used to finish its last jobs about 600 s later.
 - Sleep phases, ECG recordings, daily summaries and observations are now validated, and an end
   before the start or far in the future is refused on every record kind.
 - Apple Health glucose in mmol/L and the `yd`, `in`, `s`, `oz` and `lb` unit spellings are
