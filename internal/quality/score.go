@@ -188,14 +188,14 @@ func (s *Scorer) Score(in Input) Quality {
 
 	// Stage 3: agreement with the user's other sources.
 	agreeRatio := 1.0
-	if ag := in.Agreement; ag != nil && ag.NEff > 0 && ag.Sigma > 0 {
+	if ag := in.Agreement; ag.usable() {
 		w0 := W0(p.Tag)
 		post := ShrinkSigma(sigmaPrior, ag.Sigma, ag.NEff, w0)
 		agreeRatio = post / sigmaPrior
 		out.Components.Agreement.Method = ag.Method
 		out.Components.Agreement.Weight = ag.NEff / (w0 + ag.NEff)
 		out.Components.Agreement.Sigma = ag.Sigma
-		if ag.Anchored && ag.BiasSD > 0 {
+		if ag.Anchored && ag.BiasSD > 0 && finite(ag.BiasSD) && finite(ag.Bias) {
 			bias, biasSD = BiasPosterior(bias, biasSD, ag.Bias, ag.BiasSD*math.Sqrt(ag.NEff), ag.NEff)
 		}
 	}
@@ -262,6 +262,14 @@ func (s *Scorer) Score(in Input) Quality {
 	out.Interval68[0], out.Interval68[1] = out.IntervalAt(0.68)
 	out.Interval95[0], out.Interval95[1] = out.IntervalAt(0.95)
 	return out
+}
+
+// usable says whether an agreement estimate can enter the score: a positive,
+// finite sigma and effective size. Anything else (NaN, an infinity, a
+// hand-built estimate) leaves the prior alone instead of turning q, the
+// estimate and the intervals into NaN.
+func (ag *Agreement) usable() bool {
+	return ag != nil && ag.NEff > 0 && ag.Sigma > 0 && finite(ag.NEff) && finite(ag.Sigma)
 }
 
 // The relative parts of a prior apply to the value; on the log scale the

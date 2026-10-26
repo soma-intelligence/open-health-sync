@@ -18,7 +18,9 @@ release may change the API, the configuration or the database schema.
   (`go test -tags bench ./internal/quality/bench`) publishes its numbers in
   [docs/quality/report.md](docs/quality/report.md), and Walch et al. 2019, held out, scores the
   frozen model in [docs/quality/walch-eval.md](docs/quality/walch-eval.md). See
-  [docs/quality.md](docs/quality.md).
+  [docs/quality.md](docs/quality.md). The score stays a probability with no NaN on any input:
+  the agreement estimators refuse a series with a NaN or an infinity, and the anchor's bias
+  update no longer overflows to NaN on a tiny spread or effective size.
 - A synthetic data generator for every documented provider (`internal/synth`): an invented
   person's timeline rendered in each vendor's wire format, written from the vendor's published
   documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
