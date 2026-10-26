@@ -319,13 +319,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		if cfg.Metrics && cfg.MetricsListen == "" && cfg.MetricsToken == "" {
 			slog.Info("metrics: /metrics refuses scrapes until OHS_METRICS_TOKEN or OHS_METRICS_LISTEN is set")
 		}
-		srv := &http.Server{
-			Addr:              cfg.Listen,
-			Handler:           api.NewRouter(deps),
-			ReadHeaderTimeout: readHeaderTimeout,
-			IdleTimeout:       idleTimeout,
-			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
-		}
+		srv := newHTTPServer(cfg.Listen, api.NewRouter(deps), logger)
 		// Started first: its shutdown goroutine stops it if the API listener fails.
 		if deps.MetricsMux != nil {
 			if err := serveMetrics(ctx, cfg.MetricsListen, deps.MetricsMux, opts.grace, logger, goRole); err != nil {
@@ -340,7 +334,8 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			wg.Wait()
 			return fmt.Errorf("api: %w%s", err, listenHint(err, cfg.Listen))
 		}
-		slog.Info("api listening", "addr", ln.Addr().String())
+		ln = limitConnections(ln, cfg.MaxConnections)
+		slog.Info("api listening", "addr", ln.Addr().String(), "max_connections", cfg.MaxConnections)
 		goRole("api", func() error {
 			if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 				return err
@@ -388,13 +383,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 // stopped with the process.
 func serveMetrics(ctx context.Context, addr string, mux *http.ServeMux, grace time.Duration,
 	logger *slog.Logger, goRole func(string, func() error)) error {
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: readHeaderTimeout,
-		IdleTimeout:       idleTimeout,
-		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
-	}
+	srv := newHTTPServer(addr, mux, logger)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("metrics: %w (OHS_METRICS_LISTEN)", err)

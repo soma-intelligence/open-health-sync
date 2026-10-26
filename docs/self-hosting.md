@@ -179,6 +179,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_PULLS_PER_PROVIDER` | `4` | Pulls of one provider running at once, across every `collect` instance. See [provider rate limits](background-sync.md#provider-rate-limits) |
 | `OHS_BACKFILLS_PER_PROVIDER` | `2` | Of those, backfills of new connections |
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
+| `OHS_MAX_CONNECTIONS` | `4096` | HTTP connections the `api` process holds open at once (about 35 KB each); one over it is closed as soon as it is accepted, and the client retries |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Turns on OpenTelemetry traces, sent over OTLP to this address. The other standard `OTEL_` variables apply; see [observability](observability.md) |
 | `OHS_RATE_LIMIT_INBOUND` | `30/120` | Notification requests (`/inbound/{provider}`) per client address: `rate/burst` in requests per second, `0` disables. See [rate limits](#rate-limits). 0.2.0 and later |
@@ -432,6 +433,11 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
 - **Large uploads.** An instance processes a bounded number of uploads at once
   (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi) and answers 503 with `Retry-After` above it;
   clients retry.
+- **Slow and idle clients.** A request, its body included, must arrive within 2 minutes (an
+  upload part within 5, a notification within 30 s), and at most `OHS_MAX_CONNECTIONS`
+  connections (default 4096) are open at once. A client that sends its headers and then a byte
+  every few seconds used to hold its connection for as long as it kept sending, on any route
+  and without a key.
 - **Rate limits on the provider-facing routes.** Notifications and OAuth callbacks over the
   limits answer 429 with `Retry-After`; see [rate limits](self-hosting.md#rate-limits). Behind a
   reverse proxy, set `OHS_TRUSTED_PROXIES`, or every request counts against the proxy's address.
