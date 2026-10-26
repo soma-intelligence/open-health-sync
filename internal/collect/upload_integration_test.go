@@ -328,15 +328,17 @@ func TestUploadTooLarge(t *testing.T) {
 
 // A part that expands past the cap is refused before anything is stored: by
 // default 64 MiB, which a gzip bomb of blank lines (about 65 KB of gzip)
-// reaches in well under a second. A lower cap applies as set.
+// reaches in a few seconds. A lower cap applies as set.
 func TestUploadDecompressionCap(t *testing.T) {
 	e := newEnv(t)
 	bomb := gz(t, strings.Repeat("\n", int(collect.DefaultMaxDecompressedBytes)+1))
 	start := time.Now()
 	detail := problem(t, e.post(t, e.token, stdHeaders(), bomb), http.StatusRequestEntityTooLarge)
 	assert.Contains(t, detail, "64 MiB")
-	// 5 s for 64 MiB of newlines; the race detector (go test -race) took 9 s.
-	assert.Less(t, time.Since(start), raceSlowdown*5*time.Second)
+	// A loose bound: a shared CI runner took 5.2 s for these 64 MiB, the race
+	// detector about twice that. It still fails if the cap stops reading at
+	// 64 MiB and goes on to the old 512 MiB.
+	assert.Less(t, time.Since(start), raceSlowdown*30*time.Second)
 	assert.Empty(t, e.files(t))
 	assert.Equal(t, 0, e.count(t, "etl_jobs"))
 
