@@ -12,7 +12,9 @@ share one shape, so what you learn in one carries over to the others.
 | Flutter | [`sdks/flutter`](../../sdks/flutter) | Flutter 3.22+ and Dart 3.4+ (iOS, Android, desktop, web) | [Flutter](flutter.md) |
 
 **Status: 0.1.0, not on any package registry yet.** Install them from this repository (each guide
-says how). Package names and coordinates are set when the first version is published.
+says how). Package names and coordinates are set when the first version is published. Maintainers
+publish each SDK from its own tag, such as `sdk-flutter-v0.1.0`
+([sdk-publish workflow](../../.github/workflows/sdk-publish.yml)).
 
 **Licence: AGPL-3.0-only**, like the server ([LICENSE](../../LICENSE)).
 

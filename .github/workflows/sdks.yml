@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "sdks/**"
+      - "Package.swift"
       - "api/openapi.yaml"
       - "connectors/applehealth/**"
       - "test/e2e/sdks.sh"
@@ -13,6 +14,7 @@ on:
   pull_request:
     paths:
       - "sdks/**"
+      - "Package.swift"
       - "api/openapi.yaml"
       - "connectors/applehealth/**"
       - "test/e2e/sdks.sh"
@@ -47,6 +49,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: swift build --build-tests
       - run: swift test
+      - name: Root Package.swift (what Swift Package Manager users and the Swift Package Index get)
+        working-directory: .
+        run: swift build --build-tests
 
   swift-apple:
     runs-on: macos-latest
