@@ -136,6 +136,12 @@ func compact(raw []byte) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// isNull reports a list entry that is JSON null: it holds no record, and
+// stored it would be a raw line that is not an object.
+func isNull(raw []byte) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
 // withField returns obj (a JSON object) with key set to val, unless obj
 // already has key. The other bytes of obj are kept as they are.
 func withField(obj []byte, key string, val any) ([]byte, error) {
@@ -268,6 +274,9 @@ func (c *Connector) fetchMeasure(ctx context.Context, token string, from, to tim
 				return 0, false, 0, err
 			}
 			for _, g := range body.MeasureGrps {
+				if isNull(g) {
+					continue
+				}
 				line, err := compact(g)
 				if err != nil {
 					return 0, false, 0, err
@@ -318,6 +327,9 @@ func (c *Connector) fetchActivity(ctx context.Context, token string, from, to ti
 				return 0, false, 0, err
 			}
 			for _, a := range body.Activities {
+				if isNull(a) {
+					continue
+				}
 				line, err := compact(a)
 				if err != nil {
 					return 0, false, 0, err
@@ -376,6 +388,9 @@ func (c *Connector) fetchIntraday(ctx context.Context, token string, from, to ti
 			ts, err := strconv.ParseInt(k, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("intraday key %q is not an epoch", k)
+			}
+			if isNull(body.Series[k]) {
+				continue
 			}
 			line, err := compact(body.Series[k])
 			if err != nil {
@@ -449,6 +464,9 @@ func (c *Connector) fetchSleep(ctx context.Context, token string, from, to time.
 		}
 
 		for _, s := range summaries {
+			if isNull(s) {
+				continue
+			}
 			line, err := compact(s)
 			if err != nil {
 				return nil, err
@@ -591,6 +609,9 @@ func (c *Connector) fetchWorkouts(ctx context.Context, token string, from, to ti
 				return 0, false, 0, err
 			}
 			for _, w := range body.Series {
+				if isNull(w) {
+					continue
+				}
 				line, err := compact(w)
 				if err != nil {
 					return 0, false, 0, err
@@ -640,6 +661,9 @@ func (c *Connector) fetchHeart(ctx context.Context, token string, from, to time.
 				return 0, false, 0, err
 			}
 			for _, r := range body.Series {
+				if isNull(r) {
+					continue
+				}
 				line, err := compact(r)
 				if err != nil {
 					return 0, false, 0, err
