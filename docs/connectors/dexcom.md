@@ -69,7 +69,10 @@ for one minute, so the callback exchanges it at once.
 Pulls run in windows of at most 30 days (the API refuses longer ones) and stop at the current
 time. There are no notifications: data arrives with the scheduled pulls. Readings uploaded by
 the Dexcom mobile apps reach the API **1 hour late in the US and 3 hours late elsewhere**, so the
-latest hours of a pull are always empty. Readings uploaded over USB are available at once.
+latest hours of a pull are always empty. Each regular pull therefore re-reads the last 6 hours,
+and the first pull of each UTC day the last 2 days, so late readings are stored once they reach
+the API (see [sync policy per provider](../background-sync.md#sync-policy-per-provider)). A new
+connection is backfilled over the last 90 days. Readings uploaded over USB are available at once.
 The API allows 60,000 calls per app per hour; a 429 puts the job back until `Retry-After`.
 
 Not pulled yet: events (carbs, insulin, exercise), calibrations, devices and alerts.

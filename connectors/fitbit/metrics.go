@@ -107,13 +107,23 @@ func mapHeartRate(p point, userID string) (*model.MapResult, error) {
 
 // mapHRV keeps the RMSSD, which is what Google reports as HRV. The API's
 // standardDeviationMilliseconds is not documented as SDNN, so it stays in
-// metadata and is never written as hrv_sdnn.
+// metadata and is never written as hrv_sdnn. A HEALTH_KIT point is the
+// exception: HealthKit only measures SDNN, so its value is hrv_sdnn (the
+// standard deviation when set, else the RMSSD field Google filled with it).
 func mapHRV(p point, userID string) (*model.MapResult, error) {
 	var v hrvValue
 	if err := p.decode(&v); err != nil {
 		return nil, err
 	}
 	md := p.metadata()
+	if p.fromHealthKit() {
+		md["hrv_method"] = "sdnn"
+		x := v.RootMeanSquareOfSuccessiveDifferencesMilliseconds
+		if sd, ok := val(v.StandardDeviationMilliseconds); ok && sd > 0 {
+			x = v.StandardDeviationMilliseconds
+		}
+		return sampleAt(p, userID, v.SampleTime, model.QTHRVSDNN, "ms", x, md)
+	}
 	md["hrv_method"] = "rmssd"
 	if sd, ok := val(v.StandardDeviationMilliseconds); ok {
 		md["standard_deviation_ms"] = sd
@@ -248,25 +258,35 @@ func mapDailyRestingHR(p point, userID string) (*model.MapResult, error) {
 	return dailyResult(p, userID, v.Date, model.QTRestingHeartRate, "bpm", v.BeatsPerMinute, p.metadata())
 }
 
-// mapDailyHRV keeps the day's average RMSSD; the deep sleep RMSSD, non-REM
-// heart rate and entropy stay in metadata.
+// mapDailyHRV keeps the day's average RMSSD (SDNN on a HEALTH_KIT point, see
+// mapHRV); the deep sleep RMSSD, non-REM heart rate and entropy stay in
+// metadata. A deep sleep RMSSD of 0, which HEALTH_KIT points carry, is no
+// measurement and is left out.
 func mapDailyHRV(p point, userID string) (*model.MapResult, error) {
 	var v dailyHRV
 	if err := p.decode(&v); err != nil {
 		return nil, err
 	}
 	md := p.metadata()
+	qt := model.QTHRVRMSSD
 	md["hrv_method"] = "rmssd"
+	if p.fromHealthKit() {
+		qt = model.QTHRVSDNN
+		md["hrv_method"] = "sdnn"
+	}
 	for k, n := range map[string]*num{
 		"deep_sleep_rmssd_ms":        v.DeepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds,
 		"non_rem_heart_rate_bpm":     v.NonRemHeartRateBeatsPerMinute,
 		"heartbeat_interval_entropy": v.Entropy,
 	} {
 		if x, ok := val(n); ok {
+			if k == "deep_sleep_rmssd_ms" && x <= 0 {
+				continue
+			}
 			md[k] = x
 		}
 	}
-	return dailyResult(p, userID, v.Date, model.QTHRVRMSSD, "ms", v.AverageHeartRateVariabilityMilliseconds, md)
+	return dailyResult(p, userID, v.Date, qt, "ms", v.AverageHeartRateVariabilityMilliseconds, md)
 }
 
 func mapDailyOxygen(p point, userID string) (*model.MapResult, error) {

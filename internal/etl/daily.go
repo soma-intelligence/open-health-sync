@@ -112,6 +112,10 @@ func derivedHash(sc scope, provider string, day time.Time) string {
 	})
 }
 
+// derivedDrop deletes the derived row of one day.
+const derivedDrop = `DELETE FROM ohs_data.daily_summaries
+	WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND summary_date = $4`
+
 var derivedUpsert = insertHead(tDaily, dailyColumns) + placeholders(1, len(dailyColumns)) + `
 	ON CONFLICT (tenant_id, user_id, content_hash, summary_date) DO UPDATE SET ` + derivedSet() + `
 	WHERE (` + derivedCols("daily_summaries.") + `) IS DISTINCT FROM (` + derivedCols("EXCLUDED.") + `)`
@@ -135,7 +139,8 @@ func derivedCols(prefix string) string {
 // deriveDailySummaries recomputes the derived row of every touched day from
 // the stored samples, inside the job's transaction (so it sees what the job
 // just wrote). A day with a provider summary of its own gets no derived row,
-// and loses one written earlier.
+// and loses one written earlier, as does a day left without any additive
+// sample (every one of them deleted).
 func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[dayKey]*time.Location) (written, skipped int, err error) {
 	keys := make([]dayKey, 0, len(days))
 	for k := range days {
@@ -171,9 +176,7 @@ func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[day
 			return written, skipped, fmt.Errorf("look up provider summary: %w", err)
 		}
 		if own {
-			if _, err := tx.Exec(ctx, `DELETE FROM ohs_data.daily_summaries
-				WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND summary_date = $4`,
-				sc.tenant, sc.user, hash, k.day); err != nil {
+			if _, err := tx.Exec(ctx, derivedDrop, sc.tenant, sc.user, hash, k.day); err != nil {
 				return written, skipped, fmt.Errorf("drop derived summary: %w", err)
 			}
 			continue
@@ -187,6 +190,9 @@ func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[day
 			return written, skipped, err
 		}
 		if len(sums) == 0 {
+			if _, err := tx.Exec(ctx, derivedDrop, sc.tenant, sc.user, hash, k.day); err != nil {
+				return written, skipped, fmt.Errorf("drop derived summary: %w", err)
+			}
 			continue
 		}
 		tag, err := tx.Exec(ctx, derivedUpsert, derivedRow(sc, k, loc, hash, sums)...)

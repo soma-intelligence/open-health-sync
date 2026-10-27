@@ -19,7 +19,7 @@ its own site, pricing page and documentation, checked on 2026-10-18. They change
 | Price | Free. You pay for your own server | Wearables and IoT API from $450 a month (Sandbox plan), Enterprise on request. Nutrition Scanner AI from $450 a month ([pricing](https://spikeapi.com/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Spike's cloud, with retention settings in its admin console |
 | Sources | 18 available ([list](../connectors/README.md)) | 40+ providers and 500+ devices advertised, Garmin included, plus medical IoT devices |
-| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files | Yes |
+| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Spike's standardized data: statistics, sleep, workouts, samples and provider records |
 | FHIR and Open mHealth | FHIR R4 checked with the official HL7 validator, Open mHealth checked against the official schemas ([FHIR R4](../fhir.md), [Open mHealth](../open-mhealth.md)) | Not found in its documentation |
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Provider records, next to the normalized data |

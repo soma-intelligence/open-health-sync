@@ -336,6 +336,15 @@ type MapResult struct {
 	// the stored rows of each one and keeps a tombstone, so a record of that
 	// id is never written again (see Deletion).
 	Deletions []Deletion
+
+	// AliasExternalIDs says that the ExternalIDs of this result name source
+	// objects that content de-duplication can fold into one stored row (two
+	// HealthKit samples of the same reading). The writer then keeps one alias
+	// per id and row, de-duplicated records included, and a Deletion removes
+	// its id's aliases and a row only once no alias of it remains, instead of
+	// the rows stored under the id. Only quantity samples, category samples,
+	// nutrition logs and workouts get aliases.
+	AliasExternalIDs bool `json:",omitempty"`
 }
 
 // Deletion says that a provider removed one of its records: the sleep,

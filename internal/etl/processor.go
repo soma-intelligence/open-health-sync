@@ -139,10 +139,15 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		model.CanonicalizeSourceAttribution(mr, record, job.Provider)
 
 		// Unit choke point, before validation, so the range checks can assume
-		// the storage unit. An unconvertible unit is a recoverable failure.
+		// the storage unit. An unconvertible unit is a recoverable failure of
+		// its own sample: the record is kept for a replay, and the rest of
+		// what it mapped to is written.
 		if unitErrs := model.CanonicalizeUnits(mr); len(unitErrs) > 0 {
 			fail(i, record, "unit", fmt.Sprintf("unit errors: %v", unitErrs))
-			return nil
+			pruneUnitErrors(mr, unitErrs)
+			if mr.IsEmpty() {
+				return nil
+			}
 		}
 
 		// A reject is a value the metric cannot physically take: parked, never

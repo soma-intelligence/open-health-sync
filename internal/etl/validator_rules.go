@@ -119,7 +119,9 @@ var rangeRules = map[string]rangeRule{
 		Unit: "percent",
 		// Soft floor 70: wrist pulse oximeters read badly under about 80, and a
 		// genuine severe desaturation must still land rather than be dropped.
-		HardMin: 0, HardMax: 100, SoftMin: 70, SoftMax: 100,
+		// Hard floor 50: below it no reading is plausible, and a fraction sent
+		// as percent (0.97 for 97 %) must be refused, not stored and flagged.
+		HardMin: 50, HardMax: 100, SoftMin: 70, SoftMax: 100,
 	},
 	"blood_pressure_systolic": {
 		Unit:    "mmHg",
@@ -187,9 +189,11 @@ var rangeRules = map[string]rangeRule{
 	},
 	"body_fat_percentage": {
 		// Essential fat is about 3 percent in men and 10 in women, so a reading
-		// of 0 or 100 is a scale that failed to measure, not a body.
+		// under 2 (a fraction sent as percent among them) or over 80 is a scale
+		// that failed to measure, not a body. 70 to 80 happens in severe
+		// obesity: kept and flagged.
 		Unit:    "percent",
-		HardMin: 0, HardMax: 100, SoftMin: 2, SoftMax: 70,
+		HardMin: 2, HardMax: 80, SoftMin: 2, SoftMax: 70,
 	},
 	"visceral_fat_rating": {
 		Unit:    "index",

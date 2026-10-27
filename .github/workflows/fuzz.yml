@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
-# Coverage-guided fuzzing of the Apple Health upload parser. Pull requests run
-# the seed corpus only (go test ./... in ci.yml), which is deterministic; the
-# mutation search runs here, nightly and on demand. A failing input is kept
-# as an artifact: copy it into connectors/applehealth/testdata/fuzz/ to turn
-# it into a regression test.
+# Coverage-guided fuzzing of the parsers that take outside input: the Apple
+# Health upload parser at length, the other targets for 2 minutes each. Pull
+# requests run the seed corpora only (go test ./... in ci.yml), which is
+# deterministic; the mutation search runs here, nightly and on demand. A
+# failing input is kept as an artifact: copy it into the package's
+# testdata/fuzz/ to turn it into a regression test.
 name: fuzz
 
 on:
@@ -32,4 +33,35 @@ jobs:
         with:
           name: fuzz-applehealth-failure
           path: connectors/applehealth/testdata/fuzz/
+          if-no-files-found: ignore
+
+  targets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: ./test/fuzz/, target: FuzzConnectorPipeline }
+          - { pkg: ./test/fuzz/, target: FuzzDeviceUpload }
+          - { pkg: ./test/fuzz/, target: FuzzInbound }
+          - { pkg: ./test/fuzz/, target: FuzzReader }
+          - { pkg: ./connectors/applehealth/export/, target: FuzzConvertXML }
+          - { pkg: ./connectors/activityfiles/, target: FuzzInspect }
+          - { pkg: ./internal/api/read/, target: FuzzDecodeCursor }
+          - { pkg: ./internal/selfreport/, target: FuzzDecode }
+          - { pkg: ./internal/collect/, target: FuzzParseHeaders }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Fuzz ${{ matrix.target }}
+        run: go test "${{ matrix.pkg }}" -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=2m
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-${{ matrix.target }}-failure
+          path: ${{ matrix.pkg }}testdata/fuzz/
           if-no-files-found: ignore

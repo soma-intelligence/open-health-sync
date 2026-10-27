@@ -183,7 +183,8 @@ Fixed on the branch, each with a unit test:
 
 Seen and left as they are, for a decision:
 
-- Timestamps at the Unix or FIT epoch (1970, 1989) are stored: no rule bounds the past.
+- Timestamps at the Unix or FIT epoch (1970, 1989) were stored, as no rule bounded the past.
+  Decided since: every record kind refuses a time before 1990-01-01 UTC.
 - A blood glucose of 0 mg/dL is stored (the hard band starts at 0, inclusive), as is an HRV of
   0 ms.
 - A body mass of 3000 kg is stored with a suspect flag only (the hard band has no ceiling).

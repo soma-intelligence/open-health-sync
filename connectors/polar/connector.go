@@ -172,6 +172,17 @@ func newHTTPClient() *http.Client {
 // Slug returns "polar".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// The API serves only the last 28 days of sleep and Nightly Recharge, and
+// data arrives when the watch syncs.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		Lookback:  24 * time.Hour,
+		Backfill:  28 * 24 * time.Hour,
+		Reconcile: 7 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET.
 // WEBHOOK_SECRET is optional and not listed.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }

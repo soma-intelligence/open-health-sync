@@ -11,8 +11,10 @@ reach Open Health Sync.
   agreements Abbott makes with companies, and their terms are not public.
 - **LibreLinkUp** is Abbott's follower app, for caregivers. Community libraries call its
   private app API. That API is undocumented, unsupported and can change without notice, and
-  using it means handling the user's Abbott password. Open Health Sync does not build on
-  reverse-engineered APIs, so it will not use it.
+  using it means handling the user's Abbott password. Open Health Sync uses an app's private
+  API only when no official path exists, as for [Eight Sleep](eight-sleep.md). Libre has one:
+  the Libre apps write glucose to Health Connect and Apple Health (below), so Open Health Sync
+  does not use LibreLinkUp.
 
 ## How Libre data reaches Open Health Sync
 

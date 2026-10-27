@@ -20,7 +20,7 @@ as well.
 | Price | Free. You pay for your own server | Launch: $300 a month, billed monthly, for 1 to 500 connected users. Enterprise: custom, billed annually, unlimited users ([pricing](https://www.junction.com/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Junction's cloud, in a US or an EU region ([quickstart](https://docs.junction.com/home/quickstart)) |
 | Sources | 18 available ([list](../connectors/README.md)) | 300+ devices advertised: cloud APIs such as Garmin, Fitbit, Oura, WHOOP, Withings, Polar and Dexcom, Apple HealthKit, Health Connect and Samsung Health through its mobile SDKs, and Bluetooth meters ([providers](https://docs.junction.com/wearables/providers/introduction)) |
-| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files | Yes |
+| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes |
 | Lab testing | No | A lab testing API, at-home kits and phlebotomy, on Enterprise |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Junction's own resources, such as the sleep summary at `/summary/sleep` |
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Raw provider data through routes such as `/v2/summary/sleep/{user_id}/raw` |

@@ -173,6 +173,17 @@ func (c *Connector) NewInstance() connector.Connector {
 // Slug returns "eight_sleep".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// A night is processed for hours after waking, and no notification says
+// when it is done.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEveryWithoutPush: 3 * time.Hour,
+		Lookback:             36 * time.Hour,
+		Reconcile:            7 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys is empty: the connector runs on the published defaults.
 func (c *Connector) RequiredKeys() []string { return nil }
 

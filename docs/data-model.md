@@ -92,7 +92,7 @@ Stored in `ohs_data.sleep_sessions`.
 | `LightSleepSeconds` | `*int` |  |
 | `AwakeSeconds` | `*int` |  |
 | `SleepScore` | `*float64` |  |
-| `HRVAvgMs` | `*float64` |  |
+| `HRVAvgMs` | `*float64` | Average RMSSD of the night in ms, never SDNN. Exported to FHIR without a LOINC code (none is RMSSD). |
 | `RestingHR` | `*float64` |  |
 | `RespiratoryRate` | `*float64` |  |
 | `SpO2Avg` | `*float64` |  |
@@ -253,7 +253,7 @@ Stored in `ohs_data.daily_summaries`.
 | `DistanceM` | `*float64` |  |
 | `FloorsClimbed` | `*int` |  |
 | `RestingHR` | `*float64` |  |
-| `HRVAvgMs` | `*float64` |  |
+| `HRVAvgMs` | `*float64` | Average RMSSD of the day in ms, never SDNN. Exported to FHIR without a LOINC code (none is RMSSD). |
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
 | `Replaceable` | `bool` | Writer instruction, not a column: the latest summary for the day wins. |
@@ -323,6 +323,7 @@ MapResult holds all canonical records produced from a single input record.
 | `HighFrequency` | `bool` | The result holds high volume data and is written with COPY. |
 | `SourceKey` | `string` | Raw object the batch was mapped from. Child records use it to find a parent that arrived in another object. |
 | `Deletions` | `[]Deletion` | Provider records the provider deleted: their stored rows are removed and a tombstone in `ohs_data.deleted_records` keeps them from being written again. |
+| `AliasExternalIDs` | `bool` | The ExternalIDs name source objects that de-duplication can fold into one row (HealthKit samples): one alias per id and row is kept in `ohs_data.record_aliases`, and a deletion removes a row only once no alias of it remains. |
 
 ## Quantity names and storage units
 

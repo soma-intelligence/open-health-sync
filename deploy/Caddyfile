@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Caddy in front of the compose stack (ohs on 127.0.0.1:8080), with automatic
+# TLS. Replace health.example.org with your host name, set OHS_PUBLIC_URL to
+# https://health.example.org and OHS_TRUSTED_PROXIES to 127.0.0.1/32, then:
+#   caddy run --config deploy/Caddyfile
+# See docs/self-hosting.md#reverse-proxy.
+
+# The whole host is Open Health Sync: every path goes to ohs, /healthz and
+# /readyz included, so an outside uptime check and a load balancer see their
+# 200 (or 503), never a redirect.
+health.example.org {
+	reverse_proxy 127.0.0.1:8080
+}
+
+# The same host also serves other pages (a sign-in portal, a landing page):
+# the routes of ohs are named first and proxied as they are, and only the
+# rest goes to the other site. A catch-all redirect placed before them turns
+# /healthz and /readyz into a 302, which monitors read as down.
+#
+# health.example.org {
+# 	@ohs path /healthz /readyz /openapi.yaml /metrics /v1/* /mcp /oauth/* /inbound/* /connect /connect/* /shl/* /console /console/*
+# 	handle @ohs {
+# 		reverse_proxy 127.0.0.1:8080
+# 	}
+# 	handle {
+# 		redir * /portal
+# 	}
+# }

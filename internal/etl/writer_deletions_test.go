@@ -43,7 +43,8 @@ func TestDeletionStatementsScopedToTenantAndUser(t *testing.T) {
 	}
 	for name, q := range map[string]string{"deletionSamples": deletionSamples, "deletionCategory": deletionCategory} {
 		assert.Contains(t, q, "provider = $3", name)
-		assert.NotContains(t, q, "start_date", "%s: no time window, the external id index bounds it", name)
+		where, _, _ := strings.Cut(q, "RETURNING")
+		assert.NotContains(t, where, "start_date", "%s: no time window, the external id index bounds it", name)
 		assert.Contains(t, q, `external_id COLLATE "C" >= $4 AND external_id COLLATE "C" < $6`, "%s: a range on the index", name)
 		assert.Contains(t, q, "external_id = $4 OR starts_with(external_id, $5)", name)
 		assert.NotContains(t, q, "LIKE", "%s: an id holding %% or _ must not act as a pattern", name)

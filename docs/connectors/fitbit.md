@@ -6,13 +6,19 @@ in) over Google OAuth; Open Health Sync pulls their data from the
 schedule and when Google sends a webhook notification. You create your own Google Cloud project
 and OAuth client: nothing is shared between instances.
 
+> **Notice, 2026-10-24.** Google turns off the legacy Fitbit Web API and the Fitbit OAuth
+> endpoints on **2026-11-02**; after that they answer `410 Gone`
+> ([Google Health API, about](https://developers.google.com/health/about), updated 2026-10-23).
+> This connector does not use them. If you still run anything on `api.fitbit.com`, move it to
+> this connector before that date: each user connects again with their Google Account.
+
 Status: **available.** You set up your own Google Health API project; until Google verifies it,
 it serves at most 100 users (see [Access](#access-read-this-first)). Field names follow the
 API's public reference and discovery document, checked on 2026-10-12; points marked
 **(to confirm)** are the ones to check first against a live project.
 
 The connector is built on the Google Health API only. The legacy Fitbit Web API
-(`api.fitbit.com`) lost support on 2026-09-30 and is turned off on 2026-10-30; it is not used, and
+(`api.fitbit.com`) lost support on 2026-09-30 and is turned off on 2026-11-02; it is not used, and
 legacy Fitbit tokens cannot be carried over (every user consents again).
 
 ## Access: read this first
@@ -199,8 +205,8 @@ and page: about 21 for a quiet day, more for a long backfill of one-second heart
 | `floors` (1 minute) | `flights_climbed` (count) |
 | `active-energy-burned` (1 minute, `kcal`) | `active_energy_burned_intraday` (kcal) |
 | `heart-rate` (`beatsPerMinute`) | `heart_rate` (bpm); motion context and sensor location in metadata |
-| `heart-rate-variability` (RMSSD ms) | `hrv_rmssd` (ms); the standard deviation in metadata |
-| `daily-heart-rate-variability` | `hrv_rmssd` for the day (average RMSSD); deep sleep RMSSD, non-REM heart rate and entropy in metadata |
+| `heart-rate-variability` (RMSSD ms) | `hrv_rmssd` (ms); the standard deviation in metadata. `hrv_sdnn` on a `HEALTH_KIT` point |
+| `daily-heart-rate-variability` | `hrv_rmssd` for the day (average RMSSD); deep sleep RMSSD (when above 0), non-REM heart rate and entropy in metadata. `hrv_sdnn` on a `HEALTH_KIT` point |
 | `daily-resting-heart-rate` | `resting_heart_rate` (bpm) for the day |
 | `oxygen-saturation` (`percentage`) | `oxygen_saturation` (percent) |
 | `daily-oxygen-saturation` | `oxygen_saturation` for the day (average); bounds in metadata |
@@ -220,7 +226,23 @@ Notes on the mapping:
 - **Units in field names.** The API writes units into field names and int64 values as JSON
   strings (`"count": "120"`); both strings and numbers are read. A SpO2 value at or under 1 is
   taken for a fraction and scaled to percent (the API documents 0 to 100).
-- **HRV is RMSSD**, stored as `hrv_rmssd`, never `hrv_sdnn`.
+- **HRV is RMSSD**, stored as `hrv_rmssd`, except on Apple Health points (below), with
+  `hrv_method` in metadata either way.
+- **Apple Health and Health Connect through Google.** A user who links Apple Health (or Health
+  Connect) in the Google Health app gets that data back from this API, marked
+  `dataSource.platform` `HEALTH_KIT` (or `HEALTH_CONNECT`), next to the tracker's points
+  (sleep, resting heart rate, HRV, exercise, VO2 max and steps have been seen). Their samples
+  keep provider `fitbit` but are attributed to the store they came from: source slug
+  `apple_health` and source name `Apple Health` (or `health_connect`, `Health Connect`). So they
+  are a stream of their own and never add up with the tracker's minutes, and the merged view
+  ranks them by the fusion order like the same data read with the Apple Health connector.
+  HealthKit only measures SDNN, so the HRV of a `HEALTH_KIT` point is stored as `hrv_sdnn`
+  (`hrv_method: sdnn`), and its deep sleep RMSSD of 0 is left out. Which field of the
+  `heart-rate-variability` sample type holds Apple's SDNN is **(to confirm)**: the standard
+  deviation is used when set, else the RMSSD field. Sleep sessions and workouts of these
+  platforms are still stored as Fitbit's, with `platform` in metadata. Rows written before this
+  change keep the type and source they were stored with until you run the repair script of
+  [Repair Fitbit rows of relayed data](../how-to/fitbit-relayed-points.md).
 - **Time zones.** Every point carries a UTC offset (`startUtcOffset`, `utcOffset`, as
   `"3600s"`), never an IANA name. The metadata keeps `utc_offset` (`+01:00`) and, as
   `timezone`, a zone with that offset (`Etc/GMT-1`, or a place for a half-hour offset), which is

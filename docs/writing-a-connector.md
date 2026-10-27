@@ -52,6 +52,29 @@ Rules that matter:
   without counting a failed attempt.
 - **Never log tokens or health values.**
 
+## Sync policy
+
+A pulled connector is backstop-pulled every 6 hours while its notifications arrive and every hour
+otherwise; each pull re-reads the hour before the previous window, and a new connection is
+backfilled over 30 days in 7 day jobs. When the provider needs other values, implement
+`connector.SyncPolicied`:
+
+```go
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEveryWithoutPush: 3 * time.Hour,  // the API is rate limited
+		Lookback:             72 * time.Hour, // readings reach the provider days late
+		Backfill:             90 * 24 * time.Hour,
+		Reconcile:            14 * 24 * time.Hour, // the 00:00 UTC pull reaches back 14 days
+	}
+}
+```
+
+A zero field keeps its default. Intervals must divide a day (15 minutes to 24 hours). A value out
+of bounds falls back to the default, and `connectors/all` has a test that fails for such a value.
+Say why in the method's comment: rate limits, how late data arrives, how much history the provider
+keeps. [Background sync](background-sync.md#sync-policy-per-provider) lists every provider's.
+
 ## Deleted records
 
 When the provider says one of its records is gone (a sleep the user removed, a deleted
@@ -70,6 +93,8 @@ job's tenant and user only:
   of the days its removed samples name in `Metadata["summary_date"]`
   (`model.MetadataSummaryDate`, `YYYY-MM-DD`), and deletes a summary left without any figure.
   Only summary figure names are accepted; any other name is ignored;
+- sums the derived daily totals (steps, energy, distance, flights) of the days of its removed
+  samples again, and drops a derived day left without any sample;
 - records a tombstone in `ohs_data.deleted_records`. A record whose id is tombstoned is never
   written again, so a re-pull, an old raw object processed again, or a deletion that arrives
   before the record cannot bring it back. Applying a deletion twice is harmless.
@@ -80,6 +105,16 @@ back. When a record also fills figures of your daily summary, stamp the summary'
 samples (`Metadata["summary_date"]`), set `DailySummary.RecordID` to the record id when the
 summary carries that record's figures only (a tombstoned record's summary is then not written
 again), and list the figures in the deletion's `ClearSummaryFields`.
+
+When your source de-duplicates poorly by id, because the content hash can fold two of its
+objects into one stored row (HealthKit samples of one reading written by two apps), set
+`MapResult.AliasExternalIDs`. The writer then keeps one alias per `ExternalID` and stored row in
+`ohs_data.record_aliases`, de-duplicated records included, and a deletion removes its id's
+aliases and a row only once no alias of it remains, instead of the rows stored under the id.
+Only quantity samples, category samples, nutrition logs and workouts get aliases; give the
+samples of one record its id (not `<id>_<suffix>`). A device connector whose line format gains a
+line an older server would only store can list it in `connector.UploadFeatures`: every upload
+answer then names it in `features`, so a client can check before it sends one.
 
 ### Records whose start moves
 

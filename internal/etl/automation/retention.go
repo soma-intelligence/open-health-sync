@@ -37,7 +37,16 @@ var retentionTables = []struct {
 	{table: "observations", col: "ts"},
 	{table: "workout_tracks", col: "started_at"},
 	{table: "failed_records", col: "created_at"},
+	// The HealthKit aliases of a row (migration 0043) name it by its start:
+	// they go with the rows they hold.
+	{table: "record_aliases", col: "start_time"},
 }
+
+// retentionKept are the ohs_data tables with a user_id that retention leaves
+// alone on purpose: tombstones keep a deleted record from coming back, and
+// tags are the user's own notes. A new per-user table must be added to
+// retentionTables or here (TestRetentionCoversEveryUserTable).
+var retentionKept = []string{"deleted_records", "time_tags"}
 
 // Retention deletes data older than Days. It exists for hosted instances: a
 // self-hosted install leaves OHS_RETENTION_DAYS at 0 and keeps everything, and

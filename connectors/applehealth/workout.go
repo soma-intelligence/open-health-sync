@@ -83,6 +83,7 @@ func (m *mapper) mapWorkout(record map[string]any, userID string) (*model.MapRes
 	workout := model.Workout{
 		UserID:           userID,
 		Provider:         "apple_health",
+		ExternalID:       sampleExternalID(record),
 		ActivityType:     activityType,
 		StartDate:        startDate,
 		EndDate:          endDate,

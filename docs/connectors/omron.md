@@ -65,7 +65,10 @@ is an error.
 **Notifications.** OMRON sends a notification to the notification URI of the app when a user
 uploads readings, and asks partners to pull after it, since the measurement API is rate limited.
 The notification format is not in the public documentation, so this connector does not receive
-notifications yet: data arrives with the scheduled pulls. Once the format is known, a
+notifications yet: data arrives with the scheduled pulls, every 3 hours. Readings reach OMRON
+when the phone app syncs, often days after they were taken, so each pull re-reads the last 72
+hours and the first pull of each UTC day the last 14 days
+([sync policy per provider](../background-sync.md#sync-policy-per-provider)). Once the format is known, a
 `HandleInbound` that queues a pull for the user is a small addition.
 
 Not pulled yet: activity (steps), temperature and SpO2 (Europe only).

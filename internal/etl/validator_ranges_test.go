@@ -66,14 +66,21 @@ func TestValidate_HRVSDNNBands(t *testing.T) {
 func TestValidate_BodyFatPercentageRange(t *testing.T) {
 	assert.Empty(t, ValidateMapResult(qs("body_fat_percentage", 22.5)))
 
-	// 0 and 100 are inside the hard band but nobody has either: essential fat is
-	// about 3 percent. They now come back flagged rather than clean, which is the
-	// point of the soft band.
-	for _, v := range []float64{0, 100} {
+	// 0 and 100 are a scale that failed to measure (essential fat is about 3
+	// percent, and 0.18 is a fraction sent as percent): refused.
+	for _, v := range []float64{0, 0.18, 100} {
+		errs := ValidateMapResult(qs("body_fat_percentage", v))
+		require.Lenf(t, errs, 1, "body_fat_percentage=%v", v)
+		assert.Equal(t, SeverityReject, errs[0].Severity)
+	}
+	// 72 to 80 is possible in severe obesity but rare, so it comes back
+	// flagged; only above 80 is refused.
+	for _, v := range []float64{72, 78, 80} {
 		errs := ValidateMapResult(qs("body_fat_percentage", v))
 		require.Lenf(t, errs, 1, "body_fat_percentage=%v", v)
 		assert.Equal(t, SeveritySuspect, errs[0].Severity)
 	}
+	require.Len(t, Rejections(ValidateMapResult(qs("body_fat_percentage", 80.5))), 1)
 
 	require.Len(t, ValidateMapResult(qs("body_fat_percentage", 150)), 1)
 	require.Len(t, ValidateMapResult(qs("body_fat_percentage", -5)), 1)
@@ -158,4 +165,59 @@ func TestValidate_BloodGlucoseUnitAware(t *testing.T) {
 	require.Len(t, unconverted, 1)
 	assert.Equal(t, "unit", unconverted[0].Field)
 	assert.Equal(t, SeverityReject, unconverted[0].Severity)
+}
+
+// A fraction sent with a percent unit (0.97 for 97 %) is not a reading: the
+// hard floors of SpO2 and body fat refuse it instead of flagging it.
+func TestValidate_FractionUnderPercentIsRejected(t *testing.T) {
+	for _, c := range []struct {
+		qt string
+		v  float64
+	}{{"oxygen_saturation", 0.97}, {"oxygen_saturation", 49}, {"body_fat_percentage", 0.18}, {"body_fat_percentage", 1.5}, {"body_fat_percentage", 85}} {
+		errs := ValidateMapResult(qs(c.qt, c.v))
+		require.Lenf(t, Rejections(errs), 1, "%s=%v", c.qt, c.v)
+	}
+	assert.Empty(t, Rejections(ValidateMapResult(qs("oxygen_saturation", 62))), "a severe desaturation is kept")
+	assert.Empty(t, ValidateMapResult(qs("body_fat_percentage", 18.5)))
+}
+
+// Sleep sessions and daily summaries have figures of their own, checked with
+// the bands of the matching quantity types.
+func TestValidate_SleepAndDailyFigures(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	f := func(v float64) *float64 { return &v }
+	n := func(v int) *int { return &v }
+	sleep := func(s model.SleepSession) []ValidationError {
+		s.BedtimeStart, s.BedtimeEnd = now.Add(-9*time.Hour), now.Add(-time.Hour)
+		return ValidateMapResultAt(&model.MapResult{SleepSessions: []model.SleepSession{s}}, now)
+	}
+	daily := func(d model.DailySummary) []ValidationError {
+		d.SummaryDate = time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC)
+		return ValidateMapResultAt(&model.MapResult{DailySummaries: []model.DailySummary{d}}, now)
+	}
+
+	assert.Empty(t, sleep(model.SleepSession{TotalSleepSeconds: n(26400), DeepSleepSeconds: n(5400), SleepScore: f(81),
+		HRVAvgMs: f(48), RestingHR: f(51), RespiratoryRate: f(14), SpO2Avg: f(96)}))
+	assert.Empty(t, daily(model.DailySummary{StepCount: n(10432), ActiveKcal: f(431), TotalKcal: f(2310), DistanceM: f(7650),
+		FloorsClimbed: n(9), RestingHR: f(52), HRVAvgMs: f(47), ReadinessScore: f(77), StrainScore: f(12)}))
+
+	for name, errs := range map[string][]ValidationError{
+		"sleep spo2 fraction":    sleep(model.SleepSession{SpO2Avg: f(0.95)}),
+		"sleep resting hr":       sleep(model.SleepSession{RestingHR: f(400)}),
+		"sleep negative hrv":     sleep(model.SleepSession{HRVAvgMs: f(-1)}),
+		"sleep respiratory rate": sleep(model.SleepSession{RespiratoryRate: f(90)}),
+		"sleep score":            sleep(model.SleepSession{SleepScore: f(810)}),
+		"sleep negative stage":   sleep(model.SleepSession{DeepSleepSeconds: n(-60)}),
+		"daily negative steps":   daily(model.DailySummary{StepCount: n(-5)}),
+		"daily resting hr":       daily(model.DailySummary{RestingHR: f(5)}),
+		"daily negative energy":  daily(model.DailySummary{TotalKcal: f(-100)}),
+		"daily score":            daily(model.DailySummary{RecoveryScore: f(140)}),
+	} {
+		rejects := Rejections(errs)
+		require.Len(t, rejects, 1, name)
+		assert.NotEqual(t, "bedtime_start", rejects[0].Field, name)
+	}
+	s := Suspicions(sleep(model.SleepSession{SpO2Avg: f(65)}))
+	require.Len(t, s, 1, "a low but possible night average is flagged")
+	assert.Equal(t, "spo2_avg", s[0].Field)
 }

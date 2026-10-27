@@ -89,7 +89,7 @@ Send the user to the returned `authorize_url`
 (`https://cloudapi-oauth.suunto.com/oauth/authorize`). They sign in with their Suunto app
 account and agree. Suunto grants its default `workout` scope, so the connector sends no
 `scope` parameter. After consent the user lands on your `redirect_uri` with
-`status=connected`. A new connection is backfilled over the last 30 days, then pulled on
+`status=connected`. A new connection is backfilled over the last 28 days, then pulled on
 the regular schedule.
 
 How the OAuth calls work:

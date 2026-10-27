@@ -53,12 +53,13 @@ func (m *mapper) mapDietaryQuantity(record map[string]any, userID string) (*mode
 	}
 
 	nl := model.NutritionLog{
-		UserID:    userID,
-		Provider:  "apple_health",
-		StartDate: startDate,
-		EndDate:   &endDate,
-		MealType:  "", // the SDK sends no meal type
-		Metadata:  withTimezone(buildMetadata(record, nil), tz),
+		UserID:     userID,
+		Provider:   "apple_health",
+		ExternalID: sampleExternalID(record),
+		StartDate:  startDate,
+		EndDate:    &endDate,
+		MealType:   "", // the SDK sends no meal type
+		Metadata:   withTimezone(buildMetadata(record, nil), tz),
 	}
 
 	nl.SetNutrient(nutrientName, value)
@@ -91,12 +92,13 @@ func (m *mapper) mapFoodCorrelation(record map[string]any, userID string) (*mode
 	}
 
 	nl := model.NutritionLog{
-		UserID:    userID,
-		Provider:  "apple_health",
-		StartDate: startDate,
-		EndDate:   &endDate,
-		MealType:  "", // the SDK sends no meal type
-		Metadata:  withTimezone(buildMetadata(record, nil), tz),
+		UserID:     userID,
+		Provider:   "apple_health",
+		ExternalID: sampleExternalID(record),
+		StartDate:  startDate,
+		EndDate:    &endDate,
+		MealType:   "", // the SDK sends no meal type
+		Metadata:   withTimezone(buildMetadata(record, nil), tz),
 	}
 
 	// Build hash fields with all nutrient values for deterministic hash

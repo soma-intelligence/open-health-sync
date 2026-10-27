@@ -17,19 +17,23 @@ The `collect` role does the work. Three mechanisms stack:
    which keeps the app's rate limit for what just changed. Data lands within seconds of the
    provider having it.
 2. **A backstop pull.** Every connection is also pulled on a fixed slot, in case a
-   notification was lost:
+   notification was lost. By default:
    - every **6 hours** (00:00, 06:00, 12:00, 18:00 UTC) while the connection's notifications
      arrive (one came in the last 24 hours);
    - every **hour** otherwise: the provider sends none, they are not configured, or they
      stopped.
-   Each pull overlaps the previous one by an hour for late data. After an outage it reaches
-   back to the last successful sync, up to 7 days.
+   Each pull starts again a little before the previous one ended (its *lookback*, an hour by
+   default) for data that reached the provider late. After an outage, or when a window's pull
+   failed, it reaches back to the end of the last complete pull, up to 7 days. A pull that a
+   notification asked for, which fetches only one data type, does not count as complete, and
+   neither does a short pull that starts after a gap.
+   Each provider sets its own values: see [sync policy per provider](#sync-policy-per-provider).
 3. **Repair.** A subscription that has heard nothing for 24 hours and is more than 7 days old
    is renewed at the provider, at most once a week per connection. Some providers drop a
    subscription after failed deliveries and say nothing.
 
 Tokens are refreshed before use when they expire within 5 minutes. Since every connection is
-pulled at least every 6 hours, refresh tokens never go unused for long. A refresh the provider
+pulled at least once a day, refresh tokens never go unused for long. A refresh the provider
 refuses marks the connection `needs_reauth`: the user has to consent again.
 
 Failures back off (30 s, doubling, 5 attempts per window). A provider rate limit (HTTP 429)
@@ -55,6 +59,42 @@ app blocked for every user. Three rules keep pulls inside each provider's budget
 `ohs_sync_provider_paused_seconds{provider}` on `/metrics` says how long a provider stays
 paused. A connection whose provider asks to wait an hour or more is reported `rate_limited` in its
 health (see [sync history and connection health](sync-health.md)).
+
+## Sync policy per provider
+
+Providers differ: Dexcom readings reach its API hours late, an OMRON cuff uploads when the phone
+app syncs, Polar keeps only 28 days, Suunto's development tier allows about 200 calls a week.
+So each connector declares how it is pulled (`connector.SyncPolicy`, see
+[writing a connector](writing-a-connector.md#sync-policy)):
+
+- **Interval**: how often the backstop pull runs, while notifications arrive and without them.
+- **Lookback**: how far before the previous window each pull starts again.
+- **Backfill**: how far back a new connection is pulled.
+- **Reconciliation**: once a day, the slot ending at 00:00 UTC reaches back this far, so data
+  revised later than the lookback (a re-scored sleep, an activity edited days later) or a window
+  whose pull failed is fetched again.
+
+| Provider | Interval with notifications | Interval without | Lookback | Backfill | Daily reconciliation |
+|---|---|---|---|---|---|
+| Default (Garmin) | 6 h | 1 h | 1 h | 30 days | none |
+| Dexcom | | 1 h | 6 h | 90 days | 2 days |
+| Eight Sleep | | 3 h | 36 h | 30 days | 7 days |
+| Fitbit | 6 h | 3 h | 6 h | 30 days | 3 days |
+| intervals.icu | 6 h | 1 h | 24 h | 30 days | 7 days |
+| OMRON | | 3 h | 72 h | 30 days | 14 days |
+| Oura | 6 h | 1 h | 24 h | 90 days | 7 days |
+| Polar | 6 h | 1 h | 24 h | 28 days | 7 days |
+| Strava | 12 h | 3 h | 24 h | 30 days | 7 days |
+| Suunto | 24 h | 24 h | 24 h | 28 days | none |
+| Ultrahuman | | 3 h | 48 h | 30 days | 7 days |
+| WHOOP | 6 h | 1 h | 24 h | 90 days | 7 days |
+| Withings | 6 h | 1 h | 24 h | 90 days | 3 days |
+
+An empty cell means the provider sends no notifications. A Suunto pull makes 4 calls, so on the
+Development API (about 200 calls a week) an application serves about 7 users; more needs
+Suunto's Production API. Garmin pulls by upload time, so the
+default lookback is enough there. `pull_every_seconds` and `next_pull_at` in the freshness
+response follow the provider's interval.
 
 ## Freshness
 

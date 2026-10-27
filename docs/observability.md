@@ -23,7 +23,7 @@ wide and refuses every scrape until you open it with `OHS_METRICS_TOKEN` (a bear
 |---|---|---|
 | `ohs_http_requests_total{route,code}` | counter | API requests by route pattern and status code |
 | `ohs_ingest_in_flight` | gauge | Device uploads being processed now |
-| `ohs_ingest_rejected_total` | counter | Device uploads refused with 503 because `OHS_INGEST_CONCURRENCY` was reached |
+| `ohs_ingest_rejected_total` | counter | Device uploads refused with 503 because `OHS_INGEST_CONCURRENCY` or, for a tenant past its share (`OHS_INGEST_TENANT_CONCURRENCY`), the reserve kept for other tenants was reached |
 | `ohs_etl_pending_failed_records` | gauge | Records that failed and wait for a replay; alert when above 0 |
 | `ohs_etl_parked_jobs` | gauge | ETL jobs that ran out of attempts |
 | `ohs_etl_unprocessed_objects` | gauge | Raw objects past the grace period with no finished job |

@@ -27,7 +27,7 @@ scores, insights and products belong in what you build on top.
     Docker Compose, a Raspberry Pi 5, an S3 bucket or a single binary.
   </Card>
   <Card icon={<Plug />} title="Connect sources" href="/documentation/connectors">
-    Apple Health, Withings, Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman and intervals.icu today.
+    Eighteen sources today: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom and more.
   </Card>
   <Card icon={<Braces />} title="API reference" href="/documentation/api-reference">
     Every route, generated from the OpenAPI 3.1 file that leads the code.
@@ -65,19 +65,29 @@ written once, with the boring parts done properly.
 
 ## What ships today
 
-<Status is="available" /> **Sources:** [Apple Health](/documentation/connectors/apple-health) through your
-iOS app or a Health app export, and [Withings](/documentation/connectors/withings),
-[Oura](/documentation/connectors/oura), [WHOOP](/documentation/connectors/whoop),
-[Strava](/documentation/connectors/strava), [Polar](/documentation/connectors/polar),
-[Fitbit](/documentation/connectors/fitbit),
-[Suunto](/documentation/connectors/suunto), [Ultrahuman](/documentation/connectors/ultrahuman) and
-[intervals.icu](/documentation/connectors/intervals-icu) over OAuth.
+Everything below is in v0.2.0.
+
+<Status is="available" /> **Sources (eighteen):** [Apple Health](/documentation/connectors/apple-health) through your
+iOS app or a Health app export, [Health Connect](/documentation/connectors/health-connect) through your Android app,
+[Withings](/documentation/connectors/withings), [Oura](/documentation/connectors/oura), [WHOOP](/documentation/connectors/whoop),
+[Strava](/documentation/connectors/strava), [Polar](/documentation/connectors/polar), [Fitbit](/documentation/connectors/fitbit),
+[Suunto](/documentation/connectors/suunto), [Ultrahuman](/documentation/connectors/ultrahuman), [intervals.icu](/documentation/connectors/intervals-icu),
+[Dexcom](/documentation/connectors/dexcom), [OMRON](/documentation/connectors/omron) and [Garmin](/documentation/connectors/garmin) over OAuth,
+[Eight Sleep](/documentation/connectors/eight-sleep) through the sign-in its app uses, [Xiaomi](/documentation/connectors/xiaomi) from the
+Mi Fitness data copy, [activity files](/documentation/connectors/activity-files) (FIT, GPX, TCX) and
+[Bluetooth devices](/documentation/connectors/bluetooth) on the standard health profiles. Some need keys that the
+vendor gives to approved developers only: the [sources page](/documentation/connectors/sources)
+says which.
 
 <Status is="available" /> **Outputs:** the [REST API](/documentation/api-reference), the read-only
-[MCP server](/documentation/api-reference/mcp) and a [FHIR R4 export](/documentation/guides/fhir).
+[MCP server](/documentation/api-reference/mcp), [FHIR R4](/documentation/guides/fhir),
+[Open mHealth](/documentation/guides/open-mhealth), [CSV and Parquet exports](/documentation/guides/exports),
+[outgoing webhooks](/documentation/guides/webhooks) and [client SDKs](/documentation/sdks) for
+Kotlin, Swift, React Native and Flutter (installed from the repository, not from package
+registries yet).
 
-<Status is="planned" /> **Next:** more connectors, more standard outputs (Open mHealth, exports,
-webhooks, [client SDKs](/documentation/sdks)), then health records (EHR) through SMART on FHIR. The
+<Status is="planned" /> **Next:** more connectors (Coros, a Garmin Personal API connector),
+then health records (EHR) through SMART on FHIR. The
 [sources page](/documentation/connectors/sources) tracks each one.
 
 <Callout title="Early preview">

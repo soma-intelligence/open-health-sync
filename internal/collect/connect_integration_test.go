@@ -1071,8 +1071,10 @@ func TestInboundJobDoesNotHideSlotCatchUp(t *testing.T) {
 	e.connect(t, e.keyA, e.userA, "pu-1")
 	e.drain(t)
 	slot := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
+	// The last complete pull ended 72 hours before the slot: catch-up
+	// starts there (synced_through), whatever single type pulls ran since.
 	lastSync := slot.Add(-72 * time.Hour)
-	_, err := e.pool.Exec(ctx, `UPDATE ohs_sync.connections SET last_sync_at = $1`, lastSync)
+	_, err := e.pool.Exec(ctx, `UPDATE ohs_sync.connections SET last_sync_at = $1, synced_through = $1`, lastSync)
 	require.NoError(t, err)
 
 	// A pending inbound job for the last day crosses the slot end.
