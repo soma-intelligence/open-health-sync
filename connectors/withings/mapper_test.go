@@ -234,6 +234,26 @@ func TestMapMeasure_UnknownMeastypeSkipped(t *testing.T) {
 	assert.Len(t, res.QuantitySamples, 2)
 }
 
+// A power of ten no scale writes is not a reading: a huge one spun the
+// scaling loop for hours, a large one scaled the value to +Inf.
+func TestMapMeasure_OutOfRangeUnitSkipped(t *testing.T) {
+	for _, unit := range []string{"400", "-400", "9000000000000000000"} {
+		done := make(chan model.MapResult, 1)
+		go func() {
+			res, _ := mapLine(t, DataTypeMeasure, `{"grpid":9,"date":1709337600,"category":1,"measures":[
+			  {"type":1,"value":7234,"unit":`+unit+`},{"type":11,"value":72,"unit":0}]}`)
+			done <- res
+		}()
+		select {
+		case res := <-done:
+			require.Len(t, res.QuantitySamples, 1, "unit %s", unit)
+			assert.Equal(t, model.QTHeartRate, res.QuantitySamples[0].QuantityType)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("unit %s: Map did not return", unit)
+		}
+	}
+}
+
 func TestMapMeasure_MissingDateErrors(t *testing.T) {
 	_, err := mapLine(t, DataTypeMeasure, `{"grpid":6,"measures":[{"type":1,"value":7234,"unit":-2}]}`)
 	assert.Error(t, err)
