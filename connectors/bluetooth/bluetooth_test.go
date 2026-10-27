@@ -499,6 +499,23 @@ func TestTimeZone(t *testing.T) {
 	assert.Equal(t, "Etc/UTC", s.Metadata["timezone"])
 }
 
+// An offset past UTC-12 or UTC+14 has no Etc/GMT zone: none is named, and
+// every zone that is named loads.
+func TestTimeZoneOutOfRange(t *testing.T) {
+	for _, off := range []string{"+23:00", "+15:00", "-13:00", "-23:00"} {
+		s := mapLine(t, "2a37", []byte{0x00, 70}, withAt("2026-10-16T21:04:05"+off)).QuantitySamples[0]
+		_, zone := s.Metadata["timezone"]
+		assert.False(t, zone, "offset %s named %v", off, s.Metadata["timezone"])
+	}
+	for _, off := range []string{"+14:00", "-12:00", "+01:00"} {
+		s := mapLine(t, "2a37", []byte{0x00, 70}, withAt("2026-10-16T21:04:05"+off)).QuantitySamples[0]
+		name, _ := s.Metadata["timezone"].(string)
+		_, err := time.LoadLocation(name)
+		assert.NoError(t, err, "offset %s", off)
+		assert.NotEmpty(t, name, "offset %s", off)
+	}
+}
+
 func TestContentHash(t *testing.T) {
 	a := mapLine(t, "2a35", cat([]byte{0x02}, sf(121, 0), sf(79, 0), sf(93, 0), dt(2026, 10, 16, 8, 30, 0)))
 	b := mapLine(t, "2a35", cat([]byte{0x02}, sf(121, 0), sf(79, 0), sf(93, 0), dt(2026, 10, 16, 8, 30, 0)),
