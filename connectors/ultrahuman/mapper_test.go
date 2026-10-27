@@ -334,6 +334,12 @@ func TestUnixTime(t *testing.T) {
 	require.Equal(t, 500*time.Millisecond, time.Duration(got.Nanosecond()))
 }
 
+func TestMap_ZeroDateRefused(t *testing.T) {
+	body := `{"data":{"metric_data":[{"type":"vo2_max","object":{"value":45}}]}}`
+	_, err := mapFields(t, map[string]any{"date": "0001-01-01", "body": json.RawMessage(body)})
+	require.Error(t, err)
+}
+
 func TestMap_NonFiniteValuesAreMissing(t *testing.T) {
 	body := `{"data":{"metric_data":[` +
 		`{"type":"hr","object":{"values":[{"value":"NaN","timestamp":1772931600},{"value":"Inf","timestamp":1772931900},{"value":61,"timestamp":"NaN"}]}},` +

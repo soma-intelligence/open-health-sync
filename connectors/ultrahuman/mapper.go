@@ -67,7 +67,7 @@ func mapMetricsDay(fields map[string]any, userID string) (*model.MapResult, erro
 		return nil, fmt.Errorf("ultrahuman: %s: %w", DataTypeMetrics, err)
 	}
 	date, err := time.Parse("2006-01-02", rd.Date)
-	if err != nil {
+	if err != nil || date.IsZero() {
 		return nil, fmt.Errorf("ultrahuman: %s: date %q not understood", DataTypeMetrics, rd.Date)
 	}
 	var env envelope
