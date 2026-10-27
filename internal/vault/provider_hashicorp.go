@@ -19,8 +19,11 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 )
 
-// hashiCorpTimeout bounds every call to Vault.
-const hashiCorpTimeout = 10 * time.Second
+// hashiCorpTimeout bounds every call to Vault; maxAnswer bounds an answer.
+const (
+	hashiCorpTimeout = 10 * time.Second
+	maxAnswer        = 1 << 20
+)
 
 // hashiCorpProvider wraps with a HashiCorp Vault transit key. The key must be
 // derived: the aad goes in as the transit context, so a wrapped value only
@@ -51,7 +54,13 @@ func newHashiCorp(c config.Vault, envToken func() string) (*hashiCorpProvider, e
 		key:       url.PathEscape(c.HashiCorpKey),
 		tokenFile: c.HashiCorpTokenFile,
 		envToken:  envToken,
-		client:    &http.Client{Timeout: hashiCorpTimeout},
+		client: &http.Client{
+			Timeout: hashiCorpTimeout,
+			// A redirect would replay the token and the body (a key) to
+			// another host: Vault standbys redirect, so point the address
+			// at the active node instead.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 	}, nil
 }
 
@@ -129,7 +138,7 @@ func (p *hashiCorpProvider) do(ctx context.Context, method, path string, body an
 		return nil, fmt.Errorf("%w: hashicorp: %w", ErrProviderUnavailable, err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: hashicorp: reading the answer: %w", ErrProviderUnavailable, err)
 	}
@@ -137,12 +146,21 @@ func (p *hashiCorpProvider) do(ctx context.Context, method, path string, body an
 		Data   map[string]any `json:"data"`
 		Errors []string       `json:"errors"`
 	}
-	_ = json.Unmarshal(raw, &out)
+	decodeErr := json.Unmarshal(raw, &out)
 	switch {
-	case resp.StatusCode >= 500:
+	case resp.StatusCode >= 500, resp.StatusCode == http.StatusTooManyRequests,
+		resp.StatusCode == http.StatusRequestTimeout, resp.StatusCode == http.StatusTooEarly:
 		return nil, fmt.Errorf("%w: hashicorp answered %d", ErrProviderUnavailable, resp.StatusCode)
+	case resp.StatusCode >= 300 && resp.StatusCode < 400:
+		return nil, fmt.Errorf("vault: hashicorp redirected %s (%d) and redirects are refused: set OHS_VAULT_HASHICORP_ADDR to the address of the active node", path, resp.StatusCode)
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("vault: hashicorp refused %s (%d)%s", path, resp.StatusCode, vaultErrors(out.Errors))
+	case len(raw) > maxAnswer:
+		return nil, errors.New("vault: hashicorp answer is too large")
+	case decodeErr != nil:
+		return nil, errors.New("vault: hashicorp answer is not valid JSON")
+	case out.Data == nil:
+		return nil, errors.New("vault: hashicorp answer has no data")
 	}
 	return out.Data, nil
 }
@@ -156,7 +174,7 @@ func vaultErrors(msgs []string) string {
 	}
 	s := strings.Join(msgs, "; ")
 	if len(s) > 200 {
-		s = s[:200]
+		s = strings.ToValidUTF8(s[:200], "")
 	}
 	return ": " + s
 }
@@ -174,7 +192,14 @@ func (p *hashiCorpProvider) checkDerived(ctx context.Context) error {
 	return nil
 }
 
+// errEmptyAAD: Vault rejects an empty context on a derived key, so the
+// provider says so before the call.
+var errEmptyAAD = errors.New("vault: hashicorp needs a non-empty aad (the transit context)")
+
 func (p *hashiCorpProvider) Wrap(ctx context.Context, plain, aad []byte) ([]byte, string, error) {
+	if len(aad) == 0 {
+		return nil, "", errEmptyAAD
+	}
 	data, err := p.do(ctx, http.MethodPost, "/encrypt/"+p.key, map[string]string{
 		"plaintext": base64.StdEncoding.EncodeToString(plain),
 		"context":   base64.StdEncoding.EncodeToString(aad),
@@ -192,6 +217,9 @@ func (p *hashiCorpProvider) Wrap(ctx context.Context, plain, aad []byte) ([]byte
 }
 
 func (p *hashiCorpProvider) Unwrap(ctx context.Context, wrapped, aad []byte, version string) ([]byte, error) {
+	if len(aad) == 0 {
+		return nil, errEmptyAAD
+	}
 	if version != "" && !strings.HasPrefix(string(wrapped), version+":") {
 		return nil, fmt.Errorf("vault: wrapped key is not of version %q", version)
 	}
@@ -204,8 +232,8 @@ func (p *hashiCorpProvider) Unwrap(ctx context.Context, wrapped, aad []byte, ver
 	}
 	s, _ := data["plaintext"].(string)
 	plain, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return nil, errors.New("vault: hashicorp answered an unreadable plaintext")
+	if err != nil || len(plain) == 0 {
+		return nil, errors.New("vault: hashicorp answered a missing, empty or unreadable plaintext")
 	}
 	return plain, nil
 }

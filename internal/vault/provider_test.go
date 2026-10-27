@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -211,13 +212,13 @@ func TestHashiCorpOutagesWrapErrProviderUnavailable(t *testing.T) {
 	require.NoError(t, err)
 
 	f.status = 503
-	_, _, err = p.Wrap(ctx, []byte("k"), nil)
+	_, _, err = p.Wrap(ctx, []byte("k"), []byte("a"))
 	require.ErrorIs(t, err, ErrProviderUnavailable)
-	_, err = p.Unwrap(ctx, []byte("vault:v3:x"), nil, "vault:v3")
+	_, err = p.Unwrap(ctx, []byte("vault:v3:x"), []byte("a"), "vault:v3")
 	require.ErrorIs(t, err, ErrProviderUnavailable)
 
 	srv.Close() // connection refused
-	_, _, err = p.Wrap(ctx, []byte("k"), nil)
+	_, _, err = p.Wrap(ctx, []byte("k"), []byte("a"))
 	require.ErrorIs(t, err, ErrProviderUnavailable)
 	_, err = OpenProvider(ctx, hcConfig(srv, ""))
 	require.ErrorIs(t, err, ErrProviderUnavailable)
@@ -241,14 +242,14 @@ func TestHashiCorpTokenSources(t *testing.T) {
 	// The file is read at each call: a renewed token takes effect, and a
 	// token that no longer works is refused (403), not an outage.
 	require.NoError(t, os.WriteFile(file, []byte("s.rotated"), 0o600))
-	_, _, err = p.Wrap(ctx, []byte("k"), nil)
+	_, _, err = p.Wrap(ctx, []byte("k"), []byte("a"))
 	require.Error(t, err)
 	require.False(t, errors.Is(err, ErrProviderUnavailable))
 	require.NotContains(t, err.Error(), "s.rotated")
 
 	// The file wins over VAULT_TOKEN.
 	t.Setenv("VAULT_TOKEN", "s.token")
-	_, _, err = p.Wrap(ctx, []byte("k"), nil)
+	_, _, err = p.Wrap(ctx, []byte("k"), []byte("a"))
 	require.Error(t, err)
 
 	_, err = OpenProvider(ctx, hcConfig(srv, file+".missing"))
@@ -259,4 +260,99 @@ func TestHashiCorpRejectsBadAddress(t *testing.T) {
 	t.Setenv("VAULT_TOKEN", "s.token")
 	_, err := OpenProvider(context.Background(), config.Vault{Provider: "hashicorp", HashiCorpAddr: "vault:8200", HashiCorpKey: "ohs"})
 	require.Error(t, err)
+}
+
+// rawServer answers every transit call with a fixed status and body.
+func rawServer(code int, body string, hdr map[string]string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for k, v := range hdr {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(code)
+		_, _ = w.Write([]byte(body))
+	}))
+}
+
+func TestHashiCorpUnwrapNeverReturnsEmptyPlaintext(t *testing.T) {
+	t.Setenv("VAULT_TOKEN", "s.token")
+	ctx := context.Background()
+	huge := `{"data":{"plaintext":"` + strings.Repeat("A", 1<<20) + `"}}`
+	for name, body := range map[string]string{
+		"empty body":        "",
+		"malformed":         `{"data":`,
+		"no data":           `{}`,
+		"null data":         `{"data":null}`,
+		"missing plaintext": `{"data":{}}`,
+		"empty plaintext":   `{"data":{"plaintext":""}}`,
+		"not base64":        `{"data":{"plaintext":"!!"}}`,
+		"truncated by cap":  huge,
+	} {
+		srv := rawServer(200, body, nil)
+		p, err := newHashiCorp(config.Vault{HashiCorpAddr: srv.URL, HashiCorpKey: "ohs"}, func() string { return "s.token" })
+		require.NoError(t, err)
+		got, err := p.Unwrap(ctx, []byte("vault:v1:x"), []byte("a"), "vault:v1")
+		require.Error(t, err, name)
+		require.Empty(t, got, name)
+		_, _, err = p.Wrap(ctx, []byte("k"), []byte("a"))
+		require.Error(t, err, name)
+		srv.Close()
+	}
+}
+
+func TestHashiCorpRefusesRedirects(t *testing.T) {
+	t.Setenv("VAULT_TOKEN", "s.token")
+	var hits int
+	var mu sync.Mutex
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	defer target.Close()
+	for _, code := range []int{301, 302, 307, 308} {
+		srv := rawServer(code, "", map[string]string{"Location": target.URL + "/v1/transit/encrypt/ohs"})
+		p, err := newHashiCorp(config.Vault{HashiCorpAddr: srv.URL, HashiCorpKey: "ohs"}, func() string { return "s.token" })
+		require.NoError(t, err)
+		_, _, err = p.Wrap(context.Background(), []byte("k"), []byte("a"))
+		require.ErrorContains(t, err, "redirects are refused")
+		require.False(t, errors.Is(err, ErrProviderUnavailable))
+		srv.Close()
+	}
+	require.Zero(t, hits, "the redirect target was called")
+}
+
+func TestHashiCorpRetryableStatuses(t *testing.T) {
+	for _, code := range []int{408, 425, 429, 500, 503} {
+		srv := rawServer(code, `{"errors":["x"]}`, nil)
+		p, _ := newHashiCorp(config.Vault{HashiCorpAddr: srv.URL, HashiCorpKey: "ohs"}, func() string { return "s.token" })
+		_, _, err := p.Wrap(context.Background(), []byte("k"), []byte("a"))
+		require.ErrorIs(t, err, ErrProviderUnavailable, code)
+		srv.Close()
+	}
+	srv := rawServer(400, `{"errors":["x"]}`, nil)
+	defer srv.Close()
+	p, _ := newHashiCorp(config.Vault{HashiCorpAddr: srv.URL, HashiCorpKey: "ohs"}, func() string { return "s.token" })
+	_, _, err := p.Wrap(context.Background(), []byte("k"), []byte("a"))
+	require.False(t, errors.Is(err, ErrProviderUnavailable))
+}
+
+func TestHashiCorpRefusesEmptyAAD(t *testing.T) {
+	t.Setenv("VAULT_TOKEN", "s.token")
+	srv := httptest.NewServer(&fakeTransit{t: t, derived: true})
+	defer srv.Close()
+	p, err := OpenProvider(context.Background(), hcConfig(srv, ""))
+	require.NoError(t, err)
+	for _, aad := range [][]byte{nil, {}} {
+		_, _, err = p.Wrap(context.Background(), []byte("k"), aad)
+		require.Error(t, err)
+		_, err = p.Unwrap(context.Background(), []byte("vault:v3:x"), aad, "vault:v3")
+		require.Error(t, err)
+	}
+}
+
+func TestVaultErrorsKeepsUTF8(t *testing.T) {
+	// 199 ASCII bytes then a 2 byte character straddling the cut at 200.
+	s := vaultErrors([]string{strings.Repeat("a", 199) + "é" + "tail"})
+	require.True(t, utf8.ValidString(s))
 }
