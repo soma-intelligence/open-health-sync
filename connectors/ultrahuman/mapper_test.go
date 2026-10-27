@@ -3,6 +3,7 @@
 package ultrahuman
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -331,4 +332,23 @@ func TestUnixTime(t *testing.T) {
 	got, ok := unixTime(1773046800.5)
 	require.True(t, ok)
 	require.Equal(t, 500*time.Millisecond, time.Duration(got.Nanosecond()))
+}
+
+func TestMap_NonFiniteValuesAreMissing(t *testing.T) {
+	body := `{"data":{"metric_data":[` +
+		`{"type":"hr","object":{"values":[{"value":"NaN","timestamp":1772931600},{"value":"Inf","timestamp":1772931900},{"value":61,"timestamp":"NaN"}]}},` +
+		`{"type":"temp","object":{"values":[{"value":"nan","timestamp":1772931600}]}},` +
+		`{"type":"temperature_deviation","object":{"value":"NaN"}},` +
+		`{"type":"steps","object":{"total":"Inf"}},` +
+		`{"type":"vo2_max","object":{"value":"+Inf"}},` +
+		`{"type":"Sleep","object":{"bedtime_start":1772920800,"bedtime_end":1772949600,` +
+		`"sleep_stages":[{"type":"deep_sleep","stage_time":"Inf"}],"sleep_score":{"score":"NaN"},"spo2":{"value":"Inf"}}}]}}`
+	res, err := mapFields(t, map[string]any{"date": "2026-03-08", "body": json.RawMessage(body)})
+	require.NoError(t, err)
+	require.Empty(t, res.QuantitySamples, "NaN and Inf are not readings")
+	require.Len(t, res.SleepSessions, 1)
+	s := res.SleepSessions[0]
+	require.Nil(t, s.DeepSleepSeconds)
+	require.Nil(t, s.SleepScore)
+	require.Nil(t, s.SpO2Avg)
 }
