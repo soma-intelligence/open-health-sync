@@ -1995,6 +1995,13 @@ export interface IngestAppleHealthResponse {
   /** Raw object key. */
   key: string;
   duplicate: boolean;
+  /**
+   * What this server applies beyond the base line format. `deletion_lines`:
+   * `{"deletedUuid": ...}` lines remove the records of a deleted HealthKit
+   * sample. Send deletion lines only to a server that lists it: an older
+   * server stores them and never applies them.
+   */
+  features?: "deletion_lines"[];
 }
 
 export interface IngestHealthConnectResponse {

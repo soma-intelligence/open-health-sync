@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/soma-intelligence/open-health-sync/internal/connector"
 )
 
 func TestPullEveryFollowsNotifications(t *testing.T) {
@@ -18,36 +20,40 @@ func TestPullEveryFollowsNotifications(t *testing.T) {
 	assert.False(t, pushHealthy(true, &old, now), "silent for over PushSilence")
 	assert.False(t, pushHealthy(true, nil, now), "never notified")
 	assert.False(t, pushHealthy(false, &recent, now), "provider sends none")
-	assert.Equal(t, PullEvery, pullEvery(true))
-	assert.Equal(t, PullEveryWithoutPush, pullEvery(false))
+	def := connector.DefaultSyncPolicy()
+	assert.Equal(t, PullEvery, pullEvery(def, true))
+	assert.Equal(t, PullEveryWithoutPush, pullEvery(def, false))
+	slow := connector.SyncPolicy{PullEvery: 24 * time.Hour, PullEveryWithoutPush: 12 * time.Hour}.Normalize()
+	assert.Equal(t, 24*time.Hour, pullEvery(slow, true))
+	assert.Equal(t, 12*time.Hour, pullEvery(slow, false))
 }
 
 func TestOAuthFreshnessStates(t *testing.T) {
 	now := time.Date(2026, 10, 10, 15, 5, 0, 0, time.UTC)
 	at := func(d time.Duration) *time.Time { t := now.Add(-d); return &t }
 
-	f := oauthFreshness(freshRow{provider: "p", status: StatusActive, syncedThrough: at(5 * time.Minute)}, false, now)
+	f := oauthFreshness(freshRow{provider: "p", status: StatusActive, syncedThrough: at(5 * time.Minute)}, false, connector.DefaultSyncPolicy(), now)
 	assert.Equal(t, FreshnessFresh, f.State)
 	assert.Equal(t, int64(300), *f.LagSeconds)
 	assert.Equal(t, int64(3600), f.PullEverySeconds)
 	assert.Equal(t, time.Date(2026, 10, 10, 16, 0, 0, 0, time.UTC), *f.NextPullAt)
 
-	f = oauthFreshness(freshRow{provider: "p", status: StatusActive, syncedThrough: at(3*time.Hour + time.Second)}, false, now)
+	f = oauthFreshness(freshRow{provider: "p", status: StatusActive, syncedThrough: at(3*time.Hour + time.Second)}, false, connector.DefaultSyncPolicy(), now)
 	assert.Equal(t, FreshnessStale, f.State, "hourly: stale past two intervals plus the overlap")
 
-	f = oauthFreshness(freshRow{provider: "p", status: StatusActive, syncedThrough: at(10 * time.Hour), lastEvent: at(time.Hour)}, true, now)
+	f = oauthFreshness(freshRow{provider: "p", status: StatusActive, syncedThrough: at(10 * time.Hour), lastEvent: at(time.Hour)}, true, connector.DefaultSyncPolicy(), now)
 	assert.Equal(t, FreshnessFresh, f.State, "6 hourly while notifications arrive")
 	assert.True(t, f.PushHealthy)
 	assert.Equal(t, time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC), *f.NextPullAt)
 
-	f = oauthFreshness(freshRow{provider: "p", status: StatusActive, syncedThrough: at(time.Minute), failures: FailingAfter}, false, now)
+	f = oauthFreshness(freshRow{provider: "p", status: StatusActive, syncedThrough: at(time.Minute), failures: FailingAfter}, false, connector.DefaultSyncPolicy(), now)
 	assert.Equal(t, FreshnessFailing, f.State)
 
-	f = oauthFreshness(freshRow{provider: "p", status: StatusActive}, false, now)
+	f = oauthFreshness(freshRow{provider: "p", status: StatusActive}, false, connector.DefaultSyncPolicy(), now)
 	assert.Equal(t, FreshnessSyncing, f.State)
 	assert.Nil(t, f.LagSeconds)
 
-	f = oauthFreshness(freshRow{provider: "p", status: StatusNeedsReauth, syncedThrough: at(time.Minute)}, false, now)
+	f = oauthFreshness(freshRow{provider: "p", status: StatusNeedsReauth, syncedThrough: at(time.Minute)}, false, connector.DefaultSyncPolicy(), now)
 	assert.Equal(t, FreshnessNeedsReauth, f.State)
 	assert.Nil(t, f.NextPullAt, "not pulled any more")
 }

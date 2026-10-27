@@ -46,15 +46,19 @@ func (c *Connector) Slug() string { return Slug }
 func (c *Connector) Enabled(connector.Config) bool { return true }
 
 // Map turns one uploaded line into canonical records. A line of a type this
-// connector does not store gives an empty result and no error.
+// connector does not store gives an empty result and no error. Records keep
+// their HealthKit UUID as an alias (model.MapResult.AliasExternalIDs): the
+// content hash folds two samples of one reading into one row, and the row
+// stays until every one of them is deleted.
 func (c *Connector) Map(raw connector.RawRecord) (model.MapResult, error) {
 	res, err := c.mapRecord(raw.Fields, raw.UserID)
 	if err != nil {
 		return model.MapResult{}, err
 	}
 	if res == nil {
-		return model.MapResult{}, nil
+		return model.MapResult{AliasExternalIDs: true}, nil
 	}
+	res.AliasExternalIDs = true
 	return *res, nil
 }
 

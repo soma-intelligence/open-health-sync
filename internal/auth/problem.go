@@ -5,7 +5,9 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
+	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 )
 
@@ -26,4 +28,12 @@ func WriteProblem(w http.ResponseWriter, status int, title, detail string) {
 	id := w.Header().Get(reqid.Header)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(problem{Type: "about:blank", Title: title, Status: status, Detail: detail, RequestID: id})
+}
+
+// WriteUnavailable answers 503 with Retry-After and detail for a request
+// that failed because a backing service could not be reached
+// (db.Unavailable): the same request can be sent again once it is back.
+func WriteUnavailable(w http.ResponseWriter, detail string) {
+	w.Header().Set("Retry-After", strconv.Itoa(db.RetryAfterSeconds))
+	WriteProblem(w, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), detail)
 }

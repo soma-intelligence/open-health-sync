@@ -4,68 +4,93 @@ Slug `garmin`. Users connect their own Garmin Connect account over OAuth 2.0 wit
 Health Sync pulls their Health API summaries on a schedule, and again when Garmin sends a
 notification. You bring your own Garmin app keys: nothing is shared between instances.
 
-Status: available. **Partner access required**: Garmin issues keys to approved businesses only,
-and it has paused the review of new applications since spring 2026 (see
-[Access](#access-who-can-get-keys)). The connector follows public sources: Garmin's OAuth 2.0
-PKCE specification, Garmin's API pages, and payload examples that third parties have published.
+Status: available, for the **business tiers** of Garmin's program (Starter and Enterprise, see
+[Access](#access-who-can-get-keys)). It targets the ping/pull mode that Enterprise apps get; a
+Starter app is push only and has no history, so only part of the connector applies to it. The
+free **Personal API** that Garmin opened on 2026-10-21 is not supported yet: a connector for it
+is planned, not built. The connector follows public sources: Garmin's OAuth 2.0 PKCE
+specification, Garmin's API pages, and payload examples that third parties have published.
 Tests run against a fake of the Garmin API built from them.
 
-Statements that no public Garmin page confirms are marked **(to confirm)**. Research checked on
-**2026-10-18**. Garmin changes its program without much notice, so check the sources at the end
-again before you apply.
+Statements that no public Garmin page confirms are marked **(to confirm)**, and figures that only
+the press reports are marked **(reported)**. Research checked on **2026-10-24**. Garmin changes
+its program without much notice, so check the sources at the end again before you apply.
 
 ## Access: who can get keys
 
-| | |
-|---|---|
-| Program | [Garmin Connect Developer Program](https://developer.garmin.com/gc-developer-program/overview/): Health API, Activity API, Women's Health API (data out of Garmin Connect) |
-| Who can join | Businesses only, after Garmin approves an application |
-| Can a new developer join today | **No, in practice.** Garmin has paused the review of new access requests since spring 2026, with no reopening date (reported by developers and the press; the program page only says "Stay tuned for more updates on the program") |
-| Cost | No program fee; some metrics need a license fee for commercial use |
+On 2026-10-21 Garmin reopened the
+[Connect Developer Program](https://developer.garmin.com/gc-developer-program/overview/) with
+three tiers, after pausing new applications from spring 2026. From Garmin's overview page:
 
-1. **Be a business.** The [program FAQ](https://developer.garmin.com/gc-developer-program/program-faq/)
-   says the program "is only for business use". There is no personal or hobbyist tier, and no
-   personal access token.
-2. **Apply** through the request form linked from the
-   [overview page](https://developer.garmin.com/gc-developer-program/overview/) when it is back.
-   The FAQ still says Garmin confirms an application "within two business days" and that an
-   integration "typically takes between 1 and 4 weeks". That text is out of date (see below).
-3. **Build against an evaluation app.** An approved company gets an evaluation app with
-   throttled access to production data, meant for internal development. Third parties report
-   that Garmin may disable an evaluation app used for production.
-4. **Pass Garmin's partner verification** and request a production key before real users
-   connect (third-party reports; the exact checklist is behind the partner login, **to confirm**).
-5. **Check licensing.** The FAQ: "There are no licensing or maintenance fees for access ... Access
-   to some metrics may require a license fee payment or minimum device order quantity for
-   commercial use." The [Health API page](https://developer.garmin.com/gc-developer-program/health-api/)
-   says "Commercial use requires a license fee payment". Which metrics, and how much, is not
-   public (**to confirm**). Checking your license terms is your responsibility.
+| | Personal | Starter (business) | Enterprise (business) |
+|---|---|---|---|
+| Who | One person, with their own Garmin Connect data | Organizations and individual developers starting out, after a [request](https://www.garmin.com/en-US/forms/StarterGarminConnectDeveloperAccess/) | Companies operating at scale |
+| APIs | Activity (JSON and FIT), Health, Women's Health | Activity, Courses, Health, Training, Women's Health | The same, plus Golf |
+| Delivery | Pull only | **Push only** | Push or ping/pull |
+| Historical data | Not stated | **Not included** | One month or more |
+| Users | Your own account | Limited | Unlimited |
+| Support | Not stated | Not stated | Included |
+| Key | Self-serve, created in [Garmin Connect settings](https://connect.garmin.com/app/settings/personalApiToken) | Business app keys | Business app keys |
+| Works with this connector | **No** (planned connector, below) | Partly: push only, see [Starter apps](#starter-apps-push-only) | Yes, what the connector was written for |
 
-### The 2026 pause
+**Fees.** Garmin's pages show no prices; the Enterprise column only says commercial terms are
+tailored. The press reports that Starter is free up to about 1,000 users, that Enterprise has a
+USD 1,000 entry fee credited against a bill per monthly active user, and that existing partners
+move to Enterprise with billing from 2027-04-01 (**reported**, by
+[DC Rainmaker](https://www.dcrainmaker.com/2026/10/garmin-connect-api-revamps-connect-developer.html)
+among others). Garmin's earlier program pages also said some metrics need a license fee for
+commercial use. Checking your license terms is your responsibility.
 
-Garmin has not announced a pause on a public page. The evidence is replies Garmin sent to
-applicants:
+**Personal API.** Any Garmin user can create a key (expiring after 30, 90 or 180 days or one
+year) and exchange it for a 24 hour token, with no refresh token
+([Personal FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/),
+[Personal API](https://developer.garmin.com/gc-developer-program/personal/personal-api)). Garmin
+publishes an official Python client,
+[garmin/connect-personal-api-python](https://github.com/garmin/connect-personal-api-python)
+(Apache-2.0, created 2026-10-20). Garmin's FAQ says the Personal API "is not intended for
+commercial applications serving multiple end users". A `garmin_personal` connector on this API,
+for one person's own instance, is **planned, not built**. Until it lands, use the paths in
+[Without business keys](#without-business-keys).
 
-- A Garmin reply quoted on the
-  [Garmin developer forum](https://forums.garmin.com/developer/fit-sdk/f/discussion/435484/developer-onboarding-blocked/2054626)
-  (received in July 2026): "we have temporarily paused the review and approval of new API access
-  requests". Another applicant was told in early August that there was no timeline.
-- [the5krunner, 2026-09-14](https://the5krunner.com/2026/09/14/garmin-developer-api-access-paused/)
-  reports correspondence from 20 May 2026 in which Garmin described "a significant redesign and
-  modernisation of the API program" and said queued requests could not be processed; an
-  application from March 2026 was still pending on 11 September.
-- A third-party integration provider reported on 2026-09-07 that the application form was
-  replaced by an "Under Construction" notice. Existing approved integrations keep working;
-  nothing says otherwise.
+### Starter apps: push only
+
+A Starter app gets data only as push notifications, from the day the user connects. For this
+connector that means:
+
+- Configure every summary type in **push** mode, pointing at `/inbound/garmin`, and set
+  `OHS_GARMIN_INBOUND_TOKEN` (see [Trust](#notifications)): with push, the notification body is
+  what gets stored.
+- The **30 day pull after connect does not apply**: a Starter app has no historical data. The
+  connector does not know the tier yet and still tries that pull and the scheduled pulls; expect
+  them to fail or be skipped as not granted. A setting that turns them off for Starter is planned.
+- Backfill requests need Enterprise.
+
+### History: the 2026 pause
+
+From spring 2026 Garmin stopped reviewing new access requests. Replies quoted on the
+[Garmin developer forum](https://forums.garmin.com/developer/fit-sdk/f/discussion/435484/developer-onboarding-blocked/2054626)
+said Garmin had "temporarily paused the review and approval of new API access requests", and
+[the5krunner, 2026-09-14](https://the5krunner.com/2026/09/14/garmin-developer-api-access-paused/)
+reported correspondence from 20 May 2026 about "a significant redesign and modernisation of the
+API program". The 2026-10-21 relaunch ended the pause. Existing approved integrations kept working
+throughout.
 
 ### Garmin's terms
 
-Garmin's [developer program agreement](https://www8.garmin.com/en-US/GARMINCONNECTDEVELOPERPROGRAMAGREEMENT/GARMINCONNECTDEVELOPERPROGRAMAGREEMENT_EN.pdf)
+Garmin's [developer program agreement](https://developerportal.garmin.com/sites/default/files/Garmin%20Connect%20Developer%20Program%20Agreement.pdf)
 binds the company that accepts it. Read it before you sign. Points that shape how you run this
 connector:
 
 - **Your key is yours.** It may not be shared or transferred, which matches how this repository
   works: every instance registers its own app.
+- **Downstream sharing needs Garmin's approval.** Section 5(o) of the copy we read forbids
+  "developing a Licensee application programming interface to provide End User Data to
+  third-party websites, software applications, platforms, services, or products that have not
+  been approved by Garmin in writing". Open Health Sync serves data over REST, MCP, webhooks,
+  exports and FHIR. Using it as your own backend is one thing; feeding Garmin data to other
+  companies' apps through it is what this clause covers. Check with Garmin before you do. The
+  press reports that Garmin's October 2026 revisions made this stricter (**reported**; the
+  revised text is not public), and Intervals Pro closed on 2026-10-12 over it.
 - **Consent and withdrawal.** Users give express consent and need an easy way to withdraw it.
   Disconnecting in Open Health Sync deletes the Garmin registration (below).
 - **Attribution.** Garmin's [API brand guidelines](https://developer.garmin.com/downloads/brand/Garmin-Developer-API-Brand-Guidelines.pdf)
@@ -78,25 +103,26 @@ connector:
 
 ### Can a self-hosted instance use it
 
-Only if the person running the instance is an approved Garmin business developer. Garmin keys
-are issued to a company for its own app, and this repository cannot ship shared keys (every
-instance brings its own, as with [Withings](withings.md)). So:
+This connector needs business keys (Starter or Enterprise), issued to an organization for its
+own app; this repository cannot ship shared keys (every instance brings its own, as with
+[Withings](withings.md)). So:
 
-- A company that already has an approved Garmin app can configure its own keys on its own
-  instance.
-- An individual self-hosting for themselves or their family cannot get keys today, and could not
-  before the pause either (business use only).
+- A company with a Garmin business app configures its own keys on its own instance.
+- An individual self-hosting for themselves can now get a free Personal API key, but this
+  connector does not use it. The planned Personal API connector is the path for that case.
 
-Garmin owners without API access can still export their activity files (FIT) from Garmin
-Connect, one activity or the whole account, and import them with `ohs import files`. That path
-uses no Garmin API: see [activity files](activity-files.md). On iPhone, Garmin Connect writes
-some data to Apple Health, which the [Apple Health](apple-health.md) path already receives. On
-Android, Garmin Connect writes a limited set of data to Health Connect (**to confirm** which
-types), and the [Health Connect](health-connect.md) path tags it with the source `garmin`.
+### Without business keys
+
+Garmin owners can export their activity files (FIT) from Garmin Connect, one activity or the
+whole account, and import them with `ohs import files`. That path uses no Garmin API: see
+[activity files](activity-files.md). On iPhone, Garmin Connect writes some data to Apple Health,
+which the [Apple Health](apple-health.md) path already receives. On Android, Garmin Connect
+writes a limited set of data to Health Connect (**to confirm** which types), and the
+[Health Connect](health-connect.md) path tags it with the source `garmin`.
 
 ## 1. Get your keys
 
-In Garmin's developer portal, for your approved app:
+In Garmin's developer portal, for your Starter or Enterprise app:
 
 1. Enable the Health API (and the Activity API if you have it) for the app.
 2. Set the OAuth **redirect URI** to the address `ohs doctor` prints:
@@ -104,7 +130,8 @@ In Garmin's developer portal, for your approved app:
 3. Copy the **consumer key** (client id) and **consumer secret** (client secret).
 4. Set the notification URL of every summary type you enable (see
    [Notifications](#notifications)) to `<OHS_PUBLIC_URL>/inbound/garmin`, with
-   `?token=<OHS_GARMIN_INBOUND_TOKEN>` added if you set one. Prefer **ping/pull** mode.
+   `?token=<OHS_GARMIN_INBOUND_TOKEN>` added (without the token every notification is refused).
+   On Enterprise, prefer **ping/pull** mode; a Starter app only has **push**.
 
 ## 2. Configure the instance
 
@@ -114,7 +141,9 @@ In `.env`:
 OHS_PUBLIC_URL=https://ohs.example.org
 OHS_GARMIN_CLIENT_ID=...
 OHS_GARMIN_CLIENT_SECRET=...
-# Optional: a long random secret that every notification URL carries as ?token=...
+# A long random secret that every notification URL carries as ?token=...
+# Without it every notification is refused (401), pings included: only the scheduled
+# pulls then bring data, and a warning is logged at startup.
 OHS_GARMIN_INBOUND_TOKEN=...
 ```
 
@@ -129,7 +158,10 @@ ok    connector garmin
 ```
 
 `CLIENT_ID` and `CLIENT_SECRET` are required. If either is missing, the connector stays off.
-`INBOUND_TOKEN` is optional. `GET /v1/providers` lists `garmin` when the connector is on.
+`INBOUND_TOKEN` is optional, but without it every notification is refused (401), pings
+included: in ping mode the notification is what triggers a pull, so only the scheduled pulls
+bring data. The server logs a warning at startup and, at most every 10 minutes, for refusals.
+`GET /v1/providers` lists `garmin` when the connector is on.
 
 **Do not rotate the client secret while a user is mid-connect**: the PKCE code verifier is
 derived from it (below), so a consent started under the old secret fails its exchange and the
@@ -148,17 +180,18 @@ curl -s -X POST $OHS/v1/users/$USER_ID/connections/garmin \
 Send the user to the returned `authorize_url`. They sign in to Garmin Connect and tick the
 permissions they share. After consent the user lands on your `redirect_uri` with
 `status=connected`. A new connection is pulled over the last 30 days of uploads, then on the
-regular schedule and on Garmin's notifications.
+regular schedule and on Garmin's notifications. On a Starter app (push only, no history) those
+pulls do not apply: data arrives from Garmin's push notifications, from the day of connection.
 
 ### OAuth 2.0 with PKCE
 
-From Garmin's [OAuth 2.0 PKCE specification](https://developerportal.garmin.com/sites/default/files/OAuth2PKCE.pdf)
-(PDF):
+From Garmin's [OAuth 2.0 PKCE specification](https://developerportal.garmin.com/sites/default/files/OAuth2PKCE_1.pdf)
+(PDF, revised 2025-07-23):
 
 | | |
 |---|---|
 | Authorize | `GET https://connect.garmin.com/oauth2Confirm` with `response_type=code`, `client_id`, `code_challenge`, `code_challenge_method=S256`, `redirect_uri`, `state` |
-| Token | `POST https://connectapi.garmin.com/di-oauth2-service/oauth/token`, client id and secret in the form |
+| Token | `POST https://connectapi.garmin.com/di-oauth2-service/oauth/token`, client id and secret in the form. The 2025-07-23 revision of the specification names `https://diauth.garmin.com/di-oauth2-service/oauth/token`; the connector still calls the older host, and moving to the new one is planned |
 | Scopes | Not chosen by the app. The API sections are set when the app is created; the user ticks the permissions at consent (for example `HEALTH_EXPORT`, `ACTIVITY_EXPORT`, and the historical data permission) |
 | Access token | The example response has `expires_in: 86400` (24 hours); the same document says elsewhere access tokens last three months. The connector trusts `expires_in` (**to confirm** which is right) |
 | Refresh token | About 90 days (`refresh_token_expires_in: 7775998`); a new one comes with every refresh and replaces the old one |
@@ -194,7 +227,8 @@ marks the connection for reconnection (after one refresh attempt); HTTP 429 back
 These pull endpoints come from older public copies of the Health API specification. A
 third-party developer guide states there is no general polling endpoint for new apps and that
 data arrives only through notifications. Whether apps created today can still call the pull
-endpoints is **to confirm**. If they cannot, push mode (below) delivers the data.
+endpoints is **to confirm**. If they cannot, push mode (below) delivers the data. Garmin's
+overview page now lists ping/pull for Enterprise only: a Starter app is push only.
 
 ### Notifications
 
@@ -225,11 +259,11 @@ Garmin uses for each).
 **Trust.** Garmin does not sign notifications in any way we could find documented
 (**to confirm**). A ping is harmless: at worst it makes the server pull a connected user's own
 data again. A push body, however, is stored as data: anyone who knows a connected user's Garmin
-user id could store invented summaries for that user. To close that, set
-`OHS_GARMIN_INBOUND_TOKEN` to a long random value and add `?token=<value>` to every notification
-URL in Garmin's portal; notifications without it are refused (401). Whether Garmin keeps a query
-string on a notification URL is **to confirm**: check a first delivery. Or configure the app
-for ping mode, where nothing is stored from the body.
+user id could store invented summaries for that user. So notifications are refused (401) until
+`OHS_GARMIN_INBOUND_TOKEN` is set to a long random value, and then must carry `?token=<value>`,
+added to every notification URL in Garmin's portal. Whether Garmin keeps a query
+string on a notification URL is **to confirm**: check a first delivery. Ping mode, where nothing
+is stored from the body, is still the safer choice.
 
 Garmin retries a notification that does not get HTTP 200 quickly; the route answers at once and
 pulls in the background. Data exists only after the user's device syncs with Garmin Connect.
@@ -239,14 +273,14 @@ pulls in the background. Data exists only after the user's device syncs with Gar
 After a user connects, the core pulls the last 30 days of **upload** windows. Data uploaded to
 Garmin before that is not reached. Garmin also offers a backfill request per data type (results
 arrive as notifications; the user must grant the historical data permission, off by default;
-third parties report about one month per request and one backfill per type). The connector does
-not send backfill requests yet.
+third parties report about one month per request and one backfill per type). Backfill and
+historical data are Enterprise only: a Starter app has neither, so the 30 day pull does not apply
+to it. The connector does not send backfill requests yet.
 
 ## 5. Rate limits
 
-Garmin publishes no numbers on its public pages; the Health API page says only "throttled
-access" for evaluation apps. A third-party integration reports 100 requests per minute
-(**to confirm**, and it may be the evaluation limit). The connector paces its requests at about
+Garmin publishes no numbers on its public pages. A third-party integration reports 100 requests per minute
+(**to confirm**, and it may differ between Starter and Enterprise). The connector paces its requests at about
 100 a minute and backs off on HTTP 429 (`Retry-After` when Garmin sends it). A connection's
 notifications pull one summary type each, so most traffic after the first 30 days is one or
 two requests per sync of the user's device.
@@ -294,20 +328,26 @@ third-party sources. If your Garmin app shows something else, open an
 - That notifications reach a URL with a `?token=` query string.
 - Which access token lifetime applies, and that refresh tokens rotate as the PDF shows.
 - The status Garmin answers for a summary type the user did not grant (400 or 403).
-- The rate limits of evaluation and production apps.
+- The rate limits of Starter and Enterprise apps.
+- Which summary types each tier gets: the public Health API page no longer names HRV, skin
+  temperature or user metrics summaries, which the connector still requests.
 
 ## Sources
 
-Checked on 2026-10-18.
+Checked on 2026-10-24.
 
-- Garmin, [Connect Developer Program overview](https://developer.garmin.com/gc-developer-program/overview/)
-- Garmin, [Program FAQ](https://developer.garmin.com/gc-developer-program/program-faq/)
-- Garmin, [Health API](https://developer.garmin.com/gc-developer-program/health-api/)
-- Garmin, [Activity API](https://developer.garmin.com/gc-developer-program/activity-api/)
-- Garmin, [OAuth 2.0 PKCE specification (PDF)](https://developerportal.garmin.com/sites/default/files/OAuth2PKCE.pdf)
-- Garmin, [Connect Developer Program Agreement (PDF)](https://www8.garmin.com/en-US/GARMINCONNECTDEVELOPERPROGRAMAGREEMENT/GARMINCONNECTDEVELOPERPROGRAMAGREEMENT_EN.pdf)
+- Garmin, [Connect Developer Program overview](https://developer.garmin.com/gc-developer-program/overview/) (tiers)
+- Garmin, [Program FAQ](https://developer.garmin.com/gc-developer-program/enterprise/program-faq/)
+- Garmin, [Health API](https://developer.garmin.com/gc-developer-program/enterprise/health-api/)
+- Garmin, [Activity API](https://developer.garmin.com/gc-developer-program/enterprise/activity-api/)
+- Garmin, [Personal API](https://developer.garmin.com/gc-developer-program/personal/personal-api) and [Personal FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)
+- Garmin, [connect-personal-api-python](https://github.com/garmin/connect-personal-api-python), the official Personal API client (Apache-2.0)
+- Garmin, [OAuth 2.0 PKCE specification, 2025-07-23 (PDF)](https://developerportal.garmin.com/sites/default/files/OAuth2PKCE_1.pdf)
+- Garmin, [Connect Developer Program Agreement (PDF)](https://developerportal.garmin.com/sites/default/files/Garmin%20Connect%20Developer%20Program%20Agreement.pdf)
 - Garmin, [Developer API brand guidelines (PDF)](https://developer.garmin.com/downloads/brand/Garmin-Developer-API-Brand-Guidelines.pdf)
-- Garmin developer forum, [Developer onboarding blocked](https://forums.garmin.com/developer/fit-sdk/f/discussion/435484/developer-onboarding-blocked/2054626) (applicants quoting Garmin's replies)
+- DC Rainmaker, [Garmin Connect API revamp](https://www.dcrainmaker.com/2026/10/garmin-connect-api-revamps-connect-developer.html), October 2026 (fees, reported)
+- the5krunner, [Garmin API and third-party apps](https://the5krunner.com/2026/10/14/garmin-api-intervals-third-party-apps/), 2026-10-14 (downstream sharing, Intervals Pro)
+- Garmin developer forum, [Developer onboarding blocked](https://forums.garmin.com/developer/fit-sdk/f/discussion/435484/developer-onboarding-blocked/2054626) (the 2026 pause)
 - the5krunner, [Garmin Freezes Developer API](https://the5krunner.com/2026/09/14/garmin-developer-api-access-paused/), 2026-09-14
-- Published documentation of third-party Garmin integrations (evaluation and production apps,
-  notification shapes, backfill range, payload examples, rate limits)
+- Published documentation of third-party Garmin integrations (notification shapes, backfill
+  range, payload examples, rate limits)

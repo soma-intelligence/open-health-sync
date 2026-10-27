@@ -102,6 +102,7 @@ func (m *mapper) mapCategory(record map[string]any, userID string) (*model.MapRe
 		StartDate:    startDate,
 		EndDate:      endDate,
 		SourceName:   stringField(record, "sourceName"),
+		ExternalID:   sampleExternalID(record),
 		Metadata:     metadata,
 	}
 

@@ -234,3 +234,54 @@ func TestMapEdgeCases(t *testing.T) {
 	assert.Equal(t, "Asia/Kolkata", odd.Metadata["timezone"])
 	assert.InDelta(t, 70.0, odd.Value, 1e-9, "a number where a string is documented")
 }
+
+// Apple Health data linked in the Google Health app comes back as
+// HEALTH_KIT points (issue #205).
+const healthKitSource = `"dataSource":{"recordingMethod":"PASSIVELY_MEASURED","device":{"manufacturer":"Apple Inc."},
+	"application":{"packageName":"com.apple.health.0f1e"},"platform":"HEALTH_KIT"}`
+
+func TestMapHealthKitHRVIsSDNN(t *testing.T) {
+	daily := single(t, DataTypeDailyHRV, []byte(`{`+healthKitSource+`,
+		"dailyHeartRateVariability":{"date":{"year":2026,"month":10,"day":9},
+		"averageHeartRateVariabilityMilliseconds":40.0,"deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds":0}}`))
+	assert.Equal(t, model.QTHRVSDNN, daily.QuantityType, "HealthKit only has SDNN")
+	assert.Equal(t, "sdnn", daily.Metadata["hrv_method"])
+	assert.NotContains(t, daily.Metadata, "deep_sleep_rmssd_ms", "a zero RMSSD is absent, not a value")
+
+	sample := single(t, DataTypeHRV, []byte(`{`+healthKitSource+`,
+		"heartRateVariability":{"sampleTime":{"physicalTime":"2026-10-09T02:00:00Z","utcOffset":"0s"},
+		"rootMeanSquareOfSuccessiveDifferencesMilliseconds":38}}`))
+	assert.Equal(t, model.QTHRVSDNN, sample.QuantityType)
+	assert.Equal(t, "sdnn", sample.Metadata["hrv_method"])
+
+	fitbit := single(t, DataTypeDailyHRV, fixture(t, DataTypeDailyHRV))
+	assert.Equal(t, model.QTHRVRMSSD, fitbit.QuantityType, "Fitbit's own HRV stays RMSSD")
+	zero := single(t, DataTypeDailyHRV, []byte(`{"dataSource":{"platform":"FITBIT"},
+		"dailyHeartRateVariability":{"date":{"year":2026,"month":10,"day":9},
+		"averageHeartRateVariabilityMilliseconds":41.0,"deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds":0}}`))
+	assert.NotContains(t, zero.Metadata, "deep_sleep_rmssd_ms")
+}
+
+// Points relayed from another platform are attributed to it, so they form a
+// stream of their own instead of adding up with the tracker's.
+func TestMapRelayedPlatformAttribution(t *testing.T) {
+	apple := single(t, DataTypeSteps, []byte(`{`+healthKitSource+`,
+		"steps":{"interval":{"startTime":"2026-03-09T07:00:00Z","startUtcOffset":"3600s","endTime":"2026-03-09T07:01:00Z","endUtcOffset":"3600s"},"count":"80"}}`))
+	assert.Equal(t, "apple_health", apple.SourceSlug)
+	assert.Equal(t, "Apple Health", apple.SourceName)
+	assert.Equal(t, Slug, apple.Provider, "the integration still delivers it")
+
+	hc := single(t, DataTypeSteps, []byte(`{"dataSource":{"platform":"HEALTH_CONNECT"},
+		"steps":{"interval":{"startTime":"2026-03-09T07:00:00Z","startUtcOffset":"3600s","endTime":"2026-03-09T07:01:00Z","endUtcOffset":"3600s"},"count":"80"}}`))
+	assert.Equal(t, "health_connect", hc.SourceSlug)
+	assert.Equal(t, "Health Connect", hc.SourceName)
+
+	own := single(t, DataTypeSteps, fixture(t, DataTypeSteps))
+	assert.Equal(t, Slug, own.SourceSlug)
+	assert.Equal(t, sourceName, own.SourceName)
+
+	day := single(t, DataTypeDailyRestingHR, []byte(`{`+healthKitSource+`,
+		"dailyRestingHeartRate":{"date":{"year":2026,"month":10,"day":9},"beatsPerMinute":"55"}}`))
+	assert.Equal(t, "apple_health", day.SourceSlug)
+	assert.Equal(t, "Apple Health", day.SourceName)
+}

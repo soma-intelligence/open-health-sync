@@ -62,7 +62,7 @@ curl -s -X POST $OHS/v1/users/$USER_ID/connections/withings \
 ```
 
 Send the user to the returned `authorize_url`. After consent they land on your `redirect_uri`
-with `status=connected`. A new connection is backfilled over the last 30 days in 7 day
+with `status=connected`. A new connection is backfilled over the last 90 days in 7 day
 windows, then pulled every 6 hours.
 
 ## 5. Notifications
@@ -116,7 +116,7 @@ new subscriptions carry on.
 | Measures | quantity samples: `body_mass`, `height`, `lean_body_mass`, `body_fat_percentage`, `body_fat_mass`, `muscle_mass`, `water_mass`, `bone_mass`, `blood_pressure_systolic`, `blood_pressure_diastolic`, `heart_rate`, `body_temperature`, `skin_temperature`, `oxygen_saturation`, `pulse_wave_velocity`, `vo2_max`, `vascular_age`, `visceral_fat_rating` |
 | Activity | quantity samples per day: `step_count`, `distance_walking_running`, `active_energy_burned`, `moderate_activity_time` and `vigorous_activity_time` (Withings' `moderate` and `intense` durations, sent in seconds, stored in minutes); the daily summary is derived from them |
 | Intraday activity | `step_count_intraday`, `active_energy_burned_intraday`, `distance_walking_running_intraday` |
-| Sleep | sleep sessions with phases |
+| Sleep | sleep sessions with phases: deep, REM, light and awake durations, `sleep_score`, respiratory rate from `rr_average`, resting heart rate from `hr_min` (the night's lowest heart rate); `hr_average`, the mean heart rate asleep, and the other fields stay in metadata |
 | Workouts | workouts |
 | ECG | ECG recordings with the waveform when Withings returns one |
 

@@ -414,7 +414,7 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 		return err
 	}
 	if !backfilled {
-		if err := enqueueBackfill(ctx, tx, tenantID, userID, provider, now); err != nil {
+		if err := enqueueBackfill(ctx, tx, tenantID, userID, provider, d.syncPolicy(provider), now); err != nil {
 			return err
 		}
 	}

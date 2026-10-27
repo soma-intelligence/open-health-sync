@@ -33,7 +33,10 @@ import (
 //     NULL in the provider's daily summaries of the days the removed quantity
 //     samples name (model.MetadataSummaryDate), and a summary left without
 //     any figure is deleted. The names are resolved against dailyFigures, an
-//     allow-list: no name from a connector reaches the SQL text.
+//     allow-list: no name from a connector reaches the SQL text;
+//  6. the local days of the removed additive samples are returned, so the
+//     derived daily row of each is computed again without them (a deleted
+//     step sample no longer counts in its day).
 //
 // Every record of the batch is then checked against the tombstones before it
 // is written (dropTombstoned), so a delete wins whichever arrives first.
@@ -59,10 +62,11 @@ var (
 		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
 	// deletionSamples and deletionCategory: $4 is the id, $5 the id followed
 	// by "_", $6 the id followed by "`" (see deletionExternalMatch).
-	// It returns the summary day each removed sample names, if any.
+	// It returns, for each removed sample, the summary day it names (if any),
+	// its type, its start and its time zone.
 	deletionSamples = `DELETE FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6") + `
-		RETURNING metadata->>'` + model.MetadataSummaryDate + `'`
+		RETURNING metadata->>'` + model.MetadataSummaryDate + `', quantity_type, start_date, metadata->>'` + MetadataTimezone + `'`
 	deletionCategory = `DELETE FROM ohs_data.category_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6")
 	deletionNutrition = `DELETE FROM ohs_data.nutrition_logs
@@ -90,9 +94,11 @@ func deletionExternalMatch(id, prefix, upper string) string {
 }
 
 // applyDeletions applies every deletion of the batch. Rows removed are
-// counted in the log line only; tombstones go to c.
-func applyDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.Deletion, c Counts) error {
+// counted in the log line only; tombstones go to c. It returns the local days
+// of the additive samples it removed, whose derived daily rows are stale.
+func applyDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.Deletion, c Counts) (map[dayKey]*time.Location, error) {
 	removed := 0
+	days := map[dayKey]*time.Location{}
 	var order []recordKey
 	clear := make(map[recordKey][]string, len(dels))
 	for _, d := range dels {
@@ -109,9 +115,9 @@ func applyDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.Delet
 		clear[k] = append(clear[k], d.ClearSummaryFields...)
 	}
 	for _, k := range order {
-		n, fresh, err := applyDeletion(ctx, tx, sc, k, clear[k])
+		n, fresh, err := applyDeletion(ctx, tx, sc, k, clear[k], days)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		removed += n
 		if fresh {
@@ -123,13 +129,14 @@ func applyDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.Delet
 	if removed > 0 {
 		slog.InfoContext(ctx, "etl: provider deletions applied", "deletions", len(order), "rows_removed", removed)
 	}
-	return nil
+	return days, nil
 }
 
 // applyDeletion deletes one provider record and its derived rows, clears the
-// summary figures named by clear on the days of its samples, and reports the
-// rows removed or cleared and whether the tombstone is new.
-func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey, clear []string) (int, bool, error) {
+// summary figures named by clear on the days of its samples, adds the local
+// days of its removed additive samples to days, and reports the rows removed
+// or cleared and whether the tombstone is new.
+func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey, clear []string, days map[dayKey]*time.Location) (int, bool, error) {
 	tag, err := tx.Exec(ctx, deletionTombstone, sc.tenant, sc.user, k.provider, k.id)
 	if err != nil {
 		return 0, false, fmt.Errorf("insert tombstone: %w", err)
@@ -168,11 +175,26 @@ func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey, clear 
 	if err != nil {
 		return 0, false, fmt.Errorf("delete derived samples: %w", err)
 	}
-	summaryDays, err := pgx.CollectRows(rows, pgx.RowTo[*string])
+	gone, err := pgx.CollectRows(rows, pgx.RowToStructByPos[removedSample])
 	if err != nil {
 		return 0, false, fmt.Errorf("delete derived samples: %w", err)
 	}
-	removed += len(summaryDays)
+	removed += len(gone)
+	summaryDays := make([]*string, len(gone))
+	for i, s := range gone {
+		summaryDays[i] = s.SummaryDate
+		if isAdditive(s.QuantityType) {
+			md := map[string]any{}
+			if s.Timezone != nil {
+				md[MetadataTimezone] = *s.Timezone
+			}
+			loc := sampleLocation(md)
+			dk := dayKey{provider: k.provider, day: dateOnly(s.StartDate.In(loc))}
+			if _, ok := days[dk]; !ok {
+				days[dk] = loc
+			}
+		}
+	}
 	tag, err = tx.Exec(ctx, deletionCategory, sc.tenant, sc.user, k.provider, k.id, k.id+"_", k.id+"`")
 	if err != nil {
 		return 0, false, fmt.Errorf("delete derived samples: %w", err)
@@ -193,6 +215,15 @@ func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey, clear 
 	}
 	removed += int(tag.RowsAffected())
 	return removed, fresh, nil
+}
+
+// removedSample is one quantity sample a deletion removed, as deletionSamples
+// returns it.
+type removedSample struct {
+	SummaryDate  *string
+	QuantityType string
+	StartDate    time.Time
+	Timezone     *string
 }
 
 // deleteParents runs a parent DELETE ... RETURNING id.

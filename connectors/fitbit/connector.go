@@ -2,7 +2,7 @@
 
 // Package fitbit is the Fitbit connector, built on the Google Health API v4
 // (health.googleapis.com), which replaces the legacy Fitbit Web API
-// (api.fitbit.com, turned off on 2026-10-30). It does Google OAuth connect,
+// (api.fitbit.com, turned off on 2026-11-02). It does Google OAuth connect,
 // pulls data points per data type, receives the Google Health API webhook
 // notifications, and maps the stored raw lines to canonical records.
 //
@@ -191,6 +191,19 @@ func newHTTPClient() *http.Client {
 
 // Slug returns "fitbit".
 func (c *Connector) Slug() string { return Slug }
+
+// SyncPolicy implements connector.SyncPolicied.
+// Devices sync to the app hours after a measurement and daily figures settle
+// over the next day, but every type is read over the whole window (heart rate
+// at one point a second): a short lookback, a 3 hour pull without
+// notifications, and the daily reconciliation for what settles later.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEveryWithoutPush: 3 * time.Hour,
+		Lookback:             6 * time.Hour,
+		Reconcile:            3 * 24 * time.Hour,
+	}
+}
 
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET.
 // WEBHOOK_SECRET and WEBHOOK_SIGNATURE are optional.

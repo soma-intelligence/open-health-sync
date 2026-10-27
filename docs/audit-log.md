@@ -32,7 +32,7 @@ Each event holds:
 | `user_id` | The end user the action concerns: the user of a user token, the `{id}` of the route, or the demo user an admin key filled |
 | `method`, `route`, `status` | The HTTP method, the route **pattern** (`GET /v1/users/{id}/samples`) and the status code |
 | `request_id` | The request's `X-Request-Id`, to match the event with your own logs |
-| `detail` | Identifiers only, such as a deletion job id or a key prefix. For a route that names a tenant, a provider, an API key or a processing job in its path, its `tenant_id`, `provider`, `key_id` or `job_id` |
+| `detail` | Identifiers only, such as a deletion job id or a key prefix. For a route that names a tenant, a provider, an API key or a processing job in its path, its `tenant_id`, `provider`, `key_id` or `job_id`. A NUL character is removed and invalid UTF-8 replaced by U+FFFD, so such a value never stops the event from being written |
 
 An event never holds a health value, a request or response body, a query string (which may hold
 dates or provider codes), a token, a key or an IP address.
