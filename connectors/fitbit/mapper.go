@@ -128,6 +128,34 @@ func (p point) metadata() map[string]any {
 	return md
 }
 
+// Platforms whose points Google relays from another health store: the user
+// linked Apple Health or Health Connect in the Google Health app.
+const (
+	platformHealthKit     = "HEALTH_KIT"
+	platformHealthConnect = "HEALTH_CONNECT"
+)
+
+// fromHealthKit reports whether p is Apple Health data relayed by Google.
+func (p point) fromHealthKit() bool {
+	return p.DataSource != nil && strings.EqualFold(p.DataSource.Platform, platformHealthKit)
+}
+
+// source is the source slug and name of p's samples. A relayed point is
+// attributed to the store it came from, so it is a stream of its own: it
+// never adds up with the tracker's minutes, and fusion ranks it against the
+// same data read directly from that store.
+func (p point) source() (slug, name string) {
+	if s := p.DataSource; s != nil {
+		switch strings.ToUpper(s.Platform) {
+		case platformHealthKit:
+			return "apple_health", "Apple Health"
+		case platformHealthConnect:
+			return "health_connect", "Health Connect"
+		}
+	}
+	return Slug, sourceName
+}
+
 // sourceKey identifies the source of a point in content hashes: the API
 // returns the points of every source (phone, tracker, scale, other apps), and
 // two sources may report the same minute.
@@ -188,11 +216,12 @@ func instantOf(st sampleTime, md map[string]any) (time.Time, error) {
 // measurement. An interval sample is Replaceable (hashed without its value):
 // Google may revise a minute's count after a later sync.
 func quantity(p point, userID, qt, unit string, v float64, start, end time.Time, md map[string]any, interval bool) model.QuantitySample {
+	slug, name := p.source()
 	s := model.QuantitySample{
 		UserID:          userID,
 		Provider:        Slug,
-		SourceSlug:      Slug,
-		SourceName:      sourceName,
+		SourceSlug:      slug,
+		SourceName:      name,
 		QuantityType:    qt,
 		Value:           v,
 		Unit:            unit,
@@ -234,11 +263,12 @@ func dailySample(p point, userID string, date civilDate, qt, unit string, v floa
 	}
 	ds := day.Format(time.DateOnly)
 	md["date"] = ds
+	slug, name := p.source()
 	s := model.QuantitySample{
 		UserID:          userID,
 		Provider:        Slug,
-		SourceSlug:      Slug,
-		SourceName:      sourceName,
+		SourceSlug:      slug,
+		SourceName:      name,
 		ExternalID:      fmt.Sprintf("%s_%s_%s", p.dataType.ID, ds, qt),
 		QuantityType:    qt,
 		Value:           v,

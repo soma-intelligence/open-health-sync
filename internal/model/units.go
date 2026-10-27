@@ -234,6 +234,10 @@ var unitConversions = map[string]conversion{
 	"km":  {Factor: 1000, To: "m"},
 	"mi":  {Factor: 1609.344, To: "m"},
 	"ft":  {Factor: 0.3048, To: "m"},
+	"in":  {Factor: 0.0254, To: "m"},
+	// The avoirdupois ounce: HealthKit's "oz" is a mass (a fluid ounce is
+	// "fl_oz_us").
+	"oz": {Factor: 0.028349523125, To: "kg"},
 	// Swimming distance in a yards pool (HKUnit.yard()).
 	"yd":     {Factor: 0.9144, To: "m"},
 	"cal":    {Factor: 0.001, To: "kcal"},
@@ -250,6 +254,11 @@ var unitConversions = map[string]conversion{
 	"mi/hr": {Factor: 0.44704, To: "m/s"},
 	"mi/h":  {Factor: 0.44704, To: "m/s"},
 	"mph":   {Factor: 0.44704, To: "m/s"},
+	"ft/s":  {Factor: 0.3048, To: "m/s"},
+	// Volumes (the spirometry figures are stored in litres).
+	"ml":        {Factor: 0.001, To: "L"},
+	"fl_oz_us":  {Factor: 0.0295735295625, To: "L"},
+	"fl_oz_imp": {Factor: 0.0284130625, To: "L"},
 }
 
 // metricUnitConversions are transforms that are only valid for a specific metric,
@@ -265,6 +274,7 @@ var unitConversions = map[string]conversion{
 var metricUnitConversions = map[string]conversion{
 	"height|m":                             {Factor: 100, To: "cm"},
 	"height|in":                            {Factor: 2.54, To: "cm"},
+	"height|ft":                            {Factor: 30.48, To: "cm"},
 	"distance_walking_running|cm":          {Factor: 0.01, To: "m"},
 	"distance_walking_running_intraday|cm": {Factor: 0.01, To: "m"},
 	"blood_glucose|mmol/l":                 {Factor: 18.0182, To: "mg/dL"},
@@ -296,6 +306,7 @@ var metricUnitConversions = map[string]conversion{
 	// Waist is a body dimension, stored in centimetres like height.
 	"waist_circumference|m":  {Factor: 100, To: "cm"},
 	"waist_circumference|in": {Factor: 2.54, To: "cm"},
+	"waist_circumference|ft": {Factor: 30.48, To: "cm"},
 	// HealthKit reports the UV index as a dimensionless count.
 	"uv_exposure|count": {Factor: 1, To: "index"},
 	// Apple ring times: the Apple Health client sends milliseconds (see storageUnits).
@@ -396,6 +407,9 @@ type UnitError struct {
 	Unit         string
 	Value        float64
 	Err          error
+	// Index is the position of the sample in MapResult.QuantitySamples, so
+	// the caller can drop that one sample.
+	Index int
 }
 
 func (e UnitError) Error() string { return e.Err.Error() }
@@ -423,6 +437,7 @@ func CanonicalizeUnits(mr *MapResult) []UnitError {
 				Unit:         s.Unit,
 				Value:        s.Value,
 				Err:          err,
+				Index:        i,
 			})
 			continue
 		}

@@ -5,6 +5,7 @@ package garmin
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -19,8 +20,17 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 )
 
+// inbound posts body to target, with the fake connector's token unless
+// target names one.
 func inbound(t *testing.T, c *Connector, target, body string) ([]connector.InboundEvent, error) {
 	t.Helper()
+	if !strings.Contains(target, TokenParam+"=") {
+		sep := "?"
+		if strings.Contains(target, "?") {
+			sep = "&"
+		}
+		target += sep + TokenParam + "=" + testInboundToken
+	}
 	r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
 	return c.HandleInbound(context.Background(), r)
 }
@@ -127,6 +137,23 @@ func TestHandleInbound_InboundToken(t *testing.T) {
 	assert.Len(t, evs, 1)
 }
 
+// Without OHS_GARMIN_INBOUND_TOKEN nothing tells a forged push from Garmin's,
+// so every notification is refused, a ping included.
+func TestHandleInbound_RefusedWithoutAConfiguredToken(t *testing.T) {
+	c := newFakeGarmin(t).connector(func(o *Options) { o.InboundToken = "" })
+	for _, body := range []string{
+		`{"dailies":[{"userId":"u","callbackURL":"https://x"}]}`,
+		`{"dailies":[{"userId":"u","summaryId":"s","steps":10}]}`,
+	} {
+		_, err := inbound(t, c, "/inbound/garmin?token=", body)
+		assert.ErrorIs(t, err, ErrNoInboundToken)
+		assert.ErrorIs(t, err, ErrBadToken, "answered 401 like a wrong token")
+	}
+	r := httptest.NewRequest(http.MethodHead, "/inbound/garmin", nil)
+	_, err := c.HandleInbound(context.Background(), r)
+	assert.NoError(t, err, "a HEAD check of the URL still answers")
+}
+
 func TestHandleInbound_CapsBody(t *testing.T) {
 	c := newFakeGarmin(t).connector()
 	big := `{"dailies":[{"userId":"u","summaryId":"s","pad":"` + strings.Repeat("a", maxInboundBody) + `"}]}`
@@ -155,3 +182,39 @@ func TestHandleInbound_EventsAreDeterministic(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// warnLog captures the WARN lines logged while a test runs.
+func warnLog(t *testing.T) *strings.Builder {
+	t.Helper()
+	var buf strings.Builder
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// Keys without the inbound token are a working connector whose notifications
+// all bounce: say so once at configure time.
+func TestConfigureWarnsWithoutInboundToken(t *testing.T) {
+	buf := warnLog(t)
+	c := New(Options{})
+	require.NoError(t, c.Configure(connector.Config{KeyClientID: "id", KeyClientSecret: "secret"}))
+	assert.Contains(t, buf.String(), "OHS_GARMIN_INBOUND_TOKEN")
+	assert.Contains(t, buf.String(), "level=WARN")
+
+	buf.Reset()
+	require.NoError(t, c.Configure(connector.Config{KeyClientID: "id", KeyClientSecret: "secret", KeyInboundToken: "t"}))
+	assert.Empty(t, buf.String())
+}
+
+// A refusal for a missing token is logged at WARN, at most once per interval:
+// Garmin retries every notification, so a log line per request would flood.
+func TestRefusalWithoutTokenIsWarnedRateLimited(t *testing.T) {
+	buf := warnLog(t)
+	c := newFakeGarmin(t).connector(func(o *Options) { o.InboundToken = "" })
+	for range 5 {
+		_, err := inbound(t, c, "/inbound/garmin?token=", `{"dailies":[{"userId":"u","callbackURL":"https://x"}]}`)
+		require.ErrorIs(t, err, ErrNoInboundToken)
+	}
+	assert.Equal(t, 1, strings.Count(buf.String(), "notification refused"), buf.String())
+}

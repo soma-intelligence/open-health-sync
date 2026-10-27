@@ -9,6 +9,17 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `deploy/Caddyfile`: Caddy with automatic TLS in front of the compose stack, and the routes to
+  keep on `ohs` when the host serves other pages too, so `/healthz` and `/readyz` are never
+  redirected. See [docs/self-hosting.md](docs/self-hosting.md#reverse-proxy).
+- Each provider is pulled on its own sync policy (`connector.SyncPolicy`): interval with and
+  without notifications, lookback for late data, catch-up bound, backfill length and an optional
+  daily reconciliation that widens the 00:00 UTC pull. Dexcom re-reads 6 hours (its readings
+  reach the API up to 3 hours late outside the US, so they were missed after the backfill),
+  OMRON 72 hours, Ultrahuman 48, Eight Sleep 36 and the others 24. Oura, WHOOP, Withings and
+  Dexcom are backfilled over 90 days, Polar and Suunto over the 28 days their APIs serve, and
+  Strava and Suunto are pulled less often to stay inside their rate limits. See
+  [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
 - A synthetic data generator for every documented provider (`internal/synth`): an invented
   person's timeline rendered in each vendor's wire format, written from the vendor's published
   documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
@@ -19,15 +30,49 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- The default compose file caps `ohs` at 1 GB (`mem_limit`, `OHS_MEM_LIMIT`), and `ohs` sets
+  `GOMEMLIMIT` itself to three quarters of the container's memory limit when it is unset or
+  empty, so the soft limit follows `OHS_MEM_LIMIT` (`OHS_GOMEMLIMIT` overrides it). Eight concurrent large uploads took the
+  process to 623 MB and had it killed by the host's out-of-memory killer, along with a process
+  of another container. [Memory](docs/self-hosting.md#memory) lists the profiles, the Raspberry
+  Pi one included.
+- Device uploads: past its share of the ingest slots (half by default,
+  `OHS_INGEST_TENANT_CONCURRENCY`) a tenant takes a slot only while one slot in eight (at least
+  one) stays free for the other tenants, so a lone tenant still uses the free slots and no
+  tenant can refuse the others' uploads; and a part may expand to at most 64 MiB once decompressed
+  instead of 512 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`, up to 512). Eight gzip bombs of 611 KB
+  held every slot of the instance for 14 s, and every other tenant's uploads got 503 meanwhile.
+  The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON, so they are not affected.
+- A call that fails because the database cannot be reached (Postgres restarting, out of
+  connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
+  429 keep the upload or the read. A pooled connection the server dropped mid-session (a
+  backend killed or restarted: pgx's "conn closed" at the next begin or commit) counts as an
+  outage too. Other failures stay 500, a refused database login, a protocol error and a
+  canceled request included.
 - Swift SDK: the anchored sync of one type is `AnchoredSync`, over `AnchoredChangeSource` and
   `AppleHealthPartUploader`, so it is tested with fakes on every platform; `HealthKitSync` runs
   it over `HKAnchoredObjectQuery`. `SyncReport` (same module, `OpenHealthSyncHealthKit`) now
   compiles on every platform and gains `deletionsByType`, `deletionsUploaded` and
   `deletionsPendingByType`. `UploadResult` gains `features`, `acceptsDeletionLines` and a
   public initializer.
+- An upload to a full or read-only raw store (no space left, a quota, a read-only or
+  unwritable directory) answers 503 with `Retry-After: 60` instead of a 500 a client may give up
+  on; nothing is recorded, so the same part can be sent again once there is room.
+- A database that does not answer at all (a frozen host, a network partition) no longer holds
+  every request until it comes back (300 s and more in a stress run with Postgres paused): the
+  credential lookup gives up after 10 s with the same 503, and a new pool connection gives up
+  after 10 s (`connect_timeout` in `OHS_DATABASE_URL` overrides it).
 
 ### Fixed
 
+- A NUL character or invalid UTF-8 in a path, a query parameter or a JSON string no longer ends
+  in a 500 (31 operations did) or an MCP "internal error": the path and the query are checked
+  before routing and answer 400, a JSON body with a `\u0000` answers 400 naming the field, and an
+  MCP tool refuses the argument by name. An audit event whose path value held a NUL was dropped;
+  its text is now cleaned and the event written.
+- A failed pull window is fetched again: the regular pull now reaches back to the end of the
+  last complete pull (`synced_through`) instead of the last successful job, which a pull of one
+  notified data type moved forward.
 - Apple Health: deleted and edited HealthKit samples are removed from the server. The Swift SDK
   used to drop the deleted objects of its anchored queries and move the anchor past them, and
   since HealthKit edits a sample by deleting it and saving a new one, every edited weight or
@@ -57,6 +102,53 @@ release may change the API, the configuration or the database schema.
   instead of one lookup per record: on second by second data the default export streamed about
   110 rows a second; an Apple Health account of 57 575 merged samples now exports in under a
   second instead of 10 minutes, record for record the same.
+- Fitbit / Google Health: Apple Health data relayed by Google (`platform` `HEALTH_KIT`) stores
+  its HRV as `hrv_sdnn` instead of `hrv_rmssd`, since HealthKit only measures SDNN (#205), and a
+  deep sleep RMSSD of 0 is left out of metadata. Points relayed from Apple Health or Health
+  Connect are attributed to that store (source `apple_health` or `health_connect`), so they no
+  longer add up with the tracker's own minutes in one stream. Rows stored earlier keep their
+  type and source until you run `docs/how-to/fitbit-relayed-points.sql` (see
+  [the guide](docs/how-to/fitbit-relayed-points.md)): a script rather than a migration, because
+  it has to decompress the compressed chunks of `quantity_samples` it scans.
+- FHIR: the `hrv_avg_ms` component of sleep sessions and daily summaries no longer carries LOINC
+  80404-7, the SDNN code: the value is RMSSD, which has no LOINC code, so it keeps the Open
+  Health Sync component code only, as `hrv_rmssd` samples do.
+- Validation: an oxygen saturation under 50 % or a body fat percentage under 2 % or over 80 % is
+  refused instead of stored with a suspect flag (body fat from 70 to 80 % is kept and flagged),
+  so a fraction sent with a percent unit (0.97) no longer reaches the exports. The figures of
+  sleep sessions (stage durations, score, HRV, resting heart rate, respiratory rate, SpO2) and
+  of daily summaries (steps, energy, distance, floors, resting heart rate, HRV, scores) are
+  range-checked like the matching samples.
+- One bad measurement no longer costs the whole record: a sample whose unit cannot be converted
+  is dropped on its own (the record used to be parked with every sample beside it), and a
+  figure of a sleep session, workout or daily summary outside its hard band is removed from that
+  record, listed under `quality_dropped` in its metadata, while the record and its other figures
+  are written. Suspect figures of these records are flagged like suspect samples.
+- Every record kind refuses a time before 1990-01-01 UTC: a zero date (0001-01-01), the Unix
+  epoch or the FIT epoch was stored as a measurement, and a year 0001 sample lost its end.
+- Ultrahuman: a pull asks every date whose local day overlaps its window instead of the UTC
+  dates only. West of UTC the end of every day was never pulled (in California its last 7
+  hours, the closing step count among them). No date after the one UTC+14 has reached is
+  asked, and a refusal (400, 422) or an empty answer for a date after the current UTC day is no
+  data, not a failed pull.
+- Garmin: notifications are refused (401) while `OHS_GARMIN_INBOUND_TOKEN` is unset. A push
+  notification is stored as data and Garmin signs nothing, so without the token anyone who knew
+  a connected user's Garmin id could store invented summaries for them. Pings are refused too,
+  and in ping mode the notification is what triggers a pull, so without the token only the
+  scheduled pulls bring data: set it and add `?token=<value>` to the notification URLs. A
+  warning is logged at startup when the keys are set without it, and refusals are logged at
+  warning level, at most every 10 minutes.
+- Apple Health export.xml from a phone set to US units: a height in feet (every height record
+  was refused as a unit error), masses in ounces, lengths in inches, speeds in ft/s and volumes in
+  mL or fluid ounces are converted to their storage unit.
+- Withings: a sleep session's resting heart rate is the night's lowest heart rate (`hr_min`),
+  as for Oura, instead of the mean heart rate asleep (`hr_average`), which now stays in
+  metadata. Sessions stored earlier keep the mean.
+
+### Security
+
+- `github.com/klauspost/compress` 1.18.7 (GO-2026-5841). `govulncheck` found the vulnerable
+  code unreachable from Open Health Sync; the bump keeps it so.
 
 ## [0.2.0] - 2026-10-21
 

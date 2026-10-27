@@ -9,8 +9,11 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/soma-intelligence/open-health-sync/internal/auth"
 )
 
 func TestLimitInFlight(t *testing.T) {
@@ -55,6 +58,100 @@ func TestLimitInFlight(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("POST", "/", nil))
 	assert.Equal(t, http.StatusOK, rec.Code, "a slot frees up after each request")
+}
+
+// holdN starts n uploads as tenant through h and waits until they hold
+// their slots; release lets them finish.
+func holdN(t *testing.T, h http.Handler, entered chan struct{}, wg *sync.WaitGroup, tenant uuid.UUID, n int) {
+	t.Helper()
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.ServeHTTP(httptest.NewRecorder(), asTenant(tenant))
+		}()
+	}
+	for range n {
+		<-entered
+	}
+}
+
+func asTenant(tenant uuid.UUID) *http.Request {
+	r := httptest.NewRequest("POST", "/", nil)
+	return r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{TenantID: tenant}))
+}
+
+// A lone tenant uses every slot but the reserve: the share does not halve a
+// single-tenant instance.
+func TestIngestLoneTenantUsesFreeSlots(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 8)
+	m := newHTTPMetrics()
+	l := newIngestLimiter(8, 4, m)
+	h := l.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		<-release
+	}))
+	a := uuid.New()
+	var wg sync.WaitGroup
+	holdN(t, h, entered, &wg, a, 7)
+	assert.Equal(t, int64(7), m.ingestInFlight.Load(), "past its share of 4 while slots are free")
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, asTenant(a))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "the reserve stays free")
+	assert.Equal(t, "5", rec.Header().Get("Retry-After"))
+	assert.Contains(t, rec.Body.String(), "kept for other tenants")
+
+	b := uuid.New()
+	holdN(t, h, entered, &wg, b, 1)
+	assert.Equal(t, int64(8), m.ingestInFlight.Load(), "another tenant gets the reserve")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, asTenant(uuid.New()))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), "too many uploads in progress")
+
+	close(release)
+	wg.Wait()
+	assert.Equal(t, int64(0), m.ingestInFlight.Load())
+	assert.Empty(t, l.held, "every share is given back")
+	assert.Zero(t, l.inUse)
+}
+
+// A tenant within its share always gets a free slot, even when another
+// tenant went past its own: the other tenants cannot be starved.
+func TestIngestTenantShareProtectsOthers(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 8)
+	m := newHTTPMetrics()
+	h := newIngestLimiter(8, 4, m).wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		<-release
+	}))
+	a, b := uuid.New(), uuid.New()
+	var wg sync.WaitGroup
+	holdN(t, h, entered, &wg, a, 7)
+	holdN(t, h, entered, &wg, b, 1)
+	close(release)
+	wg.Wait()
+
+	// b at 3 of its share of 4, a over its share: a waits, b goes on.
+	release = make(chan struct{})
+	holdN(t, h, entered, &wg, b, 3)
+	holdN(t, h, entered, &wg, a, 4)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, asTenant(a))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "a past its share, one slot left")
+	holdN(t, h, entered, &wg, b, 1)
+	assert.Equal(t, int64(8), m.ingestInFlight.Load(), "b within its share takes the last slot")
+	close(release)
+	wg.Wait()
+}
+
+func TestIngestTenantShareDefault(t *testing.T) {
+	for n, want := range map[int]int{1: 1, 2: 1, 3: 2, 8: 4, 9: 5} {
+		assert.Equal(t, want, DefaultIngestTenantLimit(n), n)
+	}
 }
 
 func TestRequestHash(t *testing.T) {

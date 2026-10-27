@@ -408,9 +408,10 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 	}
 
 	now := d.now().UTC().Truncate(time.Second)
+	policy := d.syncPolicy(provider)
 	from := now.Add(-manualSyncDefault)
 	if syncedThrough != nil {
-		from = syncedThrough.Add(-pullOverlap)
+		from = syncedThrough.Add(-policy.Lookback)
 	}
 	if req.From != nil {
 		from = *req.From
@@ -419,14 +420,14 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 		if req.From != nil {
 			return SyncRun{}, false, &syncProblem{http.StatusBadRequest, "from must be in the past"}
 		}
-		from = now.Add(-pullOverlap)
+		from = now.Add(-policy.Lookback)
 	}
 	if now.Sub(from) > ManualSyncMax {
 		if req.From != nil {
 			return SyncRun{}, false, &syncProblem{http.StatusBadRequest,
 				fmt.Sprintf("from may reach at most %d days back", int(ManualSyncMax/(24*time.Hour)))}
 		}
-		from = now.Add(-maxCatchUp)
+		from = now.Add(-policy.MaxCatchUp)
 	}
 	// One manual run at a time per connection.
 	var existing int64

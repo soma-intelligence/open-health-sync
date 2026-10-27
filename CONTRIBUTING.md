@@ -30,6 +30,11 @@ recovery) and `make upgrade-test` (the last release, with data in it, migrated t
 a change to `internal/db/migrations` should pass it). `make guard` runs the repository checks
 described below.
 
+Fuzz targets (`go test ./test/fuzz/ -run '^$' -fuzz '^FuzzInbound$' -fuzztime 1m`, and the
+`Fuzz` functions beside the parsers) run their seed corpus in `make test`; the nightly `fuzz`
+workflow mutates each for 2 minutes. `go test -tags load -v ./test/load/` fills a server on
+localhost with synthetic data and prints read timings (it refuses any other host).
+
 ## Layout
 
 ```

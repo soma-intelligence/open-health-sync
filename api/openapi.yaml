@@ -37,7 +37,9 @@ info:
     docs/share-links.md.
 
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
-    of another tenant is a 404, never a 403.
+    of another tenant is a 404, never a 403. Any operation answers 503 with `Retry-After`
+    (seconds) while the instance cannot reach its database; the same request can be sent
+    again then.
 
     **Request ids.** Every response carries `X-Request-Id` (the caller's own when it is 1
     to 128 letters, digits, `-`, `_` or `.`, else a fresh one); a problem body repeats it as
@@ -2242,7 +2244,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant, or the raw store is full or not writable (Retry-After 60).
           headers:
             Retry-After:
               schema: { type: integer }
@@ -2315,7 +2317,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }
@@ -2388,7 +2390,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }
@@ -2467,7 +2469,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }
@@ -2548,7 +2550,7 @@ paths:
               schema: { $ref: "#/components/schemas/Problem" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "503":
-          description: Too many uploads in progress on this instance.
+          description: Too many uploads in progress on this instance, or for this tenant.
           headers:
             Retry-After:
               schema: { type: integer }

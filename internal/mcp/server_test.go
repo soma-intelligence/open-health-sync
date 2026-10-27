@@ -272,3 +272,21 @@ func TestPrompts(t *testing.T) {
 	assert.ErrorContains(t, err, "event_date")
 	assert.Contains(t, cs.InitializeResult().Instructions, "do not diagnose")
 }
+
+// A NUL in a text argument is refused by name before any query: Postgres
+// refuses it in text, which used to surface as an internal error.
+func TestNULArgumentRefused(t *testing.T) {
+	f := newFake(t)
+	cs := Connect(t, f.srv.URL, f.read)
+	for tool, args := range map[string]map[string]any{
+		"get_samples":      {"type": "heart_rate\x00"},
+		"get_coverage":     {"provider": "oura\x00"},
+		"get_rr_intervals": {"series_id": "\x00"},
+		"get_tags":         {"kind": "illness", "start": "2026-01-01\x00"},
+	} {
+		txt, isErr := call(t, cs, tool, args)
+		assert.True(t, isErr, tool)
+		assert.Contains(t, txt, "holds a NUL character", tool)
+		assert.NotContains(t, txt, "internal error", tool)
+	}
+}

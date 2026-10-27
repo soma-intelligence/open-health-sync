@@ -409,7 +409,7 @@ sources["docs/how-to/README.md"] = [
     page: "(guides)/how-to/index",
     title: "How-to guides",
     description:
-      "Step by step guides for one task each: Apple Health into PostgreSQL, Apple Health in Claude through MCP, Oura data as FHIR R4, WHOOP data as CSV or Parquet.",
+      "Step by step guides for one task each: Apple Health into PostgreSQL, Apple Health in Claude through MCP, Oura data as FHIR R4, WHOOP data as CSV or Parquet, Withings weight and blood pressure as CSV or SQL, Garmin activities in PostgreSQL.",
   },
 ];
 sources["docs/how-to/apple-health-to-postgres.md"] = [
@@ -438,6 +438,20 @@ sources["docs/how-to/whoop-export.md"] = [
     page: "(guides)/how-to/whoop-export",
     description:
       "Export WHOOP recovery, strain, sleep and workouts as CSV or Parquet, by calendar day, from a self-hosted instance that keeps syncing.",
+  },
+];
+sources["docs/how-to/withings-export.md"] = [
+  {
+    page: "(guides)/how-to/withings-export",
+    description:
+      "Export Withings scale and blood pressure data (weight, body fat, systolic and diastolic) as CSV or Parquet, and query it in PostgreSQL, from a self-hosted instance that keeps syncing.",
+  },
+];
+sources["docs/how-to/garmin-export.md"] = [
+  {
+    page: "(guides)/how-to/garmin-export",
+    description:
+      "Load a Garmin Connect account export (FIT files) into PostgreSQL: activities with distance, heart rate, GPS routes and power, queried in SQL or exported as CSV or Parquet. No Garmin API keys needed.",
   },
 ];
 for (const file of readdirSync(join(repo, "docs", "how-to")).sort()) {

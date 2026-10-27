@@ -151,6 +151,17 @@ func newHTTPClient() *http.Client {
 // Slug returns "ultrahuman".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// Days are the user's local days and close late, and no notification says
+// when.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEveryWithoutPush: 3 * time.Hour,
+		Lookback:             48 * time.Hour,
+		Reconcile:            7 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }
 

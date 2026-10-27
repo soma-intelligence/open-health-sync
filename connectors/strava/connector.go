@@ -180,6 +180,18 @@ func newHTTPClient() *http.Client {
 // Slug returns "strava".
 func (c *Connector) Slug() string { return Slug }
 
+// SyncPolicy implements connector.SyncPolicied.
+// Application rate limits are low (1,000 reads a day by default), activities
+// are uploaded and edited late, and notifications cover new ones.
+func (c *Connector) SyncPolicy() connector.SyncPolicy {
+	return connector.SyncPolicy{
+		PullEvery:            12 * time.Hour,
+		PullEveryWithoutPush: 3 * time.Hour,
+		Lookback:             24 * time.Hour,
+		Reconcile:            7 * 24 * time.Hour,
+	}
+}
+
 // RequiredKeys lists the operator keys: CLIENT_ID and CLIENT_SECRET. The
 // webhook keys are optional: pulls work without them.
 func (c *Connector) RequiredKeys() []string { return []string{KeyClientID, KeyClientSecret} }

@@ -71,7 +71,7 @@ Disconnecting the provider, or deleting the user, de-registers the user from you
 
 ## 5. What is pulled, and how far back
 
-A new connection is backfilled over the last 30 days, then pulled every 6 hours. Only the
+A new connection is backfilled over the last 28 days, then pulled every 6 hours. Only the
 non-transactional AccessLink endpoints are used, so nothing is committed at Polar and a failed
 pull simply runs again. Each endpoint serves a rolling window of recent data, which bounds the
 backfill:
