@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,8 @@ import (
 const sourceName = "OMRON"
 
 // num is a measurement value the API sends as a JSON number or as a string
-// ("71.6"). Missing, empty and unreadable values are not set.
+// ("71.6"). Missing, empty and unreadable values are not set, nor is
+// anything that is not a finite number ("NaN", "Inf").
 type num struct {
 	v   float64
 	set bool
@@ -32,7 +34,7 @@ func (n *num) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return nil
 	}
 	n.v, n.set = f, true

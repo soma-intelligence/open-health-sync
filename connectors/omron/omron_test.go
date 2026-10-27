@@ -305,6 +305,20 @@ func TestMapRejectsAndSkips(t *testing.T) {
 	require.Empty(t, res.QuantitySamples)
 }
 
+func TestMapRefusesNonFiniteValues(t *testing.T) {
+	c := New(Options{})
+	res, err := c.Map(connector.RawRecord{UserID: testUser, DataType: DataTypeWeight, Fields: map[string]any{
+		"id": 2, "dateTime": "2026-03-02T08:00:00", "weight": "Infinity", "weightPref": "kg", "bmiValue": "inf", "bodyFatPercentage": "NaN",
+	}})
+	require.NoError(t, err)
+	require.Empty(t, res.QuantitySamples, "a value that is not a finite number is not a reading")
+
+	res, err = c.Map(connector.RawRecord{UserID: testUser, DataType: DataTypeBloodPressure,
+		Fields: fieldsOf(t, bpRecord(5, "2026-03-02T08:00:00", "+Inf", "Inf", "Inf"))})
+	require.NoError(t, err)
+	require.Empty(t, res.QuantitySamples)
+}
+
 func TestUTCOffset(t *testing.T) {
 	for in, want := range map[string]int{`"+00:00"`: 0, `"-05:30"`: -330, `"+14:00"`: 840, `-21600`: -360, `"3600"`: 60} {
 		got, ok := utcOffset(json.RawMessage(in))
