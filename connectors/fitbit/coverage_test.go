@@ -430,3 +430,28 @@ func TestRequestTokenAnswers(t *testing.T) {
 	_, err = c.requestToken(ctx, url.Values{})
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+// TestMapRefusesNonFiniteNumbers: Google writes numbers as strings, and
+// strconv reads "NaN" and "Inf" as numbers. A value that is not finite is no
+// value: the point is refused, never stored as NaN.
+func TestMapRefusesNonFiniteNumbers(t *testing.T) {
+	iv := map[string]any{"startTime": "2026-03-09T07:00:00Z", "endTime": "2026-03-09T07:01:00Z"}
+	for _, v := range []string{"NaN", "Inf", "-Infinity", "1e400"} {
+		for dt, fields := range map[string]map[string]any{
+			DataTypeSteps:    {"steps": map[string]any{"interval": iv, "count": v}},
+			DataTypeDistance: {"distance": map[string]any{"interval": iv, "millimeters": v}},
+		} {
+			res, _ := New(Options{}).Map(connector.RawRecord{UserID: testUserID, Provider: Slug, DataType: dt, Fields: fields})
+			assert.Empty(t, res.QuantitySamples, "%s %s", dt, v)
+		}
+	}
+}
+
+// TestParseDurationRefusesNonFinite: "NaNs" passed the range check (NaN
+// compares false) and became an offset of whatever the conversion gives.
+func TestParseDurationRefusesNonFinite(t *testing.T) {
+	for _, in := range []string{"NaNs", "Infs", "-Infs", "1e400s"} {
+		_, err := parseDuration(in)
+		assert.Error(t, err, in)
+	}
+}
