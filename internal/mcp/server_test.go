@@ -145,6 +145,27 @@ func TestRefusedBeforeAnyQuery(t *testing.T) {
 	assert.Equal(t, "user not found", msg)
 }
 
+// Arguments the schema accepts but the Go types cannot hold (an integer past
+// int64) are refused without naming the server's own types.
+func TestArgumentDecodeErrorsHideInternals(t *testing.T) {
+	f := newFake(t)
+	key := Connect(t, f.srv.URL, f.key)
+	u := f.user.String()
+	for name, c := range map[string]struct {
+		field string
+		args  map[string]any
+	}{
+		"get_samples": {"limit", map[string]any{"type": "heart_rate", "user_id": u, "limit": 1e300}},
+		"get_sleep":   {"session_id", map[string]any{"user_id": u, "session_id": 1e20}},
+	} {
+		msg, isErr := call(t, key, name, c.args)
+		assert.True(t, isErr, name)
+		assert.NotContains(t, msg, "Go struct", name)
+		assert.NotContains(t, msg, "mcp.", name)
+		assert.Equal(t, c.field+" is out of range or of the wrong type", msg, name)
+	}
+}
+
 func TestHTTPAuth(t *testing.T) {
 	f := newFake(t)
 	post := func(token string) int {
