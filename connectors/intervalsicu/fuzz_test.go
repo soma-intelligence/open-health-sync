@@ -47,6 +47,7 @@ func FuzzMap(f *testing.F) {
 		`{"id":"i1","start_date_local":"2026-03-01T00:00:00","timezone":"Pacific/Kiritimati","elapsed_time":-5,"moving_time":-1}`,
 		`{"id":"i1","start_date_local":"2026-03-01T00:00:00","timezone":"Etc/GMT+12"}`,
 		`{"id":1e30,"start_date":"2026-03-01T00:00:00-12:00","elapsed_time":9223372036,"moving_time":3600}`,
+		`{"id":"i1","start_date":"2026-03-01T00:00:00Z","elapsed_time":36028797018967568}`,
 		`{"id":"i1","start_date":"2026-03-01T00:00:00Z","distance":1e308,"average_speed":-1e308,"joules":1e308,"calories":0}`,
 		`{"id":"i1","start_date":"2026-03-01T00:00:00Z","type":[],"source":{"a":{"b":[[[[]]]]}}}`,
 		`{"id":"i1","source":"STRAVA"}`,
