@@ -300,6 +300,8 @@ func TestMapRejectsAndSkips(t *testing.T) {
 	require.ErrorContains(t, err, "without id")
 	_, err = c.Map(connector.RawRecord{DataType: DataTypeBloodPressure, Fields: map[string]any{"id": 1, "dateTime": "soon"}})
 	require.Error(t, err)
+	_, err = c.Map(connector.RawRecord{DataType: DataTypeBloodPressure, Fields: fieldsOf(t, bpRecord(1, "0001-01-01T00:00:00", 120, 80, 60))})
+	require.Error(t, err, "the zero time is no measurement instant")
 	res, err := c.Map(connector.RawRecord{DataType: "activity", Fields: map[string]any{"id": 1}})
 	require.NoError(t, err)
 	require.Empty(t, res.QuantitySamples)

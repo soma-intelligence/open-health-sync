@@ -64,6 +64,9 @@ func (m measurement) head(dataType string) (id string, at time.Time, md map[stri
 	if err != nil {
 		return "", time.Time{}, nil, fmt.Errorf("omron: %s: %w", dataType, err)
 	}
+	if at.IsZero() {
+		return "", time.Time{}, nil, fmt.Errorf("omron: %s: zero dateTime %q", dataType, m.DateTime)
+	}
 	md = map[string]any{}
 	if m.DeviceType != "" {
 		md["device_type"] = m.DeviceType
