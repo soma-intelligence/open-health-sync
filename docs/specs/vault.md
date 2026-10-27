@@ -1,6 +1,6 @@
 # Spec: health data vault
 
-Status: design approved 2026-10-27, not built. Plan: to be written.
+Status: design approved 2026-10-27, not built. Plan: [plans/vault.md](../plans/vault.md).
 
 ## Problem
 
@@ -118,13 +118,18 @@ moved to another row, user, tenant or table fails to open. One AEAD per row keep
 Raw store objects, and any export file kept at rest:
 
 ```
-"OHSV" || 0x01 || user key version (uint32) || ct_m (1568) || ct_x (32) || chunks...
+"OHSV" || 0x01 || user key version (uint32) || digest (32) || ct_m (1568) || ct_x (32) || chunks...
 chunk: nonce (24) || ciphertext of up to 64 KiB || tag (16)
 ```
 
 STREAM construction: each chunk's AAD is the header, the chunk index (uint64) and a final-chunk
 flag, so chunks cannot be reordered, dropped or truncated. Objects are gzipped before sealing,
 as today; the object key path stays `raw/<tenant>/<user>/...`.
+
+The digest is `SHA-256("ohs.vault.raw.v1" || X25519 public key || ML-KEM public key || body)`,
+also stored as `raw_objects.content_hash`. A process with only public keys recognizes a retried
+upload by it, since sealed bytes differ on every write. Guessing it back needs the user's public
+key and the whole payload byte for byte.
 
 ### Wrapped keys
 
@@ -163,6 +168,9 @@ The columns queries filter, sort or join on, and nothing else:
 - `unit`, `source_slug`, `is_primary_source`, and a new boolean `worn` (computed by the ETL from
   the device fields, which are sealed, so the merged view can still rank sources in SQL)
 - `content_hash`, now an HMAC under the user's index key (see below)
+- promoted out of `metadata` because SQL filters or ranks on them: `tz`, `summary_date`,
+  `derived`, `synthesized`, and `source_key` (a keyed HMAC of the source, replacing the
+  `sourceName` and `device_id` expressions of the merged view)
 - `external_id`: the provider's own record id, needed to apply provider deletions; it carries no
   value
 
