@@ -251,10 +251,6 @@ var (
 	colLine     = regexp.MustCompile(`^\s+"?([a-z0-9_]+)"?\s+[a-z]`)
 )
 
-// futureColumns are the columns the vault migration adds. A Clear entry may name
-// a column no migration creates yet only if it is in this set.
-var futureColumns = []string{"sealed", "content_mac", "source_key", "worn", "tz", "derived", "synthesized", "summary_date"}
-
 // migrationColumns returns the columns of each ohs_data table after every
 // migration (CREATE TABLE, then ADD COLUMN and DROP COLUMN in file order).
 func migrationColumns(t *testing.T) map[string][]string {
@@ -343,15 +339,21 @@ func TestSchemaCoversEveryColumn(t *testing.T) {
 		}
 		cols, inMigrations := tables[name]
 		if !inMigrations {
-			continue // quantity_hourly_sealed: no migration yet.
+			t.Errorf("%s is in Schema but no migration creates the table", name)
+			continue
 		}
 		for _, c := range cols {
 			if place[c] == "" {
 				t.Errorf("%s.%s is in neither Sealed nor Clear", name, c)
 			}
 		}
-		for c := range place {
-			if !slices.Contains(cols, c) && !slices.Contains(futureColumns, c) {
+		for c, where := range place {
+			// The statistics of quantity_hourly_sealed exist only inside the
+			// sealed blob: no column ever held them.
+			if name == "quantity_hourly_sealed" && where == "Sealed" {
+				continue
+			}
+			if !slices.Contains(cols, c) {
 				t.Errorf("%s.%s is listed but no migration creates it", name, c)
 			}
 		}

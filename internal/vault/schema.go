@@ -24,7 +24,7 @@ var Unsealed = []string{"quantity_codes", "deleted_records", "record_aliases", "
 // Clear lists every other column of the table, so that a column added by a later
 // migration must be placed on purpose (sealed or clear) before the coverage test
 // passes. The columns the vault migration adds (sealed, content_mac, source_key,
-// worn, tz, derived, synthesized) are listed in advance.
+// worn, tz, derived, synthesized) are listed with the tables they were added to.
 
 // Schema describes the sealed columns of every sealed table, keyed by table name
 // without the schema prefix.
@@ -58,9 +58,8 @@ var Schema = map[string]Table{
 		MAC:      true,
 	},
 	// quantity_hourly_sealed is the hourly statistics table that replaces the
-	// continuous aggregate. It is not in the migrations yet, so the coverage test
-	// does not check it. Its group keys (including the keyed source_key) stay in
-	// clear; the statistics are sealed.
+	// continuous aggregate (migration 0044). Its group keys (including the keyed
+	// source_key) stay in clear; the statistics are sealed.
 	"quantity_hourly_sealed": {
 		Name: "quantity_hourly_sealed",
 		Sealed: []Column{
