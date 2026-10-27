@@ -24,6 +24,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
@@ -32,10 +33,24 @@ import (
 // never a truncated store.
 const MaxUploadBytes = 64 << 20
 
-// MaxDecompressedBytes caps how far one part may expand while it is validated.
-// It matches the ETL reader's cap, so an accepted part is one the ETL can read
-// to the end, and a gzip bomb costs at most this much decompression.
-const MaxDecompressedBytes int64 = 512 << 20
+// DefaultMaxDecompressedBytes caps how far one part may expand while it is
+// validated, unless UploadDeps.MaxDecompressedBytes says otherwise
+// (OHS_INGEST_MAX_DECOMPRESSED_MIB). The clients write parts of at most
+// 8 MiB of NDJSON (or one line, at most 32 MiB, on its own), so 64 MiB
+// leaves room; a gzip bomb costs at most this much decompression while it
+// holds an ingest slot. It stays at or under the ETL reader's cap
+// (etl.DefaultMaxDecompressedBytes), so an accepted part is one the ETL can
+// read to the end.
+const DefaultMaxDecompressedBytes int64 = 64 << 20
+
+// MaxMaxDecompressedBytes is the largest UploadDeps.MaxDecompressedBytes:
+// the ETL reader's cap.
+const MaxMaxDecompressedBytes int64 = 512 << 20
+
+// storageFullRetryAfter is the Retry-After, in seconds, of an upload refused
+// because the raw store is full or read-only: freeing room takes an
+// operator, so clients wait longer than for a restart.
+const storageFullRetryAfter = 60
 
 // uploadReadTimeout bounds how long one part may take to arrive. The server
 // has no global read timeout (it would cut long requests), so a stalled client
@@ -62,6 +77,20 @@ type UploadDeps struct {
 	// Allowed reports whether a tenant may upload to the provider, as
 	// Deps.Allowed does. Nil allows every tenant.
 	Allowed func(tenant uuid.UUID, slug string) bool
+	// MaxDecompressedBytes caps how far one part may expand (413 above).
+	// 0 means DefaultMaxDecompressedBytes; above MaxMaxDecompressedBytes it
+	// is cut to it.
+	MaxDecompressedBytes int64
+}
+
+func (d UploadDeps) maxDecompressed() int64 {
+	switch {
+	case d.MaxDecompressedBytes <= 0:
+		return DefaultMaxDecompressedBytes
+	case d.MaxDecompressedBytes > MaxMaxDecompressedBytes:
+		return MaxMaxDecompressedBytes
+	}
+	return d.MaxDecompressedBytes
 }
 
 func (d UploadDeps) allowed(tenantID uuid.UUID, slug string) bool {
@@ -172,6 +201,19 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.ErrorContext(r.Context(), "collect: upload failed",
 			"tenant_id", req.tenant, "user_id", req.user, "provider", h.provider, "error", err)
+		if db.Unavailable(err) {
+			// The raw store's network or the database's: say neither.
+			auth.WriteUnavailable(w, "storage is unavailable; retry in a few seconds")
+			return
+		}
+		if rawstore.Unwritable(err) {
+			// A full or read-only raw store: the client keeps the part and
+			// sends it again later, instead of giving up on a 500.
+			w.Header().Set("Retry-After", strconv.Itoa(storageFullRetryAfter))
+			auth.WriteProblem(w, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable),
+				"storage is full or not writable; retry later")
+			return
+		}
 		auth.WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "the part could not be stored, retry later")
 		return
 	}
@@ -333,7 +375,8 @@ func (h *uploadHandler) validate(meta connector.UploadMeta, body []byte) (int, s
 		return http.StatusBadRequest, "the body is not gzip"
 	}
 	defer zr.Close()
-	err = h.d.Device.ParseUpload(meta, &guardedReader{r: zr, left: MaxDecompressedBytes}, nil)
+	limit := h.d.maxDecompressed()
+	err = h.d.Device.ParseUpload(meta, &guardedReader{r: zr, left: limit}, nil)
 	if err == nil {
 		return 0, ""
 	}
@@ -341,7 +384,7 @@ func (h *uploadHandler) validate(meta connector.UploadMeta, body []byte) (int, s
 	switch {
 	case errors.Is(err, errTooLarge):
 		return http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("a part may expand to at most %d bytes", MaxDecompressedBytes)
+			fmt.Sprintf("a part may expand to at most %d bytes (%d MiB); send smaller parts", limit, limit>>20)
 	case errors.As(err, &se):
 		return http.StatusBadRequest, "the gzip stream is truncated or corrupt"
 	default:

@@ -268,3 +268,28 @@ func TestTypesWithCategory(t *testing.T) {
 	assert.Equal(t, []string{"oxygen_saturation"}, TypesWithExtraLOINC("2708-6"))
 	assert.Empty(t, TypesWithExtraLOINC(""))
 }
+
+// The sleep and daily HRV averages are RMSSD (every connector writes RMSSD
+// there), so they must not claim 80404-7, the SDNN code.
+func TestRecordHRVIsNotSDNN(t *testing.T) {
+	for _, o := range []Observation{FromSleepSession(testUser, sleepSession()), FromDailySummary(testUser, dailySummary())} {
+		var found bool
+		for _, c := range o.Component {
+			var name string
+			for _, cd := range c.Code.Coding {
+				if cd.System == ComponentSystem {
+					name = cd.Code
+				}
+			}
+			if name != "hrv_avg_ms" {
+				continue
+			}
+			found = true
+			for _, cd := range c.Code.Coding {
+				assert.NotEqual(t, LOINC, cd.System, "no LOINC code is RMSSD: %v", cd)
+			}
+			assert.Contains(t, c.Code.Text, "RMSSD")
+		}
+		assert.True(t, found, o.ID)
+	}
+}

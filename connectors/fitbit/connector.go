@@ -2,7 +2,7 @@
 
 // Package fitbit is the Fitbit connector, built on the Google Health API v4
 // (health.googleapis.com), which replaces the legacy Fitbit Web API
-// (api.fitbit.com, turned off on 2026-10-30). It does Google OAuth connect,
+// (api.fitbit.com, turned off on 2026-11-02). It does Google OAuth connect,
 // pulls data points per data type, receives the Google Health API webhook
 // notifications, and maps the stored raw lines to canonical records.
 //

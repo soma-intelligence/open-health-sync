@@ -52,3 +52,60 @@ func TestPruneRejected_ScopesAcrossFamilies(t *testing.T) {
 	require.Len(t, mr.HeartbeatSamples, 1)
 	assert.Equal(t, 800.0, mr.HeartbeatSamples[0].RRMS)
 }
+
+// A bad figure of a sleep session or a daily summary drops that figure only:
+// the record and its other figures are still written.
+func TestPruneRejected_ClearsOneFigure(t *testing.T) {
+	t.Parallel()
+
+	spo2, hr, steps := 0.95, 51.0, 9000
+	bad := -3
+	mr := &model.MapResult{
+		SleepSessions:  []model.SleepSession{{SpO2Avg: &spo2, RestingHR: &hr}},
+		DailySummaries: []model.DailySummary{{StepCount: &bad}, {StepCount: &steps}},
+	}
+	structural := pruneRejected(mr, []ValidationError{
+		{RecordType: "sleep_session", Field: "spo2_avg", Index: 0, Severity: SeverityReject, Message: "spo2_avg out of range"},
+		{RecordType: "daily_summary", Field: "step_count", Index: 0, Severity: SeverityReject, Message: "step_count out of range"},
+	})
+
+	assert.Empty(t, structural)
+	require.Len(t, mr.SleepSessions, 1)
+	assert.Nil(t, mr.SleepSessions[0].SpO2Avg)
+	assert.Equal(t, &hr, mr.SleepSessions[0].RestingHR)
+	assert.Equal(t, "spo2_avg", mr.SleepSessions[0].Metadata["quality_dropped"].([]string)[0])
+	require.Len(t, mr.DailySummaries, 2)
+	assert.Nil(t, mr.DailySummaries[0].StepCount)
+	assert.Equal(t, &steps, mr.DailySummaries[1].StepCount)
+}
+
+// A bad bedtime is still structural: nothing is cleared, the record parks.
+func TestPruneRejected_TimestampOfAParentIsStructural(t *testing.T) {
+	t.Parallel()
+
+	spo2 := 0.95
+	mr := &model.MapResult{SleepSessions: []model.SleepSession{{SpO2Avg: &spo2}}}
+	structural := pruneRejected(mr, []ValidationError{
+		{RecordType: "sleep_session", Field: "spo2_avg", Index: 0, Severity: SeverityReject},
+		{RecordType: "sleep_session", Field: "bedtime_start", Index: 0, Severity: SeverityReject},
+	})
+	require.Len(t, structural, 1)
+	assert.NotNil(t, mr.SleepSessions[0].SpO2Avg, "nothing is pruned when the record parks")
+}
+
+// A unit that cannot be converted drops its own sample, not the record.
+func TestPruneUnitErrors(t *testing.T) {
+	t.Parallel()
+
+	mr := &model.MapResult{QuantitySamples: []model.QuantitySample{
+		{QuantityType: "heart_rate", Value: 60, Unit: "bpm"},
+		{QuantityType: "body_mass", Value: 70, Unit: "furlongs"},
+		{QuantityType: "heart_rate", Value: 62, Unit: "count/min"},
+	}}
+	errs := model.CanonicalizeUnits(mr)
+	require.Len(t, errs, 1)
+	pruneUnitErrors(mr, errs)
+	require.Len(t, mr.QuantitySamples, 2)
+	assert.Equal(t, 60.0, mr.QuantitySamples[0].Value)
+	assert.Equal(t, "bpm", mr.QuantitySamples[1].Unit)
+}

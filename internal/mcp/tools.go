@@ -16,6 +16,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/timetag"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
@@ -252,6 +253,11 @@ func addTools(s *sdk.Server, t *tools) {
 func add[In any](s *sdk.Server, name, desc string, fn func(context.Context, In) (any, error)) {
 	sdk.AddTool(s, &sdk.Tool{Name: name, Description: desc, Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true}},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, any, error) {
+			// Postgres refuses a NUL in text; the decoder already turned
+			// invalid UTF-8 into U+FFFD.
+			if arg, ok := pgtext.FirstInvalid(in); !ok {
+				return nil, nil, toolError(arg + " holds a NUL character or invalid UTF-8")
+			}
 			out, err := fn(ctx, in)
 			if err != nil {
 				var te toolError

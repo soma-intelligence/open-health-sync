@@ -15,6 +15,9 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 - **Set `OHS_PUBLIC_URL` to the https address** clients and providers use, for example
   `OHS_PUBLIC_URL=https://health.example.org`. OAuth callbacks and notification URLs are built
   from it.
+- **Route the health checks to `ohs`.** `/healthz` and `/readyz` must reach the process, not a
+  redirect of the proxy (see [self-hosting.md](self-hosting.md#reverse-proxy) and
+  `deploy/Caddyfile`), or monitors read a healthy instance as down.
 - **Publish the API on loopback only** when the proxy runs on the same host. The compose file
   already does (`127.0.0.1:8080:8080`): leave `OHS_HTTP_BIND` unset, and set `OHS_HTTP_PORT` to
   a port number only.

@@ -55,6 +55,15 @@ type Config struct {
 	// IngestConcurrency bounds the device uploads one api process handles at
 	// once (OHS_INGEST_CONCURRENCY, default 8).
 	IngestConcurrency int
+	// IngestTenantConcurrency is the share of those one tenant is sure to
+	// get (OHS_INGEST_TENANT_CONCURRENCY, default half of IngestConcurrency,
+	// rounded up): past it a tenant takes a slot only while more than a
+	// small reserve stays free for the others. IngestConcurrency turns the
+	// share off.
+	IngestTenantConcurrency int
+	// IngestMaxDecompressedMiB caps how far one uploaded part may expand, in
+	// MiB (OHS_INGEST_MAX_DECOMPRESSED_MIB, default 64, at most 512).
+	IngestMaxDecompressedMiB int
 	// PullsPerProvider caps the pulls of one provider running at once across
 	// every instance (OHS_PULLS_PER_PROVIDER, default 4); BackfillsPerProvider
 	// caps its backfill pulls (OHS_BACKFILLS_PER_PROVIDER, default 2).
@@ -145,6 +154,14 @@ const DefaultAuditRetentionDays = 365
 
 // DefaultIngestConcurrency is OHS_INGEST_CONCURRENCY when unset.
 const DefaultIngestConcurrency = 8
+
+// DefaultIngestMaxDecompressedMiB is OHS_INGEST_MAX_DECOMPRESSED_MIB when
+// unset, and MaxIngestMaxDecompressedMiB its largest value (the ETL reader's
+// cap).
+const (
+	DefaultIngestMaxDecompressedMiB = 64
+	MaxIngestMaxDecompressedMiB     = 512
+)
 
 // The rate limits when unset. Providers batch notifications and a user's
 // backfill comes in bursts, so the inbound limits stay well above what one
@@ -351,6 +368,22 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, fmt.Errorf("OHS_INGEST_CONCURRENCY: %q is not a positive integer", v)
 		}
 		c.IngestConcurrency = n
+	}
+	c.IngestTenantConcurrency = max(1, (c.IngestConcurrency+1)/2)
+	if v := get("OHS_INGEST_TENANT_CONCURRENCY", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > c.IngestConcurrency {
+			return Config{}, fmt.Errorf("OHS_INGEST_TENANT_CONCURRENCY: %q is not an integer from 1 to OHS_INGEST_CONCURRENCY (%d)", v, c.IngestConcurrency)
+		}
+		c.IngestTenantConcurrency = n
+	}
+	c.IngestMaxDecompressedMiB = DefaultIngestMaxDecompressedMiB
+	if v := get("OHS_INGEST_MAX_DECOMPRESSED_MIB", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > MaxIngestMaxDecompressedMiB {
+			return Config{}, fmt.Errorf("OHS_INGEST_MAX_DECOMPRESSED_MIB: %q is not an integer from 1 to %d", v, MaxIngestMaxDecompressedMiB)
+		}
+		c.IngestMaxDecompressedMiB = n
 	}
 
 	c.PullsPerProvider, c.BackfillsPerProvider = 4, 2

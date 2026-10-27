@@ -224,6 +224,57 @@ func TestProcess_UnconvertibleUnitFailsAsRecoverable(t *testing.T) {
 	assert.Equal(t, "unit", reason)
 }
 
+// One sample with a unit that cannot be converted fails on its own: the rest
+// of the record is written, and the record is kept for a replay.
+func TestProcess_UnconvertibleUnitDropsOnlyItsSample(t *testing.T) {
+	e := newEnv(t)
+	at := recent()
+	e.register("dev", func(r connector.RawRecord) (model.MapResult, error) {
+		mk := func(h, qt string, v float64, unit string) model.QuantitySample {
+			return model.QuantitySample{UserID: r.UserID, Provider: "dev", QuantityType: qt,
+				Value: v, Unit: unit, StartDate: at, ContentHash: h}
+		}
+		return model.MapResult{QuantitySamples: []model.QuantitySample{
+			mk("a", model.QTHeartRate, 61, "bpm"), mk("b", "body_mass", 70, "furlongs"), mk("c", model.QTHeartRate, 64, "bpm")}}, nil
+	})
+	c := e.process(e.upload(e.tenant, e.user, "dev", "day", `{"type":"day"}`))
+	assert.Equal(t, 2, c["quantity_samples"].Written)
+	var reason string
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT reason_code FROM ohs_data.failed_records WHERE tenant_id = $1 AND line_number = 1`, e.tenant).Scan(&reason))
+	assert.Equal(t, "unit", reason)
+}
+
+// A bad figure of a night is dropped from the session, which is written with
+// its other figures and its phases, and says what it lost.
+func TestProcess_BadSleepFigureDropsOnlyTheFigure(t *testing.T) {
+	e := newEnv(t)
+	start := recent().Add(-9 * time.Hour)
+	spo2, hr := 0.95, 52.0
+	e.register("dev", func(r connector.RawRecord) (model.MapResult, error) {
+		return model.MapResult{
+			SleepSessions: []model.SleepSession{{UserID: r.UserID, Provider: "dev", BedtimeStart: start, BedtimeEnd: start.Add(8 * time.Hour),
+				SpO2Avg: &spo2, RestingHR: &hr, ContentHash: "s1"}},
+			SleepPhases: []model.SleepPhase{{UserID: r.UserID, Phase: "deep", StartDate: start, EndDate: start.Add(time.Hour), DurationS: 3600, ParentContentHash: "s1"}},
+		}, nil
+	})
+	e.process(e.upload(e.tenant, e.user, "dev", "sleep", `{"type":"sleep"}`))
+	assert.Equal(t, 1, e.count("sleep_phases"))
+	var gotSpO2, gotHR *float64
+	var dropped string
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT spo2_avg, resting_hr, metadata->'quality_dropped'->>0 FROM ohs_data.sleep_sessions WHERE tenant_id = $1`, e.tenant).
+		Scan(&gotSpO2, &gotHR, &dropped))
+	assert.Nil(t, gotSpO2)
+	require.NotNil(t, gotHR)
+	assert.Equal(t, 52.0, *gotHR)
+	assert.Equal(t, "spo2_avg", dropped)
+	var reason string
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT reason_code FROM ohs_data.failed_records WHERE tenant_id = $1 AND line_number = 1`, e.tenant).Scan(&reason))
+	assert.Equal(t, "validation", reason)
+}
+
 // A record the connector maps to nothing (an unknown HealthKit type) is
 // skipped: not stored anywhere, and not a failure either.
 func TestProcess_UnmappedRecordIsSkipped(t *testing.T) {

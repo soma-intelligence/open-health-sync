@@ -14,7 +14,7 @@ included ([below](#importing-a-health-app-export)).
 | Auth | `Authorization: Bearer <user token>` with the `upload` scope |
 | Body | gzip of NDJSON: one JSON object per line, at least one line, each line at most 32 MiB uncompressed |
 | `Content-Type` | not checked; send `application/gzip` |
-| Size | at most 64 MiB of gzip bytes per part, 413 above it. A part is never truncated. A part that decompresses to more than 512 MiB is also refused with 413. |
+| Size | at most 64 MiB of gzip bytes per part, 413 above it. A part is never truncated. A part that decompresses to more than 64 MiB (the operator's `OHS_INGEST_MAX_DECOMPRESSED_MIB`, at most 512) is also refused with 413: the SDKs and `ohs import` write parts of at most 8 MiB of NDJSON, or one longer line alone. |
 
 Headers, all required:
 
@@ -43,8 +43,8 @@ Responses:
 | 401, 403 | Missing or expired token, a token without the `upload` scope, or a user being deleted (their tokens stop working at once) |
 | 409 | Other bytes are already stored under this day, batch and part, whatever their type: batch and part must be unique across types |
 | 410 | The user started being deleted while this upload was being stored (its token was accepted just before); nothing is kept |
-| 413 | Over 64 MiB of gzip, or over 512 MiB decompressed |
-| 503 | Too many uploads in progress on this instance; `Retry-After` says when to retry |
+| 413 | Over 64 MiB of gzip, or over 64 MiB decompressed (the instance's `OHS_INGEST_MAX_DECOMPRESSED_MIB`) |
+| 503 | Too many uploads in progress on this instance or for this tenant, the database is unavailable, or the raw store is full or not writable (`Retry-After: 60`); `Retry-After` says when to retry |
 
 Processing is asynchronous. Poll `GET /v1/users/{id}/coverage` until `pending_jobs` is 0, then
 read the data (see [api.md](../api.md#knowing-when-an-upload-is-processed)).
@@ -60,7 +60,9 @@ Quantity samples:
 ```
 
 `value` and `unit` are what HealthKit reports; the server converts to the storage unit (here
-`count/min` becomes `bpm`, a 0.97 oxygen saturation fraction becomes 97 percent). The
+`count/min` becomes `bpm`, a 0.97 oxygen saturation fraction becomes 97 percent). The units of
+a phone set to US units are converted too: a height in `ft` or `in`, a mass in `lb` or `oz`, a
+distance in `mi`, `yd`, `ft` or `in`, a temperature in `degF`, a volume in `fl_oz_us`. The
 `HKTimeZone` metadata key is kept as the sample's `timezone` and decides its local day.
 A line of a quantity or category type the server does not know, or a quantity line without
 `value`, is skipped without an error: nothing is stored for it and it does not appear in
@@ -236,8 +238,8 @@ to 6 tries per part. 401 and 403 stop the import at once: check the token and it
   one.
 - Daily step, energy, distance and flight totals are derived per local day from samples. When an
   iPhone and an Apple Watch both report, the larger source total wins instead of being added.
-- A value outside its hard plausible range rejects the record; outside the soft range it is
-  stored and flagged in its metadata.
+- A value outside its hard plausible range is refused, that sample only (the rest of the
+  record is written); outside the soft range it is stored and flagged in its metadata.
 - Dietary values, single samples and food entries alike, are converted to the unit of their
   nutrient ([the nutrient table](../api.md#nutrition-logs)): a mass in kilograms, grams,
   milligrams or micrograms, a volume in litres, millilitres or fluid ounces, an energy in
