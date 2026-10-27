@@ -597,6 +597,20 @@ func TestMapIntraday_ZeroHeartRateSkipped(t *testing.T) {
 	assert.Equal(t, 0.0, steps.Value)
 }
 
+// A duration past a day is no intraday interval. 18446744074 s overflowed
+// the nanosecond count and wrapped to an interval of 0.29 s that validation
+// let through.
+func TestMapIntraday_OutOfRangeDurationIgnored(t *testing.T) {
+	for _, d := range []string{"18446744074", "1e20", "86401"} {
+		res := mustMap(t, DataTypeIntraday, `{"timestamp":1709370000,"steps":10,"duration":`+d+`}`)
+		require.Len(t, res.QuantitySamples, 1, d)
+		s := res.QuantitySamples[0]
+		assert.Equal(t, s.StartDate, s.EndDate, "duration %s", d)
+	}
+	s := mustMap(t, DataTypeIntraday, `{"timestamp":1709370000,"steps":10,"duration":86400}`).QuantitySamples[0]
+	assert.Equal(t, 24*time.Hour, s.EndDate.Sub(s.StartDate))
+}
+
 func TestMapIntraday_MissingTimestampErrors(t *testing.T) {
 	_, err := mapLine(t, DataTypeIntraday, `{"steps":5}`)
 	assert.Error(t, err)
