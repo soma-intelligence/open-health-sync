@@ -12,6 +12,9 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
+// maxStageSeconds is the longest a sleep stage of one night can last.
+const maxStageSeconds = 24 * 60 * 60
+
 // hypnogramStages maps the AccessLink hypnogram codes to the canonical
 // stages: 0 wake, 1 REM, 2 lighter non-REM (N1), 3 light non-REM (N2),
 // 4 deep non-REM (N3). 5 (unknown, for example poor skin contact) and any
@@ -98,13 +101,22 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		Replaceable:       true,
 	}
 	if s.DeepSleep != nil || s.REMSleep != nil || s.LightSleep != nil {
-		total := 0
+		total, ok := 0, true
 		for _, p := range []*int{s.DeepSleep, s.REMSleep, s.LightSleep} {
-			if p != nil {
-				total += *p
+			if p == nil {
+				continue
 			}
+			// A stage outside one night is not a stage: the sum would be
+			// a total validation cannot tell from a real one.
+			if *p < 0 || *p > maxStageSeconds {
+				ok = false
+				break
+			}
+			total += *p
 		}
-		session.TotalSleepSeconds = &total
+		if ok {
+			session.TotalSleepSeconds = &total
+		}
 	}
 	session.ContentHash = model.ComputeContentHash(map[string]string{
 		"user_id":   userID,

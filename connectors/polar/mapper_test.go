@@ -206,6 +206,26 @@ func TestMapSleep_SameClockTwiceIsDeterministic(t *testing.T) {
 	}
 }
 
+// The total sleep is the sum of the stages. A negative stage, or two that
+// overflow an int, used to give a total that looked right (3600 s from
+// -3600 and 7200; 4032 s from two stages of 2^63 - 1024): validation then
+// cleared the bad stages and stored that total.
+func TestMapSleep_TotalNeedsStagesOfOneNight(t *testing.T) {
+	for name, stages := range map[string]string{
+		"negative": `"deep_sleep":-3600,"rem_sleep":7200`,
+		"overflow": `"deep_sleep":9223372036854774784,"rem_sleep":9223372036854774784,"light_sleep":5648`,
+		"too long": `"deep_sleep":90000,"rem_sleep":3600`,
+	} {
+		res, err := mapLine(t, DataTypeSleep, `{"date":"2026-03-04","sleep_start_time":"2026-03-03T23:00:00","sleep_end_time":"2026-03-04T07:00:00",`+stages+`}`)
+		require.NoError(t, err, name)
+		assert.Nil(t, res.SleepSessions[0].TotalSleepSeconds, name)
+	}
+	res, err := mapLine(t, DataTypeSleep, `{"date":"2026-03-04","sleep_start_time":"2026-03-03T23:00:00","sleep_end_time":"2026-03-04T07:00:00","deep_sleep":0,"rem_sleep":7200}`)
+	require.NoError(t, err)
+	require.NotNil(t, res.SleepSessions[0].TotalSleepSeconds)
+	assert.Equal(t, 7200, *res.SleepSessions[0].TotalSleepSeconds)
+}
+
 func TestMapSleep_Edges(t *testing.T) {
 	res, err := mapLine(t, DataTypeSleep, fixtureItem(t, "sleep.json", "nights", 1))
 	require.NoError(t, err)
