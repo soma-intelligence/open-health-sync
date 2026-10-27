@@ -42,6 +42,12 @@ docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs seed -
 
 The last command loads 90 days of sample data and prints an API key and calls to try.
 
+Or run it on a hosting platform, no server of your own:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/soma-intelligence/open-health-sync)
+
+Fly.io and Railway steps are in [Deploy on a platform](docs/deploy-platforms.md).
+
 <a id="install-the-ohs-binary"></a>Next steps: [API guide](docs/api.md),
 [self-hosting](docs/self-hosting.md), [releases](https://github.com/soma-intelligence/open-health-sync/releases).
 
