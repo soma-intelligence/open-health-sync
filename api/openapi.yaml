@@ -2952,7 +2952,10 @@ paths:
         `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_rr_intervals`,
         `get_hrv`, `get_menstrual_cycles`, `get_tags`, `get_coverage`, `list_connections`. Each
         tool result is JSON text with `records`, `next_cursor` and `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
-        is a tool error inside a 200, as MCP prescribes. See docs/mcp.md.
+        is a tool error inside a 200, as MCP prescribes. A request the transport refuses (a
+        body that is not JSON-RPC, an `Accept` without both `application/json` and
+        `text/event-stream`, a body over 4 MiB, another content type than
+        `application/json`, a cross-origin browser page) is a problem. See docs/mcp.md.
       requestBody:
         content:
           application/json:
@@ -2964,8 +2967,15 @@ paths:
             application/json:
               schema: { type: object }
         "202": { description: Notification accepted. }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415":
+          description: The body is not sent as application/json.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /v1/tenant:
     get:
