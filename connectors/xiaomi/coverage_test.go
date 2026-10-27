@@ -141,3 +141,18 @@ func TestMapNonFiniteFiguresAbsent(t *testing.T) {
 	require.Len(t, res.QuantitySamples, 1)
 	require.NotContains(t, res.QuantitySamples[0].Metadata, "utc_offset_minutes", "a NaN timezone is no offset")
 }
+
+// TestMapSleepStageMinutesLongerThanTheNight: a stage figure is converted
+// to seconds as an int, and the total adds three of them. A figure of 1e20
+// minutes saturated the int and the sum wrapped around to a negative total.
+// A stage longer than its night is not a reading.
+func TestMapSleepStageMinutesLongerThanTheNight(t *testing.T) {
+	res := mapOne(t, parse(t, `{"table":"fitness_data","key":"sleep","value":{"bedtime":1772900000,"wake_up_time":1772928800,`+
+		`"sleep_deep_duration":60,"sleep_rem_duration":1e20,"sleep_light_duration":9000}}`))
+	require.Len(t, res.SleepSessions, 1)
+	s := res.SleepSessions[0]
+	require.Equal(t, 3600, *s.DeepSleepSeconds)
+	require.Equal(t, 0, *s.REMSleepSeconds, "a stage longer than the night is dropped")
+	require.Equal(t, 0, *s.LightSleepSeconds, "9000 minutes do not fit an 8 h night")
+	require.Equal(t, 3600, *s.TotalSleepSeconds)
+}

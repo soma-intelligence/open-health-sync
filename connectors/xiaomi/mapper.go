@@ -394,12 +394,14 @@ func (b *builder) session(res *model.MapResult, sg segment) {
 		})
 	}
 	if len(totals) == 0 {
-		// No hypnogram: the report's own stage minutes.
+		// No hypnogram: the report's own stage minutes. A stage longer
+		// than the night is not a reading (and would overflow the sum).
+		night := end.Sub(start).Minutes()
 		for phase, n := range map[string]num{
 			model.SleepStageDeep: sg.DeepMinutes, model.SleepStageLight: sg.LightMinutes,
 			model.SleepStageREM: sg.REMMinutes, model.SleepStageAwake: sg.AwakeMinutes,
 		} {
-			if v, ok := n.pos(); ok {
+			if v, ok := n.pos(); ok && v <= night {
 				totals[phase] = int(v * 60)
 			}
 		}
