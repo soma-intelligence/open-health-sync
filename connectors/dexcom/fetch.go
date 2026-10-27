@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"sort"
 	"time"
@@ -45,6 +46,7 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 		to = now
 	}
 	byDay := map[time.Time][][]byte{}
+	skipped := 0
 	for start, i := from, 0; start.Before(to); start, i = start.Add(maxWindow), i+1 {
 		end := start.Add(maxWindow)
 		if end.After(to) {
@@ -75,12 +77,17 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 			var head struct {
 				SystemTime string `json:"systemTime"`
 			}
+			// A record without a readable time cannot be placed on a day.
+			// Failing the window for it would fail every retry of the window
+			// too, so it is skipped and counted instead.
 			if err := json.Unmarshal(rec, &head); err != nil {
-				return fmt.Errorf("dexcom: fetch egvs: decode record: %w", err)
+				skipped++
+				continue
 			}
 			at, _, err := parseTime(head.SystemTime)
 			if err != nil {
-				return fmt.Errorf("dexcom: fetch egvs: systemTime: %w", err)
+				skipped++
+				continue
 			}
 			var line bytes.Buffer
 			if err := json.Compact(&line, rec); err != nil {
@@ -89,6 +96,9 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 			day := at.UTC().Truncate(24 * time.Hour)
 			byDay[day] = append(byDay[day], line.Bytes())
 		}
+	}
+	if skipped > 0 {
+		slog.Warn("dexcom: skipped records without a readable systemTime", "provider", Slug, "count", skipped)
 	}
 	days := make([]time.Time, 0, len(byDay))
 	for d := range byDay {
