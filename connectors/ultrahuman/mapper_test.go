@@ -334,6 +334,15 @@ func TestUnixTime(t *testing.T) {
 	require.Equal(t, 500*time.Millisecond, time.Duration(got.Nanosecond()))
 }
 
+func TestGlucoseOverflowDropped(t *testing.T) {
+	_, _, ok := glucose(1e308, "mmol/L")
+	require.False(t, ok, "1e308 mmol/L overflows to +Inf mg/dL")
+	v, unit, ok := glucose(5.5, "mmol/L")
+	require.True(t, ok)
+	require.Equal(t, "mg/dL", unit)
+	require.InDelta(t, 99.1, v, 0.1)
+}
+
 func TestMap_ZeroDateRefused(t *testing.T) {
 	body := `{"data":{"metric_data":[{"type":"vo2_max","object":{"value":45}}]}}`
 	_, err := mapFields(t, map[string]any{"date": "0001-01-01", "body": json.RawMessage(body)})

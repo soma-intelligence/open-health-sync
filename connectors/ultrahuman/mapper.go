@@ -420,7 +420,7 @@ func glucose(v float64, unit string) (float64, string, bool) {
 		return v, "mg/dL", true
 	case "mmol/l":
 		out, outUnit, err := model.ToStorageUnit("blood_glucose", v, "mmol/L")
-		if err != nil {
+		if err != nil || math.IsInf(out, 0) {
 			return 0, "", false
 		}
 		return out, outUnit, true
