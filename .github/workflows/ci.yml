@@ -18,6 +18,10 @@ jobs:
           go-version: "1.26"
       - run: go vet ./...
       - run: go test ./...
+      - name: Cloud key providers (azurekv, awskms build tags, as the release builds them)
+        run: |
+          go vet -tags azurekv,awskms ./internal/vault/
+          go test -tags azurekv,awskms ./internal/vault/
       - name: Release tag check self-test
         run: scripts/check-release-tag_test.sh
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

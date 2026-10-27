@@ -111,6 +111,9 @@ func TestOpenProviderLocalFromConfig(t *testing.T) {
 
 func TestOpenProviderNotBuiltIn(t *testing.T) {
 	for _, name := range []string{"azurekv", "awskms", "nope"} {
+		if _, built := cloudOpeners[name]; built {
+			continue // built in by a tag: its own tests cover it
+		}
 		_, err := OpenProvider(context.Background(), config.Vault{Provider: name})
 		require.ErrorContains(t, err, "not built into this binary", name)
 	}
