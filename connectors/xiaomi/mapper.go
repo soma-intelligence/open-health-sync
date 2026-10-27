@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,7 +95,7 @@ func (n *num) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return nil // an unreadable figure is absent, not a broken line
 	}
 	n.v, n.ok = f, true

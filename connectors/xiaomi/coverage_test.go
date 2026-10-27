@@ -5,6 +5,7 @@ package xiaomi
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -116,4 +117,27 @@ func TestMapEmptyMinuteRows(t *testing.T) {
 	require.Error(t, err)
 	_, err = New().Map(connector.RawRecord{UserID: testUser, Fields: parse(t, `{"table":"fitness_data","key":"steps","value":{"steps":2}}`)})
 	require.Error(t, err)
+}
+
+// TestMapNonFiniteFiguresAbsent: strconv reads "NaN" and "Inf" as numbers. A
+// NaN time passed the 2000 to 2100 check (NaN compares false) and became
+// 1970-01-01, an Inf figure passed pos() and became an Inf sample. Both are
+// absent figures.
+func TestMapNonFiniteFiguresAbsent(t *testing.T) {
+	res, err := New().Map(connector.RawRecord{UserID: testUser, Fields: parse(t,
+		`{"table":"fitness_data","key":"heart_rate","time":1772928240,"value":{"time":"NaN","bpm":60}}`)})
+	require.NoError(t, err)
+	require.Len(t, res.QuantitySamples, 1)
+	require.Equal(t, time.Unix(1772928240, 0).UTC(), res.QuantitySamples[0].StartDate, "the row's time, not 1970")
+
+	res, err = New().Map(connector.RawRecord{UserID: testUser, Fields: parse(t,
+		`{"table":"fitness_data","key":"steps","time":1772960400,"value":{"steps":"Inf","distance":"-Inf","timezone":"NaN"}}`)})
+	require.NoError(t, err)
+	require.Empty(t, res.QuantitySamples)
+
+	res, err = New().Map(connector.RawRecord{UserID: testUser, Fields: parse(t,
+		`{"table":"fitness_data","key":"spo2","time":1772935200,"value":{"spo2":97,"timezone":"NaN"}}`)})
+	require.NoError(t, err)
+	require.Len(t, res.QuantitySamples, 1)
+	require.NotContains(t, res.QuantitySamples[0].Metadata, "utc_offset_minutes", "a NaN timezone is no offset")
 }
