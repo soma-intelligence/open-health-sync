@@ -406,7 +406,8 @@ func FromDailySummary(user uuid.UUID, d read.DailySummary) Observation {
 
 // localDay is the interval from midnight to the next midnight of date
 // (YYYY-MM-DD) in the zone named by the record's "timezone" metadata, else
-// UTC: 23 or 25 hours on a daylight saving change.
+// UTC: 23 or 25 hours on a daylight saving change. "Local" (the server's own
+// zone) is not a zone of the user's and reads as UTC too.
 func localDay(date string, metadata json.RawMessage) (time.Time, time.Time, bool) {
 	day, err := time.Parse(time.DateOnly, date)
 	if err != nil {
@@ -416,7 +417,7 @@ func localDay(date string, metadata json.RawMessage) (time.Time, time.Time, bool
 	var md struct {
 		Timezone string `json:"timezone"`
 	}
-	if json.Unmarshal(metadata, &md) == nil && md.Timezone != "" {
+	if json.Unmarshal(metadata, &md) == nil && md.Timezone != "" && md.Timezone != "Local" {
 		if l, err := time.LoadLocation(md.Timezone); err == nil {
 			loc = l
 		}
