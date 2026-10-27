@@ -323,6 +323,12 @@ func TestDisplayOffsetRounds(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestMapEGVRefusesZeroSystemTime(t *testing.T) {
+	rec := egvRecord("rec-zero", "0001-01-01T00:00:00", "0001-01-01T00:00:00", 100)
+	_, err := New(Options{}).Map(connector.RawRecord{UserID: testUser, DataType: DataTypeEGV, Fields: fieldsOf(t, rec)})
+	require.Error(t, err)
+}
+
 func TestDisplayOffsetRefusesWrittenOffsetsOutOfRange(t *testing.T) {
 	for _, display := range []string{"2026-03-01T09:00:00+23:59", "2026-03-01T09:00:00-23:00", "2026-03-01T09:00:00+14:15", "2026-03-01T09:00:00-12:30"} {
 		_, ok := displayOffset("2026-03-01T08:00:00", display)

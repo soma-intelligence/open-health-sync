@@ -66,6 +66,9 @@ func mapEGV(fields map[string]any, userID string) (*model.MapResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dexcom: egvs: systemTime: %w", err)
 	}
+	if at.IsZero() {
+		return nil, fmt.Errorf("dexcom: egvs: zero systemTime %q", r.SystemTime)
+	}
 	at = at.UTC()
 
 	unit := r.Unit
