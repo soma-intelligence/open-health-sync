@@ -203,6 +203,14 @@ func TestRecordsWithoutValues(t *testing.T) {
 	assert.Equal(t, &Period{Start: "2026-03-01T00:00:00Z", End: "2026-03-02T00:00:00Z"}, o.EffectivePeriod, "an unknown zone is UTC")
 	assert.Equal(t, "unknown", o.DataAbsentReason.Coding[0].Code)
 
+	// "Local" loads the server's own zone: it names no zone of the user's.
+	local := time.Local
+	time.Local = time.FixedZone("server", -7*3600)
+	t.Cleanup(func() { time.Local = local })
+	d.Metadata = json.RawMessage(`{"timezone":"Local"}`)
+	o = FromDailySummary(testUser, d)
+	assert.Equal(t, &Period{Start: "2026-03-01T00:00:00Z", End: "2026-03-02T00:00:00Z"}, o.EffectivePeriod, "Local is UTC, not the server's zone")
+
 	// A meal logged with no figure keeps its meal type.
 	n := read.NutritionLog{ID: 4, StartDate: t0, EndDate: ptr(t0), MealType: ptr("snack"), Nutrients: json.RawMessage("null"),
 		Provenance: read.Provenance{Provider: "health_connect", IngestedAt: ingested}}

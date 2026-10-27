@@ -29,7 +29,10 @@ chose. Open Health Sync does not show consent screens itself.
 | `other` | Anything no category above describes, reported pain included |
 
 A record goes with its parent: route points are `location` but also go when `activity` is not
-granted (no workout, no route), and sleep phases go with their session. `GET /v1/users/{id}/consents`
+granted (no workout, no route), and sleep phases go with their session. A sleep session, a
+workout or a daily summary that stays loses the figures it carries of a refused category: resting
+heart rate and HRV (`heart`), respiratory rate, SpO2 and VO2 max (`respiratory`), a day's sleep
+score (`sleep`), as [share links](share-links.md) file them. `GET /v1/users/{id}/consents`
 returns the list of categories, so your consent screen can follow it.
 
 ## How it is enforced

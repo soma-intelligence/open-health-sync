@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,26 @@ func TestCheckURL(t *testing.T) {
 	for _, u := range []string{"http://localhost:3000/hook", "http://10.0.0.5/hook", "http://app:8000/hook"} {
 		if err := CheckURL(u, true); err != nil {
 			t.Errorf("allow private %s: %v", u, err)
+		}
+	}
+}
+
+// TestBlockedReserved: reserved IPv4 ranges, and IPv6 forms that carry an
+// IPv4 address (NAT64, 6to4, IPv4-compatible), are refused like the IPv4
+// address itself.
+func TestBlockedReserved(t *testing.T) {
+	for _, s := range []string{
+		"0.1.2.3", "192.0.0.192", "198.18.0.1", "240.0.0.1", "255.255.255.255",
+		"64:ff9b::a9fe:a9fe", "64:ff9b::7f00:1", "64:ff9b:1::a00:1", "2002:a9fe:a9fe::", "2002:7f00:1::1",
+		"::7f00:1", "::a9fe:a9fe", "fec0::1",
+	} {
+		if !blocked(netip.MustParseAddr(s)) {
+			t.Errorf("%s: not blocked", s)
+		}
+	}
+	for _, s := range []string{"8.8.8.8", "64:ff9b::808:808", "2002:808:808::", "2001:4860::8888", "1.0.0.1"} {
+		if blocked(netip.MustParseAddr(s)) {
+			t.Errorf("%s: blocked", s)
 		}
 	}
 }

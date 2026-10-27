@@ -8,7 +8,11 @@
 package mcp
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -89,5 +93,31 @@ func newServer(d Deps, p auth.Principal, cache *sdk.SchemaCache) *sdk.Server {
 		&sdk.ServerOptions{Instructions: instructions, SchemaCache: cache})
 	addTools(s, &tools{d: d, p: p})
 	addPrompts(s)
+	s.AddReceivingMiddleware(hideDecodeErrors)
 	return s
+}
+
+// hideDecodeErrors rewrites the refusal of arguments that pass the input
+// schema but do not fit the Go argument types (an integer past int64): the
+// SDK's decoder names the server's own struct types, which is no help to the
+// caller.
+func hideDecodeErrors(next sdk.MethodHandler) sdk.MethodHandler {
+	return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+		res, err := next(ctx, method, req)
+		r, ok := res.(*sdk.CallToolResult)
+		if err != nil || !ok || !r.IsError || r.GetError() == nil {
+			return res, err
+		}
+		var te toolError
+		if errors.As(r.GetError(), &te) || !strings.HasPrefix(r.GetError().Error(), "json: ") {
+			return res, err
+		}
+		msg := "an argument is out of range or of the wrong type"
+		var ute *json.UnmarshalTypeError
+		if errors.As(r.GetError(), &ute) && ute.Field != "" {
+			msg = ute.Field + " is out of range or of the wrong type"
+		}
+		r.Content = []sdk.Content{&sdk.TextContent{Text: msg}}
+		return r, nil
+	}
 }
