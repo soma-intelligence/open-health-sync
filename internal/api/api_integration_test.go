@@ -463,6 +463,11 @@ func TestIdempotentCreateUser(t *testing.T) {
 	// Too long a key: 400.
 	r = e.do("POST", "/v1/users", e.keyA, body, "Idempotency-Key", strings.Repeat("k", 256))
 	assert.Equal(t, http.StatusBadRequest, r.code)
+	// A key that is not UTF-8 (net/http lets bytes 0x80 to 0xFF through in
+	// a header) is a 400, not a database error.
+	r = e.do("POST", "/v1/users", e.keyA, body, "Idempotency-Key", "k-\xff\xfe")
+	assert.Equal(t, http.StatusBadRequest, r.code, string(r.body))
+	assert.Contains(t, string(r.body), "Idempotency-Key")
 	// A stored 4xx is replayed too.
 	e.do("POST", "/v1/users", e.keyA, map[string]any{"external_ref": "dup"})
 	r = e.do("POST", "/v1/users", e.keyA, map[string]any{"external_ref": "dup"}, "Idempotency-Key", "k-2")

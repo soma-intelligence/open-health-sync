@@ -21,6 +21,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
 )
 
 var (
@@ -38,7 +39,8 @@ var (
 	ErrIdempotencyMismatch = errors.New("tenant: idempotency key reused with a different request")
 	// ErrIdempotencyInProgress means another call with the same key is still running (API: 409).
 	ErrIdempotencyInProgress = errors.New("tenant: idempotent request in progress")
-	// ErrIdempotencyKeyInvalid means the key is empty or longer than 255 bytes.
+	// ErrIdempotencyKeyInvalid means the key is empty, longer than 255 bytes,
+	// or not text Postgres stores (invalid UTF-8 or a NUL).
 	ErrIdempotencyKeyInvalid = errors.New("tenant: invalid idempotency key")
 	// ErrTTLInvalid means a positive token lifetime shorter than one second.
 	ErrTTLInvalid = errors.New("tenant: ttl too short")
@@ -588,9 +590,9 @@ func (s *Store) RevokeKey(ctx context.Context, tenantID uuid.UUID, hash string) 
 // An error from do, or a status of 500 and above, deletes the claim so a retry runs
 // again. Semantics are at-least-once: if the process dies mid do, or a takeover
 // races a slow first call, do may run twice for one key. Keys longer than 255
-// bytes are refused.
+// bytes, and keys that are not valid UTF-8 or hold a NUL, are refused.
 func (s *Store) Idempotent(ctx context.Context, tenantID uuid.UUID, key, requestHash string, do func() (int, []byte, error)) (int, []byte, error) {
-	if key == "" || len(key) > maxIdempotencyKey {
+	if key == "" || len(key) > maxIdempotencyKey || !pgtext.Valid(key) {
 		return 0, nil, ErrIdempotencyKeyInvalid
 	}
 	status, body, done, err := s.claim(ctx, tenantID, key, requestHash)

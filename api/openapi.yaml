@@ -45,7 +45,7 @@ info:
     to 128 letters, digits, `-`, `_` or `.`, else a fresh one); a problem body repeats it as
     `request_id`, and the server logs carry it too.
 
-    **Idempotency.** `Idempotency-Key` (1 to 255 characters) is honoured on
+    **Idempotency.** `Idempotency-Key` (1 to 255 characters of UTF-8 text) is honoured on
     `POST /v1/users`, `POST /v1/users/{id}/tags` and `POST /v1/users/{id}/self-reports`: a retry with the same key and the same request within 24 hours gets the first response back, with
     `Idempotent-Replayed: true`. The same key with another request is a 422; a retry while
     the first call still runs is a 409. Token minting ignores the header (replaying it would
