@@ -332,3 +332,20 @@ func TestUTCOffset(t *testing.T) {
 		require.False(t, ok, in)
 	}
 }
+
+// One measurement without a readable time cannot be placed on a day, and
+// failing the type for it would fail every retry too: it is skipped and the
+// rest of the page lands.
+func TestFetchSkipsUndatableMeasurements(t *testing.T) {
+	f := newFake(t)
+	f.bp = []map[string]any{
+		{"id": float64(1), "dateTime": "garbage"},
+		{"id": float64(2)},
+		bpRecord(3, "2026-03-02T07:00:00", 121, 81, 61),
+	}
+	c := f.connector()
+	from := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	var s sink
+	require.NoError(t, c.Fetch(context.Background(), connector.Connection{Tokens: connector.Tokens{Access: "acc-1"}}, from, from.AddDate(0, 0, 7), &s))
+	require.Len(t, s.lines, 1)
+}
