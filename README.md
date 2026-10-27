@@ -9,43 +9,28 @@
 
 # Open Health Sync
 
-### One open API for wearable and health data. On your own server.
-
-Apple Health, Withings, Oura, WHOOP, Fitbit, Health Connect, Dexcom, Garmin and ten more,<br>
-in one model, over REST, FHIR R4 and a read-only MCP server for AI agents.<br>
-One Go binary plus Postgres. Free, self-hosted, runs on a Raspberry Pi.
+**One API for all your health data. Free, open source, on your own server.**
 
 [![CI](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/soma-intelligence/open-health-sync/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/soma-intelligence/open-health-sync?color=0e9f8e)](https://github.com/soma-intelligence/open-health-sync/releases)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-555)](LICENSE)
-[![Hosted beta: sign up free](https://img.shields.io/badge/hosted_beta-sign_up_free-0e9f8e)](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=badge)
-
-[**Quickstart**](#quickstart) &nbsp;&middot;&nbsp; [Hosted beta](#hosted-beta) &nbsp;&middot;&nbsp; [Sources](#sources-and-outputs) &nbsp;&middot;&nbsp; [MCP](#connect-an-ai-agent-mcp) &nbsp;&middot;&nbsp; [Compare](#open-health-sync-vs-terra) &nbsp;&middot;&nbsp; [Docs](#documentation)
-
-<sub><b>v0.2.0, early preview.</b> APIs, configuration and schema may change in any 0.x release.</sub>
 
 </div>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/demo/demo-dark.gif">
-  <img src="docs/demo/demo-light.gif" width="100%" alt="Terminal recording of the quickstart. docker compose up starts ohs and Postgres; ohs seed --demo writes 90 days of synthetic data from six sources. The daily endpoint returns one merged day, one heart rate reading comes back as REST, FHIR R4 and Open mHealth, and tools/list on the MCP endpoint lists the read-only tools.">
-</picture>
+## What it does
 
-Open Health Sync (`ohs`) pulls from providers and accepts uploads from phones, keeps every
-payload verbatim, maps it to one canonical model with one unit per quantity (UCUM, LOINC), and
-serves it back. It is not a dashboard, a coaching app or a medical device.
+Every health app and wearable sends data in its own format. Open Health Sync collects it all and
+gives it back in one clean format, through one API.
 
-- **Always current.** Provider webhooks trigger a pull of what changed, a backstop pull catches
-  the rest, and `/freshness` says how up to date each source is.
-- **Nothing thrown away.** Raw payloads live on disk or S3. Fix a mapper, re-process a user.
-- **Standards out.** OpenAPI 3.1, FHIR R4 checked with the HL7 validator, Open mHealth, CSV and
-  Parquet, signed webhooks.
-- **Yours, and erasable.** No call home. Consent per source and category.
-  `DELETE /v1/users/{id}` is a hard delete of rows and raw files.
+- **In:** Apple Health, Health Connect, Garmin, Oura, WHOOP, Fitbit, Withings, Polar, Strava,
+  Dexcom and [more](docs/connectors/README.md).
+- **Out:** a REST API, FHIR R4, CSV and Parquet, and an [MCP server](docs/mcp.md) so an AI agent
+  can read your data.
+- **Runs anywhere:** one program plus Postgres, even on a Raspberry Pi. Your data stays with you.
 
-## Quickstart
+## Try it
 
-You need Docker with Compose v2.24 or later, plus `curl`, `jq` and `openssl`.
+<a id="quickstart"></a>You need Docker.
 
 ```sh
 git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-health-sync
@@ -55,87 +40,21 @@ docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs seed --demo
 ```
 
-`ohs seed --demo` loads 90 days of synthetic data from six sources and prints a demo API key and
-calls to try ([demo](docs/demo.md)). For your own data, create a tenant with
-`ohs admin tenant create --name dev`, then follow the [API guide](docs/api.md). The API listens
-on `127.0.0.1`; see [self-hosting](docs/self-hosting.md) to expose it, use S3 or run on a Pi.
+The last command loads 90 days of sample data and prints an API key and calls to try.
 
-<a id="install-the-ohs-binary"></a>**The `ohs` binary.** Linux and macOS builds (amd64, arm64) are on the
-[releases page](https://github.com/soma-intelligence/open-health-sync/releases). On macOS, run
-`xattr -d com.apple.quarantine` on it first. `ohs import apple-health export.zip` loads a full
-Health app export.
+<a id="install-the-ohs-binary"></a>Next steps: [API guide](docs/api.md),
+[self-hosting](docs/self-hosting.md), [releases](https://github.com/soma-intelligence/open-health-sync/releases).
 
-## Hosted beta
+## Don't want to run a server?
 
-The same server, run for you: sign in, create a key, and your first call already returns demo
-data. Free during the beta, test data only for now. Code moves to your own instance with a new
-base URL and key.
+<a id="hosted-beta"></a>Use the [free hosted beta](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=section):
+same API, nothing to install. Test data only for now.
 
-[**Get started for free →**](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=section) &nbsp;&middot;&nbsp; [Watch the 75-second tour](docs/demo/platform-tour.mp4)
+## Learn more
 
-## Sources and outputs
+[Documentation](docs/api.md) &middot; [FAQ](docs/faq.md) &middot;
+[Compare with Terra and others](docs/compare/README.md) &middot;
+<a id="connect-an-ai-agent-mcp"></a>[Connect an AI agent](docs/mcp.md) &middot;
+[Contributing](CONTRIBUTING.md) &middot; [Security](SECURITY.md)
 
-**Sources (v0.2.0):** Apple Health, Health Connect (with Samsung Health, Zepp and RingConn),
-Withings, Oura, WHOOP, Fitbit, Polar, Strava, Suunto, Ultrahuman, intervals.icu, Dexcom, OMRON,
-Garmin, Eight Sleep, Xiaomi, activity files (FIT, GPX, TCX) and Bluetooth health devices.
-Planned: Coros, health records through SMART on FHIR. Details per source:
-[docs/connectors](docs/connectors/README.md).
-
-**Outputs:** REST ([OpenAPI](api/openapi.yaml)), read-only [MCP](docs/mcp.md),
-[FHIR R4](docs/fhir.md), [Open mHealth](docs/open-mhealth.md), [CSV and Parquet](docs/exports.md),
-[webhooks](docs/webhooks.md), plus [client SDKs](docs/sdks/README.md) for Swift, Kotlin,
-React Native and Flutter and [server SDKs](docs/server-sdks.md) for TypeScript and Python.
-
-## Connect an AI agent (MCP)
-
-Mint a user token with only the `read` scope, then add `ohs mcp` to your agent:
-
-```json
-{
-  "mcpServers": {
-    "open-health-sync": {
-      "command": "/usr/local/bin/ohs",
-      "args": ["mcp"],
-      "env": { "OHS_MCP_URL": "http://localhost:8080", "OHS_MCP_KEY": "ohs_ut_..." }
-    }
-  }
-}
-```
-
-Tools, prompts and remote agents: [docs/mcp.md](docs/mcp.md).
-
-## Open Health Sync vs Terra
-
-| | Open source | Starting price | FHIR R4 | Where the data lives |
-|---|---|---|---|---|
-| **Open Health Sync** | Yes, AGPL-3.0 | Free, you pay for your server | Yes, HL7 validated | Your server |
-| [Terra](docs/compare/terra.md) | No | $399 a month billed annually | A FHIR option | Terra's cloud |
-
-Junction, Thryve, Spike, Sahha and ROOK side by side:
-[health data aggregators compared](docs/compare/README.md). Common questions: [FAQ](docs/faq.md).
-
-## Documentation
-
-[Self-hosting](docs/self-hosting.md) &middot; [API guide](docs/api.md) &middot;
-[Data model](docs/data-model.md) &middot; [Architecture](docs/architecture.md) &middot;
-[Security model](docs/security-model.md) &middot; [Hardening](docs/hardening.md) &middot;
-[Admin console](docs/console.md) &middot; [Connect page](docs/connect-page.md) &middot;
-[Recipes](docs/recipes/README.md) &middot; [Examples](examples/README.md) &middot;
-[Changelog](CHANGELOG.md)
-
-## Contributing
-
-Issues and pull requests are welcome. Start with a
-[good first issue](https://github.com/soma-intelligence/open-health-sync/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22),
-[record your wearable](docs/connectors/recording.md) or
-[write a connector](docs/writing-a-connector.md). Read [CONTRIBUTING.md](CONTRIBUTING.md) first.
-
-```sh
-make setup && make build && make test
-```
-
-Report vulnerabilities privately per [SECURITY.md](SECURITY.md).
-
-## License
-
-AGPL-3.0-only, server and SDKs. See [LICENSE](LICENSE).
+Not a medical device. Licensed under [AGPL-3.0](LICENSE).
