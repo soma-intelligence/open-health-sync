@@ -38,6 +38,13 @@ func TestEveryOAuthConnectorTakesTenantKeys(t *testing.T) {
 		for _, f := range k.RequiredKeys() {
 			keys[f] = "tenant-" + f
 		}
+		if c.Slug() == "smart_fhir" {
+			// Its base must be a URL, and named endpoints spare the
+			// discovery request AuthorizeURL would send.
+			keys["FHIR_BASE_URL"] = "https://ehr.example.test/fhir"
+			keys["AUTHORIZE_URL"] = "https://ehr.example.test/authorize"
+			keys["TOKEN_URL"] = "https://ehr.example.test/token"
+		}
 		require.NoError(t, fresh.(connector.Configurable).Configure(keys), c.Slug())
 		if _, pw := connector.AsPassword(c); pw {
 			// No consent page to name the application: the user signs in

@@ -9,6 +9,11 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- SMART on FHIR connector (`smart_fhir`, preview): a patient connects their health system's
+  patient portal (Epic MyChart and any certified US EHR) with a standalone SMART launch and PKCE,
+  and the server pulls their record from its FHIR R4 API. Every resource is kept raw; vital signs
+  become quantity samples and the other Observations (labs) generic observations of type
+  `ehr`. See [docs/connectors/smart-fhir.md](docs/connectors/smart-fhir.md).
 - `deploy/Caddyfile`: Caddy with automatic TLS in front of the compose stack, and the routes to
   keep on `ohs` when the host serves other pages too, so `/healthz` and `/readyz` are never
   redirected. See [docs/self-hosting.md](docs/self-hosting.md#reverse-proxy).
