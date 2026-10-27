@@ -247,10 +247,12 @@ func utcOffset(raw json.RawMessage) (int, bool) {
 		case '+':
 			s = s[1:]
 		}
+		// Only the first character may be a sign: Atoi would read "+-1:30"
+		// as -1 h + 30 min.
 		h, m, ok := strings.Cut(s, ":")
 		hh, err1 := strconv.Atoi(h)
 		mm, err2 := strconv.Atoi(m)
-		if !ok || err1 != nil || err2 != nil || mm < 0 || mm >= 60 {
+		if !ok || err1 != nil || err2 != nil || strings.ContainsAny(s, "+-") || mm >= 60 {
 			return 0, false
 		}
 		minutes = sign * (hh*60 + mm)

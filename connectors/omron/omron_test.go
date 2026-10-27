@@ -325,7 +325,7 @@ func TestUTCOffset(t *testing.T) {
 		require.True(t, ok, in)
 		require.Equal(t, want, got, in)
 	}
-	for _, in := range []string{``, `null`, `"+15:00"`, `"abc"`, `"61"`} {
+	for _, in := range []string{``, `null`, `"+15:00"`, `"abc"`, `"61"`, `"+-1:30"`, `"-+5:00"`, `"--5:00"`, `"+5:+0"`} {
 		_, ok := utcOffset(json.RawMessage(in))
 		require.False(t, ok, in)
 	}
