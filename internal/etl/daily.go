@@ -55,9 +55,10 @@ func isAdditive(qt string) bool {
 	return false
 }
 
-// sampleLocation returns the time zone named in metadata, or UTC.
+// sampleLocation returns the time zone named in metadata, or UTC. "Local" (the
+// server's own zone) names no zone of the user's and reads as UTC too.
 func sampleLocation(md map[string]any) *time.Location {
-	if name, ok := md[MetadataTimezone].(string); ok && name != "" {
+	if name, ok := md[MetadataTimezone].(string); ok && name != "" && name != "Local" {
 		if loc, err := time.LoadLocation(name); err == nil {
 			return loc
 		}

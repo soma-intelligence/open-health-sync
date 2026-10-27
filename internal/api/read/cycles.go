@@ -337,7 +337,8 @@ func (s *cycleScan) day(d int, p *pendingDay) {
 }
 
 func (s *cycleScan) zone(name string) *time.Location {
-	if name == "" {
+	// "Local" would load the server's own zone, not the user's.
+	if name == "" || name == "Local" {
 		return time.UTC
 	}
 	if loc, ok := s.zones[name]; ok {
