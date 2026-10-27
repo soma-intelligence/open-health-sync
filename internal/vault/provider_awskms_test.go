@@ -40,6 +40,7 @@ type fakeKMS struct {
 	fail     int    // status to answer with
 	failType string
 	empty    bool
+	calls    int
 	lastCtx  map[string]string
 	srv      *httptest.Server
 }
@@ -69,6 +70,7 @@ func (f *fakeKMS) provider(keyARN string) *awsKMSProvider {
 func (f *fakeKMS) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.calls++
 	require.True(f.t, strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256"), "requests are signed")
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	if f.fail != 0 {
@@ -172,6 +174,52 @@ func TestAWSKMSAliasWrapsUnderTheKeyARN(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestAWSKMSUnwrapPinsAccountAndRegion(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeKMS(t)
+	p := f.provider(awsTestKey)
+	wrapped, _, err := p.Wrap(ctx, rootKey(1), []byte("tenant-1"))
+	require.NoError(t, err)
+	f.mu.Lock()
+	f.calls = 0
+	f.mu.Unlock()
+	for _, v := range []string{
+		"arn:aws:kms:us-east-1:999999999999:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+		"arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+		"arn:aws-us-gov:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+		awsTestAlias,
+	} {
+		_, err = p.Unwrap(ctx, wrapped, []byte("tenant-1"), v)
+		require.Error(t, err, v)
+	}
+	require.Zero(t, f.calls, "refused before any KMS call")
+}
+
+func TestAWSKMSWrapPinsConfiguredKeyARN(t *testing.T) {
+	f := newFakeKMS(t)
+	f.keyARN = "arn:aws:kms:us-east-1:111122223333:key/another"
+	_, _, err := f.provider(awsTestKey).Wrap(context.Background(), rootKey(1), []byte("tenant-1"))
+	require.ErrorContains(t, err, "unexpected key")
+	f.keyARN = "arn:aws:kms:us-east-1:999999999999:key/x"
+	_, _, err = f.provider(awsTestAlias).Wrap(context.Background(), rootKey(1), []byte("tenant-1"))
+	require.ErrorContains(t, err, "unexpected key id")
+}
+
+func TestAWSKMSCredentialErrorsArePermanent(t *testing.T) {
+	f := newFakeKMS(t)
+	c := kms.New(kms.Options{
+		Region:           "us-east-1",
+		BaseEndpoint:     aws.String(f.srv.URL),
+		Credentials:      credentials.NewStaticCredentialsProvider("", "", ""),
+		RetryMaxAttempts: 1,
+		HTTPClient:       f.srv.Client(),
+	})
+	_, _, err := newAWSKMS(c, awsTestKey).Wrap(context.Background(), rootKey(1), []byte("tenant-1"))
+	require.Error(t, err)
+	require.False(t, errors.Is(err, ErrProviderUnavailable), err.Error())
+	require.NotContains(t, err.Error(), f.srv.URL)
+}
+
 func TestAWSKMSRefusesEmptyAAD(t *testing.T) {
 	ctx := context.Background()
 	p := newFakeKMS(t).provider(awsTestKey)
@@ -233,7 +281,7 @@ func TestAWSKMSMalformedAnswers(t *testing.T) {
 	f.keyARN = "not an arn"
 	f.mu.Unlock()
 	_, _, err = p.Wrap(ctx, rootKey(1), []byte("tenant-1"))
-	require.ErrorContains(t, err, "unexpected key id")
+	require.ErrorContains(t, err, "unexpected key")
 }
 
 func TestParseKMSARN(t *testing.T) {

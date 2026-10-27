@@ -9,7 +9,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
@@ -84,21 +87,46 @@ func awsError(ctx context.Context, what string, err error) error {
 		}
 	}
 	var re *smithyhttp.ResponseError
-	if errors.As(err, &re) {
+	if errors.As(err, &re) && re.Response != nil && re.HTTPStatusCode() != 0 {
 		sc := re.HTTPStatusCode()
-		// Status 0: the transport failed before any answer.
-		if sc == 0 || sc >= 500 || sc == http.StatusTooManyRequests || sc == http.StatusRequestTimeout {
+		if sc >= 500 || sc == http.StatusTooManyRequests || sc == http.StatusRequestTimeout {
 			return fmt.Errorf("%w: awskms %s answered %d", ErrProviderUnavailable, what, sc)
 		}
 	}
 	if api != nil {
 		return fmt.Errorf("vault: awskms refused %s (%s): %s", what, api.ErrorCode(), awsText(api.ErrorMessage()))
 	}
-	if re != nil {
+	if re != nil && re.Response != nil && re.HTTPStatusCode() != 0 {
 		return fmt.Errorf("vault: awskms refused %s (%d)", what, re.HTTPStatusCode())
 	}
-	// No answer at all: the network, or credentials that could not be had.
-	return fmt.Errorf("%w: awskms %s: %s", ErrProviderUnavailable, what, awsText(err.Error()))
+	// No answer at all. Only a transport failure is worth a retry; missing
+	// credentials or a failed signature are a misconfiguration. The text is
+	// fixed: the SDK's own may carry endpoint URLs.
+	if isTransportError(err) {
+		return fmt.Errorf("%w: awskms %s: the service could not be reached", ErrProviderUnavailable, what)
+	}
+	return fmt.Errorf("vault: awskms %s failed before an answer (credentials or request signing): check the AWS credentials of the process", what)
+}
+
+// isTransportError reports a failure of the connection itself.
+func isTransportError(err error) bool {
+	var ne net.Error
+	var ue *url.Error
+	return errors.As(err, &ne) || errors.As(err, &ue) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, context.DeadlineExceeded)
+}
+
+// sameAccount reports whether version is a KMS key ARN of the partition,
+// account and region of the configured key.
+func (p *awsKMSProvider) sameAccount(version string) bool {
+	want, err := parseKMSARN(p.keyARN)
+	if err != nil {
+		return false
+	}
+	got, err := parseKMSARN(version)
+	return err == nil && strings.HasPrefix(got.Resource, "key/") &&
+		got.Partition == want.Partition && got.AccountID == want.AccountID && got.Region == want.Region
 }
 
 var errAWSEmptyAAD = errors.New("vault: awskms needs a non-empty aad (the encryption context)")
@@ -125,7 +153,13 @@ func (p *awsKMSProvider) Wrap(ctx context.Context, plain, aad []byte) ([]byte, s
 	if len(out.CiphertextBlob) == 0 || out.KeyId == nil || *out.KeyId == "" {
 		return nil, "", errors.New("vault: awskms answered an empty encryption")
 	}
-	if _, err := parseKMSARN(*out.KeyId); err != nil {
+	// A key ARN configured is the key that must answer; an alias may resolve
+	// to any key of the same partition, account and region.
+	if strings.HasPrefix(p.keyARN[strings.LastIndex(p.keyARN, ":")+1:], "key/") {
+		if *out.KeyId != p.keyARN {
+			return nil, "", errors.New("vault: awskms answered a wrap from an unexpected key")
+		}
+	} else if !p.sameAccount(*out.KeyId) {
 		return nil, "", errors.New("vault: awskms answered an unexpected key id")
 	}
 	return out.CiphertextBlob, *out.KeyId, nil
@@ -135,8 +169,8 @@ func (p *awsKMSProvider) Unwrap(ctx context.Context, wrapped, aad []byte, versio
 	if len(aad) == 0 {
 		return nil, errAWSEmptyAAD
 	}
-	if _, err := parseKMSARN(version); err != nil {
-		return nil, errors.New("vault: awskms needs the key ARN the value was wrapped with")
+	if !p.sameAccount(version) {
+		return nil, errors.New("vault: awskms needs the key ARN the value was wrapped with, in the configured partition, account and region")
 	}
 	if len(wrapped) == 0 {
 		return nil, errors.New("vault: awskms cannot unwrap an empty value")
