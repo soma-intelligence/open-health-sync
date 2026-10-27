@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -468,6 +469,10 @@ func (b *builder) setNutrient(nl *model.NutritionLog, name string, v float64, un
 	v, err := model.ToNutrientUnit(name, v, unit)
 	if err != nil {
 		return fmt.Errorf("health_connect: %s %s: %w", b.r.RecordType, b.r.Metadata.ID, err)
+	}
+	// A huge figure can overflow to +Inf in its unit's conversion.
+	if math.IsInf(v, 0) || math.IsNaN(v) {
+		return fmt.Errorf("health_connect: %s %s: %s out of range", b.r.RecordType, b.r.Metadata.ID, name)
 	}
 	nl.SetNutrient(name, v)
 	return nil

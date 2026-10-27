@@ -158,3 +158,24 @@ func TestMapHeartRateEdges(t *testing.T) {
 	_, err := New().Map(connector.RawRecord{UserID: testUser, Fields: bad})
 	require.ErrorContains(t, err, "HeartRate hr-10 sample 0")
 }
+
+// TestMapNutrientOverflowRefused: a figure that is finite as written can
+// overflow to +Inf in its unit's conversion (litres of water to millilitres,
+// grams of sodium to milligrams). Validation's hard band is unbounded above,
+// so +Inf would be stored, and an extended nutrient would not encode as
+// JSON. The line is refused instead.
+func TestMapNutrientOverflowRefused(t *testing.T) {
+	span := map[string]any{"startTime": "2026-03-02T08:00:00Z", "endTime": "2026-03-02T09:00:00Z"}
+	for name, fields := range map[string]map[string]any{
+		"water":  {"recordType": "Hydration", "volumeLiters": 1e308},
+		"sodium": {"recordType": "Nutrition", "sodiumGrams": 1e308},
+	} {
+		fields["metadata"] = map[string]any{"id": "n-" + name}
+		for k, v := range span {
+			fields[k] = v
+		}
+		res, err := New().Map(connector.RawRecord{UserID: testUser, Fields: fields})
+		require.Error(t, err, name)
+		require.Empty(t, res.NutritionLogs, name)
+	}
+}
