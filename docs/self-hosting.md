@@ -134,7 +134,9 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.pi.yml up -
 
 The overlay trims Postgres (`shared_buffers=128MB`, `effective_cache_size=512MB`,
 `work_mem=4MB`, `max_connections=30`, `timescaledb.max_background_workers=4`) and
-caps `ohs` at 512 MB with `GOMEMLIMIT=256MiB`.
+caps `ohs` at 512 MB with `GOMEMLIMIT=256MiB` and 2 uploads at once
+(`OHS_INGEST_CONCURRENCY=2`, both open to its one tenant). See [Memory](#memory) for other
+small hosts.
 
 ## S3 compatible raw store
 
@@ -179,6 +181,8 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_PULLS_PER_PROVIDER` | `4` | Pulls of one provider running at once, across every `collect` instance. See [provider rate limits](background-sync.md#provider-rate-limits) |
 | `OHS_BACKFILLS_PER_PROVIDER` | `2` | Of those, backfills of new connections |
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
+| `OHS_INGEST_TENANT_CONCURRENCY` | half of `OHS_INGEST_CONCURRENCY`, rounded up | Of those, the share one tenant is sure to get. Past it a tenant still takes free slots, but leaves a reserve of one slot in eight (at least one) to the other tenants, so one tenant (a large import, a gzip bomb) cannot refuse their uploads: a lone tenant uses 7 of the 8 default slots. From 1 to `OHS_INGEST_CONCURRENCY`; equal to it, there is no share and no reserve (a single-tenant instance that wants every slot) |
+| `OHS_INGEST_MAX_DECOMPRESSED_MIB` | `64` | How far one uploaded part may expand once decompressed, in MiB (1 to 512); a larger part answers 413. The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON. 0.2.0 and earlier allowed 512 |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Turns on OpenTelemetry traces, sent over OTLP to this address. The other standard `OTEL_` variables apply; see [observability](observability.md) |
 | `OHS_RATE_LIMIT_INBOUND` | `30/120` | Notification requests (`/inbound/{provider}`) per client address: `rate/burst` in requests per second, `0` disables. See [rate limits](#rate-limits). 0.2.0 and later |
@@ -186,6 +190,36 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_RATE_LIMIT_OAUTH` | `2/20` | OAuth callback requests per client address, and in buckets of their own `POST /v1/setup` requests and share link manifest and file requests; `0` disables. 0.2.0 and later |
 | `OHS_TRUSTED_PROXIES` | none | Comma-separated CIDRs (or addresses) of your reverse proxies. Only a request from one of them has its client address read from `X-Forwarded-For`. 0.2.0 and later |
 | `OHS_<PROVIDER>_CLIENT_ID`, `_CLIENT_SECRET` | none | Keys of a provider; its connector is on when they are set. Every process that runs `collect` or `etl` needs them (see below). Or save them from the [console](console.md#where-provider-keys-come-from) instead (0.2.0 and later); set here, they win |
+
+### Memory
+
+An upload in flight holds its whole body (at most 64 MiB of gzip) while it is checked and
+stored, and the check decompresses it in a stream (at most 64 MiB, `OHS_INGEST_MAX_DECOMPRESSED_MIB`).
+The rest of the process (the ETL workers, the pulls, the pools) stays around 100 to 300 MB.
+Plan for about 200 MB plus 100 MB per upload slot in the worst case, when every slot holds a
+large part at once; real parts from the SDKs and `ohs import` are 8 MiB of NDJSON or less.
+
+| Profile | `mem_limit` | `GOMEMLIMIT` | `OHS_INGEST_CONCURRENCY` | Where |
+|---|---|---|---|---|
+| Default | `1g` | derived: `768MiB` | `8` | `deploy/docker-compose.yml`, the Helm chart (`resources.limits.memory: 1Gi`) |
+| Low memory (Raspberry Pi 5 4 GB, a 1 GB VPS) | `512m` | `256MiB`, set by the overlay | `2` | `deploy/docker-compose.pi.yml` |
+| Large (several tenants importing at once) | `2g` | derived: `1536MiB` | `16` | set `OHS_MEM_LIMIT=2g` and `OHS_INGEST_CONCURRENCY=16` |
+
+Keep the two together: about 200 MB plus 100 MB per slot of `OHS_INGEST_CONCURRENCY` in
+`mem_limit`. Raising the slots without the limit lets a burst of large uploads reach it.
+
+- **`mem_limit`** (compose; `OHS_MEM_LIMIT` in `deploy/.env` or the shell changes it) is the
+  container's hard limit: above it the kernel restarts `ohs` alone (the restart policy brings it
+  back in a second, and an upload cut short is retried by its client), instead of the host's
+  out-of-memory killer picking a process, Postgres included.
+- **`GOMEMLIMIT`** is the Go runtime's soft limit: it collects garbage harder as the heap gets
+  near it. When it is unset or empty, `ohs` sets it itself to three quarters of the container's
+  memory limit (cgroup v1 or v2) and logs `memory limit set from the container's`, so it follows
+  `OHS_MEM_LIMIT`. The compose file leaves it empty; `OHS_GOMEMLIMIT` overrides it (keep it
+  under `mem_limit`). Without a container limit (a plain VM, `ohs` run by systemd without
+  `MemoryMax`) nothing is derived, so set `GOMEMLIMIT` there.
+- **Fewer slots, less memory.** Lowering `OHS_INGEST_CONCURRENCY` is what bounds the peak: a
+  client over the limit gets 503 with `Retry-After` and retries (the SDKs and `ohs import` do).
 
 ### Database pool size
 
@@ -225,6 +259,18 @@ still needs the same `OHS_ENCRYPTION_KEY`.
 Put a reverse proxy with TLS in front of port 8080; the bearer secrets travel in headers.
 [hardening.md](hardening.md) is the full production checklist, and
 [security-model.md](security-model.md) the threat model behind it.
+
+### Reverse proxy
+
+[`deploy/Caddyfile`](../deploy/Caddyfile) is a working Caddy configuration with automatic TLS:
+every path of the host goes to `ohs`. When the same host serves other pages too (a sign-in
+portal, a landing page), name the routes of `ohs` first and send only the rest elsewhere, as its
+second, commented example does: `/healthz`, `/readyz`, `/openapi.yaml`, `/metrics`, `/v1/*`,
+`/mcp`, `/oauth/*`, `/inbound/*`, `/connect`, `/connect/*`, `/shl/*` and `/console`. A
+catch-all redirect placed before them answers `/healthz` and `/readyz` with a 302, which an
+uptime monitor or a load balancer reads as down (and breaks the provider callbacks the same way).
+Check from outside with `curl -i https://health.example.org/healthz`: the answer is `200` and
+`ok`, with no `Location` header.
 
 ### Rate limits
 
@@ -374,6 +420,10 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   are replayed by the drainer once per process start, so deploy the fix and restart. Lines of a
   type the connector does not know are skipped, not failed, so the drainer never replays them:
   re-process the user (below) once a release maps that type.
+- **Database outages.** While Postgres cannot be reached, requests answer 503 with
+  `Retry-After: 5`, and so does a database that does not answer at all within 10 s (the
+  credential lookup is bounded; a new connection waits at most 10 s, or the URL's
+  `connect_timeout`). `/readyz` answers 503 within 3 s.
 - **Long outages.** The orphan scanner only looks at raw objects from the last 7 days. After an
   outage longer than that, raw objects that were stored but never queued stay unprocessed. Requeue
   them with this SQL, run once in `psql` (it queues every raw object that has no job; the
@@ -428,8 +478,10 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   existing install its first run builds the whole history once (about 11 s for 10 million
   samples in our test). `SELECT * FROM timescaledb_information.job_stats` shows its runs.
 - **Large uploads.** An instance processes a bounded number of uploads at once
-  (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi) and answers 503 with `Retry-After` above it;
-  clients retry.
+  (`OHS_INGEST_CONCURRENCY`, default 8, 2 on the Pi), a tenant past its share
+  (`OHS_INGEST_TENANT_CONCURRENCY`) only while a reserve stays free for the others, and answers
+  503 with `Retry-After` above either; clients retry. A part is decompressed to check it, up to 64 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`), so
+  a gzip bomb costs a fraction of a second of one slot, not the instance.
 - **Rate limits on the provider-facing routes.** Notifications and OAuth callbacks over the
   limits answer 429 with `Retry-After`; see [rate limits](self-hosting.md#rate-limits). Behind a
   reverse proxy, set `OHS_TRUSTED_PROXIES`, or every request counts against the proxy's address.

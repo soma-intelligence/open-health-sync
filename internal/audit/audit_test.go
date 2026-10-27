@@ -2,7 +2,10 @@
 
 package audit
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestClassify(t *testing.T) {
 	for _, c := range []struct{ method, pattern, want string }{
@@ -98,5 +101,42 @@ func TestTokenID(t *testing.T) {
 	}
 	if got := TokenID("abc"); got != "abc" {
 		t.Fatalf("short TokenID = %q", got)
+	}
+}
+
+type stringer string
+
+func (s stringer) String() string { return string(s) }
+
+// Whatever the type of a detail value, no NUL reaches the INSERT, numbers
+// keep their digits and clean details are left as encoded.
+func TestDetailJSONCleansEveryType(t *testing.T) {
+	type pair struct {
+		Name string `json:"name"`
+		N    int64  `json:"n"`
+	}
+	got, err := detailJSON(map[string]any{
+		"provider": "oura\x00",
+		"list":     []string{"a\x00", "b"},
+		"struct":   pair{Name: "x\x00y", N: 9007199254740993},
+		"ptr":      &pair{Name: "\x00"},
+		"named":    stringer("s\x00"),
+		"nested":   map[string][]any{"k\x00": {"v\x00", 1.5, true, nil}},
+		"bad\xff":  "\xfe",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"bad�":"�","list":["a","b"],"named":"s","nested":{"k":["v",1.5,true,null]},` +
+		`"provider":"oura","ptr":{"n":0,"name":""},"struct":{"n":9007199254740993,"name":"xy"}}`
+	if string(got) != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	if bytes.Contains(got, []byte(`\u0000`)) {
+		t.Fatal("a NUL is left")
+	}
+	clean, err := detailJSON(map[string]any{"job_id": "j1", "n": 2})
+	if err != nil || string(clean) != `{"job_id":"j1","n":2}` {
+		t.Fatalf("%s %v", clean, err)
 	}
 }

@@ -9,6 +9,9 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `deploy/Caddyfile`: Caddy with automatic TLS in front of the compose stack, and the routes to
+  keep on `ohs` when the host serves other pages too, so `/healthz` and `/readyz` are never
+  redirected. See [docs/self-hosting.md](docs/self-hosting.md#reverse-proxy).
 - A synthetic data generator for every documented provider (`internal/synth`): an invented
   person's timeline rendered in each vendor's wire format, written from the vendor's published
   documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
@@ -17,8 +20,42 @@ release may change the API, the configuration or the database schema.
   through a running server and database (`test/synthflow`). See
   [docs/specs/synthetic-data.md](docs/specs/synthetic-data.md).
 
+### Changed
+
+- The default compose file caps `ohs` at 1 GB (`mem_limit`, `OHS_MEM_LIMIT`), and `ohs` sets
+  `GOMEMLIMIT` itself to three quarters of the container's memory limit when it is unset or
+  empty, so the soft limit follows `OHS_MEM_LIMIT` (`OHS_GOMEMLIMIT` overrides it). Eight concurrent large uploads took the
+  process to 623 MB and had it killed by the host's out-of-memory killer, along with a process
+  of another container. [Memory](docs/self-hosting.md#memory) lists the profiles, the Raspberry
+  Pi one included.
+- Device uploads: past its share of the ingest slots (half by default,
+  `OHS_INGEST_TENANT_CONCURRENCY`) a tenant takes a slot only while one slot in eight (at least
+  one) stays free for the other tenants, so a lone tenant still uses the free slots and no
+  tenant can refuse the others' uploads; and a part may expand to at most 64 MiB once decompressed
+  instead of 512 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`, up to 512). Eight gzip bombs of 611 KB
+  held every slot of the instance for 14 s, and every other tenant's uploads got 503 meanwhile.
+  The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON, so they are not affected.
+- A call that fails because the database cannot be reached (Postgres restarting, out of
+  connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
+  429 keep the upload or the read. A pooled connection the server dropped mid-session (a
+  backend killed or restarted: pgx's "conn closed" at the next begin or commit) counts as an
+  outage too. Other failures stay 500, a refused database login, a protocol error and a
+  canceled request included.
+- An upload to a full or read-only raw store (no space left, a quota, a read-only or
+  unwritable directory) answers 503 with `Retry-After: 60` instead of a 500 a client may give up
+  on; nothing is recorded, so the same part can be sent again once there is room.
+- A database that does not answer at all (a frozen host, a network partition) no longer holds
+  every request until it comes back (300 s and more in a stress run with Postgres paused): the
+  credential lookup gives up after 10 s with the same 503, and a new pool connection gives up
+  after 10 s (`connect_timeout` in `OHS_DATABASE_URL` overrides it).
+
 ### Fixed
 
+- A NUL character or invalid UTF-8 in a path, a query parameter or a JSON string no longer ends
+  in a 500 (31 operations did) or an MCP "internal error": the path and the query are checked
+  before routing and answer 400, a JSON body with a `\u0000` answers 400 naming the field, and an
+  MCP tool refuses the argument by name. An audit event whose path value held a NUL was dropped;
+  its text is now cleaned and the event written.
 - Sleep phases, ECG recordings, daily summaries and observations are now validated, and an end
   before the start or far in the future is refused on every record kind.
 - Apple Health glucose in mmol/L and the `yd`, `in`, `s`, `oz` and `lb` unit spellings are
@@ -75,6 +112,11 @@ release may change the API, the configuration or the database schema.
 - Withings: a sleep session's resting heart rate is the night's lowest heart rate (`hr_min`),
   as for Oura, instead of the mean heart rate asleep (`hr_average`), which now stays in
   metadata. Sessions stored earlier keep the mean.
+
+### Security
+
+- `github.com/klauspost/compress` 1.18.7 (GO-2026-5841). `govulncheck` found the vulnerable
+  code unreachable from Open Health Sync; the bump keeps it so.
 
 ## [0.2.0] - 2026-10-21
 

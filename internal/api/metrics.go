@@ -105,7 +105,7 @@ func renderMetrics(w io.Writer, m *httpMetrics, etl map[string]int64) {
 	fmt.Fprint(w, "# HELP ohs_ingest_in_flight Device uploads being processed now.\n")
 	fmt.Fprint(w, "# TYPE ohs_ingest_in_flight gauge\n")
 	fmt.Fprintf(w, "ohs_ingest_in_flight %d\n", m.ingestInFlight.Load())
-	fmt.Fprint(w, "# HELP ohs_ingest_rejected_total Device uploads refused with 503 because the limit was reached.\n")
+	fmt.Fprint(w, "# HELP ohs_ingest_rejected_total Device uploads refused with 503 because the instance limit or the tenant share was reached.\n")
 	fmt.Fprint(w, "# TYPE ohs_ingest_rejected_total counter\n")
 	fmt.Fprintf(w, "ohs_ingest_rejected_total %d\n", m.ingestRejected.Load())
 	fmt.Fprint(w, "# HELP ohs_audit_write_failures_total Audit events that could not be written.\n")

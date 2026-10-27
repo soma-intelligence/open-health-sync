@@ -18,7 +18,7 @@ on 2026-10-17. They change, so check [tryterra.co](https://tryterra.co) as well.
 | Price | Free. You pay for your own server | From $399 a month billed annually, or $499 billed monthly, with 100,000 credits. Each source a user connects costs 200 credits a month ([pricing](https://tryterra.co/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Terra's cloud, usually for two days and at most six months, then your destination ([privacy policy](https://tryterra.co/end-user-privacy)) |
 | Sources | 18 available ([list](../connectors/README.md)) | 500+ wearables and health sources advertised, Garmin included |
-| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin app. Garmin has paused new developer access requests, per its replies to applicants. Garmin exports import as activity files | Yes, through Terra's existing partnership |
+| Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes, through Terra's existing partnership |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Terra's own JSON models: Activity, Body, Daily, Sleep, Nutrition, Menstruation and others |
 | FHIR | FHIR R4, checked with the official HL7 validator in CI ([FHIR R4](../fhir.md)) | A FHIR processing option. The documentation names no FHIR version |
 | Open mHealth | Yes, checked against the official schemas ([Open mHealth](../open-mhealth.md)) | Not found in its documentation |

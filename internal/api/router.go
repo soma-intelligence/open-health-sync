@@ -80,6 +80,14 @@ type Deps struct {
 	SelfReport connector.DeviceConnector
 	// IngestLimit bounds uploads in flight (0 means DefaultIngestLimit).
 	IngestLimit int
+	// IngestTenantLimit is the share of the upload slots one tenant is sure
+	// to get; past it, it takes a slot only while more than the reserve
+	// (ingestReserve) stays free (0 means DefaultIngestTenantLimit of
+	// IngestLimit; IngestLimit or more means no share).
+	IngestTenantLimit int
+	// IngestMaxDecompressedBytes caps how far one uploaded part may expand
+	// (0 means collect.DefaultMaxDecompressedBytes).
+	IngestMaxDecompressedBytes int64
 	// Metrics mounts GET /metrics (OHS_METRICS).
 	Metrics bool
 	// Console mounts the admin console at /console (OHS_CONSOLE);
@@ -179,7 +187,7 @@ func NewRouter(d Deps) http.Handler {
 		}
 		notFound(w, "route")
 	})
-	return s.instrument(mux)
+	return s.instrument(textOK(mux))
 }
 
 // allowedMethods lists the methods a route other than the catch-all serves

@@ -9,6 +9,7 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
 )
 
 // ActorType is the kind of credential or process behind an event.
@@ -123,7 +126,7 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 	detail := []byte("{}")
 	if len(ev.Detail) > 0 {
 		var err error
-		if detail, err = json.Marshal(ev.Detail); err != nil {
+		if detail, err = detailJSON(ev.Detail); err != nil {
 			return fmt.Errorf("audit: detail: %w", err)
 		}
 	}
@@ -135,12 +138,52 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 		INSERT INTO ohs_core.audit_events
 		    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		ev.Tenant, ev.User, string(ev.ActorType), ev.ActorID, ev.Action, ev.Method, ev.Route, status,
-		ev.RequestID, detail)
+		ev.Tenant, ev.User, string(ev.ActorType), pgtext.Clean(ev.ActorID), ev.Action, ev.Method,
+		pgtext.Clean(ev.Route), status, pgtext.Clean(ev.RequestID), detail)
 	if err != nil {
 		return fmt.Errorf("audit: record: %w", err)
 	}
 	return nil
+}
+
+// detailJSON encodes d with every string, member names included, as Postgres
+// stores it: an identifier a caller chose (a path value) may hold a NUL or
+// invalid UTF-8, which jsonb refuses, and the event must still be written.
+// Whatever the value types (strings, slices, structs, a Stringer...), d goes
+// through JSON once, so the strings are cleaned where they end up.
+func detailJSON(d map[string]any) ([]byte, error) {
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Contains(raw, []byte(`\u0000`)) && !bytes.Contains(raw, []byte(`\ufffd`)) {
+		return raw, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber() // numbers stay as written
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return json.Marshal(cleanValue(v))
+}
+
+func cleanValue(v any) any {
+	switch t := v.(type) {
+	case string:
+		return pgtext.Clean(t)
+	case []any:
+		for i, e := range t {
+			t[i] = cleanValue(e)
+		}
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			out[pgtext.Clean(k)] = cleanValue(e)
+		}
+		return out
+	}
+	return v
 }
 
 // adminTenantAreas are the tenant route areas an instance admin also reaches
