@@ -1,0 +1,3 @@
+start_date,end_date,classification,classification_value,symptoms_status,average_heart_rate,sampling_frequency_hz,number_of_measurements,metadata,provider,source,device
+2026-09-28T08:00:00Z,2026-09-28T08:00:00.390625Z,sinus_rhythm,1,not_set,64,512,200,"{""synthetic"":true}",apple_health,apple_health,
+2026-09-29T08:00:00Z,2026-09-29T08:00:00.4Z,negative,0,not_set,64,300,120,"{""synthetic"":true}",withings,withings,

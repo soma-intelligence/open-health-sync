@@ -1,0 +1,68 @@
+{
+  "data": [
+    {
+      "active_energy_kcal": 633,
+      "activity_type": "cycling",
+      "avg_heart_rate": 144,
+      "avg_speed_mps": 7.76,
+      "device": null,
+      "distance_m": 31641,
+      "duration_s": 4080,
+      "elevation_gain_m": 161,
+      "end_date": "2026-09-24T17:08:00Z",
+      "external_id": "demo-polar-exercise-2026-09-24",
+      "max_heart_rate": 160,
+      "metadata": {
+        "synthetic": true,
+        "timezone": "Europe/Paris"
+      },
+      "provider": "polar",
+      "source": "polar",
+      "start_date": "2026-09-24T16:00:00Z",
+      "vo2_max": null
+    },
+    {
+      "active_energy_kcal": 855,
+      "activity_type": "running",
+      "avg_heart_rate": 147,
+      "avg_speed_mps": 2.8,
+      "device": null,
+      "distance_m": 14952,
+      "duration_s": 5340,
+      "elevation_gain_m": 41,
+      "end_date": "2026-09-26T09:05:00Z",
+      "external_id": "demo-polar-exercise-2026-09-26",
+      "max_heart_rate": 161,
+      "metadata": {
+        "synthetic": true,
+        "timezone": "Europe/Paris"
+      },
+      "provider": "polar",
+      "source": "polar",
+      "start_date": "2026-09-26T07:36:00Z",
+      "vo2_max": 46.6
+    },
+    {
+      "active_energy_kcal": 398,
+      "activity_type": "walking",
+      "avg_heart_rate": 115,
+      "avg_speed_mps": 1.33,
+      "device": null,
+      "distance_m": 5286,
+      "duration_s": 3960,
+      "elevation_gain_m": 17,
+      "end_date": "2026-09-27T14:01:00Z",
+      "external_id": "demo-polar-exercise-2026-09-27",
+      "max_heart_rate": 127,
+      "metadata": {
+        "synthetic": true,
+        "timezone": "Europe/Paris"
+      },
+      "provider": "polar",
+      "source": "polar",
+      "start_date": "2026-09-27T12:55:00Z",
+      "vo2_max": null
+    }
+  ],
+  "next_cursor": null
+}
