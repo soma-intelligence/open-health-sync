@@ -75,6 +75,27 @@ func TestFetch_PageThatIsNotAListIsAnError(t *testing.T) {
 	assert.ErrorContains(t, err, "decode page 1")
 }
 
+// A null entry of a page used to be stored as the raw line "null", which is
+// not an activity and failed Map on every replay.
+func TestFetch_NullEntryIsSkipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[null, {"id":1,"start_date":"2026-03-01T07:00:00Z"}]`))
+	}))
+	defer srv.Close()
+	c := New(Options{ClientID: "a", ClientSecret: "b", APIBase: srv.URL, HTTPClient: srv.Client(), PageDelay: -1})
+	sink := &recordingSink{}
+	require.NoError(t, c.Fetch(context.Background(), conn(), march1, march3, sink))
+	assert.Equal(t, []string{`{"id":1,"start_date":"2026-03-01T07:00:00Z"}`}, linesOf(sink))
+}
+
+func linesOf(s *recordingSink) []string {
+	var out []string
+	for _, l := range s.lines() {
+		out = append(out, string(l))
+	}
+	return out
+}
+
 func TestReadBody_RefusesPastTheCap(t *testing.T) {
 	_, err := readBody(strings.NewReader("12345"), 4)
 	assert.Error(t, err)

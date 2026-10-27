@@ -77,6 +77,11 @@ func (c *Connector) fetchActivities(ctx context.Context, token string, from, to 
 			return nil, fmt.Errorf("decode page %d: %w", page, err)
 		}
 		for _, it := range items {
+			// A null entry holds no activity; stored, it would be a raw line
+			// that is not an object.
+			if bytes.Equal(bytes.TrimSpace(it), []byte("null")) {
+				continue
+			}
 			line, err := compact(it)
 			if err != nil {
 				return nil, fmt.Errorf("page %d: %w", page, err)

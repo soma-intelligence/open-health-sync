@@ -155,7 +155,7 @@ func FuzzHandleInbound(f *testing.F) {
 }
 
 // FuzzFetchPage serves an arbitrary body as the activities page. Fetch must
-// not panic or loop, and every line it emits is one line of compact JSON.
+// not panic or loop, and every line it emits is one JSON object on one line.
 func FuzzFetchPage(f *testing.F) {
 	f.Add(stravafake.File("activities.json"))
 	for _, s := range []string{`[]`, `null`, `{}`, `[null]`, `[1,"a",[]]`, `[{"start_date":"bad"}]`, `[{"start_date":"2026-03-01T00:00:00Z"},{"start_date":"2026-03-01T00:00:00Z"}]`} {
@@ -176,8 +176,8 @@ func FuzzFetchPage(f *testing.F) {
 			return
 		}
 		for _, l := range sink.lines() {
-			if strings.ContainsAny(string(l), "\n\r") || !json.Valid(l) {
-				t.Fatalf("emitted line is not one line of JSON: %q", l)
+			if strings.ContainsAny(string(l), "\n\r") || !json.Valid(l) || l[0] != '{' {
+				t.Fatalf("emitted line is not one JSON object on one line: %q", l)
 			}
 		}
 	})
