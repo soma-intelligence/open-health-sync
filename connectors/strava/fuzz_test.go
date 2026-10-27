@@ -46,6 +46,7 @@ func FuzzMap(f *testing.F) {
 		`{"id":1,"start_date":"9999-12-31T23:59:59Z","elapsed_time":1}`,
 		`{"id":1,"start_date":"2026-03-01T00:00:00+14:00","elapsed_time":-5,"moving_time":-1}`,
 		`{"id":1,"start_date":"2026-03-01T00:00:00-12:00","elapsed_time":9223372036,"moving_time":3600}`,
+		`{"id":1,"start_date":"2026-03-01T00:00:00Z","elapsed_time":36028797018967568}`,
 		`{"id":1,"start_date":"2026-03-01T00:00:00Z","distance":1e308,"average_speed":-1e308,"kilojoules":1e308,"calories":0}`,
 		`{"id":1e30,"start_date":"2026-03-01T00:00:00Z"}`, `{"id":-1,"start_date":"2026-03-01T00:00:00Z","timezone":"(GMT+23:59) Nowhere/Else"}`,
 		`{"id":1,"start_date":"2026-03-01T00:00:00Z","sport_type":[],"type":{"a":{"b":{"c":[[[[]]]]}}}}`,
@@ -181,4 +182,3 @@ func FuzzFetchPage(f *testing.F) {
 		}
 	})
 }
-
