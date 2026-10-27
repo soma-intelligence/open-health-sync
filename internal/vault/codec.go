@@ -45,6 +45,9 @@ type Table struct {
 	// Sealed lists the columns encoded into the sealed bytes, in the order Encode
 	// and Decode take and return their values.
 	Sealed []Column
+	// Clear lists every other column of the table, so a column added by a later
+	// migration has to be placed (sealed or clear) on purpose; a test checks it.
+	Clear []string
 	// Identity lists the clear columns that identify the row, in order. They form
 	// the tail of the row's AAD, so a sealed value moved to another row fails to
 	// open.
@@ -64,7 +67,8 @@ const endTag = 0
 
 // Encode returns the plaintext of a sealed row. vals are in Sealed order and nil
 // is SQL NULL. A NULL field is left out of the encoding, so an empty string and a
-// NULL stay apart. The accepted Go types per kind are float64, int64 (or int),
+// NULL stay apart. A nil []byte or json.RawMessage is NULL too (it is what a
+// driver returns for a NULL jsonb or bytea); an empty non-nil one is a value. The accepted Go types per kind are float64, int64 (or int),
 // bool, string, []byte or json.RawMessage (KindJSON and KindBytes) and time.Time.
 func (t Table) Encode(vals []any) ([]byte, error) {
 	if len(vals) != len(t.Sealed) {
@@ -73,7 +77,7 @@ func (t Table) Encode(vals []any) ([]byte, error) {
 	out := []byte{formatByte}
 	var scratch [binary.MaxVarintLen64]byte
 	for i, c := range t.Sealed {
-		if vals[i] == nil {
+		if isNull(vals[i]) {
 			continue
 		}
 		body, err := encodeValue(c.Kind, vals[i])
@@ -234,4 +238,17 @@ func readVarint(b []byte) (int64, error) {
 
 func wrongType(k Kind, v any) error {
 	return fmt.Errorf("kind %d does not take %T", k, v)
+}
+
+// isNull reports whether v is SQL NULL: nil, or a nil byte slice.
+func isNull(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case []byte:
+		return x == nil
+	case json.RawMessage:
+		return x == nil
+	}
+	return false
 }
