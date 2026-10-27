@@ -95,6 +95,9 @@ type Config struct {
 	// client address (OHS_TRUSTED_PROXIES, default none).
 	TrustedProxies []netip.Prefix
 	Providers      map[string]ProviderKeys // key = lower-case slug
+	// Vault holds the key provider and key cache settings of the health data
+	// vault (the OHS_VAULT_ variables).
+	Vault Vault
 }
 
 // OTLP protocols, as OTEL_EXPORTER_OTLP_PROTOCOL names them.
@@ -214,6 +217,18 @@ var reserved = map[string]bool{
 	"HTTP_PORT":                   true, // read by docker compose only (host port)
 	"HTTP_BIND":                   true, // read by docker compose only (host address)
 	"VERSION":                     true, // read by docker compose only (image tag)
+	"VAULT_KEY_PROVIDER":          true,
+	"VAULT_ROOT_KEY":              true,
+	"VAULT_ROOT_KEY_FILE":         true,
+	"VAULT_ROOT_KEY_PREVIOUS":     true,
+	"VAULT_HASHICORP_ADDR":        true,
+	"VAULT_HASHICORP_MOUNT":       true,
+	"VAULT_HASHICORP_KEY":         true,
+	"VAULT_HASHICORP_TOKEN_FILE":  true,
+	"VAULT_AZURE_KEY_ID":          true,
+	"VAULT_AWS_KEY_ARN":           true,
+	"VAULT_CACHE_USERS":           true,
+	"VAULT_CACHE_TTL":             true,
 }
 
 // ErrEncryptionKey is wrapped by every Load error about OHS_ENCRYPTION_KEY
@@ -291,6 +306,9 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	}
 	c.EncryptionKey, c.EncryptionKeySource = key, src
 	if c.PreviousEncryptionKeys, err = previousKeys(get("OHS_PREVIOUS_ENCRYPTION_KEYS", ""), key); err != nil {
+		return Config{}, err
+	}
+	if c.Vault, err = loadVault(get, c.EncryptionKey, c.PreviousEncryptionKeys); err != nil {
 		return Config{}, err
 	}
 
@@ -530,6 +548,13 @@ func parseProxy(s string) (netip.Prefix, error) {
 // keys of 32 bytes, none equal to the active key or to another. Errors name
 // the entry by position, never by value.
 func previousKeys(raw string, active []byte) ([][]byte, error) {
+	return keyList(raw, active, ErrPreviousEncryptionKeys, "OHS_ENCRYPTION_KEY")
+}
+
+// keyList decodes a comma separated list of base64 keys of 32 bytes, none
+// equal to the active key (named activeName in errors) or to another. Errors
+// wrap sentinel, name the entry by position and never carry a value.
+func keyList(raw string, active []byte, sentinel error, activeName string) ([][]byte, error) {
 	var keys [][]byte
 	n := 0
 	for _, s := range strings.Split(raw, ",") {
@@ -540,17 +565,17 @@ func previousKeys(raw string, active []byte) ([][]byte, error) {
 		n++
 		k, err := base64.StdEncoding.DecodeString(s)
 		if err != nil {
-			return nil, fmt.Errorf("%w: entry %d is not valid base64 (comma separated keys from `openssl rand -base64 32`)", ErrPreviousEncryptionKeys, n)
+			return nil, fmt.Errorf("%w: entry %d is not valid base64 (comma separated keys from `openssl rand -base64 32`)", sentinel, n)
 		}
 		if len(k) != 32 {
-			return nil, fmt.Errorf("%w: entry %d must decode to 32 bytes, got %d", ErrPreviousEncryptionKeys, n, len(k))
+			return nil, fmt.Errorf("%w: entry %d must decode to 32 bytes, got %d", sentinel, n, len(k))
 		}
 		if string(k) == string(active) {
-			return nil, fmt.Errorf("%w: entry %d is OHS_ENCRYPTION_KEY itself; list only the keys it replaced", ErrPreviousEncryptionKeys, n)
+			return nil, fmt.Errorf("%w: entry %d is %s itself; list only the keys it replaced", sentinel, n, activeName)
 		}
 		for i, o := range keys {
 			if string(o) == string(k) {
-				return nil, fmt.Errorf("%w: entries %d and %d are the same key", ErrPreviousEncryptionKeys, i+1, n)
+				return nil, fmt.Errorf("%w: entries %d and %d are the same key", sentinel, i+1, n)
 			}
 		}
 		keys = append(keys, k)
