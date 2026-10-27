@@ -418,6 +418,29 @@ func TestSamplesFilter(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, r.code, "garbage cursor")
 }
 
+// A bound outside the years 1 to 9999 in UTC is a 400 on every read: the
+// daily figures compare it as a Postgres date, which has no year 0.
+func TestReadBoundsOutOfRange(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(e.tenantA, "a-1")
+	e.seed(e.tenantA, u)
+	base := "/v1/users/" + u.String()
+	for _, path := range []string{"/daily", "/coverage", "/fhir/Observation", "/exports/daily", "/samples?type=heart_rate", "/tags"} {
+		for _, bound := range []string{"start=0000-01-01", "end=0000-12-31T23:00:00Z",
+			"end=0001-01-01T00:00:00%2B23:59", "start=9999-12-31T23:59:59-23:59"} {
+			sep := "?"
+			if strings.Contains(path, "?") {
+				sep = "&"
+			}
+			r := e.do("GET", base+path+sep+bound, e.keyA, nil)
+			require.Equal(t, http.StatusBadRequest, r.code, "%s %s: %s", path, bound, r.body)
+			assert.Contains(t, string(r.body), "years 0001 to 9999", "%s %s", path, bound)
+		}
+	}
+	r := e.do("GET", base+"/daily?start=0001-01-01&end=9999-12-31T23:59:59Z", e.keyA, nil)
+	assert.Equal(t, http.StatusOK, r.code, "the widest window is still served: %s", r.body)
+}
+
 func TestLimitCap(t *testing.T) {
 	e := newEnv(t)
 	u := e.user(e.tenantA, "a-1")

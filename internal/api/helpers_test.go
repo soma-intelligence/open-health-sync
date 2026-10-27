@@ -69,6 +69,18 @@ func TestParseTimeInReadsDatesInTheZone(t *testing.T) {
 
 	_, err = parseTimeIn("20/10/2026", paris)
 	assert.Error(t, err)
+
+	// Midnight of 0001-01-01 in Paris is still year 0 in UTC.
+	_, err = parseTimeIn("0001-01-01", paris)
+	assert.ErrorIs(t, err, errTimeRange)
+	for _, v := range []string{"0000-06-01", "0001-01-01T00:00:00+01:00", "9999-12-31T23:30:00-01:00"} {
+		_, err = parseTime(v)
+		assert.ErrorIs(t, err, errTimeRange, v)
+	}
+	for _, v := range []string{"0001-01-01", "9999-12-31T23:59:59Z"} {
+		_, err = parseTime(v)
+		assert.NoError(t, err, v)
+	}
 }
 
 func TestParseReadQuery(t *testing.T) {
