@@ -30,7 +30,7 @@ func mapContinuousHR(line []byte, userID string) (*model.MapResult, error) {
 	}
 	base := map[string]any{"source": "continuous_heart_rate"}
 	offset := 0
-	if d.UTCOffsetMinutes != nil {
+	if validOffset(d.UTCOffsetMinutes) {
 		offset = *d.UTCOffsetMinutes
 		base = withOffset(base, offset)
 	} else {

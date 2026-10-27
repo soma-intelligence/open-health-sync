@@ -163,6 +163,33 @@ func TestMapSleep(t *testing.T) {
 	assert.Equal(t, s.ContentHash, res2.SleepPhases[0].ParentContentHash)
 }
 
+// No zone is more than 14 hours from UTC. An offset of 100000 minutes used to
+// move an exercise and a day of heart rate by 69 days, into dates validation
+// accepts, and was stored as the record's offset.
+func TestMap_OffsetBeyondFourteenHoursIsIgnored(t *testing.T) {
+	res, err := mapLine(t, DataTypeExercise, `{"id":"X","start_time":"2026-03-05T07:30:00","start_time_utc_offset":100000,"duration":"PT30M"}`)
+	require.NoError(t, err)
+	w := res.Workouts[0]
+	assert.Equal(t, time.Date(2026, 3, 5, 7, 30, 0, 0, time.UTC), w.StartDate, "read as UTC, as without an offset")
+	assert.NotContains(t, w.Metadata, "utc_offset_minutes")
+
+	res, err = mapLine(t, DataTypeContinuousHR, `{"date":"2026-03-04","utc_offset_minutes":-100000,"heart_rate_samples":[{"heart_rate":60,"sample_time":"08:00"}]}`)
+	require.NoError(t, err)
+	q := res.QuantitySamples[0]
+	assert.Equal(t, time.Date(2026, 3, 4, 8, 0, 0, 0, time.UTC), q.StartDate, "read as UTC, as without an offset")
+	assert.NotContains(t, q.Metadata, "utc_offset_minutes")
+	assert.Equal(t, true, q.Metadata["local_time_as_utc"])
+
+	res, err = mapLine(t, DataTypeExercise, `{"id":"X","start_time":"2026-03-05T07:30:00+14:00"}`)
+	require.NoError(t, err)
+	assert.Equal(t, 840, res.Workouts[0].Metadata["utc_offset_minutes"], "+14:00 is a real zone")
+
+	res, err = mapLine(t, DataTypeExercise, `{"id":"X","start_time":"2026-03-05T07:30:00+23:59"}`)
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 3, 4, 7, 31, 0, 0, time.UTC), res.Workouts[0].StartDate, "the instant RFC 3339 names")
+	assert.NotContains(t, res.Workouts[0].Metadata, "utc_offset_minutes")
+}
+
 func TestMapSleep_Edges(t *testing.T) {
 	res, err := mapLine(t, DataTypeSleep, fixtureItem(t, "sleep.json", "nights", 1))
 	require.NoError(t, err)

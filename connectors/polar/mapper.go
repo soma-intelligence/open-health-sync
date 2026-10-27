@@ -89,8 +89,12 @@ func setIf[T any](md map[string]any, key string, v *T) {
 }
 
 // withOffset records a UTC offset in md, plus the matching Etc/GMT zone as
-// "timezone" when the offset is a whole hour.
+// "timezone" when the offset is a whole hour. An offset no zone uses is not
+// recorded.
 func withOffset(md map[string]any, minutes int) map[string]any {
+	if !validOffset(&minutes) {
+		return md
+	}
 	md["utc_offset_minutes"] = minutes
 	if z := offsetZone(minutes); z != "" {
 		md["timezone"] = z
