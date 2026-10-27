@@ -143,7 +143,7 @@ func FuzzHandleInbound(f *testing.F) {
 }
 
 // FuzzFetchList serves an arbitrary body as every list answer. Fetch must
-// not panic or loop, and every line it emits is one line of compact JSON.
+// not panic or loop, and every line it emits is one JSON object on one line.
 func FuzzFetchList(f *testing.F) {
 	f.Add(icufake.File("activities.json"))
 	f.Add(icufake.File("wellness.json"))
@@ -164,8 +164,8 @@ func FuzzFetchList(f *testing.F) {
 		}
 		for _, call := range sink.calls {
 			for _, l := range call.Lines {
-				if strings.ContainsAny(string(l), "\n\r") || !json.Valid(l) {
-					t.Fatalf("emitted line is not one line of JSON: %q", l)
+				if strings.ContainsAny(string(l), "\n\r") || !json.Valid(l) || l[0] != '{' {
+					t.Fatalf("emitted line is not one JSON object on one line: %q", l)
 				}
 			}
 		}
