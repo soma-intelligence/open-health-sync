@@ -165,7 +165,9 @@ A share link is a way out of the instance for one user's data, readable by whoev
 
 - **Server-side request forgery.** Without `OHS_WEBHOOK_ALLOW_PRIVATE`, endpoint URLs must be
   https, carry no credentials, and not name localhost or a private, loopback, link-local
-  (cloud metadata), CGNAT, multicast or unspecified address. The same check runs again in the
+  (cloud metadata), CGNAT, reserved (0.0.0.0/8, 192.0.0.0/24, 198.18.0.0/15, 240.0.0.0/4,
+  IPv6 site-local), multicast or unspecified address, nor an IPv6 address that carries such an
+  IPv4 address (NAT64, 6to4, IPv4-compatible). The same check runs again in the
   dialer on the address actually connected to, so a name that resolves or rebinds to a private
   address is refused. Redirects are not followed (`internal/webhook/guard.go`,
   `internal/webhook/worker.go`).

@@ -58,16 +58,58 @@ func CheckURL(raw string, allowPrivate bool) error {
 	return nil
 }
 
-// cgnat is the shared address space of carrier-grade NAT (RFC 6598).
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+// reserved are the IPv4 and IPv6 ranges that are neither public unicast nor
+// covered by the netip predicates: shared address space of carrier-grade NAT
+// (RFC 6598), "this network", IETF protocol assignments, benchmarking, the
+// reserved class E block (broadcast included) and IPv6 site-local.
+var reserved = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("fec0::/10"),
+}
+
+// Prefixes of IPv6 addresses that carry an IPv4 address: NAT64 (RFC 6052,
+// RFC 8215) in their last 32 bits, 6to4 (RFC 3056) in bits 16 to 47, and the
+// deprecated IPv4-compatible form (::a.b.c.d) in the last 32 bits.
+var (
+	lastIPv4 = []netip.Prefix{
+		netip.MustParsePrefix("64:ff9b::/96"), netip.MustParsePrefix("64:ff9b:1::/48"), netip.MustParsePrefix("::/96"),
+	}
+	sixToFour = netip.MustParsePrefix("2002::/16")
+)
 
 // blocked reports addresses a webhook must not reach unless private
 // destinations are allowed: loopback, private, link-local (cloud metadata
-// services live there), unspecified, multicast and shared address space.
+// services live there), unspecified, multicast, the reserved ranges, and an
+// IPv6 address that carries a blocked IPv4 address, which a NAT64 gateway or
+// 6to4 relay would forward to it.
 func blocked(a netip.Addr) bool {
 	a = a.Unmap()
-	return a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
-		a.IsInterfaceLocalMulticast() || a.IsMulticast() || a.IsUnspecified() || cgnat.Contains(a)
+	if a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
+		a.IsInterfaceLocalMulticast() || a.IsMulticast() || a.IsUnspecified() {
+		return true
+	}
+	for _, p := range reserved {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	if !a.Is6() {
+		return false
+	}
+	b := a.As16()
+	for _, p := range lastIPv4 {
+		if p.Contains(a) {
+			return blocked(netip.AddrFrom4([4]byte(b[12:16])))
+		}
+	}
+	if sixToFour.Contains(a) {
+		return blocked(netip.AddrFrom4([4]byte(b[2:6])))
+	}
+	return false
 }
 
 // errBlocked is the dial error for a refused address.
