@@ -165,14 +165,20 @@ var (
 )
 
 // volatileKeys are the object keys and CSV columns whose value changes from
-// run to run, in every body. Row ids come from sequences that other writes
-// advance. ingested_at is the ingestion time (samples, RR intervals);
+// run to run, in every body. id is the row id of each record of the lists
+// (samples, sleep, workouts, ECG, cycles, FHIR resources, the id column of
+// the CSV exports); ids come from sequences that other writes advance.
+// ingested_at is the ingestion time (samples, RR intervals);
 // creation_date_time is the Open mHealth header's ingestion time; recorded
 // and issued are the ingestion times of FHIR Provenance and Observation.
-// request_id is generated per request. No current output carries created_at
-// or updated_at, and last_synced_at (coverage only) is stripped by that
-// output alone (see captureOutputs), so a new field of those names shows up
-// in a capture instead of being hidden.
+// request_id is generated per request: no captured 200 body carries it today
+// (it is in idempotent replies and share and error bodies), it is listed
+// so a capture of such an output stays stable.
+// Among the captured outputs none carries created_at or updated_at (other
+// outputs do: timetag, the MCP user, webhooks, shares), and last_synced_at
+// (coverage only) is stripped by that output alone (see captureOutputs). A
+// future capture of an output that carries created_at or updated_at must
+// list the key here, or strip it for that output, with its reason.
 var volatileKeys = map[string]bool{
 	"id": true, "ingested_at": true, "request_id": true,
 	"creation_date_time": true, "recorded": true, "issued": true,
