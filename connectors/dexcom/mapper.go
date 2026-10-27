@@ -140,7 +140,11 @@ func displayOffset(system, display string) (int, bool) {
 	}
 	if dOff {
 		_, sec := d.Zone()
-		return sec / 60, true
+		minutes := sec / 60
+		if minutes < -12*60 || minutes > 14*60 {
+			return 0, false
+		}
+		return minutes, true
 	}
 	s, _, err := parseTime(system)
 	if err != nil {

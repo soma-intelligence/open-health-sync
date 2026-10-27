@@ -322,3 +322,18 @@ func TestDisplayOffsetRounds(t *testing.T) {
 	_, ok = displayOffset("2026-01-21T07:00:00", "2026-01-23T07:00:00")
 	require.False(t, ok)
 }
+
+func TestDisplayOffsetRefusesWrittenOffsetsOutOfRange(t *testing.T) {
+	for _, display := range []string{"2026-03-01T09:00:00+23:59", "2026-03-01T09:00:00-23:00", "2026-03-01T09:00:00+14:15", "2026-03-01T09:00:00-12:30"} {
+		_, ok := displayOffset("2026-03-01T08:00:00", display)
+		require.False(t, ok, display)
+	}
+	off, ok := displayOffset("2026-03-01T08:00:00", "2026-03-01T09:00:00+14:00")
+	require.True(t, ok)
+	require.Equal(t, 14*60, off)
+
+	rec := egvRecord("rec-far", "2026-03-01T08:00:00", "2026-03-01T09:00:00+23:59", 100)
+	res, err := New(Options{}).Map(connector.RawRecord{UserID: testUser, DataType: DataTypeEGV, Fields: fieldsOf(t, rec)})
+	require.NoError(t, err)
+	require.NotContains(t, res.QuantitySamples[0].Metadata, "utc_offset_minutes")
+}
