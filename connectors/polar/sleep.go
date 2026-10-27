@@ -130,6 +130,7 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 
 	type mark struct {
 		at    time.Time
+		clock string
 		stage int
 	}
 	var marks []mark
@@ -138,9 +139,16 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("polar: sleep hypnogram: %w", err)
 		}
-		marks = append(marks, mark{at: at, stage: stage})
+		marks = append(marks, mark{at: at, clock: clock, stage: stage})
 	}
-	sort.Slice(marks, func(i, j int) bool { return marks[i].at.Before(marks[j].at) })
+	// Two spellings of one clock time ("1:00", "01:00") land on one instant:
+	// the clock breaks the tie, so the map's random order never decides.
+	sort.Slice(marks, func(i, j int) bool {
+		if !marks[i].at.Equal(marks[j].at) {
+			return marks[i].at.Before(marks[j].at)
+		}
+		return marks[i].clock < marks[j].clock
+	})
 	dropped := 0
 	sessionEnd := end.UTC()
 	for i, m := range marks {
@@ -168,8 +176,9 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 	noteDroppedSleepStates(dropped)
 
 	type reading struct {
-		at time.Time
-		v  float64
+		at    time.Time
+		clock string
+		v     float64
 	}
 	readings := make([]reading, 0, len(s.HeartRateSamples))
 	for clock, v := range s.HeartRateSamples {
@@ -180,11 +189,19 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("polar: sleep heart rate: %w", err)
 		}
-		readings = append(readings, reading{at: at, v: v})
+		readings = append(readings, reading{at: at, clock: clock, v: v})
 	}
-	sort.Slice(readings, func(i, j int) bool { return readings[i].at.Before(readings[j].at) })
-	for _, rd := range readings {
+	sort.Slice(readings, func(i, j int) bool {
+		if !readings[i].at.Equal(readings[j].at) {
+			return readings[i].at.Before(readings[j].at)
+		}
+		return readings[i].clock < readings[j].clock
+	})
+	for i, rd := range readings {
 		at, v := rd.at, rd.v
+		if i > 0 && at.Equal(readings[i-1].at) {
+			continue // one reading per instant: the first clock spelling
+		}
 		hmd := map[string]any{"context": "sleep"}
 		if zoned {
 			hmd = withOffset(hmd, offset)

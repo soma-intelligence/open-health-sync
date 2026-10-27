@@ -88,6 +88,7 @@ func FuzzMap(f *testing.F) {
 		`{"date":"2026-03-04","utc_offset_minutes":100000,"heart_rate_samples":[{"heart_rate":60,"sample_time":"12:00"}]}`,
 		`{"id":"E","start_time":"2026-03-01T00:00:00","calories":1e308,"distance":-1,"heart_rate":{"average":"NaN"}}`,
 		`{"id":"E","start_time":"2026-03-01T00:00:00","sport":[],"detailed_sport_info":{"a":{"b":[[[[]]]]}}}`,
+		`{"date":"2026-03-04","sleep_start_time":"2026-03-03T23:30:00+01:00","sleep_end_time":"2026-03-04T07:00:00+01:00","hypnogram":{"23:30":2,"1:00":4,"01:00":1},"heart_rate_samples":{"23:40":50,"0:5":51,"00:05":52}}`,
 		`{"date":"2026-03-04","sleep_start_time":"2026-03-04T07:00:00Z","sleep_end_time":"2026-03-03T23:00:00Z"}`,
 		`{"date":"2026-03-04","sleep_start_time":"2026-03-03T23:00:00","sleep_end_time":"2026-03-04T07:00:00","deep_sleep":9223372036854774784,"rem_sleep":9223372036854774784,"light_sleep":5648}`,
 		`{"date":"2026-03-04","utc_offset_minutes":-720,"heart_rate_samples":[{"heart_rate":60,"sample_time":"23:59:59"},{"heart_rate":60,"sample_time":"23:59:59"}]}`,

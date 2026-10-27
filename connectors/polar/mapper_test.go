@@ -190,6 +190,22 @@ func TestMap_OffsetBeyondFourteenHoursIsIgnored(t *testing.T) {
 	assert.NotContains(t, res.Workouts[0].Metadata, "utc_offset_minutes")
 }
 
+// "1:00" and "01:00" name the same clock time. The hypnogram and the heart
+// rate samples are JSON objects, read in random order, so which stage and
+// which reading won that instant used to change from one Map to the next.
+func TestMapSleep_SameClockTwiceIsDeterministic(t *testing.T) {
+	line := `{"date":"2026-03-04","sleep_start_time":"2026-03-03T23:30:00+01:00","sleep_end_time":"2026-03-04T07:00:00+01:00",
+		"hypnogram":{"23:30":2,"1:00":4,"01:00":1},"heart_rate_samples":{"0:5":51,"00:05":52}}`
+	first, err := mapLine(t, DataTypeSleep, line)
+	require.NoError(t, err)
+	require.Len(t, first.QuantitySamples, 1, "one reading per instant")
+	for i := 0; i < 50; i++ {
+		again, err := mapLine(t, DataTypeSleep, line)
+		require.NoError(t, err)
+		require.Equal(t, first, again)
+	}
+}
+
 func TestMapSleep_Edges(t *testing.T) {
 	res, err := mapLine(t, DataTypeSleep, fixtureItem(t, "sleep.json", "nights", 1))
 	require.NoError(t, err)
