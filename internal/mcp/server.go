@@ -8,6 +8,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -68,8 +69,72 @@ func NewHandler(d Deps) http.Handler {
 			auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "a valid API key or user token is required")
 			return
 		}
-		h.ServeHTTP(w, r)
+		pw := &problemWriter{ResponseWriter: w}
+		h.ServeHTTP(pw, r)
+		pw.finish()
 	})
+}
+
+// maxErrorDetail bounds the text of a transport error kept as a problem's
+// detail.
+const maxErrorDetail = 512
+
+// problemWriter turns the plain text errors of the transport and of the
+// cross-origin guard (http.Error: a wrong content type, a body that is not
+// JSON-RPC, a cross-site page, another method) into RFC 9457 problems, as
+// every other error of the API is. Anything else passes through as written.
+type problemWriter struct {
+	http.ResponseWriter
+	status int
+	detail bytes.Buffer
+}
+
+func (w *problemWriter) WriteHeader(code int) {
+	if w.status != 0 {
+		return
+	}
+	if code >= 400 && strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") {
+		w.status = code
+		return
+	}
+	w.status = -1
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *problemWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.status > 0 {
+		if room := maxErrorDetail - w.detail.Len(); room > 0 {
+			w.detail.Write(b[:min(len(b), room)])
+		}
+		return len(b), nil
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Flush lets a streamed answer through; a held error is written by finish.
+func (w *problemWriter) Flush() {
+	if w.status > 0 {
+		return
+	}
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *problemWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *problemWriter) finish() {
+	if w.status <= 0 {
+		return
+	}
+	detail := strings.TrimSpace(w.detail.String())
+	if detail == "" {
+		detail = strings.ToLower(http.StatusText(w.status))
+	}
+	auth.WriteProblem(w.ResponseWriter, w.status, http.StatusText(w.status), detail)
 }
 
 const instructions = `Open Health Sync: read-only access to health data (quantity samples, ` +

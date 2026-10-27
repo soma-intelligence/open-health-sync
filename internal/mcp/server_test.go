@@ -256,6 +256,44 @@ func TestCrossOriginRefused(t *testing.T) {
 	assert.Equal(t, http.StatusOK, post("Sec-Fetch-Site", "same-origin"))
 }
 
+// A request the MCP transport refuses (no JSON content type, a body that is
+// not JSON-RPC, a missing Accept, a cross-origin page, another method) is an
+// RFC 9457 problem like every other error of the API, never text/plain.
+func TestTransportErrorsAreProblems(t *testing.T) {
+	f := newFake(t)
+	for _, tc := range []struct {
+		method, body string
+		hdr          []string
+		status       int
+	}{
+		{http.MethodPost, "", nil, http.StatusUnsupportedMediaType},
+		{http.MethodPost, "{", []string{"Content-Type", "application/json", "Accept", "application/json, text/event-stream"}, http.StatusBadRequest},
+		{http.MethodPost, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, []string{"Content-Type", "application/json"}, http.StatusBadRequest},
+		{http.MethodPost, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, []string{"Content-Type", "application/json",
+			"Accept", "application/json, text/event-stream", "Sec-Fetch-Site", "cross-site"}, http.StatusForbidden},
+		{http.MethodGet, "", nil, http.StatusMethodNotAllowed},
+	} {
+		req, _ := http.NewRequest(tc.method, f.srv.URL, strings.NewReader(tc.body))
+		req.Header.Set("Authorization", "Bearer "+f.key)
+		for i := 0; i+1 < len(tc.hdr); i += 2 {
+			req.Header.Set(tc.hdr[i], tc.hdr[i+1])
+		}
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		var p struct {
+			Status int    `json:"status"`
+			Detail string `json:"detail"`
+		}
+		err = json.NewDecoder(res.Body).Decode(&p)
+		_ = res.Body.Close()
+		assert.Equal(t, tc.status, res.StatusCode, "%s %q", tc.method, tc.body)
+		assert.Equal(t, "application/problem+json", res.Header.Get("Content-Type"), "%s %q", tc.method, tc.body)
+		require.NoError(t, err, "%s %q", tc.method, tc.body)
+		assert.Equal(t, tc.status, p.Status)
+		assert.NotEmpty(t, p.Detail)
+	}
+}
+
 // The prompt library is listed with its blanks as arguments, and a prompt
 // comes back filled, followed by the rules every answer holds to.
 func TestPrompts(t *testing.T) {

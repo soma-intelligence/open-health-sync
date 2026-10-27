@@ -42,13 +42,17 @@ func parseLimit(r *http.Request) (int, error) {
 	return n, nil
 }
 
+// errTimeRange is a time whose UTC year is outside 1 to 9999: Postgres has
+// no year 0 as a date, and JSON cannot carry a year past 9999.
+var errTimeRange = errors.New("out of range: use a time in the years 0001 to 9999 (UTC)")
+
 // parseTime accepts RFC 3339 or a calendar date (YYYY-MM-DD, midnight UTC).
 func parseTime(v string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-		return t.UTC(), nil
+		return inRange(t.UTC())
 	}
 	if t, err := time.Parse(time.DateOnly, v); err == nil {
-		return t.UTC(), nil
+		return inRange(t.UTC())
 	}
 	return time.Time{}, errors.New("not an RFC 3339 time or a YYYY-MM-DD date")
 }
@@ -56,9 +60,19 @@ func parseTime(v string) (time.Time, error) {
 // parseTimeIn is parseTime with a YYYY-MM-DD date read as midnight in loc.
 func parseTimeIn(v string, loc *time.Location) (time.Time, error) {
 	if t, err := time.ParseInLocation(time.DateOnly, v, loc); err == nil {
+		if _, err := inRange(t.UTC()); err != nil {
+			return time.Time{}, err
+		}
 		return t, nil
 	}
 	return parseTime(v)
+}
+
+func inRange(t time.Time) (time.Time, error) {
+	if y := t.Year(); y < 1 || y > 9999 {
+		return time.Time{}, errTimeRange
+	}
+	return t, nil
 }
 
 // parseReadQuery reads type, start, end, cursor, limit and view.

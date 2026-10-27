@@ -163,7 +163,7 @@ func (s *server) idempotent(next http.Handler) http.Handler {
 		case errors.Is(err, errNotStored):
 			big.sendTo(w)
 		case errors.Is(err, tenant.ErrIdempotencyKeyInvalid):
-			badRequest(w, "the Idempotency-Key header must be 1 to 255 characters")
+			badRequest(w, "the Idempotency-Key header must be 1 to 255 characters of UTF-8 text")
 		case errors.Is(err, tenant.ErrIdempotencyMismatch):
 			problem(w, http.StatusUnprocessableEntity, "this Idempotency-Key was used with a different request")
 		case errors.Is(err, tenant.ErrIdempotencyInProgress):
