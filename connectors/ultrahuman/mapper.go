@@ -469,7 +469,7 @@ func unixTime(v float64) (time.Time, bool) {
 	if v > 1e11 {
 		v /= 1000
 	}
-	if v < 1420070400 || v > 4102444800 {
+	if !(v >= 1420070400 && v <= 4102444800) { // written so NaN is refused
 		return time.Time{}, false
 	}
 	sec, frac := math.Modf(v)

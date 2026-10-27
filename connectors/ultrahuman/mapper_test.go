@@ -329,6 +329,8 @@ func TestUnixTime(t *testing.T) {
 	require.False(t, ok)
 	_, ok = unixTime(math.MaxFloat64)
 	require.False(t, ok)
+	_, ok = unixTime(math.NaN())
+	require.False(t, ok, "NaN passes every comparison")
 	got, ok := unixTime(1773046800.5)
 	require.True(t, ok)
 	require.Equal(t, 500*time.Millisecond, time.Duration(got.Nanosecond()))
