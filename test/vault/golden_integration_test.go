@@ -165,10 +165,17 @@ var (
 )
 
 // volatileKeys are the object keys and CSV columns whose value changes from
-// run to run: row ids come from sequences that other writes advance.
+// run to run, in every body. Row ids come from sequences that other writes
+// advance. ingested_at is the ingestion time (samples, RR intervals);
+// creation_date_time is the Open mHealth header's ingestion time; recorded
+// and issued are the ingestion times of FHIR Provenance and Observation.
+// request_id is generated per request. No current output carries created_at
+// or updated_at, and last_synced_at (coverage only) is stripped by that
+// output alone (see captureOutputs), so a new field of those names shows up
+// in a capture instead of being hidden.
 var volatileKeys = map[string]bool{
-	"id": true, "ingested_at": true, "request_id": true, "created_at": true, "updated_at": true,
-	"last_synced_at": true, "creation_date_time": true, "recorded": true, "issued": true,
+	"id": true, "ingested_at": true, "request_id": true,
+	"creation_date_time": true, "recorded": true, "issued": true,
 }
 
 // volatileKey says whether a key holds something that differs between two
@@ -187,7 +194,13 @@ func volatileKey(k string, v any) bool {
 // ingestion times, request ids, row ids, paging cursors and generated UUIDs
 // (every UUID is replaced by a fixed text). A JSON body is re-encoded with
 // sorted keys; a CSV body loses its volatile columns.
-func normalize(body []byte) []byte {
+//
+// Blind spot, on purpose: ids and UUIDs are masked, so normalize cannot see a
+// vault that renumbers or reorders rows, or corrupts a UUID valued field
+// (user_id and the like), and cursors are masked too. A test that uses these
+// bodies as the reference (Task 19) must cover row ids, ordering and paging
+// with a check of its own.
+func normalize(body []byte, also ...string) []byte {
 	body = uuidRe.ReplaceAll(body, []byte("<uuid>"))
 	body = hostRe.ReplaceAll(body, []byte("http://<host>"))
 	body = cursorRe.ReplaceAll(body, []byte("cursor=<cursor>"))
@@ -197,7 +210,7 @@ func normalize(body []byte) []byte {
 	if err := dec.Decode(&v); err != nil || dec.More() {
 		return normalizeCSV(body)
 	}
-	out, err := json.MarshalIndent(strip(v), "", "  ")
+	out, err := json.MarshalIndent(strip(v, also), "", "  ")
 	if err != nil {
 		return body
 	}
@@ -231,12 +244,12 @@ func normalizeCSV(body []byte) []byte {
 }
 
 // strip drops the volatile keys from a decoded JSON value and hides the
-// paging cursors, which encode row ids.
-func strip(v any) any {
+// paging cursors, which encode row ids. also names more keys to drop.
+func strip(v any, also []string) any {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, e := range x {
-			if volatileKey(k, e) {
+			if volatileKey(k, e) || slices.Contains(also, k) {
 				delete(x, k)
 				continue
 			}
@@ -244,11 +257,11 @@ func strip(v any) any {
 				x[k] = "<cursor>"
 				continue
 			}
-			x[k] = strip(e)
+			x[k] = strip(e, also)
 		}
 	case []any:
 		for i := range x {
-			x[i] = strip(x[i])
+			x[i] = strip(x[i], also)
 		}
 	}
 	return v
@@ -367,13 +380,14 @@ func captureOutputs(t *testing.T, srv *httptest.Server, key string, user uuid.UU
 	}
 	list("rr_intervals", base+"/rr-intervals?limit=1000")
 	list("hrv", base+"/hrv?limit=1000")
-	out["coverage"] = normalize(fetch(base + "/coverage?start=2026-09-24&end=2026-10-01"))
+	// Coverage alone carries last_synced_at, the time of the write.
+	out["coverage"] = normalize(fetch(base+"/coverage?start=2026-09-24&end=2026-10-01"), "last_synced_at")
 
 	out["fhir_everything"] = normalize(fetch(base + "/fhir/Patient/" + user.String() + "/$everything?limit=200"))
 	// One page of each: the lists are long.
 	out["omh_data_points"] = normalize(fetch(base + "/omh/data-points?limit=200"))
 	for _, ds := range []string{"samples", "category-samples", "sleep", "workouts", "nutrition", "daily", "ecg"} {
-		out["export_"+ds+"_csv"] = normalize(fetch(base + "/exports/" + ds + "?format=csv"))
+		out["export_"+ds] = normalize(fetch(base + "/exports/" + ds + "?format=csv"))
 	}
 
 	// MCP: get_daily and get_sleep are the daily and sleep summaries.
@@ -394,7 +408,7 @@ func captureOutputs(t *testing.T, srv *httptest.Server, key string, user uuid.UU
 	return out
 }
 
-// bearer adds the API key to every MCP request.
+// bearer is a round tripper that adds the API key to every MCP request.
 type bearer struct{ key string }
 
 func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -403,6 +417,8 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(r)
 }
 
+// mcpSession opens an MCP client session on endpoint, authenticated with the
+// API key, and closes it when the test ends.
 func mcpSession(t *testing.T, endpoint, key string) *sdk.ClientSession {
 	t.Helper()
 	c := sdk.NewClient(&sdk.Implementation{Name: "golden", Version: "1"}, nil)
@@ -425,7 +441,11 @@ func TestGoldenCapture(t *testing.T) {
 	require.NoError(t, os.RemoveAll(goldenDir))
 	require.NoError(t, os.MkdirAll(goldenDir, 0o755))
 	for name, body := range got {
-		require.NoError(t, os.WriteFile(filepath.Join(goldenDir, name+".json"), body, 0o644))
+		ext := ".json"
+		if strings.HasPrefix(name, "export_") {
+			ext = ".csv"
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(goldenDir, name+ext), body, 0o644))
 	}
 	t.Logf("wrote %d golden files", len(got))
 }
