@@ -212,7 +212,18 @@ func isFutureTimestamp(t, now time.Time) bool {
 func validateQuantitySample(s *model.QuantitySample, now time.Time) []ValidationError {
 	var errs []ValidationError
 
-	if rule, ok := rangeRules[s.QuantityType]; ok {
+	// NaN fails every comparison and +Inf passes an unbounded ceiling, so the
+	// range rule cannot catch them, and a type with no rule has no range rule
+	// at all. Neither is a measurement: reject before the rule runs.
+	if math.IsNaN(s.Value) || math.IsInf(s.Value, 0) {
+		errs = append(errs, ValidationError{
+			RecordType: "quantity_sample",
+			Field:      "value",
+			Value:      s.Value,
+			Message:    fmt.Sprintf("%s value is not a finite number: %g", s.QuantityType, s.Value),
+			Severity:   SeverityReject,
+		})
+	} else if rule, ok := rangeRules[s.QuantityType]; ok {
 		if e := checkRange(s, rule); e != nil {
 			errs = append(errs, *e)
 		}
@@ -518,7 +529,7 @@ func checkValue(recordType, field string, v *float64, r rangeRule) *ValidationEr
 	if v == nil {
 		return nil
 	}
-	if math.IsNaN(*v) || *v < r.HardMin || *v > r.HardMax {
+	if math.IsNaN(*v) || math.IsInf(*v, 0) || *v < r.HardMin || *v > r.HardMax {
 		return &ValidationError{
 			RecordType: recordType,
 			Field:      field,

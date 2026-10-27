@@ -3,6 +3,7 @@
 package etl
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -220,4 +221,25 @@ func TestValidate_SleepAndDailyFigures(t *testing.T) {
 	s := Suspicions(sleep(model.SleepSession{SpO2Avg: f(65)}))
 	require.Len(t, s, 1, "a low but possible night average is flagged")
 	assert.Equal(t, "spo2_avg", s[0].Field)
+}
+
+// TestValidate_NonFiniteValues: NaN fails every comparison, so a range check
+// alone lets it through, and +Inf passes a rule whose ceiling is unbounded.
+// Neither is a measurement, whether or not the type has a rule.
+func TestValidate_NonFiniteValues(t *testing.T) {
+	for _, qt := range []string{"heart_rate", "step_count", "no_rule_for_this_type"} {
+		for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+			errs := ValidateMapResult(qs(qt, v))
+			require.NotEmptyf(t, errs, "%s=%v", qt, v)
+			assert.Equal(t, "value", errs[0].Field)
+			assert.Equal(t, SeverityReject, errs[0].Severity)
+		}
+	}
+}
+
+func TestCheckValue_RefusesInfOnUnboundedRule(t *testing.T) {
+	inf := math.Inf(1)
+	e := checkValue("nutrition_log", "sodium_mg", &inf, rangeRule{HardMin: 0, HardMax: unbounded, SoftMin: 0, SoftMax: unbounded})
+	require.NotNil(t, e)
+	assert.Equal(t, SeverityReject, e.Severity)
 }
