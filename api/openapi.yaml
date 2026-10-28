@@ -5467,7 +5467,7 @@ components:
 
     AdminProvider:
       type: object
-      required: [slug, name, kinds, status, enabled, source, keys, error, urls, updated_at, updated_by]
+      required: [slug, name, kinds, status, enabled, source, keys, error, urls, sync, updated_at, updated_by]
       properties:
         slug: { type: string }
         name: { type: string }
@@ -5496,8 +5496,29 @@ components:
           properties:
             redirect: { type: [string, "null"], description: "The OAuth redirect URI, for a provider users connect to." }
             inbound: { type: [string, "null"], description: "Where the provider posts notifications, for a push provider." }
+        sync:
+          oneOf:
+            - { $ref: "#/components/schemas/AdminProviderSync" }
+            - { type: "null" }
+          description: How the server pulls this provider. Null for one it never pulls (an upload from an app).
         updated_at: { type: [string, "null"], format: date-time }
         updated_by: { type: [string, "null"], description: The id of the API key that saved the last change. }
+
+    AdminProviderSync:
+      type: object
+      description: |
+        The provider's sync policy, in seconds. See
+        [background sync](https://github.com/soma-intelligence/open-health-sync/blob/main/docs/background-sync.md#sync-policy-per-provider).
+      required: [pull_every_seconds, pull_every_without_push_seconds, lookback_seconds, max_catch_up_seconds,
+        backfill_seconds, backfill_chunk_seconds, reconcile_seconds]
+      properties:
+        pull_every_seconds: { type: integer, description: "The regular pull interval while the provider's notifications arrive.", examples: [21600] }
+        pull_every_without_push_seconds: { type: integer, description: The interval when no notification arrives., examples: [3600] }
+        lookback_seconds: { type: integer, description: How far before the previous window each regular pull reads again, for late or revised data., examples: [21600] }
+        max_catch_up_seconds: { type: integer, description: How far back a regular pull reaches after an outage., examples: [604800] }
+        backfill_seconds: { type: integer, description: How far back a new connection is pulled., examples: [7776000] }
+        backfill_chunk_seconds: { type: integer, description: The window of one backfill job., examples: [604800] }
+        reconcile_seconds: { type: integer, description: "How far the first pull of each UTC day reaches, 0 when the daily reconciliation is off.", examples: [172800] }
 
     AdminProviderKey:
       type: object

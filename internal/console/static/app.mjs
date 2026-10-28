@@ -52,6 +52,7 @@ import {
   sleepNights,
   splitFigure,
   statSeries,
+  syncSchedule,
   webhookLabel,
   workoutSeconds,
   workoutSummary,
@@ -1516,6 +1517,14 @@ function main() {
     const s3 = step(p.status === "active");
     blocks.push(switchCard(p, saveChange, s3));
 
+    if (p.sync) {
+      blocks.push(
+        card(
+          { title: "Sync schedule", hint: "How this server pulls the provider for every connected user. Set by the connector, the same on every instance." },
+          body(facts(syncSchedule(p.sync, (p.kinds || []).includes("push")))),
+        ),
+      );
+    }
     blocks.push(
       card(
         { title: "Details" },

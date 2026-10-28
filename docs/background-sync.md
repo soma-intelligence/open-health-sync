@@ -96,6 +96,9 @@ Suunto's Production API. Garmin pulls by upload time, so the
 default lookback is enough there. `pull_every_seconds` and `next_pull_at` in the freshness
 response follow the provider's interval.
 
+The console's provider page (Sync schedule) and `GET /v1/admin/providers/{provider}` (`sync`) show
+the values of the running binary.
+
 ## Freshness
 
 `GET /v1/users/{id}/freshness` (tenant key) returns one entry per source:
