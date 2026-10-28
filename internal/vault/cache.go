@@ -4,6 +4,7 @@ package vault
 
 import (
 	"container/list"
+	"context"
 	"sync"
 	"time"
 
@@ -151,9 +152,16 @@ func (c *cache[K, V]) drop(el *list.Element) {
 	e.val.Zero()
 }
 
-// flights merges concurrent loads of one key: the first caller runs the load,
-// the others wait for its result. A result is shared read-only by every
-// caller of the flight, so it must not be a value the cache owns.
+// loadTimeout bounds a shared load. The key providers set no timeout of
+// their own in the configuration, so this one applies.
+const loadTimeout = 30 * time.Second
+
+// flights merges concurrent loads of one key: the first caller starts the
+// load, every caller (the first included) waits for it or for its own ctx.
+// The load runs detached from the first caller, under loadTimeout, so a
+// caller that goes away does not fail the others. A result is shared
+// read-only by every caller of the flight, so it must not be a value the
+// cache owns.
 type flights[K comparable, V any] struct {
 	mu sync.Mutex
 	m  map[K]*flight[V]
@@ -165,25 +173,49 @@ type flight[V any] struct {
 	err  error
 }
 
-func (g *flights[K, V]) do(k K, load func() (V, error)) (V, error) {
+func (g *flights[K, V]) do(ctx context.Context, k K, load func(context.Context) (V, error)) (V, error) {
 	g.mu.Lock()
 	if g.m == nil {
 		g.m = map[K]*flight[V]{}
 	}
-	if f, ok := g.m[k]; ok {
-		g.mu.Unlock()
-		<-f.done
-		return f.val, f.err
+	f, ok := g.m[k]
+	if !ok {
+		f = &flight[V]{done: make(chan struct{})}
+		g.m[k] = f
+		go func() {
+			lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), loadTimeout)
+			defer cancel()
+			val, err := load(lctx)
+			g.mu.Lock()
+			if g.m[k] == f {
+				delete(g.m, k)
+			}
+			g.mu.Unlock()
+			f.val, f.err = val, err
+			close(f.done)
+		}()
 	}
-	f := &flight[V]{done: make(chan struct{})}
-	g.m[k] = f
 	g.mu.Unlock()
-	defer func() {
-		g.mu.Lock()
-		delete(g.m, k)
-		g.mu.Unlock()
-		close(f.done)
-	}()
-	f.val, f.err = load()
-	return f.val, f.err
+	select {
+	case <-f.done:
+		return f.val, f.err
+	case <-ctx.Done():
+		var zero V
+		return zero, ctx.Err()
+	}
+}
+
+// forget makes the next caller for k start a fresh load; the callers already
+// waiting keep the flight they joined.
+func (g *flights[K, V]) forget(k K) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.m, k)
+}
+
+// forgetAll is forget for every key.
+func (g *flights[K, V]) forgetAll() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	clear(g.m)
 }

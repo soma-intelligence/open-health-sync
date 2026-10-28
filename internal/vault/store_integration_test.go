@@ -48,7 +48,11 @@ func (p *countingProvider) Wrap(ctx context.Context, plain, aad []byte) ([]byte,
 
 func (p *countingProvider) Unwrap(ctx context.Context, wrapped, aad []byte, version string) ([]byte, error) {
 	p.unwraps.Add(1)
-	time.Sleep(p.delay)
+	select {
+	case <-time.After(p.delay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	if p.down.Load() {
 		return nil, fmt.Errorf("%w: connection refused", ErrProviderUnavailable)
 	}
@@ -473,4 +477,69 @@ func TestListenerFailurePurgesAtOnce(t *testing.T) {
 	}
 	cancel()
 	require.NoError(t, <-done)
+}
+
+// waitUnwraps waits until p started n unwraps.
+func waitUnwraps(t *testing.T, p *countingProvider, n int64) {
+	t.Helper()
+	require.Eventually(t, func() bool { return p.unwraps.Load() >= n }, 5*time.Second, time.Millisecond)
+}
+
+// The first caller of a shared load going away does not fail the others.
+func TestSharedLoadOutlivesFirstCaller(t *testing.T) {
+	e := newStoreEnv(t)
+	u := e.user("u-1")
+	require.NoError(t, e.ensure(v0(e), u))
+	p := newCountingProvider(t)
+	p.delay = 300 * time.Millisecond
+	v := e.vault(p, Options{CanOpen: true})
+
+	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leader := make(chan error, 1)
+	go func() {
+		_, err := v.ForUser(leaderCtx, e.tenant, u)
+		leader <- err
+	}()
+	waitUnwraps(t, p, 1)
+	waiter := make(chan error, 1)
+	go func() {
+		uv, err := v.ForUser(context.Background(), e.tenant, u)
+		if err == nil {
+			_, err = uv.Keys(1)
+		}
+		waiter <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // the waiter joins the flight
+	cancelLeader()
+	require.ErrorIs(t, <-leader, context.Canceled, "the first caller gets its own cancellation")
+	require.NoError(t, <-waiter, "a waiter with a live context gets the keys")
+	require.Equal(t, int64(1), p.unwraps.Load())
+}
+
+// A ForUser after a shred commits never joins a load that started before it.
+func TestNoJoinAcrossShred(t *testing.T) {
+	ctx := context.Background()
+	e := newStoreEnv(t)
+	u := e.user("u-1")
+	require.NoError(t, e.ensure(v0(e), u))
+	p := newCountingProvider(t)
+	p.delay = 300 * time.Millisecond
+	v := e.vault(p, Options{CanOpen: true})
+
+	old := make(chan error, 1)
+	go func() {
+		_, err := v.ForUser(ctx, e.tenant, u)
+		old <- err
+	}()
+	waitUnwraps(t, p, 1)
+	tx, err := e.pool.Begin(ctx)
+	require.NoError(t, err)
+	require.NoError(t, v.Shred(ctx, tx, e.tenant, u))
+	require.NoError(t, tx.Commit(ctx))
+
+	_, err = v.ForUser(ctx, e.tenant, u)
+	require.ErrorIs(t, err, ErrNoKeys, "a fresh load after the shred")
+	<-old
+	_, err = v.ForUser(ctx, e.tenant, u)
+	require.ErrorIs(t, err, ErrNoKeys, "the old load was not cached")
 }

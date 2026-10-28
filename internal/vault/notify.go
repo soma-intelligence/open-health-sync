@@ -68,7 +68,7 @@ func (v *Vault) Listen(ctx context.Context) error {
 		}
 		// Evictions sent from now until the next LISTEN are lost: drop the
 		// cache before the wait, not only after the reconnect.
-		v.users.purge()
+		v.purgeUsers()
 		if listened {
 			backoff = time.Second
 		}
@@ -98,7 +98,7 @@ func (v *Vault) listenOnce(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("listen: %w", err)
 	}
 	// Whatever was shredded while nobody listened is unknown: start over.
-	v.users.purge()
+	v.purgeUsers()
 	if v.onListen != nil {
 		v.onListen()
 	}
@@ -108,7 +108,7 @@ func (v *Vault) listenOnce(ctx context.Context) (bool, error) {
 			return true, err
 		}
 		if ref, ok := parseUserPayload(n.Payload); ok {
-			v.users.remove(ref)
+			v.evictUser(ref)
 		}
 	}
 }

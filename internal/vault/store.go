@@ -314,10 +314,13 @@ func (v *Vault) ForUser(ctx context.Context, tenant, user uuid.UUID) (*UserVault
 		return u, nil
 	}
 	v.metrics.cacheResult(false)
+	// The epoch is read before the flight starts, so a shred committed
+	// while it loads keeps its result out of the cache.
+	epoch := v.users.epoch()
 	// The loaded entry is shared by the callers of the flight and never
-	// zeroed by the cache, which holds a clone of it.
-	e, err := v.userLoads.do(ref, func() (*userEntry, error) {
-		epoch := v.users.epoch()
+	// zeroed by the cache, which holds a clone of it. Each caller gets a
+	// copy of its own (userVault); the flight's entry is left to the GC.
+	e, err := v.userLoads.do(ctx, ref, func(ctx context.Context) (*userEntry, error) {
 		e, err := v.loadUser(ctx, ref)
 		if err != nil {
 			return nil, err
@@ -443,9 +446,11 @@ func (v *Vault) tenantKey(ctx context.Context, db Querier, tenant uuid.UUID, ver
 	if p, ok := db.(*pgxpool.Pool); ok && p == v.pool {
 		committed = true
 	}
-	// The flight's key is shared by its callers and not owned by the cache.
-	shared, err := v.tenantLoads.do(ref, func() (*tenantKey, error) {
-		epoch := v.tenants.epoch()
+	epoch := v.tenants.epoch()
+	// The flight's key is shared by its callers and not owned by the cache,
+	// which holds a copy. Each caller copies it; the flight's own copy is
+	// left to the GC.
+	shared, err := v.tenantLoads.do(ctx, ref, func(ctx context.Context) (*tenantKey, error) {
 		plain, err := v.unwrap(ctx, wrapped, keyAAD(tenant, uuid.Nil, version), parent)
 		if err != nil {
 			return nil, fmt.Errorf("vault: tenant key %d: %w", version, err)
@@ -502,8 +507,21 @@ func (v *Vault) Shred(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID) er
 	// Drop this process's copy now. Before the commit this holds only while
 	// Listen runs: a ForUser between here and the commit may cache the keys
 	// again, and the NOTIFY delivered at commit evicts them once more.
-	v.users.remove(userRef{tenant, user})
+	v.evictUser(userRef{tenant, user})
 	return nil
+}
+
+// evictUser drops the user's keys and any load of them in flight, so the
+// next ForUser reads the key rows again.
+func (v *Vault) evictUser(ref userRef) {
+	v.users.remove(ref)
+	v.userLoads.forget(ref)
+}
+
+// purgeUsers is evictUser for every user.
+func (v *Vault) purgeUsers() {
+	v.users.purge()
+	v.userLoads.forgetAll()
 }
 
 // Ready checks that the provider opens keys: it unwraps the newest tenant
