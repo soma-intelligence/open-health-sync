@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // The writer handles database writes with deduplication, batching, and COPY
@@ -88,11 +89,14 @@ func (c Counts) TotalSkipped() int {
 
 // scope is who owns every row of one write: the job's tenant, user and
 // provider. Rows take tenant_id and user_id from here, never from the record,
-// so a connector cannot write into another user's data.
+// so a connector cannot write into another user's data. uv is the user's keys
+// when a vault is configured: every row is then written sealed (see
+// vaultrows.go); nil writes clear rows.
 type scope struct {
 	tenant   uuid.UUID
 	user     uuid.UUID
 	provider string
+	uv       *vault.UserVault
 }
 
 // providerOr returns p, or the scope's provider when p is empty.
@@ -186,6 +190,9 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	if err := dropTombstoned(ctx, tx, sc, acc, c); err != nil {
 		return nil, err
 	}
+	// From here on every hash is the stored one: keyed when the job holds
+	// keys. touchedDays below reads only types, times and zones.
+	acc = sc.keyed(acc)
 	type step struct {
 		name string
 		run  func() error
@@ -432,10 +439,11 @@ func insertMissing(ctx context.Context, tx TxLike, sc scope, table, timeCol, tem
 
 // updateStored applies latest wins (see latestWins) from the staged rows of
 // temp to the stored rows with the same (timeCol, content_hash), and returns
-// how many stored rows changed.
-func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp string, figures []string, wd window) (int, error) {
+// how many stored rows changed. extra are the promoted columns that follow
+// metadata.
+func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp string, figures, extra []string, wd window) (int, error) {
 	at := pgx.Identifier{timeCol}.Sanitize()
-	set := make([]string, 0, len(figures)+1)
+	set := make([]string, 0, len(figures)+1+len(extra))
 	stored := make([]string, 0, len(figures))
 	merged := make([]string, 0, len(figures))
 	for _, f := range figures {
@@ -445,6 +453,9 @@ func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp
 		merged = append(merged, m)
 	}
 	set = append(set, "metadata = s.metadata")
+	for _, x := range extra {
+		set = append(set, x+" = s."+x)
+	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET %[2]s FROM %[3]s s
 		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[4]s BETWEEN $3 AND $4
 		  AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash
@@ -453,6 +464,23 @@ func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp
 		sc.tenant, sc.user, wd.lo, wd.hi)
 	if err != nil {
 		return 0, fmt.Errorf("update stored %s: %w", table, err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+// updateStoredSealed is updateStored for rows staged sealed: the merge already
+// ran in Go (shape.mergeStored), so the staged row replaces the stored one
+// when its content MAC or a clear figure differs.
+func updateStoredSealed(ctx context.Context, tx TxLike, sc scope, s *shape, timeCol, temp string, figures []string, wd window) (int, error) {
+	at := pgx.Identifier{timeCol}.Sanitize()
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET %[2]s FROM %[3]s s
+		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[4]s BETWEEN $3 AND $4
+		  AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash
+		  AND %[5]s`,
+		qualified(s.t.Name), strings.Join(s.sealedSet("s", figures), ", "), temp, at, s.sealedDistinct("t", "s", figures)),
+		sc.tenant, sc.user, wd.lo, wd.hi)
+	if err != nil {
+		return 0, fmt.Errorf("update stored %s: %w", s.t.Name, err)
 	}
 	return int(tag.RowsAffected()), nil
 }
@@ -512,8 +540,9 @@ func replaceableSplit[T any](rows []T, replaceable func(T) bool, key func(T) cop
 // Every figure the new copy carries replaces the stored one. A figure it omits
 // keeps the stored value, because a vendor that stops reporting a field has not
 // measured it as NULL. A copy that changes nothing writes nothing, and metadata
-// follows the figures it describes.
-func latestWins(table, conflictCols string, figures []string) string {
+// follows the figures it describes, with extra, the promoted columns read from
+// it.
+func latestWins(table, conflictCols string, figures, extra []string) string {
 	// The existing row is referenced by the unqualified table name.
 	alias := table
 	set := make([]string, 0, len(figures)+1)
@@ -526,6 +555,9 @@ func latestWins(table, conflictCols string, figures []string) string {
 		merged = append(merged, m)
 	}
 	set = append(set, "metadata = EXCLUDED.metadata")
+	for _, x := range extra {
+		set = append(set, x+" = EXCLUDED."+x)
+	}
 	return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s WHERE (%s) IS DISTINCT FROM (%s)",
 		conflictCols, strings.Join(set, ", "), strings.Join(stored, ", "), strings.Join(merged, ", "))
 }

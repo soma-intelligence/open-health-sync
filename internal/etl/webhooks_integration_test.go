@@ -18,7 +18,7 @@ import (
 // webhookEvents returns the payloads queued for the tenant, oldest first.
 func (e *env) webhookEvents(tenant uuid.UUID) []map[string]any {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(),
+	rows, err := e.read().Query(context.Background(),
 		`SELECT payload FROM ohs_core.webhook_deliveries WHERE tenant_id = $1 ORDER BY id`, tenant)
 	require.NoError(e.t, err)
 	defer rows.Close()

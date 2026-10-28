@@ -53,11 +53,11 @@ func TestWriteSyntheticIdempotent(t *testing.T) {
 	require.Equal(t, 1, e.count(tDaily))
 
 	var steps int
-	require.NoError(t, e.pool.QueryRow(ctx, `SELECT step_count FROM ohs_data.daily_summaries
+	require.NoError(t, e.read().QueryRow(ctx, `SELECT step_count FROM ohs_data.daily_summaries
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'fitbit'`, e.tenant, e.user).Scan(&steps))
 	require.Equal(t, 4000, steps)
 	var coverage int
-	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_sync.pull_coverage
+	require.NoError(t, e.read().QueryRow(ctx, `SELECT count(*) FROM ohs_sync.pull_coverage
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'fitbit'`, e.tenant, e.user).Scan(&coverage))
 	require.Positive(t, coverage)
 

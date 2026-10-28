@@ -97,6 +97,8 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	if keysErr != nil {
 		return nil, fmt.Errorf("user keys: %w", keysErr)
 	}
+	// The same keys open the raw object and seal every row the job writes.
+	sc.uv = keys
 
 	// Consent choke point: categories the user has not granted for this
 	// source are dropped before validation, so nothing of them is stored.

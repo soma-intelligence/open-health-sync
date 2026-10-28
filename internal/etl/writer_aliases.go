@@ -45,7 +45,7 @@ const tAliases = "record_aliases"
 // clause of their aliased delete. The table name of an alias row is checked
 // against this list before it reaches SQL text.
 var aliasTables = map[string]string{
-	tQuantity:  "quantity_type, start_date, metadata->>'" + MetadataTimezone + "', NULL::bigint",
+	tQuantity:  "quantity_type, start_date, tz, NULL::bigint",
 	tCategory:  "NULL::text, start_date, NULL::text, NULL::bigint",
 	tNutrition: "NULL::text, start_date, NULL::text, NULL::bigint",
 	tWorkouts:  "NULL::text, start_date, NULL::text, id",

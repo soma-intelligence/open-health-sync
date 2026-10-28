@@ -39,7 +39,7 @@ func TestProcess_HappyPathWritesAndDedups(t *testing.T) {
 	assert.Equal(t, 3, e.count("quantity_samples"))
 
 	var tenantRows int
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT count(*) FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND unit = 'bpm' AND source_slug = 'apple_health'`,
 		e.tenant).Scan(&tenantRows))
 	assert.Equal(t, 3, tenantRows, "tenant_id stamped, units canonicalized, attribution filled")
@@ -63,7 +63,7 @@ func TestProcess_MappingAndParseFailuresGoToFailedRecords(t *testing.T) {
 	c := e.process(job)
 	assert.Equal(t, 1, c["quantity_samples"].Written)
 
-	rows, err := e.pool.Query(context.Background(), `
+	rows, err := e.read().Query(context.Background(), `
 		SELECT reason_code, line_number, status, raw_key FROM ohs_data.failed_records
 		WHERE tenant_id = $1 AND user_id = $2 ORDER BY id`, e.tenant, e.user)
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestProcess_AllFailedWritesAJobLevelRow(t *testing.T) {
 	e.process(job)
 
 	var jobRows int
-	require.NoError(t, e.pool.QueryRow(context.Background(), `
+	require.NoError(t, e.read().QueryRow(context.Background(), `
 		SELECT count(*) FROM ohs_data.failed_records
 		WHERE tenant_id = $1 AND user_id = $2 AND reason_code = 'job' AND line_number IS NULL`,
 		e.tenant, e.user).Scan(&jobRows))
@@ -113,7 +113,7 @@ func TestProcess_AllInvalidWritesNoJobRow(t *testing.T) {
 	e.process(job)
 
 	var jobRows, lineRows int
-	require.NoError(t, e.pool.QueryRow(context.Background(), `
+	require.NoError(t, e.read().QueryRow(context.Background(), `
 		SELECT count(*) FILTER (WHERE reason_code = 'job'), count(*) FILTER (WHERE reason_code = 'validation')
 		FROM ohs_data.failed_records WHERE tenant_id = $1 AND user_id = $2`,
 		e.tenant, e.user).Scan(&jobRows, &lineRows))
@@ -204,7 +204,7 @@ func TestProcess_OneRejectedSampleDoesNotDiscardTheDay(t *testing.T) {
 	assert.Equal(t, 1, c["daily_summaries"].Written, "the day's summary survives one bad sample")
 
 	var reason string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT reason_code FROM ohs_data.failed_records WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&reason))
 	assert.Equal(t, "validation", reason)
 }
@@ -230,7 +230,7 @@ func TestProcess_SuspectValuesAreWrittenAndFlagged(t *testing.T) {
 	e.register("apple_health", quantityMap)
 	e.process(e.upload(e.tenant, e.user, "apple_health", "heart_rate", q("heart_rate", 250, "bpm", recent())))
 	var flag string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT metadata->>'quality_flag' FROM ohs_data.quantity_samples WHERE tenant_id = $1`, e.tenant).Scan(&flag))
 	assert.Equal(t, "suspect", flag)
 }
@@ -241,7 +241,7 @@ func TestProcess_UnconvertibleUnitFailsAsRecoverable(t *testing.T) {
 	e.process(e.upload(e.tenant, e.user, "apple_health", "body_mass", q("body_mass", 70, "furlongs", recent())))
 	assert.Equal(t, 0, e.count("quantity_samples"))
 	var reason string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT reason_code FROM ohs_data.failed_records WHERE tenant_id = $1 AND line_number = 1`, e.tenant).Scan(&reason))
 	assert.Equal(t, "unit", reason)
 }
@@ -262,7 +262,7 @@ func TestProcess_UnconvertibleUnitDropsOnlyItsSample(t *testing.T) {
 	c := e.process(e.upload(e.tenant, e.user, "dev", "day", `{"type":"day"}`))
 	assert.Equal(t, 2, c["quantity_samples"].Written)
 	var reason string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT reason_code FROM ohs_data.failed_records WHERE tenant_id = $1 AND line_number = 1`, e.tenant).Scan(&reason))
 	assert.Equal(t, "unit", reason)
 }
@@ -284,7 +284,7 @@ func TestProcess_BadSleepFigureDropsOnlyTheFigure(t *testing.T) {
 	assert.Equal(t, 1, e.count("sleep_phases"))
 	var gotSpO2, gotHR *float64
 	var dropped string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT spo2_avg, resting_hr, metadata->'quality_dropped'->>0 FROM ohs_data.sleep_sessions WHERE tenant_id = $1`, e.tenant).
 		Scan(&gotSpO2, &gotHR, &dropped))
 	assert.Nil(t, gotSpO2)
@@ -292,7 +292,7 @@ func TestProcess_BadSleepFigureDropsOnlyTheFigure(t *testing.T) {
 	assert.Equal(t, 52.0, *gotHR)
 	assert.Equal(t, "spo2_avg", dropped)
 	var reason string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT reason_code FROM ohs_data.failed_records WHERE tenant_id = $1 AND line_number = 1`, e.tenant).Scan(&reason))
 	assert.Equal(t, "validation", reason)
 }
@@ -320,7 +320,7 @@ func TestProcess_HeartbeatSeriesTakesTheDataType(t *testing.T) {
 	})
 	e.process(e.upload(e.tenant, e.user, "apple_health", "heartbeat_series", `{"x":1}`))
 	var series, provider string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT series_id, provider FROM ohs_data.heartbeat_samples WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&series, &provider))
 	assert.Equal(t, "heartbeat_series", series)
 	assert.Equal(t, "apple_health", provider)
@@ -353,7 +353,7 @@ func TestProcess_SyncLogAndCoverage(t *testing.T) {
 
 	var status string
 	var written, failed int
-	require.NoError(t, e.pool.QueryRow(context.Background(), `
+	require.NoError(t, e.read().QueryRow(context.Background(), `
 		SELECT status, records_written, records_failed FROM ohs_sync.sync_log
 		WHERE tenant_id = $1 AND user_id = $2 AND stage = 'etl' AND raw_key = $3 AND metric_type = 'all'`,
 		e.tenant, e.user, job.Key).Scan(&status, &written, &failed))
@@ -362,7 +362,7 @@ func TestProcess_SyncLogAndCoverage(t *testing.T) {
 	assert.Equal(t, 1, failed)
 
 	var n int
-	require.NoError(t, e.pool.QueryRow(context.Background(), `
+	require.NoError(t, e.read().QueryRow(context.Background(), `
 		SELECT records_count FROM ohs_sync.pull_coverage
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'apple_health' AND metric = 'heart_rate' AND date = '2026-09-30'`,
 		e.tenant, e.user).Scan(&n))
@@ -422,7 +422,7 @@ func TestProcess_ConsentWithholdsCategories(t *testing.T) {
 	c = e.process(upload("granted"))
 	assert.Equal(t, 1, c["quantity_samples"].Written)
 	var typ string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT quantity_type FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&typ))
 	assert.Equal(t, "step_count", typ, "heart rate withheld, activity stored")
 }

@@ -76,8 +76,15 @@ func quantitySampleRow(sc scope, s model.QuantitySample) []any {
 	}
 }
 
+// quantityShape is the write form of quantity_samples (vaultrows.go).
+var quantityShape = newShape(tQuantity, quantitySampleColumns, quantityPromoted, deriveQuantity)
+
 // quantityFigures are the columns a Replaceable quantity sample replaces.
 var quantityFigures = []string{"value", "unit"}
+
+// quantityFollowMetadata are the promoted columns read from metadata, which a
+// clear update replaces with it.
+var quantityFollowMetadata = []string{"tz", "derived", "synthesized", "summary_date"}
 
 // writeQuantitySamples writes quantity samples. quantity_samples has no dedup
 // unique, because it is compressed after a while: duplicates are found in the
@@ -93,6 +100,7 @@ func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, 
 	if err := lockUserTable(ctx, tx, tQuantity, sc); err != nil {
 		return 0, 0, err
 	}
+	columns := quantityShape.columns(sc)
 	if len(insertOnly) > 0 {
 		seen := make(copyDedupe, len(insertOnly))
 		rows := make([][]any, 0, len(insertOnly))
@@ -102,13 +110,17 @@ func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, 
 				continue
 			}
 			wd.extend(s.StartDate)
-			rows = append(rows, quantitySampleRow(sc, s))
+			row, err := quantityShape.finish(sc, quantitySampleRow(sc, s))
+			if err != nil {
+				return 0, 0, err
+			}
+			rows = append(rows, row)
 		}
-		temp, _, err := stage(ctx, tx, tQuantity, quantitySampleColumns, rows)
+		temp, _, err := stage(ctx, tx, tQuantity, columns, rows)
 		if err != nil {
 			return 0, 0, err
 		}
-		n, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, quantitySampleColumns, wd)
+		n, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, columns, wd)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -120,27 +132,122 @@ func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, 
 		return written, skipped, err
 	}
 	if len(upsert) > 0 {
-		rows := make([][]any, 0, len(upsert))
-		var wd window
-		for _, s := range upsert {
-			wd.extend(s.StartDate)
-			rows = append(rows, quantitySampleRow(sc, s))
+		var changed, added int
+		var err error
+		if sc.uv == nil {
+			changed, added, err = upsertQuantityClear(ctx, tx, sc, upsert)
+		} else {
+			changed, added, err = upsertQuantitySealed(ctx, tx, sc, upsert)
 		}
-		temp, _, err := stage(ctx, tx, tQuantity, quantitySampleColumns, rows)
-		if err != nil {
-			return written, skipped, err
-		}
-		changed, err := updateStored(ctx, tx, sc, tQuantity, "start_date", temp, quantityFigures, wd)
-		if err != nil {
-			return written, skipped, err
-		}
-		added, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, quantitySampleColumns, wd)
 		if err != nil {
 			return written, skipped, err
 		}
 		written, skipped = written+changed+added, skipped+len(upsert)-changed-added
 	}
 	return written, skipped + superseded, nil
+}
+
+// upsertQuantityClear applies latest wins in SQL to clear rows: the stored
+// copies are updated from the staged rows, then the missing ones inserted.
+func upsertQuantityClear(ctx context.Context, tx TxLike, sc scope, upsert []model.QuantitySample) (changed, added int, err error) {
+	columns := quantityShape.columns(sc)
+	rows := make([][]any, 0, len(upsert))
+	var wd window
+	for _, s := range upsert {
+		wd.extend(s.StartDate)
+		row, err := quantityShape.finish(sc, quantitySampleRow(sc, s))
+		if err != nil {
+			return 0, 0, err
+		}
+		rows = append(rows, row)
+	}
+	temp, _, err := stage(ctx, tx, tQuantity, columns, rows)
+	if err != nil {
+		return 0, 0, err
+	}
+	if changed, err = updateStored(ctx, tx, sc, tQuantity, "start_date", temp, quantityFigures, quantityFollowMetadata, wd); err != nil {
+		return 0, 0, err
+	}
+	if added, err = insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, columns, wd); err != nil {
+		return changed, 0, err
+	}
+	return changed, added, nil
+}
+
+// upsertQuantitySealed applies latest wins in Go (mergeUpserts), then
+// updates the stored copies that changed and inserts the missing ones.
+func upsertQuantitySealed(ctx context.Context, tx TxLike, sc scope, upsert []model.QuantitySample) (changed, added int, err error) {
+	columns := quantityShape.columns(sc)
+	bases := rowsOf(upsert, sc, quantitySampleRow)
+	stored, fresh, _, err := mergeUpserts(ctx, tx, sc, quantityShape, "start_date", "timestamptz", bases, quantityFigures)
+	if err != nil {
+		return 0, 0, err
+	}
+	var wd window
+	for _, s := range upsert {
+		wd.extend(s.StartDate)
+	}
+	if len(stored) > 0 {
+		temp, _, err := stage(ctx, tx, tQuantity, columns, stored)
+		if err != nil {
+			return 0, 0, err
+		}
+		if changed, err = updateStoredSealed(ctx, tx, sc, quantityShape, "start_date", temp, quantityFigures, wd); err != nil {
+			return 0, 0, err
+		}
+	}
+	if len(fresh) > 0 {
+		temp, _, err := stage(ctx, tx, tQuantity, columns, fresh)
+		if err != nil {
+			return changed, 0, err
+		}
+		if added, err = insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, columns, wd); err != nil {
+			return changed, 0, err
+		}
+	}
+	return changed, added, nil
+}
+
+// mergeUpserts prepares the sealed rows of an upsert group (base rows of s, a
+// content_hash and timeCol column each): a row with a stored copy is merged
+// with it (shape.mergeStored) and goes to stored, or is left out and counted
+// in unchanged when it changes no figure; a row without one goes to fresh.
+// Both come back finished (sealed).
+func mergeUpserts(ctx context.Context, tx TxLike, sc scope, s *shape, timeCol, timeType string, bases [][]any, figures []string) (stored, fresh [][]any, unchanged int, err error) {
+	hp, tp := s.index["content_hash"], s.index[timeCol]
+	hashes := make([]string, len(bases))
+	times := make([]time.Time, len(bases))
+	var wd window
+	for i, b := range bases {
+		hashes[i], _ = b[hp].(string)
+		times[i], _ = b[tp].(time.Time)
+		wd.extend(times[i])
+	}
+	have, err := storedRows(ctx, tx, sc, s.t.Name, timeCol, timeType, hashes, times, wd.lo, wd.hi)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	for i, b := range bases {
+		st, ok := have[keyOf(hashes[i], times[i])]
+		if ok {
+			merged, changed := s.mergeStored(b, st, figures)
+			if !changed {
+				unchanged++
+				continue
+			}
+			b = merged
+		}
+		row, err := s.finish(sc, b)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		if ok {
+			stored = append(stored, row)
+		} else {
+			fresh = append(fresh, row)
+		}
+	}
+	return stored, fresh, unchanged, nil
 }
 
 // quantitySupersede deletes the stored copies of SupersedeMoved samples under
@@ -221,8 +328,9 @@ func rowsOf[T any](in []T, sc scope, fn func(scope, T) []any) [][]any {
 
 // copyOrInsert writes rows of a first-write-wins table: COPY above the
 // threshold (after dropping in-batch duplicates by key), batched INSERTs below.
-func copyOrInsert[T any](ctx context.Context, w *Writer, tx TxLike, sc scope, table string, columns []string, conflict string,
+func copyOrInsert[T any](ctx context.Context, w *Writer, tx TxLike, sc scope, s *shape, conflict string,
 	recs []T, row func(scope, T) []any, key func(T) (string, time.Time)) (written, skipped int, err error) {
+	table, columns := s.t.Name, s.columns(sc)
 	if len(recs) > w.cfg.CopyThreshold {
 		seen := make(copyDedupe, len(recs))
 		rows := make([][]any, 0, len(recs))
@@ -233,7 +341,11 @@ func copyOrInsert[T any](ctx context.Context, w *Writer, tx TxLike, sc scope, ta
 				dupes++
 				continue
 			}
-			rows = append(rows, row(sc, r))
+			f, err := s.finish(sc, row(sc, r))
+			if err != nil {
+				return 0, 0, err
+			}
+			rows = append(rows, f)
 		}
 		written, skipped, err = w.writeHighFrequencyCopy(ctx, tx, table, columns, rows, conflict)
 		if err != nil {
@@ -241,7 +353,11 @@ func copyOrInsert[T any](ctx context.Context, w *Writer, tx TxLike, sc scope, ta
 		}
 		return written, skipped + dupes, nil
 	}
-	return w.insertBatches(ctx, tx, table, insertHead(table, columns), doNothing(conflict), len(columns), rowsOf(recs, sc, row))
+	rows, err := s.finishAll(sc, rowsOf(recs, sc, row))
+	if err != nil {
+		return 0, 0, err
+	}
+	return w.insertBatches(ctx, tx, table, insertHead(table, columns), doNothing(conflict), len(columns), rows)
 }
 
 // --- category_samples ---
@@ -250,6 +366,8 @@ var categorySampleColumns = []string{
 	"tenant_id", "user_id", "provider", "source_slug", "source_name", "external_id", "category_type",
 	"value_int", "value_label", "start_date", "end_date", "content_hash", "metadata",
 }
+
+var categoryShape = newShape(tCategory, categorySampleColumns, tzPromoted, deriveTZ)
 
 func categorySampleRow(sc scope, s model.CategorySample) []any {
 	p := sc.providerOr(s.Provider)
@@ -262,7 +380,7 @@ func categorySampleRow(sc scope, s model.CategorySample) []any {
 // writeCategorySamples writes category samples, switching to COPY above the
 // threshold: sleep analysis alone makes this a high-volume table on a backfill.
 func (w *Writer) writeCategorySamples(ctx context.Context, tx TxLike, sc scope, samples []model.CategorySample) (written, skipped int, err error) {
-	return copyOrInsert(ctx, w, tx, sc, tCategory, categorySampleColumns, hyperConflict("start_date"), samples, categorySampleRow,
+	return copyOrInsert(ctx, w, tx, sc, categoryShape, hyperConflict("start_date"), samples, categorySampleRow,
 		func(s model.CategorySample) (string, time.Time) { return s.ContentHash, s.StartDate })
 }
 
@@ -287,8 +405,15 @@ func nutritionRow(sc scope, s model.NutritionLog) []any {
 	}
 }
 
-var nutritionLatestWins = latestWins(tNutrition, hyperConflict("start_date"),
-	[]string{"energy_kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", "sugar_g", "sodium_mg", "nutrients_json"})
+var nutritionShape = newShape(tNutrition, nutritionColumns, nil, nil)
+
+// nutritionFigures are the columns a Replaceable log's new copy replaces.
+var nutritionFigures = []string{"energy_kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", "sugar_g", "sodium_mg", "nutrients_json"}
+
+var (
+	nutritionLatestWins       = latestWins(tNutrition, hyperConflict("start_date"), nutritionFigures, nil)
+	nutritionLatestWinsSealed = nutritionShape.latestWinsSealed(hyperConflict("start_date"), nutritionFigures)
+)
 
 // writeNutritionLogs batch-inserts nutrition logs. A duplicate is skipped,
 // except a Replaceable log, whose stored figures the new copy replaces.
@@ -303,21 +428,10 @@ func (w *Writer) writeNutritionLogs(ctx context.Context, tx TxLike, sc scope, lo
 	if err := deleteMovedLogs(ctx, tx, sc, upsert); err != nil {
 		return written, skipped, err
 	}
-	for _, g := range []struct {
-		logs       []model.NutritionLog
-		onConflict string
-	}{
-		{insertOnly, doNothing(hyperConflict("start_date"))},
-		{upsert, nutritionLatestWins},
-	} {
-		n, k, err := w.insertBatches(ctx, tx, tNutrition, insertHead(tNutrition, nutritionColumns), g.onConflict,
-			len(nutritionColumns), rowsOf(g.logs, sc, nutritionRow))
-		if err != nil {
-			return written, skipped, err
-		}
-		written, skipped = written+n, skipped+k
-	}
-	return written, skipped + superseded, nil
+	n, k, err := w.writeGroups(ctx, tx, sc, nutritionShape, "start_date", "timestamptz", hyperConflict("start_date"),
+		nutritionFigures, nutritionLatestWins, nutritionLatestWinsSealed,
+		rowsOf(insertOnly, sc, nutritionRow), rowsOf(upsert, sc, nutritionRow))
+	return written + n, skipped + k + superseded, err
 }
 
 // nutritionSupersede deletes the stored copies of SupersedeMoved logs under
@@ -383,15 +497,17 @@ func deleteMovedLogs(ctx context.Context, tx TxLike, sc scope, logs []model.Nutr
 
 var heartbeatColumns = []string{"tenant_id", "user_id", "provider", "series_id", "timestamp", "rr_ms", "content_hash"}
 
+var heartbeatShape = newShape(tHeartbeat, heartbeatColumns, nil, nil)
+
 func heartbeatRow(sc scope, s model.HeartbeatSample) []any {
-	return []any{sc.tenant, sc.user, sc.provider, s.SeriesID, s.Timestamp, s.RRMS, model.HeartbeatSampleContentHash(s)}
+	return []any{sc.tenant, sc.user, sc.provider, s.SeriesID, s.Timestamp, s.RRMS, sc.hash(model.HeartbeatSampleContentHash(s))}
 }
 
 // writeHeartbeatSamples writes heartbeat samples, using COPY above threshold.
 func (w *Writer) writeHeartbeatSamples(ctx context.Context, tx TxLike, sc scope, samples []model.HeartbeatSample) (written, skipped int, err error) {
-	return copyOrInsert(ctx, w, tx, sc, tHeartbeat, heartbeatColumns, hyperConflict(`"timestamp"`), samples, heartbeatRow,
+	return copyOrInsert(ctx, w, tx, sc, heartbeatShape, hyperConflict(`"timestamp"`), samples, heartbeatRow,
 		func(s model.HeartbeatSample) (string, time.Time) {
-			return model.HeartbeatSampleContentHash(s), s.Timestamp
+			return sc.hash(model.HeartbeatSampleContentHash(s)), s.Timestamp
 		})
 }
 
@@ -403,11 +519,15 @@ var observationColumns = []string{
 	"is_primary_source", "type_concept", "source_value", "raw_ref", "content_hash", "metadata",
 }
 
-func observationHash(o model.Observation) string {
+var observationShape = newShape(tObservation, observationColumns, nil, nil)
+
+// observationHash is the stored hash of o: the mapper's (keyed already by
+// scope.keyed), or one computed here and keyed.
+func observationHash(sc scope, o model.Observation) string {
 	if o.ContentHash != "" {
 		return o.ContentHash
 	}
-	return model.ObservationContentHash(o)
+	return sc.hash(model.ObservationContentHash(o))
 }
 
 func observationRow(sc scope, o model.Observation) []any {
@@ -415,15 +535,15 @@ func observationRow(sc scope, o model.Observation) []any {
 	return []any{
 		sc.tenant, sc.user, p, sourceSlugOrProvider("", p), o.SourceName, o.DeviceID, o.TS, nullTime(o.EndTS),
 		o.CanonicalCode, o.ValueNum, o.ValueCode, o.ValueText, o.UnitUCUM, o.ValueCanonical,
-		o.IsPrimarySource, o.TypeConcept, o.SourceValue, o.S3Ref, observationHash(o), normalizeMetadata(o.Metadata),
+		o.IsPrimarySource, o.TypeConcept, o.SourceValue, o.S3Ref, observationHash(sc, o), normalizeMetadata(o.Metadata),
 	}
 }
 
 // writeObservations writes generic coded observations, the long tail of any
 // metric without a typed table, switching to COPY above the threshold.
 func (w *Writer) writeObservations(ctx context.Context, tx TxLike, sc scope, obs []model.Observation) (written, skipped int, err error) {
-	return copyOrInsert(ctx, w, tx, sc, tObservation, observationColumns, hyperConflict("ts"), obs, observationRow,
-		func(o model.Observation) (string, time.Time) { return observationHash(o), o.TS })
+	return copyOrInsert(ctx, w, tx, sc, observationShape, hyperConflict("ts"), obs, observationRow,
+		func(o model.Observation) (string, time.Time) { return observationHash(sc, o), o.TS })
 }
 
 // --- daily_summaries ---
@@ -448,7 +568,12 @@ func dailyRow(sc scope, s model.DailySummary) []any {
 	}
 }
 
-var summaryLatestWins = latestWins(tDaily, hyperConflict("summary_date"), dailyFigures)
+var dailyShape = newShape(tDaily, dailyColumns, derivedPromoted, deriveDerived)
+
+var (
+	summaryLatestWins       = latestWins(tDaily, hyperConflict("summary_date"), dailyFigures, derivedPromoted)
+	summaryLatestWinsSealed = dailyShape.latestWinsSealed(hyperConflict("summary_date"), dailyFigures)
+)
 
 // writeDailySummaries batch-inserts provider daily summaries. A duplicate is
 // skipped, except a Replaceable summary, whose stored figures the new copy
@@ -459,19 +584,40 @@ func (w *Writer) writeDailySummaries(ctx context.Context, tx TxLike, sc scope, s
 		func(s model.DailySummary) copyDedupeKey {
 			return copyDedupeKey{hash: s.ContentHash, stamp: dateOnly(s.SummaryDate).UnixNano()}
 		})
-	for _, g := range []struct {
-		rows       []model.DailySummary
-		onConflict string
-	}{
-		{insertOnly, doNothing(hyperConflict("summary_date"))},
-		{upsert, summaryLatestWins},
-	} {
-		n, k, err := w.insertBatches(ctx, tx, tDaily, insertHead(tDaily, dailyColumns), g.onConflict,
-			len(dailyColumns), rowsOf(g.rows, sc, dailyRow))
-		if err != nil {
-			return written, skipped, err
-		}
-		written, skipped = written+n, skipped+k
+	n, k, err := w.writeGroups(ctx, tx, sc, dailyShape, "summary_date", "date", hyperConflict("summary_date"),
+		dailyFigures, summaryLatestWins, summaryLatestWinsSealed,
+		rowsOf(insertOnly, sc, dailyRow), rowsOf(upsert, sc, dailyRow))
+	return n, k + superseded, err
+}
+
+// writeGroups batch-inserts the insert-only rows of a table (first write
+// wins) and its Replaceable rows (latest wins: clearWins in SQL without keys;
+// with keys merged in Go by mergeUpserts, then sealedWins). The rows are base
+// rows of s.
+func (w *Writer) writeGroups(ctx context.Context, tx TxLike, sc scope, s *shape, timeCol, timeType, conflict string,
+	figures []string, clearWins, sealedWins string, insertOnly, upsert [][]any) (written, skipped int, err error) {
+	columns := s.columns(sc)
+	head := insertHead(s.t.Name, columns)
+	rows, err := s.finishAll(sc, insertOnly)
+	if err != nil {
+		return 0, 0, err
 	}
-	return written, skipped + superseded, nil
+	written, skipped, err = w.insertBatches(ctx, tx, s.t.Name, head, doNothing(conflict), len(columns), rows)
+	if err != nil || len(upsert) == 0 {
+		return written, skipped, err
+	}
+	onConflict := clearWins
+	if sc.uv == nil {
+		rows, err = s.finishAll(sc, upsert)
+	} else {
+		var stored, fresh [][]any
+		var unchanged int
+		stored, fresh, unchanged, err = mergeUpserts(ctx, tx, sc, s, timeCol, timeType, upsert, figures)
+		rows, onConflict, skipped = append(stored, fresh...), sealedWins, skipped+unchanged
+	}
+	if err != nil {
+		return written, skipped, err
+	}
+	n, k, err := w.insertBatches(ctx, tx, s.t.Name, head, onConflict, len(columns), rows)
+	return written + n, skipped + k, err
 }

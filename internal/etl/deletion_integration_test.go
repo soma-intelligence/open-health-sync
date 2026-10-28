@@ -139,7 +139,7 @@ type summaryFigures struct{ recovery, rhr, strain *float64 }
 func (e *env) summaryOf(tenant, user any, day time.Time) *summaryFigures {
 	e.t.Helper()
 	var f summaryFigures
-	err := e.pool.QueryRow(context.Background(), `SELECT recovery_score, resting_hr, strain_score
+	err := e.read().QueryRow(context.Background(), `SELECT recovery_score, resting_hr, strain_score
 		FROM ohs_data.daily_summaries WHERE tenant_id = $1 AND user_id = $2 AND provider = 'prov' AND summary_date = $3`,
 		tenant, user, day).Scan(&f.recovery, &f.rhr, &f.strain)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -188,7 +188,7 @@ func TestDeletion_RemovesRecordAndChildren(t *testing.T) {
 	assert.Equal(t, 0, e.count("workout_tracks"))
 	assert.Equal(t, 3, e.tombstones(e.tenant, e.user))
 	var left string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT external_id FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&left))
 	assert.Equal(t, "s-2_resting_heart_rate", left)
 
@@ -254,14 +254,14 @@ func TestDeletion_SamplesOnlyRecordRemovesStoredSamples(t *testing.T) {
 	c := e.process(e.upload(e.tenant, e.user, "prov", "records", del("s-1_recovery"), del("r-9")))
 	assert.Equal(t, TableCount{Written: 2}, c[tDeleted])
 	assert.Equal(t, 1, e.countFor("sleep_sessions", e.tenant, e.user), "the sleep of the recovery stays")
-	rows, err := e.pool.Query(context.Background(), `SELECT external_id FROM ohs_data.quantity_samples
+	rows, err := e.read().Query(context.Background(), `SELECT external_id FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2 ORDER BY external_id`, e.tenant, e.user)
 	require.NoError(t, err)
 	left, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(t, err)
 	assert.Equal(t, []string{"r-9-2", "r-9-2_resting_heart_rate", "r-90", "r-90_resting_heart_rate",
 		"r-9x", "r-9x_resting_heart_rate", "s-1_resting_heart_rate"}, left)
-	rows, err = e.pool.Query(context.Background(), `SELECT external_id FROM ohs_data.category_samples
+	rows, err = e.read().Query(context.Background(), `SELECT external_id FROM ohs_data.category_samples
 		WHERE tenant_id = $1 AND user_id = $2 ORDER BY external_id`, e.tenant, e.user)
 	require.NoError(t, err)
 	left, err = pgx.CollectRows(rows, pgx.RowTo[string])
@@ -364,7 +364,7 @@ func TestDeletion_OtherUsersAndProvidersUntouched(t *testing.T) {
 	e.process(e.upload(e.tenant, e.user, "prov", "records", del("s-1"), del("w-1")))
 
 	var remaining int
-	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT count(*) FROM ohs_data.sleep_sessions
+	require.NoError(t, e.read().QueryRow(context.Background(), `SELECT count(*) FROM ohs_data.sleep_sessions
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'other'`, e.tenant, e.user).Scan(&remaining))
 	assert.Equal(t, 1, remaining, "the other provider's record of the same id stays")
 	assert.Equal(t, 1, e.count("sleep_sessions"))

@@ -52,7 +52,7 @@ type storedSample struct {
 
 func (e *env) storedSamples() []storedSample {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(), `SELECT external_id, quantity_type, value, start_date
+	rows, err := e.read().Query(context.Background(), `SELECT external_id, quantity_type, value, start_date
 		FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND user_id = $2
 		ORDER BY external_id, quantity_type, start_date`, e.tenant, e.user)
 	require.NoError(e.t, err)

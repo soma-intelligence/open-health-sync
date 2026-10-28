@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,29 +102,38 @@ func touchedDays(sc scope, acc *model.MapResult) map[dayKey]*time.Location {
 	return days
 }
 
-// derivedHash is the content hash of the derived row of one day. It leaves the
-// values out, so a recompute hits the same row and replaces it.
+// derivedHash is the content hash of the derived row of one day (keyed with
+// keys). It leaves the values out, so a recompute hits the same row and
+// replaces it.
 func derivedHash(sc scope, provider string, day time.Time) string {
-	return model.ComputeContentHash(map[string]string{
+	return sc.hash(model.ComputeContentHash(map[string]string{
 		"tenant_id":    sc.tenant.String(),
 		"user_id":      sc.user.String(),
 		"provider":     provider,
 		"summary_date": day.Format("2006-01-02"),
 		"kind":         derivedKind,
-	})
+	}))
 }
 
 // derivedDrop deletes the derived row of one day.
 const derivedDrop = `DELETE FROM ohs_data.daily_summaries
 	WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND summary_date = $4`
 
-var derivedUpsert = insertHead(tDaily, dailyColumns) + placeholders(1, len(dailyColumns)) + `
+var (
+	derivedUpsert = insertHead(tDaily, dailyShape.columnsFor(false)) + placeholders(1, len(dailyShape.columnsFor(false))) + `
 	ON CONFLICT (tenant_id, user_id, content_hash, summary_date) DO UPDATE SET ` + derivedSet() + `
 	WHERE (` + derivedCols("daily_summaries.") + `) IS DISTINCT FROM (` + derivedCols("EXCLUDED.") + `)`
+	// derivedUpsertSealed replaces a sealed derived row whose content MAC
+	// differs: every figure and the metadata are in the sealed value.
+	derivedUpsertSealed = insertHead(tDaily, dailyShape.columnsFor(true)) + placeholders(1, len(dailyShape.columnsFor(true))) + `
+	ON CONFLICT (tenant_id, user_id, content_hash, summary_date) DO UPDATE SET ` +
+		strings.Join(dailyShape.sealedSet("EXCLUDED", nil), ", ") + `
+	WHERE ` + dailyShape.sealedDistinct("daily_summaries", "EXCLUDED", nil)
+)
 
 func derivedSet() string {
 	set := make([]string, 0, len(dailyFigures)+1)
-	for _, f := range append(append([]string{}, dailyFigures...), "metadata") {
+	for _, f := range append(append([]string{}, dailyFigures...), "metadata", "derived") {
 		set = append(set, f+" = EXCLUDED."+f)
 	}
 	return strings.Join(set, ", ")
@@ -195,7 +206,15 @@ func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[day
 			}
 			continue
 		}
-		tag, err := tx.Exec(ctx, derivedUpsert, derivedRow(sc, k, loc, hash, sums)...)
+		row, err := dailyShape.finish(sc, derivedRow(sc, k, loc, hash, sums))
+		if err != nil {
+			return written, skipped, err
+		}
+		upsert := derivedUpsert
+		if sc.uv != nil {
+			upsert = derivedUpsertSealed
+		}
+		tag, err := tx.Exec(ctx, upsert, row...)
 		if err != nil {
 			return written, skipped, fmt.Errorf("upsert derived summary: %w", err)
 		}
@@ -211,38 +230,48 @@ func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[day
 // sumAdditive computes the daily value of each additive type of one provider
 // over samples whose start falls in [lo, hi): the per-source sum, then the
 // largest of those. Sources inside one provider overlap (a phone and a watch
-// both count the same steps), so adding them would double count. The sum is
-// exact (numeric): a float sum depends on the order Postgres reads the rows,
-// so a recompute of unchanged samples could differ in the last bit and
-// rewrite the row.
+// both count the same steps), so adding them would double count. The values
+// may be sealed, so SQL selects the samples and Go sums them. The sum is exact
+// and takes each value as the SQL it replaces did (value::numeric, 15
+// significant digits), so a recompute of unchanged samples gives the same
+// bits whatever order the rows come in, and never rewrites the row.
 func sumAdditive(ctx context.Context, tx TxLike, sc scope, provider string, lo, hi time.Time) (map[string]float64, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT quantity_type, max(total) FROM (
-			SELECT quantity_type,
-			       COALESCE(NULLIF(source_bundle_id, ''), NULLIF(source_name, ''), NULLIF(device_id, ''), '') AS source,
-			       sum(value::numeric)::double precision AS total
-			FROM ohs_data.quantity_samples
-			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND quantity_type = ANY($4)
-			  AND start_date >= $5 AND start_date < $6
-			GROUP BY 1, 2
-		) per_source
-		GROUP BY quantity_type`,
-		sc.tenant, sc.user, provider, additiveTypes, lo, hi)
-	if err != nil {
-		return nil, fmt.Errorf("sum daily samples: %w", err)
-	}
-	defer rows.Close()
-	sums := map[string]float64{}
-	for rows.Next() {
-		var qt string
-		var v float64
-		if err := rows.Scan(&qt, &v); err != nil {
-			return nil, fmt.Errorf("scan daily sum: %w", err)
+	rows := openRows(ctx, tx, sc.uv, tQuantity, `
+		SELECT quantity_type, content_hash, start_date, sealed, value, source_bundle_id, source_name, device_id
+		FROM ohs_data.quantity_samples
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND quantity_type = ANY($4)
+		  AND start_date >= $5 AND start_date < $6`,
+		[]any{sc.tenant, sc.user, provider, additiveTypes, lo, hi})
+	type group struct{ qt, source string }
+	totals := map[group]*big.Rat{}
+	for r, err := range rows {
+		if err != nil {
+			return nil, fmt.Errorf("sum daily samples: %w", err)
 		}
-		sums[qt] = v
+		v, ok := r.float("value")
+		if !ok {
+			continue
+		}
+		d, ok := new(big.Rat).SetString(strconv.FormatFloat(v, 'g', 15, 64))
+		if !ok {
+			return nil, fmt.Errorf("sum daily samples: %v is not a finite value", v)
+		}
+		g := group{r.text("quantity_type"), firstNonEmpty(r["source_bundle_id"], r["source_name"], r["device_id"])}
+		if t := totals[g]; t != nil {
+			t.Add(t, d)
+		} else {
+			totals[g] = d
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("sum daily samples: %w", err)
+	best := map[string]*big.Rat{}
+	for g, t := range totals {
+		if b := best[g.qt]; b == nil || t.Cmp(b) > 0 {
+			best[g.qt] = t
+		}
+	}
+	sums := make(map[string]float64, len(best))
+	for qt, t := range best {
+		sums[qt], _ = t.Float64()
 	}
 	return sums, nil
 }

@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
@@ -28,17 +27,14 @@ import (
 func (e *env) withVault(users ...uuid.UUID) *vault.Vault {
 	e.t.Helper()
 	ctx := context.Background()
-	p, err := vault.OpenProvider(ctx, config.Vault{Provider: "local", RootKey: bytes.Repeat([]byte{7}, 32)})
-	require.NoError(e.t, err)
-	v := vault.New(e.pool, p, vault.Options{CanOpen: true})
 	tx, err := e.pool.Begin(ctx)
 	require.NoError(e.t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
 	for _, u := range users {
-		require.NoError(e.t, v.EnsureUser(ctx, tx, e.tenant, u))
+		require.NoError(e.t, e.v.EnsureUser(ctx, tx, e.tenant, u))
 	}
 	require.NoError(e.t, tx.Commit(ctx))
-	return v
+	return e.v
 }
 
 // uploadSealed is upload with the object sealed to the user's public key,
@@ -115,7 +111,7 @@ func TestProcess_SealedRawObjectWithoutVaultFails(t *testing.T) {
 	v := e.withVault(e.user)
 	job := e.uploadSealed(v, e.user, "apple_health", "heart_rate", q("heart_rate", 62, "bpm", recent()))
 
-	_, err := ProcessWith(context.Background(), e.pool, e.rs, job, e.opts())
+	_, err := ProcessWith(context.Background(), e.pool, e.rs, job, e.clearOpts())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sealed")
 	assert.Zero(t, e.count("quantity_samples"))

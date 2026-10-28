@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -32,8 +31,9 @@ import (
 //  5. when the deletion names ClearSummaryFields, those figures are set to
 //     NULL in the provider's daily summaries of the days the removed quantity
 //     samples name (model.MetadataSummaryDate), and a summary left without
-//     any figure is deleted. The names are resolved against dailyFigures, an
-//     allow-list: no name from a connector reaches the SQL text;
+//     any figure is deleted. The figures may be sealed, so the summaries are
+//     opened and written back in Go; the names are resolved against
+//     dailyFigures, an allow-list;
 //  6. the local days of the removed additive samples are returned, so the
 //     derived daily row of each is computed again without them (a deleted
 //     step sample no longer counts in its day).
@@ -63,10 +63,11 @@ var (
 	// deletionSamples and deletionCategory: $4 is the id, $5 the id followed
 	// by "_", $6 the id followed by "`" (see deletionExternalMatch).
 	// It returns, for each removed sample, the summary day it names (if any),
-	// its type, its start and its time zone.
+	// its type, its start and its time zone: promoted clear columns, since the
+	// metadata may be sealed.
 	deletionSamples = `DELETE FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6") + `
-		RETURNING metadata->>'` + model.MetadataSummaryDate + `', quantity_type, start_date, metadata->>'` + MetadataTimezone + `'`
+		RETURNING to_char(summary_date, 'YYYY-MM-DD'), quantity_type, start_date, tz`
 	deletionCategory = `DELETE FROM ohs_data.category_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3` + deletionExternalMatch("$4", "$5", "$6")
 	deletionNutrition = `DELETE FROM ohs_data.nutrition_logs
@@ -275,32 +276,12 @@ func summaryClearFigures(names []string) (figures []string, unknown int) {
 // summaryScope selects the provider's own summaries ($3) of the days $4 for
 // the job's tenant and user; the derived activity rows are the ETL's, not a
 // record's.
-const summaryScope = `tenant_id = $1 AND user_id = $2 AND provider = $3 AND summary_date = ANY($4::date[])
-		  AND metadata->>'derived' IS DISTINCT FROM 'true'`
+const summaryScope = `SELECT * FROM ohs_data.daily_summaries
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND summary_date = ANY($4::date[])
+		  AND derived IS DISTINCT FROM true`
 
-// summaryClearStatement is the UPDATE that sets figures to NULL. figures must
-// come from summaryClearFigures.
-func summaryClearStatement(figures []string) string {
-	set := make([]string, len(figures))
-	some := make([]string, len(figures))
-	for i, f := range figures {
-		set[i] = f + " = NULL"
-		some[i] = f + " IS NOT NULL"
-	}
-	return `UPDATE ohs_data.daily_summaries SET ` + strings.Join(set, ", ") + `
-		WHERE ` + summaryScope + ` AND (` + strings.Join(some, " OR ") + `)`
-}
-
-// summaryDropEmpty deletes the summaries of those days left without any
-// figure.
-var summaryDropEmpty = func() string {
-	none := make([]string, len(dailyFigures))
-	for i, f := range dailyFigures {
-		none[i] = f + " IS NULL"
-	}
-	return `DELETE FROM ohs_data.daily_summaries
-		WHERE ` + summaryScope + ` AND ` + strings.Join(none, " AND ")
-}()
+// summaryDrop deletes the summaries $3 (ids).
+const summaryDrop = `DELETE FROM ohs_data.daily_summaries WHERE tenant_id = $1 AND user_id = $2 AND id = ANY($3)`
 
 // clearSummaryFields clears the named figures of the provider's summaries of
 // days and drops the summaries left empty. It returns the rows changed.
@@ -312,16 +293,50 @@ func clearSummaryFields(ctx context.Context, tx TxLike, sc scope, provider strin
 	if len(figures) == 0 {
 		return 0, nil
 	}
-	tag, err := tx.Exec(ctx, summaryClearStatement(figures), sc.tenant, sc.user, provider, days)
+	rows, err := collectRows(openRows(ctx, tx, sc.uv, tDaily, summaryScope, []any{sc.tenant, sc.user, provider, days}))
 	if err != nil {
 		return 0, fmt.Errorf("clear summary figures: %w", err)
 	}
-	n := int(tag.RowsAffected())
+	n := 0
+	var changed []Row
+	var empty []int64
+	for _, r := range rows {
+		hit := false
+		for _, f := range figures {
+			if r[f] != nil {
+				r[f], hit = nil, true
+			}
+		}
+		if hit {
+			n++
+		}
+		none := true
+		for _, f := range dailyFigures {
+			if r[f] != nil {
+				none = false
+				break
+			}
+		}
+		id, _ := r.int("id")
+		switch {
+		case none:
+			empty = append(empty, id)
+		case hit:
+			changed = append(changed, r)
+		}
+	}
 	if n == 0 {
 		return 0, nil
 	}
-	if _, err := tx.Exec(ctx, summaryDropEmpty, sc.tenant, sc.user, provider, days); err != nil {
-		return 0, fmt.Errorf("drop empty summaries: %w", err)
+	for _, r := range changed {
+		if err := rewriteRow(ctx, tx, sc, tDaily, r); err != nil {
+			return 0, fmt.Errorf("clear summary figures: %w", err)
+		}
+	}
+	if len(empty) > 0 {
+		if _, err := tx.Exec(ctx, summaryDrop, sc.tenant, sc.user, empty); err != nil {
+			return 0, fmt.Errorf("drop empty summaries: %w", err)
+		}
 	}
 	return n, nil
 }
