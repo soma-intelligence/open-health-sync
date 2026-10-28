@@ -19,6 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	// Every connector registers itself.
 	_ "github.com/soma-intelligence/open-health-sync/connectors/all"
 
@@ -47,6 +51,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -184,7 +189,24 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		}
 		pool.Close()
 	}()
+	// The vault: a process that runs api or etl opens keys. One that runs
+	// collect alone seals to public keys only and never calls the key
+	// provider, so it does not even open it.
+	canOpen := cfg.Roles["api"] || cfg.Roles["etl"]
+	var keyProvider vault.KeyProvider
+	if canOpen {
+		if keyProvider, err = vault.OpenProvider(ctx, cfg.Vault); err != nil {
+			return fmt.Errorf("OHS_VAULT_KEY_PROVIDER: %w", err)
+		}
+	}
+	keyVault := vault.New(pool, keyProvider, vault.Options{
+		CanOpen: canOpen, CacheUsers: cfg.Vault.CacheUsers, CacheTTL: cfg.Vault.CacheTTL,
+	})
 	store := tenant.New(pool)
+	if canOpen {
+		// Users are created with their keys.
+		store = store.WithVault(keyVault)
+	}
 	// The enabled connectors: the environment's keys, then what the console
 	// saved. Every role reads the set through Lookup, so a provider turned on
 	// or off applies without a restart.
@@ -209,6 +231,20 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	if cfg.BootstrapTenant != "" {
 		if err := bootstrap(ctx, store, cfg.BootstrapTenant); err != nil {
 			return err
+		}
+	}
+	if canOpen {
+		// A root key that does not open refuses the start, rather than
+		// failing every read and write later.
+		if err := keyVault.Ready(ctx); err != nil {
+			return fmt.Errorf("vault: the key provider does not open the tenant keys: %w", err)
+		}
+		n, err := ensureUserKeys(ctx, pool, keyVault)
+		if err != nil {
+			return fmt.Errorf("vault: giving keys to the users without: %w", err)
+		}
+		if n > 0 {
+			slog.Info("vault: keys given to users that had none", "users", n)
 		}
 	}
 
@@ -238,18 +274,23 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	goRole("providers", func() error { return providers.Run(ctx, providerset.ReloadEvery) })
 	goRole("tenant providers", func() error { return tenantProviders.Run(ctx, tenantproviders.ReloadEvery) })
 	goRole("tenant keys", func() error { return tenantKeys.Run(ctx, tenantkeys.ReloadEvery) })
+	if canOpen {
+		// Drops from the cache the users another process shredded.
+		goRole("vault", func() error { return keyVault.Listen(ctx) })
+	}
 
 	etlMetrics := &automation.Metrics{}
 	if cfg.Roles["etl"] {
 		q := queue.NewETL(pool)
 		for _, tier := range []string{queue.TierStandard, queue.TierHighFreq} {
 			w := etl.NewWorkerWith(pool, raw, q, tier, ETLConcurrency, etl.WithShutdownGrace(opts.grace),
-				etl.WithConsentRequired(cfg.ConsentRequired))
+				etl.WithConsentRequired(cfg.ConsentRequired), etl.WithVault(keyVault))
 			goRole("etl "+tier, func() error { return w.Run(ctx) })
 		}
-		// Provider grants are revoked best effort before the user's rows go.
-		// A deletion cut short by shutdown stays pending for the next start.
-		dw := deletion.NewWorker(pool, raw, collectDeps).WithShutdownGrace(opts.grace)
+		// The user's keys are shredded first, then provider grants are
+		// revoked best effort before the user's rows go. A deletion cut
+		// short by shutdown stays pending for the next start.
+		dw := deletion.NewWorker(pool, raw, collectDeps).WithVault(keyVault).WithShutdownGrace(opts.grace)
 		goRole("deletion", func() error { return dw.Run(ctx) })
 		// Records of a category whose consent was revoked are purged here.
 		cp := consent.NewPurger(pool)
@@ -279,6 +320,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			Pool:      pool,
 			Store:     store,
 			Raw:       raw,
+			Vault:     keyVault,
 			Providers: providers,
 			Metrics:   cfg.Metrics,
 			Console:   cfg.Console,
@@ -392,6 +434,61 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	slog.Info("ohs stopped")
 	errOnce.Do(func() {}) // firstErr is final from here on
 	return firstErr
+}
+
+// userKeysBatch is how many users one transaction of the startup pass gives
+// keys to.
+const userKeysBatch = 500
+
+// ensureUserKeys gives keys to every active user that has none (stored
+// before the vault, or by a tool without one) and returns how many, one
+// transaction per batch. A user being deleted gets none.
+func ensureUserKeys(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) (int, error) {
+	total := 0
+	for {
+		n, err := ensureUserKeysBatch(ctx, pool, v)
+		total += n
+		// Until a batch finds none: one that waited on a user turned
+		// deleting meanwhile may come back short with more left.
+		if err != nil || n == 0 {
+			return total, err
+		}
+	}
+}
+
+// ensureUserKeysBatch takes the users FOR SHARE: a deletion starting
+// meanwhile waits for the batch, and a user it already turned deleting is
+// left out.
+func ensureUserKeysBatch(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) (int, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+	rows, err := tx.Query(ctx, `
+		SELECT tenant_id, id FROM ohs_core.end_users u
+		WHERE status = 'active'
+		  AND NOT EXISTS (SELECT 1 FROM ohs_core.vault_keys k WHERE k.tenant_id = u.tenant_id AND k.user_id = u.id)
+		ORDER BY tenant_id, id
+		LIMIT $1
+		FOR SHARE`, userKeysBatch)
+	if err != nil {
+		return 0, err
+	}
+	type ref struct{ tenant, user uuid.UUID }
+	users, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ref, error) {
+		var x ref
+		return x, r.Scan(&x.tenant, &x.user)
+	})
+	if err != nil {
+		return 0, err
+	}
+	for _, u := range users {
+		if err := v.EnsureUser(ctx, tx, u.tenant, u.user); err != nil {
+			return 0, err
+		}
+	}
+	return len(users), tx.Commit(ctx)
 }
 
 // serveMetrics serves /metrics on an address of its own (OHS_METRICS_LISTEN),

@@ -64,7 +64,16 @@ func testConfig(t *testing.T, url string) config.Config {
 		Roles:           map[string]bool{"api": true, "etl": true},
 		Metrics:         true,
 		EncryptionKey:   make([]byte, 32),
+		Vault:           testVault(t),
 	}
+}
+
+// testVault is the local provider with the root key Load derives from the
+// zero encryption key of testConfig.
+func testVault(t *testing.T) config.Vault {
+	root, err := config.DeriveVaultRootKey(make([]byte, 32))
+	require.NoError(t, err)
+	return config.Vault{Provider: "local", RootKey: root, RootDerived: true}
 }
 
 // start runs the app until the test ends and waits for /healthz.

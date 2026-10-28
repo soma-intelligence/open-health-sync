@@ -18,6 +18,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // Worker claims ETL jobs of one tier and processes them with bounded
@@ -59,6 +60,9 @@ func WithWriterConfig(c WriterConfig) WorkerOption { return func(w *Worker) { w.
 // WithConsentRequired stores nothing from a source the user has recorded no
 // consent for (OHS_CONSENT_REQUIRED).
 func WithConsentRequired(b bool) WorkerOption { return func(w *Worker) { w.opts.ConsentRequired = b } }
+
+// WithVault gives every job the user's keys at its start (Options.Vault).
+func WithVault(v *vault.Vault) WorkerOption { return func(w *Worker) { w.opts.Vault = v } }
 
 // NewWorker returns a worker for tier running up to concurrency jobs at once.
 func NewWorker(pool *pgxpool.Pool, rs rawstore.Store, q *queue.ETL, tier string, concurrency int) *Worker {
