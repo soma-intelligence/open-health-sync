@@ -42,15 +42,16 @@ type rawMatch struct {
 }
 
 // findRaw looks for a registered raw object of this user with this key or
-// these bytes. A row with the same key is preferred over one with the same
+// these bytes: b's hash, or the plain SHA-256 a row registered before the
+// vault carries. A row with the same key is preferred over one with the same
 // hash. found is false when neither exists.
-func findRaw(ctx context.Context, pool *pgxpool.Pool, tenant, user uuid.UUID, key, hash string) (rawMatch, bool, error) {
+func findRaw(ctx context.Context, pool *pgxpool.Pool, tenant, user uuid.UUID, key string, b rawBody) (rawMatch, bool, error) {
 	var gotKey, gotHash string
 	err := pool.QueryRow(ctx, `
 		SELECT key, content_hash FROM ohs_sync.raw_objects
-		WHERE tenant_id = $1 AND user_id = $2 AND (key = $3 OR content_hash = $4)
+		WHERE tenant_id = $1 AND user_id = $2 AND (key = $3 OR content_hash IN ($4, $5))
 		ORDER BY (key = $3) DESC
-		LIMIT 1`, tenant, user, key, hash).Scan(&gotKey, &gotHash)
+		LIMIT 1`, tenant, user, key, b.hash, b.legacyHash).Scan(&gotKey, &gotHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The key is globally unique and embeds tenant and user, so no row of
 		// another owner can hold it.
@@ -59,7 +60,8 @@ func findRaw(ctx context.Context, pool *pgxpool.Pool, tenant, user uuid.UUID, ke
 	if err != nil {
 		return rawMatch{}, false, fmt.Errorf("look up raw object: %w", err)
 	}
-	return rawMatch{key: gotKey, otherBytes: gotKey == key && gotHash != hash}, true, nil
+	same := gotHash == b.hash || gotHash == b.legacyHash
+	return rawMatch{key: gotKey, otherBytes: gotKey == key && !same}, true, nil
 }
 
 // lockActiveUser takes a share lock on the end user row and returns
@@ -156,11 +158,17 @@ var errOtherBytes = errors.New("collect: key holds other bytes")
 // public key; without one (pub nil) it is the plain SHA-256 and the bytes are
 // written as they are.
 type rawBody struct {
-	gz      []byte
-	hash    string
-	digest  [32]byte
-	pub     *vault.PublicKey
-	version uint32
+	gz   []byte
+	hash string
+	// legacyHash is the plain SHA-256: the hash of the same bytes
+	// registered before the vault (equal to hash without one).
+	legacyHash string
+	digest     [32]byte
+	pub        *vault.PublicKey
+	version    uint32
+	// digestAt is RawDigest of gz under another key version of the owner,
+	// for an object stored before their key was rotated.
+	digestAt func(ctx context.Context, version uint32) ([32]byte, error)
 }
 
 // newRawBody hashes gz for its owner. It reads only the owner's public key,
@@ -168,9 +176,10 @@ type rawBody struct {
 // with no keys gets nothing written in clear: errInactive when the user is
 // being deleted (their keys go first), an error otherwise.
 func newRawBody(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault, tenant, user uuid.UUID, gz []byte) (rawBody, error) {
+	sum := sha256.Sum256(gz)
+	legacy := hex.EncodeToString(sum[:])
 	if v == nil {
-		sum := sha256.Sum256(gz)
-		return rawBody{gz: gz, hash: hex.EncodeToString(sum[:])}, nil
+		return rawBody{gz: gz, hash: legacy, legacyHash: legacy}, nil
 	}
 	pub, version, err := v.PublicKey(ctx, pool, tenant, user)
 	if errors.Is(err, vault.ErrNoKeys) {
@@ -183,7 +192,16 @@ func newRawBody(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault, tenant,
 		return rawBody{}, err
 	}
 	digest := vault.RawDigest(pub, gz)
-	return rawBody{gz: gz, hash: hex.EncodeToString(digest[:]), digest: digest, pub: &pub, version: version}, nil
+	return rawBody{
+		gz: gz, hash: hex.EncodeToString(digest[:]), legacyHash: legacy, digest: digest, pub: &pub, version: version,
+		digestAt: func(ctx context.Context, at uint32) ([32]byte, error) {
+			p, err := v.PublicKeyVersion(ctx, pool, tenant, user, at)
+			if err != nil {
+				return [32]byte{}, err
+			}
+			return vault.RawDigest(p, gz), nil
+		},
+	}, nil
 }
 
 // stored returns the bytes written to the raw store: the sealed object, or
@@ -241,9 +259,10 @@ func putRaw(ctx context.Context, rs rawstore.Store, key string, b rawBody) (int,
 
 // sameRaw reports whether the object stored under key holds b, and whether
 // it is a legacy one. A sealed object is compared by the digest in its
-// header, read without keys: its bytes differ on every write. A legacy object
-// (gzip, stored before the vault or without one) is compared byte for byte,
-// as before. A sealed object with a damaged header holds other bytes.
+// header, read without keys and computed with the public key of the version
+// the header names: its bytes differ on every write. A legacy object (gzip,
+// stored before the vault or without one) is compared byte for byte, as
+// before. A sealed object with a damaged header holds other bytes.
 func sameRaw(ctx context.Context, rs rawstore.Store, key string, b rawBody) (same, legacy bool, err error) {
 	rc, err := rs.Get(ctx, key)
 	if err != nil {
@@ -264,7 +283,21 @@ func sameRaw(ctx context.Context, rs rawstore.Store, key string, b rawBody) (sam
 		return false, false, fmt.Errorf("read back raw object: %w", err)
 	}
 	if sealed {
-		return b.pub != nil && h.Digest == b.digest, false, nil
+		if b.pub == nil {
+			return false, false, nil
+		}
+		want := b.digest
+		if h.Version != b.version {
+			// Sealed before a key rotation: the digest names the key of
+			// its own version. A version the user no longer has holds
+			// other bytes.
+			if want, err = b.digestAt(ctx, h.Version); errors.Is(err, vault.ErrNoKeys) {
+				return false, false, nil
+			} else if err != nil {
+				return false, false, fmt.Errorf("read back raw object: %w", err)
+			}
+		}
+		return h.Digest == want, false, nil
 	}
 	stored, err := io.ReadAll(io.LimitReader(br, int64(len(b.gz))+1))
 	if err != nil {

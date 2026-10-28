@@ -306,3 +306,72 @@ func TestSealedUserWithoutKeys(t *testing.T) {
 	require.ErrorIs(t, err, errInactive)
 	assert.Empty(t, e.files(t))
 }
+
+// A part registered before the vault (plain SHA-256 content_hash) and sent
+// again with the vault on is a duplicate, under its key and under another.
+func TestSealedReuploadOfLegacyRow(t *testing.T) {
+	ctx := context.Background()
+	e := newSealEnv(t)
+	body := gzBody(t, sealLines)
+	_, status, err := e.uploader(e.raw, nil).store(ctx, e.req(), body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+
+	resp, status, err := e.uploader(e.raw, e.sealer).store(ctx, e.req(), body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.True(t, resp.Duplicate)
+	assert.Equal(t, e.key(), resp.Key)
+
+	other := e.req()
+	other.batch = "b2"
+	resp, status, err = e.uploader(e.raw, e.sealer).store(ctx, other, body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.True(t, resp.Duplicate, "the same bytes under another key")
+	assert.Equal(t, e.key(), resp.Key)
+
+	_, status, err = e.uploader(e.raw, e.sealer).store(ctx, e.req(), gzBody(t, "{}\n"))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, status, "other bytes under the legacy key")
+
+	assert.Equal(t, []string{e.key()}, e.files(t), "one object")
+	assert.Equal(t, 1, e.rows(t))
+}
+
+// A file sealed under the user's version 1 key, left unregistered, is still
+// recognized once version 2 is the newest: the digest is computed with the
+// public key the header names.
+func TestSealedRetryAcrossKeyRotation(t *testing.T) {
+	ctx := context.Background()
+	e := newSealEnv(t)
+	body := gzBody(t, sealLines)
+	cctx, cancel := context.WithCancel(ctx)
+	_, _, err := e.uploader(cancelAfterPut{e.raw, cancel}, e.sealer).store(cctx, e.req(), body)
+	require.Error(t, err)
+	first := e.stored(t, e.key())
+	h, sealed, err := vault.ReadObjectHeader(bytes.NewReader(first))
+	require.NoError(t, err)
+	require.True(t, sealed)
+	require.EqualValues(t, 1, h.Version)
+
+	k2, err := vault.GenerateUserKeys(2)
+	require.NoError(t, err)
+	pub2, err := k2.Public()
+	require.NoError(t, err)
+	_, err = e.pool.Exec(ctx, `INSERT INTO ohs_core.vault_keys (tenant_id, user_id, version, wrapped, parent_version, kem_public)
+		VALUES ($1, $2, 2, 'x', '1', $3)`, e.tenant, e.user, pub2.Marshal())
+	require.NoError(t, err)
+
+	resp, status, err := e.uploader(e.raw, e.sealer).store(ctx, e.req(), body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Equal(t, e.key(), resp.Key)
+	assert.Equal(t, first, e.stored(t, e.key()), "never rewritten")
+	assert.Equal(t, 1, e.rows(t))
+
+	rb, err := newRawBody(ctx, e.pool, e.sealer, e.tenant, e.user, gzBody(t, "{}\n"))
+	require.NoError(t, err)
+	_, err = putRaw(ctx, e.raw, e.key(), rb)
+	assert.ErrorIs(t, err, errOtherBytes, "other bytes still conflict across versions")
+}

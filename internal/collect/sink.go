@@ -96,7 +96,7 @@ func storeRaw(ctx context.Context, d Deps, t rawTarget, lines [][]byte) (bool, e
 	hash := rb.hash
 	key := rawstore.Key(t.tenant, t.user, t.provider, t.day, t.batch, t.part)
 
-	if _, found, err := findRaw(ctx, d.Pool, t.tenant, t.user, key, hash); err != nil {
+	if _, found, err := findRaw(ctx, d.Pool, t.tenant, t.user, key, rb); err != nil {
 		return false, err
 	} else if found {
 		return false, nil

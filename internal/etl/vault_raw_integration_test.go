@@ -45,6 +45,14 @@ func (e *env) withVault(users ...uuid.UUID) *vault.Vault {
 // as collect writes it.
 func (e *env) uploadSealed(v *vault.Vault, user uuid.UUID, provider, dataType string, lines ...string) queue.ETLJob {
 	e.t.Helper()
+	return e.uploadSealedAs(v, user, provider, dataType, nil, lines...)
+}
+
+// uploadSealedAs is uploadSealed with the header's digest taken over
+// digestOf instead of the body when it is not nil: an object that opens but
+// is not what its digest says.
+func (e *env) uploadSealedAs(v *vault.Vault, user uuid.UUID, provider, dataType string, digestOf []byte, lines ...string) queue.ETLJob {
+	e.t.Helper()
 	ctx := context.Background()
 	var gz bytes.Buffer
 	zw := gzip.NewWriter(&gz)
@@ -55,6 +63,9 @@ func (e *env) uploadSealed(v *vault.Vault, user uuid.UUID, provider, dataType st
 	pub, version, err := v.PublicKey(ctx, e.pool, e.tenant, user)
 	require.NoError(e.t, err)
 	digest := vault.RawDigest(pub, gz.Bytes())
+	if digestOf != nil {
+		digest = vault.RawDigest(pub, digestOf)
+	}
 	var sealed bytes.Buffer
 	require.NoError(e.t, vault.SealObject(&sealed, pub, version, digest, bytes.NewReader(gz.Bytes())))
 
@@ -107,6 +118,23 @@ func TestProcess_SealedRawObjectWithoutVaultFails(t *testing.T) {
 	_, err := ProcessWith(context.Background(), e.pool, e.rs, job, e.opts())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sealed")
+	assert.Zero(t, e.count("quantity_samples"))
+	assert.Zero(t, e.count("failed_records"))
+}
+
+// A sealed object whose body does not match its digest fails the job, with
+// nothing written.
+func TestProcess_SealedRawObjectWrongDigestFails(t *testing.T) {
+	e := newEnv(t)
+	e.register("apple_health", quantityMap)
+	v := e.withVault(e.user)
+	job := e.uploadSealedAs(v, e.user, "apple_health", "heart_rate", []byte("other"), q("heart_rate", 62, "bpm", recent()))
+	opts := e.opts()
+	opts.Vault = v
+
+	_, err := ProcessWith(context.Background(), e.pool, e.rs, job, opts)
+	require.ErrorIs(t, err, vault.ErrOpen)
+	assert.Contains(t, err.Error(), "digest")
 	assert.Zero(t, e.count("quantity_samples"))
 	assert.Zero(t, e.count("failed_records"))
 }

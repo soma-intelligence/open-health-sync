@@ -411,7 +411,7 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 	key := rawstore.Key(q.tenant, q.user, h.provider, q.day, q.batch, q.part)
 
 	// Already registered, under this key or (same bytes) another one.
-	if resp, status, found, err := h.existing(ctx, q, key, hash); err != nil || found {
+	if resp, status, found, err := h.existing(ctx, q, key, rb); err != nil || found {
 		return resp, status, err
 	}
 
@@ -447,7 +447,7 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 		// A concurrent request registered this key or these bytes first.
 		// The file just written is the same bytes under the key (confirmed by
 		// putRaw) or, for a different key, an orphan the daily scan reports.
-		resp, status, found, err := h.existing(ctx, q, key, hash)
+		resp, status, found, err := h.existing(ctx, q, key, rb)
 		if err != nil {
 			return UploadResponse{}, 0, err
 		}
@@ -464,8 +464,8 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 // existing looks for a registered raw object with this key or these bytes.
 // Same key, same bytes, or other key, same bytes: a duplicate (200). Same key,
 // other bytes: 409.
-func (h *uploadHandler) existing(ctx context.Context, q uploadReq, key, hash string) (UploadResponse, int, bool, error) {
-	m, found, err := findRaw(ctx, h.d.Pool, q.tenant, q.user, key, hash)
+func (h *uploadHandler) existing(ctx context.Context, q uploadReq, key string, rb rawBody) (UploadResponse, int, bool, error) {
+	m, found, err := findRaw(ctx, h.d.Pool, q.tenant, q.user, key, rb)
 	if err != nil || !found {
 		return UploadResponse{}, 0, false, err
 	}

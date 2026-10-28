@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
@@ -124,6 +125,30 @@ func (c *cappedReader) Read(p []byte) (int, error) {
 	}
 	n, err := c.r.Read(p)
 	c.left -= int64(n)
+	return n, err
+}
+
+// errRawDigest is a sealed object whose body does not match the digest of
+// its header.
+var errRawDigest = fmt.Errorf("%w: the body does not match its digest", vault.ErrOpen)
+
+// digestReader hashes the body of a sealed object as it is read and, at its
+// end, fails with errRawDigest when the hash is not the header's digest.
+type digestReader struct {
+	r    io.Reader
+	h    hash.Hash
+	want [32]byte
+}
+
+func (d *digestReader) Read(p []byte) (int, error) {
+	n, err := d.r.Read(p)
+	d.h.Write(p[:n])
+	if errors.Is(err, io.EOF) {
+		var got [32]byte
+		if d.h.Sum(got[:0]); got != d.want {
+			return n, errRawDigest
+		}
+	}
 	return n, err
 }
 
@@ -243,11 +268,21 @@ func (r *Reader) StreamNDJSON(ctx context.Context, key string, fn RecordFunc) (*
 		if r.keys == nil {
 			return nil, fmt.Errorf("raw object %s is sealed and this reader has no keys", key)
 		}
-		_, plain, err := vault.OpenObject(br, r.keys)
+		h, plain, err := vault.OpenObject(br, r.keys)
 		if err != nil {
 			return nil, fmt.Errorf("open raw object %s: %w", key, err)
 		}
-		br = bufio.NewReader(plain)
+		// The body is hashed as it streams and checked at its end against
+		// the header's digest, under the key version the header names.
+		uk, err := r.keys(h.Version)
+		if err != nil {
+			return nil, fmt.Errorf("open raw object %s: %w", key, err)
+		}
+		pub, err := uk.Public()
+		if err != nil {
+			return nil, fmt.Errorf("open raw object %s: %w", key, err)
+		}
+		br = bufio.NewReader(&digestReader{r: plain, h: vault.NewRawDigest(pub), want: h.Digest})
 		// Under the wrong keys the header still opens (the KEM rejects
 		// implicitly) and the first chunk does not: an error, not an
 		// object that seems to end at once.
@@ -319,6 +354,11 @@ func (r *Reader) StreamNDJSON(ctx context.Context, key string, fn RecordFunc) (*
 	// Truncation says which recovery the caller owes: a stream abort is a retry,
 	// a cap is a partial.
 	if scanErr := scanner.Err(); scanErr != nil {
+		if errors.Is(scanErr, errRawDigest) {
+			// Every chunk opened but the whole is not what was sealed:
+			// never a partial, the job fails.
+			return nil, fmt.Errorf("raw object %s: %w", key, scanErr)
+		}
 		kind := TruncationStream
 		if errors.Is(scanErr, bufio.ErrTooLong) || errors.Is(scanErr, errDecompressedCap) {
 			kind = TruncationLimit

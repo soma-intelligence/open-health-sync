@@ -442,3 +442,21 @@ func TestReaderSealedBadChunkIsStreamTruncation(t *testing.T) {
 	assert.Equal(t, TruncationStream, rr.Truncation)
 	assert.Less(t, rr.RecordCount, len(lines))
 }
+
+// A sealed object whose body opens but does not match its header's digest
+// fails the read: never records, never a partial.
+func TestReaderSealedWrongDigestFails(t *testing.T) {
+	body := gzipLines([]string{`{"a":1}`, `{"b":2}`})
+	k, err := vault.GenerateUserKeys(2)
+	require.NoError(t, err)
+	pub, err := k.Public()
+	require.NoError(t, err)
+	var b bytes.Buffer
+	require.NoError(t, vault.SealObject(&b, pub, k.Version, vault.RawDigest(pub, []byte("other")), bytes.NewReader(body)))
+	g := &fakeGetter{data: map[string][]byte{"sealed": b.Bytes()}}
+
+	rr, err := NewReader(g).WithKeys(keysOf(k)).ReadNDJSON(context.Background(), "sealed")
+	require.ErrorIs(t, err, vault.ErrOpen)
+	assert.Contains(t, err.Error(), "digest")
+	assert.Nil(t, rr)
+}

@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -55,14 +56,21 @@ type ObjectHeader struct {
 // needs only the public key, so a process that cannot open objects still
 // recognizes a retried upload.
 func RawDigest(pub PublicKey, body []byte) [32]byte {
-	h := sha256.New()
-	h.Write([]byte(rawDigestLabel))
-	h.Write(pub.X25519)
-	h.Write(pub.MLKEM)
+	h := NewRawDigest(pub)
 	h.Write(body)
 	var out [32]byte
 	h.Sum(out[:0])
 	return out
+}
+
+// NewRawDigest is RawDigest as a hash.Hash: write the body to it, then Sum.
+// A reader checks a body it streams with it.
+func NewRawDigest(pub PublicKey) hash.Hash {
+	h := sha256.New()
+	h.Write([]byte(rawDigestLabel))
+	h.Write(pub.X25519)
+	h.Write(pub.MLKEM)
+	return h
 }
 
 // SealObject streams src into dst as a sealed object for the owner of pub,

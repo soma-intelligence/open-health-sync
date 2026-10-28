@@ -300,6 +300,23 @@ func (v *Vault) PublicKey(ctx context.Context, db Querier, tenant, user uuid.UUI
 	return p, version, nil
 }
 
+// PublicKeyVersion is PublicKey for one key version of the user, read the
+// same way: a sealed object's header names the version it was sealed to.
+// A version the user does not have is ErrNoKeys.
+func (v *Vault) PublicKeyVersion(ctx context.Context, db Querier, tenant, user uuid.UUID, version uint32) (PublicKey, error) {
+	var raw []byte
+	err := db.QueryRow(ctx, `
+		SELECT kem_public FROM ohs_core.vault_keys
+		WHERE tenant_id = $1 AND user_id = $2 AND version = $3`, tenant, user, version).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PublicKey{}, ErrNoKeys
+	}
+	if err != nil {
+		return PublicKey{}, fmt.Errorf("vault: public key: %w", err)
+	}
+	return UnmarshalPublicKey(raw)
+}
+
 // ForUser returns every key version of the user, from the cache or unwrapped
 // now. All versions are loaded at once, so an open never needs the provider:
 // an outage shows here, as an error wrapping ErrProviderUnavailable.
