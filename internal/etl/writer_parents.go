@@ -125,7 +125,8 @@ func writeParent(ctx context.Context, tx TxLike, sc scope, s *shape, timeCol, co
 			if err != nil {
 				return 0, false, err
 			}
-			if st, ok := stored[keyOf(hash, at)]; ok {
+			if copies := stored[keyOf(hash, at)]; len(copies) > 0 {
+				st := copies[0]
 				merged, changed := s.mergeStored(base, st, figures)
 				if !changed {
 					id, _ := st.int("id")
@@ -508,6 +509,10 @@ func (w *Writer) writeOrphanRoutePoints(ctx context.Context, tx TxLike, sc scope
 			maxTS = p.Timestamp
 		}
 	}
+	lo, hi := maxTS.Add(routeAttachTolerance), minTS.Add(-routeAttachTolerance)
+	if err := convertLegacy(ctx, tx, sc, tWorkouts, `r.start_date <= $3 AND COALESCE(r.end_date, r.start_date) >= $4`, lo, hi); err != nil {
+		return err
+	}
 	var workoutID int64
 	var workoutHash string
 	err := tx.QueryRow(ctx, `
@@ -517,7 +522,7 @@ func (w *Writer) writeOrphanRoutePoints(ctx context.Context, tx TxLike, sc scope
 		  AND COALESCE(end_date, start_date) >= $4
 		ORDER BY start_date DESC
 		LIMIT 1`,
-		sc.tenant, sc.user, maxTS.Add(routeAttachTolerance), minTS.Add(-routeAttachTolerance),
+		sc.tenant, sc.user, lo, hi,
 	).Scan(&workoutID, &workoutHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		slog.DebugContext(ctx, "route points skipped, no parent workout", "count", len(pts))
@@ -551,8 +556,8 @@ func (w *Writer) writeRoutePoints(ctx context.Context, tx TxLike, sc scope, work
 		}
 		return sc.hash(model.RoutePointContentHash(p))
 	}
-	row := func(sc scope, p model.RoutePoint) []any {
-		return []any{sc.tenant, sc.user, workoutID, p.Timestamp, p.Latitude, p.Longitude, p.AltitudeM, p.SpeedMps, p.CourseDeg, hash(p)}
+	row := func(sc scope, p model.RoutePoint, h string) []any {
+		return []any{sc.tenant, sc.user, workoutID, p.Timestamp, p.Latitude, p.Longitude, p.AltitudeM, p.SpeedMps, p.CourseDeg, h}
 	}
 	return copyOrInsert(ctx, w, tx, sc, routePointShape, hyperConflict(`"timestamp"`), points, row,
 		func(p model.RoutePoint) (string, time.Time) { return hash(p), p.Timestamp })
@@ -660,6 +665,9 @@ func (w *Writer) writeOrphanECGVoltageSamples(ctx context.Context, tx TxLike, sc
 				sc.tenant, sc.user, parentHash).Scan(&ecgID, &recStart)
 		case sourceKey != "":
 			lookupKey = "voltage_path"
+			if err := convertLegacy(ctx, tx, sc, tECG, `r.voltage_path = $3`, sourceKey); err != nil {
+				return err
+			}
 			err = tx.QueryRow(ctx, `
 				SELECT id, content_hash, start_date FROM ohs_data.ecg_recordings
 				WHERE tenant_id = $1 AND user_id = $2 AND voltage_path = $3
@@ -708,8 +716,8 @@ func (w *Writer) writeECGVoltageSamples(ctx context.Context, tx TxLike, sc scope
 	ts := func(s model.ECGVoltageSample) time.Time {
 		return base.Add(time.Duration(s.TimeSinceSampleStart * float64(time.Second))).Round(time.Microsecond)
 	}
-	row := func(sc scope, s model.ECGVoltageSample) []any {
-		return []any{sc.tenant, sc.user, ecgID, ts(s), s.TimeSinceSampleStart, s.VoltageUV, sc.hash(model.ECGVoltageSampleContentHash(s))}
+	row := func(sc scope, s model.ECGVoltageSample, h string) []any {
+		return []any{sc.tenant, sc.user, ecgID, ts(s), s.TimeSinceSampleStart, s.VoltageUV, h}
 	}
 	return copyOrInsert(ctx, w, tx, sc, ecgSampleShape, hyperConflict("ts"), owned, row,
 		func(s model.ECGVoltageSample) (string, time.Time) {

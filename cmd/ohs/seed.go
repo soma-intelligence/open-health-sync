@@ -14,10 +14,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/demo"
 	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 const seedUsage = "usage: ohs seed --demo [--persona mix] [--tenant <id>] [--days 90] [--external-ref demo-user] [--seed N]"
@@ -100,6 +102,16 @@ func runSeed(rest []string, out io.Writer) error {
 	}
 	defer pool.Close()
 	store := tenant.New(pool)
+	// With the instance's key provider the demo user gets its keys now and
+	// its rows are sealed, as the API's demo user's are. Without a complete
+	// configuration the rows are written clear, as with no vault.
+	if cfg, err := config.Load(os.LookupEnv, os.Environ()); err == nil {
+		p, err := vault.OpenProvider(ctx, cfg.Vault)
+		if err != nil {
+			return fmt.Errorf("OHS_VAULT_KEY_PROVIDER: %w", err)
+		}
+		store = store.WithVault(vault.New(pool, p, vault.Options{CanOpen: true}))
+	}
 
 	tenantID, key := o.tenant, ""
 	if tenantID == uuid.Nil {

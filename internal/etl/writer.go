@@ -175,6 +175,9 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 			return nil, err
 		}
 	}
+	if err := lockMerged(ctx, tx, sc, acc); err != nil {
+		return nil, err
+	}
 	var staleDays map[dayKey]*time.Location
 	if len(acc.Deletions) > 0 {
 		apply := applyDeletions
@@ -190,8 +193,12 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	if err := dropTombstoned(ctx, tx, sc, acc, c); err != nil {
 		return nil, err
 	}
-	// From here on every hash is the stored one: keyed when the job holds
+	// The clear rows the batch can meet are converted first (legacy.go);
+	// from here on every hash is the stored one: keyed when the job holds
 	// keys. touchedDays below reads only types, times and zones.
+	if err := convertBatchLegacy(ctx, tx, sc, acc); err != nil {
+		return nil, err
+	}
 	acc = sc.keyed(acc)
 	type step struct {
 		name string
@@ -276,6 +283,44 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	return c, nil
 }
 
+// lockMerged takes, with keys, the user lock of every table whose stored rows
+// this batch reads to merge in Go (latest wins, figure blanking): without it
+// two jobs of one user could both read the stored row and the second write
+// would drop the first one's figures. The locks are taken up front, in the
+// order of the write steps, so two jobs never wait for each other in a cycle.
+// Without keys the merge is one SQL statement and needs no lock.
+func lockMerged(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) error {
+	if sc.uv == nil {
+		return nil
+	}
+	replaceable := func(n int, f func(int) bool) bool {
+		for i := range n {
+			if f(i) {
+				return true
+			}
+		}
+		return false
+	}
+	clears := replaceable(len(acc.Deletions), func(i int) bool { return len(acc.Deletions[i].ClearSummaryFields) > 0 })
+	for _, l := range []struct {
+		table string
+		need  bool
+	}{
+		{tQuantity, len(acc.QuantitySamples) > 0},
+		{tNutrition, replaceable(len(acc.NutritionLogs), func(i int) bool { return acc.NutritionLogs[i].Replaceable })},
+		{tSleep, replaceable(len(acc.SleepSessions), func(i int) bool { return acc.SleepSessions[i].Replaceable })},
+		{tWorkouts, replaceable(len(acc.Workouts), func(i int) bool { return acc.Workouts[i].Replaceable })},
+		{tDaily, clears || replaceable(len(acc.DailySummaries), func(i int) bool { return acc.DailySummaries[i].Replaceable })},
+	} {
+		if l.need {
+			if err := lockUserTable(ctx, tx, l.table, sc); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // --- Shared helpers ---
 
 // insertBatches runs a multi-row INSERT per batch of rows. head is the
@@ -350,7 +395,13 @@ func insertParentWithFallback(ctx context.Context, tx TxLike, insertSQL string, 
 // GPS routes in one upload) would otherwise fail. Duplicate rows inside one
 // batch must be filtered by the caller (copyDedupe): staging has no unique.
 func stage(ctx context.Context, tx TxLike, table string, columns []string, rows [][]any) (temp string, copied int64, err error) {
-	temp = pgx.Identifier{"_tmp_" + table}.Sanitize()
+	return stageAs(ctx, tx, table, "_tmp_"+table, columns, rows)
+}
+
+// stageAs is stage into the staging table name, for a second column set of
+// one table inside one transaction.
+func stageAs(ctx context.Context, tx TxLike, table, name string, columns []string, rows [][]any) (temp string, copied int64, err error) {
+	temp = pgx.Identifier{name}.Sanitize()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(
 		`CREATE TEMPORARY TABLE IF NOT EXISTS %s ON COMMIT DROP AS SELECT %s FROM %s WITH NO DATA`,
 		temp, quoteCols(columns), pgx.Identifier{"ohs_data", table}.Sanitize())); err != nil {
@@ -359,7 +410,7 @@ func stage(ctx context.Context, tx TxLike, table string, columns []string, rows 
 	if _, err := tx.Exec(ctx, "TRUNCATE TABLE "+temp); err != nil {
 		return "", 0, fmt.Errorf("truncate staging for %s: %w", table, err)
 	}
-	copied, err = tx.CopyFrom(ctx, pgx.Identifier{"_tmp_" + table}, columns, pgx.CopyFromRows(rows))
+	copied, err = tx.CopyFrom(ctx, pgx.Identifier{name}, columns, pgx.CopyFromRows(rows))
 	if err != nil {
 		return "", 0, fmt.Errorf("copy to staging for %s: %w", table, err)
 	}
@@ -468,14 +519,15 @@ func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp
 	return int(tag.RowsAffected()), nil
 }
 
-// updateStoredSealed is updateStored for rows staged sealed: the merge already
-// ran in Go (shape.mergeStored), so the staged row replaces the stored one
-// when its content MAC or a clear figure differs.
+// updateStoredSealed is updateStored for rows staged sealed, each with the id
+// of the stored copy it was merged with: the merge already ran in Go
+// (shape.mergeStored), so the staged row replaces that copy when its content
+// MAC or a clear figure differs.
 func updateStoredSealed(ctx context.Context, tx TxLike, sc scope, s *shape, timeCol, temp string, figures []string, wd window) (int, error) {
 	at := pgx.Identifier{timeCol}.Sanitize()
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET %[2]s FROM %[3]s s
 		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[4]s BETWEEN $3 AND $4
-		  AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash
+		  AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash AND t.id = s.id
 		  AND %[5]s`,
 		qualified(s.t.Name), strings.Join(s.sealedSet("s", figures), ", "), temp, at, s.sealedDistinct("t", "s", figures)),
 		sc.tenant, sc.user, wd.lo, wd.hi)

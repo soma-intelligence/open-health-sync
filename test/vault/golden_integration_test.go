@@ -81,7 +81,7 @@ func seedGolden(t *testing.T) goldenFixture {
 	batches, err := demo.Generate(demo.Options{Days: goldenDays, Seed: goldenSeed, Today: goldenToday})
 	require.NoError(t, err)
 	for _, b := range batches {
-		_, err := etl.WriteSynthetic(ctx, pool, tn.ID, u.ID, b.Provider, b.Records)
+		_, err := etl.WriteSynthetic(ctx, pool, nil, tn.ID, u.ID, b.Provider, b.Records)
 		require.NoError(t, err, b.Provider)
 	}
 	seedExtras(t, pool, tn.ID, u.ID)
@@ -109,7 +109,7 @@ func seedExtras(t *testing.T, pool *pgxpool.Pool, tn, u uuid.UUID) {
 			StartDate: d.Add(8 * time.Hour), EndDate: d.Add(9 * time.Hour), SourceName: "Health",
 		})
 	}
-	_, err := etl.WriteSynthetic(ctx, pool, tn, u, "apple_health", flow)
+	_, err := etl.WriteSynthetic(ctx, pool, nil, tn, u, "apple_health", flow)
 	require.NoError(t, err)
 
 	// One heartbeat series of 120 beats.
@@ -122,7 +122,7 @@ func seedExtras(t *testing.T, pool *pgxpool.Pool, tn, u uuid.UUID) {
 		})
 		at = at.Add(time.Duration(rr * float64(time.Millisecond)))
 	}
-	_, err = etl.WriteSynthetic(ctx, pool, tn, u, "apple_health", beats)
+	_, err = etl.WriteSynthetic(ctx, pool, nil, tn, u, "apple_health", beats)
 	require.NoError(t, err)
 
 	// Two ECG recordings with their voltage samples, as the writer stores

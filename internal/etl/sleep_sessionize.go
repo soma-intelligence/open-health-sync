@@ -285,6 +285,10 @@ func storedNightSessions(ctx context.Context, tx TxLike, sc scope, stages []mode
 	var stored []nightSession
 	for range 3 {
 		wantLo, wantHi := lo, hi
+		if err := convertLegacy(ctx, tx, sc, tSleep, `r.provider = $3 AND r.bedtime_start <= $5
+			AND coalesce(r.bedtime_end, r.bedtime_start) >= $4`, sc.provider, lo.Add(-sleepSessionGap), hi.Add(sleepSessionGap)); err != nil {
+			return nil, err
+		}
 		rows, err := tx.Query(ctx, sleepNightsAround, sc.tenant, sc.user, sc.provider,
 			lo.Add(-sleepSessionGap), hi.Add(sleepSessionGap))
 		if err != nil {

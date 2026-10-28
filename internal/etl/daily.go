@@ -106,13 +106,19 @@ func touchedDays(sc scope, acc *model.MapResult) map[dayKey]*time.Location {
 // keys). It leaves the values out, so a recompute hits the same row and
 // replaces it.
 func derivedHash(sc scope, provider string, day time.Time) string {
-	return sc.hash(model.ComputeContentHash(map[string]string{
+	return sc.hash(derivedPlainHash(sc, provider, day))
+}
+
+// derivedPlainHash is derivedHash without keys, the hash of a derived row
+// stored clear.
+func derivedPlainHash(sc scope, provider string, day time.Time) string {
+	return model.ComputeContentHash(map[string]string{
 		"tenant_id":    sc.tenant.String(),
 		"user_id":      sc.user.String(),
 		"provider":     provider,
 		"summary_date": day.Format("2006-01-02"),
 		"kind":         derivedKind,
-	}))
+	})
 }
 
 // derivedDrop deletes the derived row of one day.
@@ -177,6 +183,12 @@ func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[day
 				return written, skipped, fmt.Errorf("lock daily derivation: %w", err)
 			}
 			locked[k.provider] = true
+		}
+		// A derived row stored clear is converted first, or the lookup
+		// below would take it for a provider summary.
+		if err := convertLegacy(ctx, tx, sc, tDaily, `r.content_hash = $3 AND r.summary_date = $4`,
+			derivedPlainHash(sc, k.provider, k.day), k.day); err != nil {
+			return written, skipped, err
 		}
 		hash := derivedHash(sc, k.provider, k.day)
 		var own bool

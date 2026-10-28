@@ -101,6 +101,9 @@ func (s *Store) WithVault(v *vault.Vault) *Store {
 	return &c
 }
 
+// Vault is the vault of WithVault, nil without one.
+func (s *Store) Vault() *vault.Vault { return s.vault }
+
 // Pool exposes the pool for tests and sibling stores.
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 

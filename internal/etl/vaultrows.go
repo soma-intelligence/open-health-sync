@@ -535,16 +535,17 @@ type rowKey struct {
 func keyOf(hash string, at time.Time) rowKey { return rowKey{hash, at.UnixMicro()} }
 
 // storedRows returns the stored rows of table whose (content_hash, timeCol)
-// is one of the pairs, opened, by key. timeType is the SQL type of timeCol;
-// lo and hi bound timeCol so a hypertable reads only those chunks.
-func storedRows(ctx context.Context, tx TxLike, sc scope, table, timeCol, timeType string, hashes []string, times []time.Time, lo, hi time.Time) (map[rowKey]Row, error) {
-	out := map[rowKey]Row{}
+// is one of the pairs, opened, by key. A key may hold several copies
+// (quantity_samples has no unique). timeType is the SQL type of timeCol; lo
+// and hi bound timeCol so a hypertable reads only those chunks.
+func storedRows(ctx context.Context, tx TxLike, sc scope, table, timeCol, timeType string, hashes []string, times []time.Time, lo, hi time.Time) (map[rowKey][]Row, error) {
+	out := map[rowKey][]Row{}
 	if len(hashes) == 0 {
 		return out, nil
 	}
 	q := fmt.Sprintf(`SELECT t.* FROM %[1]s t
-		JOIN unnest($3::text[], $4::%[3]s[]) AS k(h, at) ON t.content_hash = k.h AND t.%[2]s = k.at
-		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[2]s BETWEEN $5 AND $6`, qualified(table), timeCol, timeType)
+		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[2]s BETWEEN $5 AND $6
+		  AND (t.content_hash, t.%[2]s) IN (SELECT * FROM unnest($3::text[], $4::%[3]s[]))`, qualified(table), timeCol, timeType)
 	rows, err := collectRows(openRows(ctx, tx, sc.uv, table, q, []any{sc.tenant, sc.user, hashes, times, lo, hi}))
 	if err != nil {
 		return nil, err
@@ -552,25 +553,23 @@ func storedRows(ctx context.Context, tx TxLike, sc scope, table, timeCol, timeTy
 	for _, r := range rows {
 		h, _ := r["content_hash"].(string)
 		at, _ := r[timeCol].(time.Time)
-		if _, seen := out[keyOf(h, at)]; !seen {
-			out[keyOf(h, at)] = r
-		}
+		out[keyOf(h, at)] = append(out[keyOf(h, at)], r)
 	}
 	return out, nil
 }
 
 // rewriteRow writes back the sensitive columns of a stored row Go changed
 // (r holds every sealed column of the table, opened): sealed again with keys,
-// as clear columns without. The row is found by its id.
+// as clear columns without. The row is found by its id. With keys, a row
+// still clear is converted (convertRow): its content_hash is keyed too.
 func rewriteRow(ctx context.Context, tx TxLike, sc scope, table string, r Row) error {
+	if sc.uv != nil && r["sealed"] == nil {
+		return convertRow(ctx, tx, sc, table, r, sc.hash(r.text("content_hash")))
+	}
 	t := vault.Schema[table]
-	vals := make([]any, len(t.Sealed))
-	for i, c := range t.Sealed {
-		v, err := vaultValue(c.Kind, r[c.Name])
-		if err != nil {
-			return fmt.Errorf("etl: %s.%s: %w", table, c.Name, err)
-		}
-		vals[i] = v
+	vals, err := sealedValues(t, r)
+	if err != nil {
+		return err
 	}
 	args := []any{sc.tenant, sc.user, r["id"]}
 	var set []string
@@ -603,6 +602,20 @@ func rewriteRow(ctx context.Context, tx TxLike, sc scope, table string, r Row) e
 		return fmt.Errorf("rewrite %s row: %w", table, err)
 	}
 	return nil
+}
+
+// sealedValues are the sealed columns of r in t.Sealed order, as the codec
+// takes them.
+func sealedValues(t vault.Table, r Row) ([]any, error) {
+	vals := make([]any, len(t.Sealed))
+	for i, c := range t.Sealed {
+		v, err := vaultValue(c.Kind, r[c.Name])
+		if err != nil {
+			return nil, fmt.Errorf("etl: %s.%s: %w", t.Name, c.Name, err)
+		}
+		vals[i] = v
+	}
+	return vals, nil
 }
 
 // --- Keyed hashes ---
@@ -790,7 +803,7 @@ func deriveQuantity(sc scope, get func(string) any) []any {
 // (api/read/merge.go parentStream).
 func parentSource(get func(string) any) string {
 	md := get("metadata")
-	return firstNonEmpty(get("device_id"), metaValue(md, "sourceBundleId"), metaValue(md, "sourceName"))
+	return firstNonEmpty(get("device_id"), metaText(md, "sourceBundleId"), metaText(md, "sourceName"))
 }
 
 func deriveWorkout(sc scope, get func(string) any) []any {

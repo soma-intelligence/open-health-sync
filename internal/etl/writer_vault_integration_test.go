@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -221,25 +222,141 @@ func (e *env) derive(day time.Time) (int, int) {
 	return n, k
 }
 
-// A Replaceable copy of a row stored in clear (before the seal command ran)
-// merges with it and converts it.
+// A Replaceable copy of a row stored in clear (before the vault, with the
+// plain hash) converts it in place and merges with it.
 func TestUpsertConvertsAClearRow(t *testing.T) {
 	e := newEnv(t)
 	day := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	e.exec(`INSERT INTO ohs_data.daily_summaries (tenant_id, user_id, provider, source_slug, summary_date, resting_hr, step_count, content_hash, metadata)
-		VALUES ($1, $2, 'dev', 'dev', $3, 50, 7000, $4, '{}')`, e.tenant, e.user, day, e.hash("d-clear"))
+		VALUES ($1, $2, 'dev', 'dev', $3, 50, 7000, 'd-clear', '{}')`, e.tenant, e.user, day)
 	steps := 8000
 	c := e.write(WriterConfig{}, &model.MapResult{DailySummaries: []model.DailySummary{{Provider: "dev", SummaryDate: day,
 		StepCount: &steps, ContentHash: "d-clear", Replaceable: true}}})
 	assert.Equal(t, TableCount{Written: 1}, c[tDaily])
+	require.Equal(t, 1, e.count(tDaily))
 	var sealed bool
 	var hr *float64
-	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT sealed IS NOT NULL, resting_hr FROM ohs_data.daily_summaries
-		WHERE tenant_id = $1`, e.tenant).Scan(&sealed, &hr))
+	var hash string
+	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT sealed IS NOT NULL, resting_hr, content_hash
+		FROM ohs_data.daily_summaries WHERE tenant_id = $1`, e.tenant).Scan(&sealed, &hr, &hash))
 	assert.True(t, sealed)
 	assert.Nil(t, hr)
+	assert.Equal(t, e.hash("d-clear"), hash)
 	assert.EqualValues(t, 8000, e.scalar(`SELECT step_count FROM ohs_data.daily_summaries`))
 	assert.EqualValues(t, 50, e.scalar(`SELECT resting_hr FROM ohs_data.daily_summaries`))
+}
+
+// An additive sample stored clear and delivered again with the vault on is
+// converted, not stored twice: one row, and the day sums it once.
+func TestLegacySampleRedeliveredCountsOnce(t *testing.T) {
+	e := newEnv(t)
+	at := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	e.exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, source_slug, source_name, external_id,
+		quantity_type, value, unit, start_date, end_date, content_hash, metadata)
+		VALUES ($1, $2, 'dev', 'dev', 'Phone', 'st-1', 'step_count', 500, 'count', $3, $4, 'legacy-steps', '{}')`,
+		e.tenant, e.user, at, at.Add(time.Hour))
+	e.exec(`INSERT INTO ohs_data.record_aliases (tenant_id, user_id, provider, external_id, record_table, content_hash, start_time)
+		VALUES ($1, $2, 'dev', 'st-1', 'quantity_samples', 'legacy-steps', $3)`, e.tenant, e.user, at)
+	c := e.write(WriterConfig{}, &model.MapResult{QuantitySamples: []model.QuantitySample{{Provider: "dev",
+		QuantityType: model.QTStepCount, Value: 500, Unit: "count", SourceName: "Phone", ExternalID: "st-1",
+		StartDate: at, EndDate: at.Add(time.Hour), ContentHash: "legacy-steps"}}})
+	assert.Equal(t, TableCount{Skipped: 1}, c[tQuantity])
+	require.Equal(t, 1, e.count(tQuantity))
+	n, _ := e.derive(dateOnly(at))
+	require.Equal(t, 1, n)
+	assert.EqualValues(t, 500, e.scalar(`SELECT step_count FROM ohs_data.daily_summaries`))
+	var clear int
+	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT count(*) FROM ohs_data.quantity_samples
+		WHERE tenant_id = $1 AND (sealed IS NULL OR content_hash <> $2)`, e.tenant, e.hash("legacy-steps")).Scan(&clear))
+	assert.Zero(t, clear, "the clear row is sealed under its keyed hash")
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.record_aliases WHERE content_hash = $1`, e.hash("legacy-steps")),
+		"its alias follows")
+}
+
+// A recording and its samples stored clear, delivered again with the vault
+// on: the parent is converted with its children, so nothing lands twice.
+func TestLegacyParentConvertsItsChildren(t *testing.T) {
+	e := newEnv(t)
+	at := time.Date(2026, 9, 2, 6, 0, 0, 0, time.UTC)
+	samples := []model.ECGVoltageSample{
+		{TimeSinceSampleStart: 0, VoltageUV: 10, ParentContentHash: "ecg"},
+		{TimeSinceSampleStart: 1.0 / 512, VoltageUV: 11, ParentContentHash: "ecg"},
+	}
+	var id int64
+	require.NoError(t, e.pool.QueryRow(context.Background(), `INSERT INTO ohs_data.ecg_recordings
+		(tenant_id, user_id, provider, source_slug, start_date, end_date, classification, symptoms_status,
+		 sampling_frequency, number_of_measurements, content_hash, metadata)
+		VALUES ($1, $2, 'dev', 'dev', $3, $4, 1, 0, 512, 2, 'ecg', '{}') RETURNING id`,
+		e.tenant, e.user, at, at.Add(30*time.Second)).Scan(&id))
+	for _, s := range samples {
+		e.exec(`INSERT INTO ohs_data.ecg_samples (tenant_id, user_id, ecg_id, ts, time_since_sample_start, voltage_uv, content_hash)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`, e.tenant, e.user, id,
+			at.Add(time.Duration(s.TimeSinceSampleStart*float64(time.Second))).Round(time.Microsecond),
+			s.TimeSinceSampleStart, s.VoltageUV, model.ECGVoltageSampleContentHash(s))
+	}
+	c := e.write(WriterConfig{}, &model.MapResult{
+		ECGRecordings: []model.ECGRecording{{StartDate: at, EndDate: at.Add(30 * time.Second), Classification: 1,
+			SamplingFrequency: 512, NumberOfMeasurements: 2, ContentHash: "ecg"}},
+		ECGSamples: samples,
+	})
+	assert.Equal(t, TableCount{Skipped: 1}, c[tECG])
+	assert.Equal(t, TableCount{Skipped: 2}, c[tECGSamples])
+	assert.Equal(t, 1, e.count(tECG))
+	assert.Equal(t, 2, e.count(tECGSamples))
+	var clear int
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM ohs_data.ecg_samples WHERE tenant_id = $1 AND sealed IS NULL`, e.tenant).Scan(&clear))
+	assert.Zero(t, clear)
+	assert.EqualValues(t, 21, e.scalar(`SELECT sum(voltage_uv) FROM ohs_data.ecg_samples`))
+}
+
+// Two jobs of one user writing complementary figures of one summary: the
+// second merges with what the first committed, whatever their timing.
+func TestConcurrentMergesKeepBothFigures(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	day := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
+	hr, steps := 51.0, 9100
+	write := func(tx pgx.Tx, s model.DailySummary) error {
+		s.Provider, s.SummaryDate, s.ContentHash, s.Replaceable = "dev", day, "d-race", true
+		_, err := NewWriter(WriterConfig{}).WriteAccumulated(ctx, tx,
+			scope{tenant: e.tenant, user: e.user, provider: "dev", uv: e.keys(e.tenant, e.user)},
+			&model.MapResult{DailySummaries: []model.DailySummary{s}})
+		return err
+	}
+	first, err := e.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer first.Rollback(ctx) //nolint:errcheck
+	require.NoError(t, write(first, model.DailySummary{RestingHR: &hr}))
+
+	// The second job starts while the first holds its row uncommitted, and
+	// must wait for it rather than read the summary as absent.
+	done := make(chan error, 1)
+	go func() {
+		tx, err := e.pool.Begin(ctx)
+		if err != nil {
+			done <- err
+			return
+		}
+		defer tx.Rollback(ctx) //nolint:errcheck
+		if err := write(tx, model.DailySummary{StepCount: &steps}); err != nil {
+			done <- err
+			return
+		}
+		done <- tx.Commit(ctx)
+	}()
+	require.Eventually(t, func() bool {
+		var waiting int
+		_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting)
+		return waiting > 0
+	}, 10*time.Second, 20*time.Millisecond, "the second job waits")
+	require.NoError(t, first.Commit(ctx))
+	require.NoError(t, <-done)
+
+	assert.Equal(t, 1, e.count(tDaily))
+	assert.EqualValues(t, 51, e.scalar(`SELECT resting_hr FROM ohs_data.daily_summaries`))
+	assert.EqualValues(t, 9100, e.scalar(`SELECT step_count FROM ohs_data.daily_summaries`))
 }
 
 // A child hashes over its parent's keyed hash on every path, so the same child
