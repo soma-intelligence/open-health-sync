@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // ObjectGetter is the part of rawstore.Store the reader needs.
@@ -132,13 +134,24 @@ func (c *cappedReader) Read(p []byte) (int, error) {
 // Returning an error aborts the read and is surfaced to the caller as-is.
 type RecordFunc func(recordIndex int, record map[string]any) error
 
-// Reader streams NDJSON (optionally gzipped) objects from the raw store and
-// parses them line by line.
+// Reader streams NDJSON (optionally gzipped, optionally sealed) objects from
+// the raw store and parses them line by line.
 type Reader struct {
 	store                ObjectGetter
 	maxLineBytes         int
 	maxDecompressedBytes int64
 	maxRecords           int
+	// keys opens sealed objects (WithKeys). Nil reads legacy objects only.
+	keys func(version uint32) (*vault.UserKeys, error)
+}
+
+// WithKeys returns a copy of r that opens sealed objects with keys, the key
+// set of a version (vault.UserVault.Keys of the object's owner). Legacy gzip
+// and plain objects are still read as before.
+func (r *Reader) WithKeys(keys func(version uint32) (*vault.UserKeys, error)) *Reader {
+	c := *r
+	c.keys = keys
+	return &c
 }
 
 // NewReader creates a Reader over store with the default caps.
@@ -199,8 +212,10 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// StreamNDJSON reads an object, decompresses it when it is gzip, and hands each
-// parsed record to fn one at a time so the raw map can be released immediately.
+// StreamNDJSON reads an object, opens it when it is sealed, decompresses it
+// when it is gzip, and hands each parsed record to fn one at a time so the raw
+// map can be released immediately. A sealed object without keys (WithKeys),
+// or one that does not open, is an error: nothing of it is read.
 // Valid records are counted, malformed lines are recorded as parse errors (up to
 // the retention caps), empty lines are skipped silently.
 func (r *Reader) StreamNDJSON(ctx context.Context, key string, fn RecordFunc) (*ReadResult, error) {
@@ -213,9 +228,36 @@ func (r *Reader) StreamNDJSON(ctx context.Context, key string, fn RecordFunc) (*
 	result := &ReadResult{}
 	defer func() { result.FileSize = counted.n }()
 
+	// A sealed object starts with its header; the default bufio buffer holds
+	// all of it, so ReadObjectHeader only peeks. Its body (the gzip bytes)
+	// then goes through the same detection as a legacy object. A chunk that
+	// fails to open mid-stream ends the scan like a corrupt gzip tail. A
+	// read error here is left to the scan, which meets it again and reports
+	// a stream truncation, as for a legacy object.
+	br := bufio.NewReader(counted)
+	_, sealed, err := vault.ReadObjectHeader(br)
+	if errors.Is(err, vault.ErrOpen) {
+		return nil, fmt.Errorf("raw object %s: %w", key, err)
+	}
+	if sealed {
+		if r.keys == nil {
+			return nil, fmt.Errorf("raw object %s is sealed and this reader has no keys", key)
+		}
+		_, plain, err := vault.OpenObject(br, r.keys)
+		if err != nil {
+			return nil, fmt.Errorf("open raw object %s: %w", key, err)
+		}
+		br = bufio.NewReader(plain)
+		// Under the wrong keys the header still opens (the KEM rejects
+		// implicitly) and the first chunk does not: an error, not an
+		// object that seems to end at once.
+		if _, err := br.Peek(2); errors.Is(err, vault.ErrOpen) {
+			return nil, fmt.Errorf("open raw object %s: %w", key, err)
+		}
+	}
+
 	// Detect gzip by its 1F 8B magic bytes instead of assuming every body is
 	// gzip. A plain NDJSON body (a non-compressed upload) is read as-is.
-	br := bufio.NewReader(counted)
 	magic, _ := br.Peek(2)
 	var src io.Reader = br
 	if len(magic) >= 2 && magic[0] == 0x1f && magic[1] == 0x8b {

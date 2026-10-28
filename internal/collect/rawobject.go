@@ -3,8 +3,11 @@
 package collect
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +19,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // rawObject is one raw file to register: the raw_objects row and its ETL job.
@@ -146,46 +150,125 @@ func registerRaw(ctx context.Context, pool *pgxpool.Pool, o rawObject) (bool, er
 
 var errOtherBytes = errors.New("collect: key holds other bytes")
 
-// putRaw writes body under key. rawstore.ErrExists means "maybe stored" (an
-// earlier attempt whose registration failed, or a concurrent one): the stored
-// bytes are read back and compared. Equal is success; different is
-// errOtherBytes; gone is retried once.
-func putRaw(ctx context.Context, rs rawstore.Store, key string, body []byte) error {
+// rawBody is one raw file before it is written: the gzip bytes, and the
+// content_hash that names them for their owner. With a vault the hash is the
+// owner's RawDigest of the bytes and the file is written sealed to their
+// public key; without one (pub nil) it is the plain SHA-256 and the bytes are
+// written as they are.
+type rawBody struct {
+	gz      []byte
+	hash    string
+	digest  [32]byte
+	pub     *vault.PublicKey
+	version uint32
+}
+
+// newRawBody hashes gz for its owner. It reads only the owner's public key,
+// so a collect-only process seals as well as one that opens keys. A user
+// with no keys gets nothing written in clear: errInactive when the user is
+// being deleted (their keys go first), an error otherwise.
+func newRawBody(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault, tenant, user uuid.UUID, gz []byte) (rawBody, error) {
+	if v == nil {
+		sum := sha256.Sum256(gz)
+		return rawBody{gz: gz, hash: hex.EncodeToString(sum[:])}, nil
+	}
+	pub, version, err := v.PublicKey(ctx, pool, tenant, user)
+	if errors.Is(err, vault.ErrNoKeys) {
+		if err := userActive(ctx, pool, tenant, user); err != nil {
+			return rawBody{}, err
+		}
+		return rawBody{}, fmt.Errorf("collect: %w", err)
+	}
+	if err != nil {
+		return rawBody{}, err
+	}
+	digest := vault.RawDigest(pub, gz)
+	return rawBody{gz: gz, hash: hex.EncodeToString(digest[:]), digest: digest, pub: &pub, version: version}, nil
+}
+
+// stored returns the bytes written to the raw store: the sealed object, or
+// the gzip bytes as they are without a vault. One call is one KEM operation.
+func (b rawBody) stored() ([]byte, error) {
+	if b.pub == nil {
+		return b.gz, nil
+	}
+	var out bytes.Buffer
+	out.Grow(len(b.gz) + len(b.gz)/256 + 4096)
+	if err := vault.SealObject(&out, *b.pub, b.version, b.digest, bytes.NewReader(b.gz)); err != nil {
+		return nil, fmt.Errorf("seal raw object: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+// putRaw writes b under key and returns the size of what the key holds.
+// rawstore.ErrExists means "maybe stored" (an earlier attempt whose
+// registration failed, or a concurrent one): the stored object is read back
+// and compared (sameRaw). Equal is success; different is errOtherBytes; gone
+// is retried once. The object is sealed once, so a retry writes the same
+// bytes.
+func putRaw(ctx context.Context, rs rawstore.Store, key string, b rawBody) (int, error) {
+	data, err := b.stored()
+	if err != nil {
+		return 0, err
+	}
 	for attempt := 0; attempt < 2; attempt++ {
-		err := rs.Put(ctx, key, bytes.NewReader(body))
+		err := rs.Put(ctx, key, bytes.NewReader(data))
 		if err == nil {
-			return nil
+			return len(data), nil
 		}
 		if !errors.Is(err, rawstore.ErrExists) {
-			return fmt.Errorf("put raw object: %w", err)
+			return 0, fmt.Errorf("put raw object: %w", err)
 		}
-		same, err := sameBytes(ctx, rs, key, body)
+		same, legacy, err := sameRaw(ctx, rs, key, b)
 		if errors.Is(err, rawstore.ErrNotFound) {
 			continue
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if !same {
-			return errOtherBytes
+			return 0, errOtherBytes
 		}
-		return nil
+		if legacy {
+			return len(b.gz), nil
+		}
+		// Every seal of one body has the same size: the header and the
+		// chunk overheads depend only on its length.
+		return len(data), nil
 	}
-	return errors.New("put raw object: key reported existing but is not readable")
+	return 0, errors.New("put raw object: key reported existing but is not readable")
 }
 
-func sameBytes(ctx context.Context, rs rawstore.Store, key string, body []byte) (bool, error) {
+// sameRaw reports whether the object stored under key holds b, and whether
+// it is a legacy one. A sealed object is compared by the digest in its
+// header, read without keys: its bytes differ on every write. A legacy object
+// (gzip, stored before the vault or without one) is compared byte for byte,
+// as before. A sealed object with a damaged header holds other bytes.
+func sameRaw(ctx context.Context, rs rawstore.Store, key string, b rawBody) (same, legacy bool, err error) {
 	rc, err := rs.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, rawstore.ErrNotFound) {
-			return false, err
+			return false, false, err
 		}
-		return false, fmt.Errorf("read back raw object: %w", err)
+		return false, false, fmt.Errorf("read back raw object: %w", err)
 	}
 	defer rc.Close()
-	stored, err := io.ReadAll(io.LimitReader(rc, int64(len(body))+1))
-	if err != nil {
-		return false, fmt.Errorf("read back raw object: %w", err)
+	// bufio's default buffer holds the whole header, so ReadObjectHeader
+	// only peeks and the legacy comparison still sees every byte.
+	br := bufio.NewReader(rc)
+	h, sealed, err := vault.ReadObjectHeader(br)
+	if errors.Is(err, vault.ErrOpen) {
+		return false, false, nil
 	}
-	return bytes.Equal(stored, body), nil
+	if err != nil {
+		return false, false, fmt.Errorf("read back raw object: %w", err)
+	}
+	if sealed {
+		return b.pub != nil && h.Digest == b.digest, false, nil
+	}
+	stored, err := io.ReadAll(io.LimitReader(br, int64(len(b.gz))+1))
+	if err != nil {
+		return false, false, fmt.Errorf("read back raw object: %w", err)
+	}
+	return bytes.Equal(stored, b.gz), true, nil
 }

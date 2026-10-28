@@ -226,6 +226,8 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		Allowed:    tenantProviders.Allowed,
 		TenantKeys: tenantKeys,
 		PublicURL:  cfg.PublicURL,
+		// Raw objects are sealed to public keys: collect alone can.
+		Vault: keyVault,
 	}
 
 	if cfg.BootstrapTenant != "" {

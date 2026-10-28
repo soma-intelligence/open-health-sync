@@ -27,6 +27,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -65,6 +66,9 @@ type Deps struct {
 	// instance's, and a connection keeps the keys it was made with. Nil:
 	// every tenant runs on the instance's keys.
 	TenantKeys *tenantkeys.Set
+	// Vault seals every raw object to its owner's public key. Nil stores
+	// the gzip bytes as they are, as before the vault.
+	Vault *vault.Vault
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }

@@ -8,8 +8,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +25,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // MaxUploadBytes caps one uploaded part (gzip bytes). Larger parts get 413,
@@ -81,6 +80,8 @@ type UploadDeps struct {
 	// 0 means DefaultMaxDecompressedBytes; above MaxMaxDecompressedBytes it
 	// is cut to it.
 	MaxDecompressedBytes int64
+	// Vault seals the stored part, as Deps.Vault does.
+	Vault *vault.Vault
 }
 
 func (d UploadDeps) maxDecompressed() int64 {
@@ -114,7 +115,8 @@ type UploadResponse struct {
 //  2. the body is read up to MaxUploadBytes (413 above);
 //  3. it is fully decompressed and every line checked by the connector (400,
 //     nothing stored, for a broken gzip or a bad line);
-//  4. the gzip bytes are written verbatim to the raw store;
+//  4. the gzip bytes are written to the raw store, sealed to the user's
+//     public key when UploadDeps.Vault is set;
 //  5. the raw_objects row and its ETL job are inserted in one transaction.
 //
 // Re-sending the same part is safe: the answer is 200 with duplicate true and
@@ -241,7 +243,7 @@ type Part struct {
 	Day   time.Time
 	Batch string
 	Part  int
-	// Body is the gzip bytes, stored verbatim.
+	// Body is the gzip bytes, stored as an upload's are.
 	Body []byte
 }
 
@@ -401,8 +403,11 @@ func (h *uploadHandler) validate(meta connector.UploadMeta, body []byte) (int, s
 // store writes the raw file and registers it. It returns the response, or
 // status 409 for a key already holding other bytes.
 func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (UploadResponse, int, error) {
-	sum := sha256.Sum256(body)
-	hash := hex.EncodeToString(sum[:])
+	rb, err := newRawBody(ctx, h.d.Pool, h.d.Vault, q.tenant, q.user, body)
+	if err != nil {
+		return UploadResponse{}, 0, err
+	}
+	hash := rb.hash
 	key := rawstore.Key(q.tenant, q.user, h.provider, q.day, q.batch, q.part)
 
 	// Already registered, under this key or (same bytes) another one.
@@ -413,7 +418,8 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 	if err := userActive(ctx, h.d.Pool, q.tenant, q.user); err != nil {
 		return UploadResponse{}, 0, err
 	}
-	if err := putRaw(ctx, h.d.Raw, key, body); err != nil {
+	size, err := putRaw(ctx, h.d.Raw, key, rb)
+	if err != nil {
 		if errors.Is(err, errOtherBytes) {
 			return UploadResponse{}, http.StatusConflict, nil
 		}
@@ -421,7 +427,7 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 	}
 
 	inserted, err := registerRaw(ctx, h.d.Pool, rawObject{
-		tenant: q.tenant, user: q.user, provider: h.provider, key: key, hash: hash, size: len(body),
+		tenant: q.tenant, user: q.user, provider: h.provider, key: key, hash: hash, size: size,
 		batch: q.batch, part: q.part, dataType: q.dataType, tier: queue.TierHighFreq,
 	})
 	if errors.Is(err, errInactive) || errors.Is(err, errErasing) {

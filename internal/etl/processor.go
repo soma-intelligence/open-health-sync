@@ -79,9 +79,12 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	// The keys first: from the shred of a deletion on, the user has none,
 	// and the status check below tells that case from a user never given
 	// keys.
-	var keysErr error
+	var (
+		keys    *vault.UserVault
+		keysErr error
+	)
 	if opts.Vault != nil {
-		if _, keysErr = opts.Vault.ForUser(ctx, job.TenantID, job.UserID); keysErr != nil && !errors.Is(keysErr, vault.ErrNoKeys) {
+		if keys, keysErr = opts.Vault.ForUser(ctx, job.TenantID, job.UserID); keysErr != nil && !errors.Is(keysErr, vault.ErrNoKeys) {
 			return nil, fmt.Errorf("user keys: %w", keysErr)
 		}
 	}
@@ -127,6 +130,10 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	}
 
 	reader := NewReader(rs)
+	if keys != nil {
+		// The job's keys open its sealed raw object.
+		reader = reader.WithKeys(keys.Keys)
+	}
 	rr, err := reader.StreamNDJSON(ctx, job.Key, func(i int, record map[string]any) error {
 		mr, mapErr := mapRecord(conn, connector.RawRecord{
 			TenantID: job.TenantID.String(), UserID: job.UserID.String(), Provider: job.Provider,
