@@ -137,6 +137,10 @@ func TestPurge(t *testing.T) {
 			VALUES ($1, $2, $3, 'heart_rate', 61, $4, $5)`, ten, user, provider, at, h("hr"))
 		exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
 			VALUES ($1, $2, $3, 'step_count', 100, $4, $5)`, ten, user, provider, at, h("steps"))
+		for _, qt := range []string{"heart_rate", "step_count"} {
+			exec(`INSERT INTO ohs_data.quantity_hourly_sealed (tenant_id, user_id, quantity_type, provider, source_key, slug, worn, unit, bucket, sealed)
+				VALUES ($1, $2, $3, $4, '\x01', $4, false, '', $5, '\x02')`, ten, user, qt, provider, at)
+		}
 		exec(`INSERT INTO ohs_data.heartbeat_samples (tenant_id, user_id, provider, series_id, "timestamp", rr_ms, content_hash)
 			VALUES ($1, $2, $3, 'series', $4, 900, $5)`, ten, user, provider, at, h("beat"))
 		s := id(`INSERT INTO ohs_data.sleep_sessions (tenant_id, user_id, provider, bedtime_start, content_hash)
@@ -177,6 +181,10 @@ func TestPurge(t *testing.T) {
 		WHERE user_id = $1 AND provider = 'oura' AND quantity_type = 'step_count'`, user))
 	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_samples
 		WHERE user_id = $1 AND provider = 'oura' AND quantity_type = 'heart_rate'`, user), "heart revoked")
+	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_hourly_sealed
+		WHERE user_id = $1 AND provider = 'oura' AND quantity_type = 'heart_rate'`, user), "the hourly buckets go with the samples")
+	assert.Equal(t, 1, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_hourly_sealed
+		WHERE user_id = $1 AND provider = 'oura' AND quantity_type = 'step_count'`, user))
 	assert.Zero(t, rows("oura", `SELECT count(*) FROM ohs_data.heartbeat_samples`))
 	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.route_points WHERE user_id = $1 AND workout_id IN
 		(SELECT id FROM ohs_data.workouts WHERE provider = 'oura')`, user), "location revoked")
@@ -184,6 +192,7 @@ func TestPurge(t *testing.T) {
 	assert.Equal(t, 1, rows("oura", `SELECT count(*) FROM ohs_data.sleep_sessions`))
 
 	assert.Equal(t, 2, rows("withings", `SELECT count(*) FROM ohs_data.quantity_samples`), "another source is untouched")
+	assert.Equal(t, 2, rows("withings", `SELECT count(*) FROM ohs_data.quantity_hourly_sealed`))
 	assert.Equal(t, 1, rows("withings", `SELECT count(*) FROM ohs_data.heartbeat_samples`))
 	assert.Equal(t, 1, count(t, pool, `SELECT count(*) FROM ohs_data.route_points WHERE user_id = $1 AND workout_id IN
 		(SELECT id FROM ohs_data.workouts WHERE provider = 'withings')`, user))
@@ -191,7 +200,7 @@ func TestPurge(t *testing.T) {
 	var deleted int64
 	require.NoError(t, pool.QueryRow(ctx, `SELECT rows_deleted FROM ohs_sync.consent_purges
 		WHERE user_id = $1 AND provider = 'oura' AND category = 'heart' AND rows_deleted > 0`, user).Scan(&deleted))
-	assert.Equal(t, int64(2), deleted, "the heart rate sample and the heartbeat")
+	assert.Equal(t, int64(3), deleted, "the heart rate sample, its hourly bucket and the heartbeat")
 
 	// A purge queued then overtaken by a new grant keeps the data.
 	set(t, pool, ten, user, "oura", consent.Activity)

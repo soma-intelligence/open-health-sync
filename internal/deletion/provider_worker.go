@@ -37,7 +37,10 @@ import (
 //
 // Daily summaries are per provider: a derived row sums one provider's own
 // samples (internal/etl/daily.go), so removing that provider's rows leaves the
-// other providers' summaries exact and nothing needs recomputing.
+// other providers' summaries exact and nothing needs recomputing. The sealed
+// hourly buckets (ohs_data.quantity_hourly_sealed) are per provider as well:
+// provider is part of their key, so they are a provider table here, deleted
+// with the samples they count, and the other providers' buckets stay exact.
 
 // childOf names the parent of a child table's rows: fk holds the parent's id.
 type childOf struct{ fk, parent string }

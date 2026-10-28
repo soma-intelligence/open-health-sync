@@ -36,7 +36,9 @@ import (
 //     dailyFigures, an allow-list;
 //  6. the local days of the removed additive samples are returned, so the
 //     derived daily row of each is computed again without them (a deleted
-//     step sample no longer counts in its day).
+//     step sample no longer counts in its day), and the hours of every
+//     removed quantity sample go to sc.hours, so their sealed hourly buckets
+//     are recomputed without them (hourly.go).
 //
 // Every record of the batch is then checked against the tombstones before it
 // is written (dropTombstoned), so a delete wins whichever arrives first.
@@ -184,6 +186,7 @@ func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey, clear 
 	summaryDays := make([]*string, len(gone))
 	for i, s := range gone {
 		summaryDays[i] = s.SummaryDate
+		sc.hours.add(s.QuantityType, s.StartDate)
 		if isAdditive(s.QuantityType) {
 			md := map[string]any{}
 			if s.Timezone != nil {

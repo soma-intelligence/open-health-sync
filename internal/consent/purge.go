@@ -105,6 +105,9 @@ var typedTables = []struct{ table, col string }{
 	{"ohs_data.quantity_samples", "quantity_type"},
 	{"ohs_data.category_samples", "category_type"},
 	{"ohs_data.observations", "canonical_code"},
+	// The sealed hourly buckets of the samples (migration 0044) are per
+	// provider and type too: they go with the samples they count.
+	{"ohs_data.quantity_hourly_sealed", "quantity_type"},
 }
 
 // purge deletes the user's records of category cat that came from provider,

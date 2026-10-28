@@ -55,9 +55,10 @@ func everyFamily(at time.Time) *model.MapResult {
 	}
 }
 
-// etlWritten are the sealed tables the ETL writes. time_tags (the API),
-// workout_tracks (built on read) and quantity_hourly_sealed (Task 12) are
-// written elsewhere.
+// etlWritten are the sealed tables the ETL writes with clear columns for
+// their sealed values. time_tags (the API) and workout_tracks (built on read)
+// are written elsewhere; quantity_hourly_sealed, which has no such columns,
+// is checked apart.
 var etlWritten = []string{
 	tQuantity, tCategory, tSleep, tPhases, tWorkouts, tRoutes, tNutrition, tECG, tECGSamples,
 	tHeartbeat, tDaily, tObservation, "failed_records",
@@ -95,6 +96,10 @@ func TestWriterSealsEveryTable(t *testing.T) {
 			assert.Zero(t, noMAC, "%s: a row without content_mac", table)
 		}
 	}
+
+	require.Positive(t, e.count("quantity_hourly_sealed"))
+	assert.Zero(t, e.scalar(`SELECT count(*) FROM ohs_data.quantity_hourly_sealed
+		WHERE tenant_id = $1 AND (sealed IS NULL OR content_mac IS NULL)`, e.tenant), "a bucket without a sealed value or a MAC")
 
 	// content_hash is keyed: the plain hash of the mapper is nowhere, and the
 	// keyed one finds the row.

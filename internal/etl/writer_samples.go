@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
@@ -262,12 +264,14 @@ func mergeUpserts(ctx context.Context, tx TxLike, sc scope, s *shape, timeCol, t
 // another start: same provider, external id and quantity type ($3 to $5, one
 // element per sample), another start_date ($6). The dedup unique includes
 // start_date, so the upsert alone cannot reach them. The external id is
-// matched on the index of migration 0014.
+// matched on the index of migration 0014. It returns the type and start of each
+// copy removed, whose hour is recomputed (hourly.go).
 const quantitySupersede = `DELETE FROM ohs_data.quantity_samples q
 	USING unnest($3::text[], $4::text[], $5::text[], $6::timestamptz[]) AS n(provider, external_id, quantity_type, start_date)
 	WHERE q.tenant_id = $1 AND q.user_id = $2
 	  AND q.provider = n.provider AND q.external_id IS NOT NULL AND q.external_id COLLATE "C" = n.external_id
-	  AND q.quantity_type = n.quantity_type AND q.start_date <> n.start_date`
+	  AND q.quantity_type = n.quantity_type AND q.start_date <> n.start_date
+	RETURNING q.quantity_type, q.start_date`
 
 // supersedes reports a sample whose stored copies under another start the
 // writer deletes (QuantitySample.SupersedeMoved).
@@ -319,7 +323,19 @@ func supersedeMovedSamples(ctx context.Context, tx TxLike, sc scope, samples []m
 	if len(ids) == 0 {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, quantitySupersede, sc.tenant, sc.user, providers, ids, types, starts); err != nil {
+	rows, err := tx.Query(ctx, quantitySupersede, sc.tenant, sc.user, providers, ids, types, starts)
+	if err != nil {
+		return fmt.Errorf("supersede moved samples: %w", err)
+	}
+	var (
+		qt string
+		at time.Time
+	)
+	_, err = pgx.ForEachRow(rows, []any{&qt, &at}, func() error {
+		sc.hours.add(qt, at)
+		return nil
+	})
+	if err != nil {
 		return fmt.Errorf("supersede moved samples: %w", err)
 	}
 	return nil

@@ -296,6 +296,29 @@ func TestRetentionPrunesRecordAliases(t *testing.T) {
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`))
 }
 
+// The sealed hourly buckets go by their hour, cut on the same whole hour as
+// the samples they count: a bucket goes exactly when all of its samples do.
+func TestRetentionPrunesHourlyBuckets(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 10, 12, 40, 0, 0, time.UTC)
+	cutHour := now.AddDate(0, 0, -90).Truncate(time.Hour)
+	for i, at := range []time.Time{cutHour.Add(-time.Hour), cutHour} {
+		e.exec(`INSERT INTO ohs_data.quantity_hourly_sealed (tenant_id, user_id, quantity_type, provider, source_key, slug, worn, unit, bucket, sealed)
+			VALUES ($1, $2, 'heart_rate', 'withings', '\x01', 'withings', false, 'bpm', $3, '\x02')`, e.tenant, e.user, at)
+		// One sample at the end of each hour, after the cutoff minute of
+		// the day.
+		e.exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+			VALUES ($1, $2, 'withings', 'heart_rate', 60, $3, $4)`, e.tenant, e.user, at.Add(50*time.Minute), fmt.Sprintf("h%d", i))
+	}
+	_, err := (&Retention{Pool: e.pool, Store: e.rs, Days: 90, Now: func() time.Time { return now }}).Run(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_hourly_sealed WHERE bucket = $1`, cutHour))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_hourly_sealed`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples WHERE content_hash = 'h1'`), "the samples of the kept hour stay")
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`))
+}
+
 // Every ohs_data table that holds a user's rows is pruned by retention or
 // kept on purpose (retentionKept): a new table cannot be forgotten.
 func TestRetentionCoversEveryUserTable(t *testing.T) {

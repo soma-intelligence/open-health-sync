@@ -91,12 +91,15 @@ func (c Counts) TotalSkipped() int {
 // provider. Rows take tenant_id and user_id from here, never from the record,
 // so a connector cannot write into another user's data. uv is the user's keys
 // when a vault is configured: every row is then written sealed (see
-// vaultrows.go); nil writes clear rows.
+// vaultrows.go); nil writes clear rows. hours, set by WriteAccumulated when
+// the job holds keys, collects the hours of the samples the write touches
+// (hourly.go); nil collects nothing.
 type scope struct {
 	tenant   uuid.UUID
 	user     uuid.UUID
 	provider string
 	uv       *vault.UserVault
+	hours    hourSet
 }
 
 // providerOr returns p, or the scope's provider when p is empty.
@@ -164,11 +167,16 @@ func Accumulate(dst, src *model.MapResult) {
 // applied first, then every record of a tombstoned provider record is dropped
 // (see writer_deletions.go): acc is filtered in place. An aliased batch
 // (acc.AliasExternalIDs) applies its deletions through the record aliases and
-// writes the aliases of its records last (see writer_aliases.go).
+// writes the aliases of its records last (see writer_aliases.go). With keys,
+// the hourly buckets of every hour the batch touched are recomputed last
+// (hourly.go).
 func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) (Counts, error) {
 	c := Counts{}
 	if acc == nil {
 		return c, nil
+	}
+	if sc.uv != nil {
+		sc.hours = hourSet{}
 	}
 	if acc.AliasExternalIDs {
 		if err := lockAliases(ctx, tx, sc); err != nil {
@@ -265,6 +273,14 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 			return nil, err
 		}
 	}
+	// The hours of the batch's samples, written or met again, and of the
+	// samples its deletions and supersedes removed (collected in sc.hours).
+	for _, s := range acc.QuantitySamples {
+		sc.hours.add(s.QuantityType, s.StartDate)
+	}
+	if err := RecomputeHours(ctx, tx, sc.uv, sc.tenant, sc.user, sc.hours.keys()); err != nil {
+		return nil, err
+	}
 	// The days whose additive samples a deletion removed are summed again.
 	// The days the batch's own samples touch are left to the caller, which
 	// derives them after this write.
@@ -288,7 +304,10 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 // two jobs of one user could both read the stored row and the second write
 // would drop the first one's figures. The locks are taken up front, in the
 // order of the write steps, so two jobs never wait for each other in a cycle.
-// Without keys the merge is one SQL statement and needs no lock.
+// The quantity lock is also taken for a batch with deletions only: removing a
+// sample recomputes its hourly bucket (RecomputeHours), which takes that lock,
+// and taking it there, after the daily lock of a figure clearing, would break
+// the order. Without keys the merge is one SQL statement and needs no lock.
 func lockMerged(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) error {
 	if sc.uv == nil {
 		return nil
@@ -306,7 +325,7 @@ func lockMerged(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) 
 		table string
 		need  bool
 	}{
-		{tQuantity, len(acc.QuantitySamples) > 0},
+		{tQuantity, len(acc.QuantitySamples) > 0 || len(acc.Deletions) > 0},
 		{tNutrition, replaceable(len(acc.NutritionLogs), func(i int) bool { return acc.NutritionLogs[i].Replaceable })},
 		{tSleep, replaceable(len(acc.SleepSessions), func(i int) bool { return acc.SleepSessions[i].Replaceable })},
 		{tWorkouts, replaceable(len(acc.Workouts), func(i int) bool { return acc.Workouts[i].Replaceable })},

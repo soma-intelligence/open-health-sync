@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -295,4 +296,37 @@ func TestEtlJobAfterShred(t *testing.T) {
 	}})
 	require.ErrorIs(t, err, vault.ErrNoKeys)
 	assert.Zero(t, e.rowsFor(t, b.id)["ohs_data.quantity_samples"])
+}
+
+// A provider erasure takes the provider's sealed hourly buckets with its
+// samples; another provider's buckets stay as they are.
+func TestProviderErasureRemovesItsHourlyBuckets(t *testing.T) {
+	ctx := context.Background()
+	e, v := newVaultEnv(t)
+	a := e.newUser(t, "a")
+	rec := e.post(t, a.token, gz(t))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	rows, err := e.pool.Query(ctx, `SELECT key FROM ohs_sync.etl_jobs WHERE tenant_id = $1 AND user_id = $2`, e.tenant.ID, a.id)
+	require.NoError(t, err)
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	for _, k := range keys {
+		_, err := etl.ProcessWith(ctx, e.pool, e.raw, queue.ETLJob{
+			TenantID: e.tenant.ID, UserID: a.id, Provider: applehealth.Slug, Key: k, Tier: queue.TierHighFreq,
+		}, etl.Options{Vault: v, Lookup: func(slug string) (connector.Connector, bool) {
+			return applehealth.New(), slug == applehealth.Slug
+		}})
+		require.NoError(t, err)
+	}
+	require.NotZero(t, e.providerRows(t, a.id, applehealth.Slug)["ohs_data.quantity_hourly_sealed"], "the job wrote buckets")
+	e.seed(t, a.id, other, "active")
+	keep := e.providerRows(t, a.id, other)
+	require.Equal(t, 1, keep["ohs_data.quantity_hourly_sealed"])
+
+	jobOf(t, e.requestProviderDelete(t, a.id, applehealth.Slug))
+	n, err := e.vaultWorker(e.raw, v).Pass(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	assert.Empty(t, e.providerRows(t, a.id, applehealth.Slug))
+	assert.Equal(t, keep, e.providerRows(t, a.id, other))
 }

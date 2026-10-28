@@ -225,6 +225,9 @@ func applyAliasDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.
 			if r.WorkoutID != nil {
 				workouts = append(workouts, *r.WorkoutID)
 			}
+			if table == tQuantity && r.QuantityType != nil {
+				sc.hours.add(*r.QuantityType, r.StartDate)
+			}
 			if r.QuantityType != nil && isAdditive(*r.QuantityType) {
 				md := map[string]any{}
 				if r.Timezone != nil {
