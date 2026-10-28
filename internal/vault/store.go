@@ -421,8 +421,8 @@ func (v *Vault) openUserKey(ctx context.Context, ref userRef, version uint32, wr
 // tenantKey returns a copy of the tenant key of that version, from the cache
 // or unwrapped by the provider now. The caller zeroes it. The row is read
 // through db every time, so the cache answers only for the row stored now;
-// a key read through a transaction (db is not the pool) is never cached,
-// since that transaction may still roll back.
+// a key read through a transaction (db is not the pool) is cached only when
+// the pool reads the same row, since that transaction may still roll back.
 func (v *Vault) tenantKey(ctx context.Context, db Querier, tenant uuid.UUID, version uint32) (*tenantKey, error) {
 	var (
 		wrapped []byte
@@ -442,9 +442,9 @@ func (v *Vault) tenantKey(ctx context.Context, db Querier, tenant uuid.UUID, ver
 	if v.tenants.get(ref, func(c *tenantKey) { *k = *c }) {
 		return k, nil
 	}
-	committed := false
-	if p, ok := db.(*pgxpool.Pool); ok && p == v.pool {
-		committed = true
+	committed, err := v.tenantRowCommitted(ctx, db, ref, wrapped)
+	if err != nil {
+		return nil, err
 	}
 	epoch := v.tenants.epoch()
 	// The flight's key is shared by its callers and not owned by the cache,
@@ -472,6 +472,49 @@ func (v *Vault) tenantKey(ctx context.Context, db Querier, tenant uuid.UUID, ver
 	}
 	*k = *shared
 	return k, nil
+}
+
+// tenantRowCommitted reports whether the tenant key row read through db is
+// committed: always when db is the pool, otherwise when the pool reads the
+// same wrapped value (one query per cache miss). A row the transaction
+// created, or replaced, is not.
+func (v *Vault) tenantRowCommitted(ctx context.Context, db Querier, ref tenantRef, wrapped []byte) (bool, error) {
+	if p, ok := db.(*pgxpool.Pool); ok && p == v.pool {
+		return true, nil
+	}
+	var committed []byte
+	err := v.pool.QueryRow(ctx, `
+		SELECT wrapped FROM ohs_core.vault_keys
+		WHERE tenant_id = $1 AND user_id IS NULL AND version = $2`, ref.tenant, ref.version).Scan(&committed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("vault: tenant key: %w", err)
+	}
+	return sha256.Sum256(committed) == ref.wrapped, nil
+}
+
+// EnsureTenant gives the tenant a key, in tx, unless it has one. Committing
+// it before the tenant's users get keys lets their transactions share one
+// unwrap of it through the cache.
+func (v *Vault) EnsureTenant(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {
+	if !v.canOpen {
+		return ErrCannotOpen
+	}
+	var has bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ohs_core.vault_keys WHERE tenant_id = $1 AND user_id IS NULL)`,
+		tenant).Scan(&has); err != nil {
+		return fmt.Errorf("vault: tenant key: %w", err)
+	}
+	if has {
+		return nil
+	}
+	k, _, err := v.createTenantKey(ctx, tx, tenant)
+	if k != nil {
+		k.Zero()
+	}
+	return err
 }
 
 func (v *Vault) wrap(ctx context.Context, plain, aad []byte) ([]byte, string, error) {

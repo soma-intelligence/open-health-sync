@@ -7,6 +7,7 @@ package deletion_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -78,7 +79,12 @@ func TestShredCommitsBeforeRowsGo(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, tag.RowsAffected())
 
-	other := e.newVault(t) // another process, its cache warm
+	// Another process, listening, its cache warm.
+	other := e.newVault(t)
+	lctx, stopListen := context.WithCancel(ctx)
+	defer stopListen()
+	go func() { _ = other.Listen(lctx) }()
+	e.waitListening(t)
 	_, err = other.ForUser(ctx, e.tenant.ID, a.id)
 	require.NoError(t, err)
 
@@ -94,6 +100,10 @@ func TestShredCommitsBeforeRowsGo(t *testing.T) {
 	assert.NotEmpty(t, e.rowsFor(t, a.id)["ohs_data.quantity_samples"], "the rows are still there")
 	_, err = v.ForUser(ctx, e.tenant.ID, a.id)
 	require.ErrorIs(t, err, vault.ErrNoKeys, "this process dropped its copy")
+	require.Eventually(t, func() bool {
+		_, err := other.ForUser(ctx, e.tenant.ID, a.id)
+		return errors.Is(err, vault.ErrNoKeys)
+	}, time.Second, 10*time.Millisecond, "the warm process drops its copy on the notification")
 	_, err = e.newVault(t).ForUser(ctx, e.tenant.ID, a.id)
 	require.ErrorIs(t, err, vault.ErrNoKeys, "a second process finds no keys")
 	_, err = v.ForUser(ctx, e.tenant.ID, b.id)
@@ -136,6 +146,18 @@ func TestShredCommitsBeforeRowsGo(t *testing.T) {
 	assert.Zero(t, e.keys(t, a.id))
 	assert.Equal(t, 1, e.keys(t, b.id))
 	assert.NotEmpty(t, e.rowsFor(t, b.id))
+}
+
+// waitListening waits until a connection of the test database listens on
+// the vault channel.
+func (e *env) waitListening(t *testing.T) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		var n int
+		require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND query = 'LISTEN ohs_vault'`).Scan(&n))
+		return n > 0
+	}, 10*time.Second, 10*time.Millisecond)
 }
 
 func keysOf(m map[string]any) []string {

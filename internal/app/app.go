@@ -239,12 +239,12 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		if err := keyVault.Ready(ctx); err != nil {
 			return fmt.Errorf("vault: the key provider does not open the tenant keys: %w", err)
 		}
-		n, err := ensureUserKeys(ctx, pool, keyVault)
-		if err != nil {
-			return fmt.Errorf("vault: giving keys to the users without: %w", err)
+		if _, err := ensureVaultKeys(ctx, pool, keyVault); err != nil {
+			return fmt.Errorf("vault: giving keys to the tenants and users without: %w", err)
 		}
-		if n > 0 {
-			slog.Info("vault: keys given to users that had none", "users", n)
+		if ctx.Err() != nil {
+			// Stopped during the pass: nothing started, nothing failed.
+			return nil
 		}
 	}
 
@@ -440,55 +440,95 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 // keys to.
 const userKeysBatch = 500
 
-// ensureUserKeys gives keys to every active user that has none (stored
-// before the vault, or by a tool without one) and returns how many, one
-// transaction per batch. A user being deleted gets none.
-func ensureUserKeys(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) (int, error) {
+// ensureVaultKeys gives a key to every tenant that has none, each in a
+// committed transaction of its own, then keys to every active user that has
+// none (stored before the vault, or by a tool without one), one transaction
+// per batch, and returns how many users. A tenant key committed first is
+// unwrapped once and then served from the cache to every batch. A user being
+// deleted gets none. A ctx that ends during the pass is a shutdown, not a
+// failure: the pass stops and returns no error.
+func ensureVaultKeys(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) (int, error) {
+	if err := ensureTenantKeys(ctx, pool, v); err != nil {
+		if ctx.Err() != nil {
+			return 0, nil
+		}
+		return 0, err
+	}
 	total := 0
+	var after struct{ tenant, user uuid.UUID }
 	for {
-		n, err := ensureUserKeysBatch(ctx, pool, v)
-		total += n
-		// Until a batch finds none: one that waited on a user turned
-		// deleting meanwhile may come back short with more left.
-		if err != nil || n == 0 {
+		users, err := ensureUserKeysBatch(ctx, pool, v, after.tenant, after.user)
+		if ctx.Err() != nil {
+			return total, nil
+		}
+		if err != nil {
 			return total, err
 		}
+		// Until a batch finds none: the cursor moves past every user seen,
+		// so one left out (it turned deleting) is never read again.
+		if len(users) == 0 {
+			return total, nil
+		}
+		total += len(users)
+		after.tenant, after.user = users[len(users)-1][0], users[len(users)-1][1]
+		slog.Info("vault: keys given to users that had none", "users", len(users), "done", total)
 	}
 }
 
-// ensureUserKeysBatch takes the users FOR SHARE: a deletion starting
-// meanwhile waits for the batch, and a user it already turned deleting is
-// left out.
-func ensureUserKeysBatch(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) (int, error) {
+// ensureTenantKeys creates the missing tenant keys, one transaction each.
+func ensureTenantKeys(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) error {
+	rows, err := pool.Query(ctx, `
+		SELECT id FROM ohs_core.tenants t
+		WHERE NOT EXISTS (SELECT 1 FROM ohs_core.vault_keys k WHERE k.tenant_id = t.id AND k.user_id IS NULL)
+		ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return err
+	}
+	for _, t := range tenants {
+		if err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return v.EnsureTenant(ctx, tx, t) }); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureUserKeysBatch gives keys to the next batch of users after the cursor
+// (tenant, user) and returns them, in order. It takes them FOR SHARE: a
+// deletion starting meanwhile waits for the batch, and a user it already
+// turned deleting is left out.
+func ensureUserKeysBatch(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault, tenant, user uuid.UUID) ([][2]uuid.UUID, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 	rows, err := tx.Query(ctx, `
 		SELECT tenant_id, id FROM ohs_core.end_users u
-		WHERE status = 'active'
+		WHERE status = 'active' AND (u.tenant_id, u.id) > ($2, $3)
 		  AND NOT EXISTS (SELECT 1 FROM ohs_core.vault_keys k WHERE k.tenant_id = u.tenant_id AND k.user_id = u.id)
 		ORDER BY tenant_id, id
 		LIMIT $1
-		FOR SHARE`, userKeysBatch)
+		FOR SHARE`, userKeysBatch, tenant, user)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	type ref struct{ tenant, user uuid.UUID }
-	users, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ref, error) {
-		var x ref
-		return x, r.Scan(&x.tenant, &x.user)
+	users, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) ([2]uuid.UUID, error) {
+		var x [2]uuid.UUID
+		return x, r.Scan(&x[0], &x[1])
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	for _, u := range users {
-		if err := v.EnsureUser(ctx, tx, u.tenant, u.user); err != nil {
-			return 0, err
+		if err := v.EnsureUser(ctx, tx, u[0], u[1]); err != nil {
+			return nil, err
 		}
 	}
-	return len(users), tx.Commit(ctx)
+	return users, tx.Commit(ctx)
 }
 
 // serveMetrics serves /metrics on an address of its own (OHS_METRICS_LISTEN),
