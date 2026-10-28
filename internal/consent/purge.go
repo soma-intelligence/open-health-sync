@@ -70,6 +70,15 @@ func (p *Purger) Once(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("consent: purge: claim: %w", err)
 	}
+	// Lock the user row like a provider erasure: an ETL job holding it FOR
+	// SHARE commits first (its rows, and the hourly buckets it recomputed,
+	// are purged below), and one arriving later waits for this purge and then
+	// finds the category withheld. A user already gone has no row to lock;
+	// the purge then removes whatever is left.
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+		tenant, user); err != nil {
+		return false, fmt.Errorf("consent: purge: lock user: %w", err)
+	}
 	// Granted again since the purge was queued: keep the data.
 	var granted bool
 	err = tx.QueryRow(ctx, `
@@ -100,31 +109,42 @@ func (p *Purger) Once(ctx context.Context) (bool, error) {
 }
 
 // typedTables hold a type name per row: the rows of the category are those
-// whose type Of files under it.
-var typedTables = []struct{ table, col string }{
-	{"ohs_data.quantity_samples", "quantity_type"},
-	{"ohs_data.category_samples", "category_type"},
-	{"ohs_data.observations", "canonical_code"},
+// whose type Of files under it. A derived table holds statistics of the
+// records, not records: its rows are deleted but not counted in rows_deleted,
+// which counts the user's records the purge removed.
+var typedTables = []struct {
+	table, col string
+	derived    bool
+}{
+	{"ohs_data.quantity_samples", "quantity_type", false},
+	{"ohs_data.category_samples", "category_type", false},
+	{"ohs_data.observations", "canonical_code", false},
 	// The sealed hourly buckets of the samples (migration 0044) are per
 	// provider and type too: they go with the samples they count.
-	{"ohs_data.quantity_hourly_sealed", "quantity_type"},
+	{"ohs_data.quantity_hourly_sealed", "quantity_type", true},
 }
 
 // purge deletes the user's records of category cat that came from provider,
-// and returns how many rows went.
+// and the statistics derived from them, and returns how many records went.
 func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat string) (int64, error) {
 	// A user's rows in a compressed chunk may need decompressing.
 	if _, err := tx.Exec(ctx, `SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0`); err != nil {
 		return 0, fmt.Errorf("consent: purge: %w", err)
 	}
 	var total int64
-	exec := func(sql string, args ...any) error {
+	// del runs one delete and returns the rows it removed; exec counts them
+	// in total.
+	del := func(sql string, args ...any) (int64, error) {
 		tag, err := tx.Exec(ctx, sql, append([]any{tenant, user, provider}, args...)...)
 		if err != nil {
-			return fmt.Errorf("consent: purge %s: %w", cat, err)
+			return 0, fmt.Errorf("consent: purge %s: %w", cat, err)
 		}
-		total += tag.RowsAffected()
-		return nil
+		return tag.RowsAffected(), nil
+	}
+	exec := func(sql string, args ...any) error {
+		n, err := del(sql, args...)
+		total += n
+		return err
 	}
 	for _, t := range typedTables {
 		rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT DISTINCT %s FROM %s
@@ -145,9 +165,13 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 		if len(match) == 0 {
 			continue
 		}
-		if err := exec(fmt.Sprintf(`DELETE FROM %s
-			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND %s = ANY($4)`, t.table, t.col), match); err != nil {
+		n, err := del(fmt.Sprintf(`DELETE FROM %s
+			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND %s = ANY($4)`, t.table, t.col), match)
+		if err != nil {
 			return 0, err
+		}
+		if !t.derived {
+			total += n
 		}
 	}
 

@@ -35,6 +35,12 @@ import (
 //
 // Without keys nothing is written: the continuous aggregate still serves the
 // users who are not sealed yet.
+//
+// source_key and content_mac are computed under the user's newest index key.
+// After a user key rotation, a recomputed hour gets the new source_key (its
+// buckets under the old one are deleted as stale), but an hour no job has
+// touched since keeps the old one: one source can carry two source_keys
+// across a range of hours until its buckets are rebuilt.
 
 // HourKey is one hour of one quantity type of a user. Bucket is truncated to
 // the hour, in UTC, as time_bucket('1 hour', start_date) is.

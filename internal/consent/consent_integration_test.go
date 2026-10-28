@@ -200,7 +200,7 @@ func TestPurge(t *testing.T) {
 	var deleted int64
 	require.NoError(t, pool.QueryRow(ctx, `SELECT rows_deleted FROM ohs_sync.consent_purges
 		WHERE user_id = $1 AND provider = 'oura' AND category = 'heart' AND rows_deleted > 0`, user).Scan(&deleted))
-	assert.Equal(t, int64(3), deleted, "the heart rate sample, its hourly bucket and the heartbeat")
+	assert.Equal(t, int64(2), deleted, "the heart rate sample and the heartbeat, not the derived bucket")
 
 	// A purge queued then overtaken by a new grant keeps the data.
 	set(t, pool, ten, user, "oura", consent.Activity)
@@ -214,4 +214,64 @@ func TestPurge(t *testing.T) {
 	}
 	assert.Equal(t, 1, rows("oura", `SELECT count(*) FROM ohs_data.sleep_sessions`))
 	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_sync.consent_purges WHERE finished_at IS NULL`))
+}
+
+// An ETL job holds its user FOR SHARE until it commits, and recomputes the
+// hourly buckets of what it writes. A purge queued meanwhile waits for it: once
+// both commit, the revoked category has no bucket left, whatever the job wrote.
+func TestPurgeWaitsForEtlJob(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+	var ten, user uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('t') RETURNING id`).Scan(&ten))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO ohs_core.end_users (tenant_id) VALUES ($1) RETURNING id`, ten).Scan(&user))
+	at := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	bucket := `INSERT INTO ohs_data.quantity_hourly_sealed (tenant_id, user_id, quantity_type, provider, source_key, slug, worn, unit, bucket, sealed)
+		VALUES ($1, $2, 'heart_rate', 'oura', '\x01', 'oura', false, '', $3, '\x02')`
+	_, err = pool.Exec(ctx, `INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+		VALUES ($1, $2, 'oura', 'heart_rate', 61, $3, 'hr')`, ten, user, at)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, bucket, ten, user, at)
+	require.NoError(t, err)
+
+	// The job's write transaction, as the ETL takes it: the user FOR SHARE,
+	// then a bucket of the next hour.
+	job, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = job.Rollback(ctx) }()
+	var status string
+	require.NoError(t, job.QueryRow(ctx, `SELECT status FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2 FOR SHARE`,
+		ten, user).Scan(&status))
+	_, err = job.Exec(ctx, bucket, ten, user, at.Add(time.Hour))
+	require.NoError(t, err)
+
+	set(t, pool, ten, user, "oura", consent.Sleep)
+	done := make(chan error, 1)
+	go func() {
+		purger := consent.NewPurger(pool)
+		for {
+			did, err := purger.Once(ctx)
+			if err != nil || !did {
+				done <- err
+				return
+			}
+		}
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("the purge ran while the job held the user (err %v)", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	require.NoError(t, job.Commit(ctx))
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the purge did not finish after the job committed")
+	}
+	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_hourly_sealed
+		WHERE user_id = $1 AND quantity_type = 'heart_rate'`, user), "no bucket of the revoked category is left")
+	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_samples WHERE user_id = $1`, user))
 }
