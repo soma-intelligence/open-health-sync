@@ -5513,11 +5513,11 @@ components:
         backfill_seconds, backfill_chunk_seconds, reconcile_seconds]
       properties:
         pull_every_seconds: { type: integer, description: "The regular pull interval while the provider's notifications arrive.", examples: [21600] }
-        pull_every_without_push_seconds: { type: integer, description: The interval when no notification arrives., examples: [3600] }
-        lookback_seconds: { type: integer, description: How far before the previous window each regular pull reads again, for late or revised data., examples: [21600] }
-        max_catch_up_seconds: { type: integer, description: How far back a regular pull reaches after an outage., examples: [604800] }
-        backfill_seconds: { type: integer, description: How far back a new connection is pulled., examples: [7776000] }
-        backfill_chunk_seconds: { type: integer, description: The window of one backfill job., examples: [604800] }
+        pull_every_without_push_seconds: { type: integer, description: "The interval when no notification arrives.", examples: [3600] }
+        lookback_seconds: { type: integer, description: "How far before the previous window each regular pull reads again, for late or revised data.", examples: [21600] }
+        max_catch_up_seconds: { type: integer, description: "How far back a regular pull reaches after an outage.", examples: [604800] }
+        backfill_seconds: { type: integer, description: "How far back a new connection is pulled.", examples: [7776000] }
+        backfill_chunk_seconds: { type: integer, description: "The window of one backfill job.", examples: [604800] }
         reconcile_seconds: { type: integer, description: "How far the first pull of each UTC day reaches, 0 when the daily reconciliation is off.", examples: [172800] }
 
     AdminProviderKey:

@@ -330,6 +330,8 @@ class AdminProvider(TypedDict):
     error: Optional[str]
     # The addresses to register in the provider's developer portal.
     urls: AdminProviderUrl
+    # How the server pulls this provider. Null for one it never pulls (an upload from an app).
+    sync: Union[AdminProviderSync, Any]
     updated_at: Optional[str]
     # The id of the API key that saved the last change.
     updated_by: Optional[str]
@@ -342,6 +344,27 @@ class AdminProviderUrl(TypedDict):
     redirect: Optional[str]
     # Where the provider posts notifications, for a push provider.
     inbound: Optional[str]
+
+
+class AdminProviderSync(TypedDict):
+    """The provider's sync policy, in seconds. See
+    [background sync](https://github.com/soma-intelligence/open-health-sync/blob/main/docs/background-sync.md#sync-policy-per-provider).
+    """
+
+    # The regular pull interval while the provider's notifications arrive.
+    pull_every_seconds: int
+    # The interval when no notification arrives.
+    pull_every_without_push_seconds: int
+    # How far before the previous window each regular pull reads again, for late or revised data.
+    lookback_seconds: int
+    # How far back a regular pull reaches after an outage.
+    max_catch_up_seconds: int
+    # How far back a new connection is pulled.
+    backfill_seconds: int
+    # The window of one backfill job.
+    backfill_chunk_seconds: int
+    # How far the first pull of each UTC day reaches, 0 when the daily reconciliation is off.
+    reconcile_seconds: int
 
 
 class AdminProviderKey(TypedDict):
@@ -2150,6 +2173,7 @@ __all__ = [
     "AdminProvider",
     "AdminProviderKey",
     "AdminProviderPatch",
+    "AdminProviderSync",
     "AdminProviderUrl",
     "AdminTenant",
     "AdminTenantProvider",
