@@ -138,6 +138,9 @@ ALTER TABLE ohs_data.time_tags
 CREATE FUNCTION pg_temp.vault_try_date(v text) RETURNS date
 LANGUAGE plpgsql IMMUTABLE AS $f$
 BEGIN
+    IF v !~ '^\d{4}-\d{2}-\d{2}$' THEN
+        RETURN NULL;
+    END IF;
     RETURN v::date;
 EXCEPTION WHEN others THEN
     RETURN NULL;
@@ -146,8 +149,8 @@ END $f$;
 UPDATE ohs_data.quantity_samples SET
     worn         = concat_ws(' ', product_type, device_model, source_name) ILIKE '%watch%',
     tz           = metadata->>'timezone',
-    derived      = metadata->>'derived' = 'true',
-    synthesized  = metadata->>'synthesized' = 'true',
+    derived      = coalesce(metadata->>'derived' = 'true', false),
+    synthesized  = coalesce(metadata->>'synthesized' = 'true', false),
     summary_date = pg_temp.vault_try_date(metadata->>'summary_date');
 
 UPDATE ohs_data.category_samples SET tz = metadata->>'timezone';

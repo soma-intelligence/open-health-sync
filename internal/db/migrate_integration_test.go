@@ -445,7 +445,7 @@ func TestVaultMigrationBackfill(t *testing.T) {
 		INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date,
 			content_hash, source_name, product_type, device_model, metadata)
 		VALUES
-		 (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'watch-by-name', 'Quentin''s Apple Watch', NULL, NULL,
+		 (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'watch-by-name', 'Alex''s Apple Watch', NULL, NULL,
 		  '{"timezone":"Europe/Paris","derived":true}'),
 		 (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'watch-by-product', 'Health', 'Watch6,1', NULL,
 		  '{"synthesized":true}'),
@@ -463,7 +463,8 @@ func TestVaultMigrationBackfill(t *testing.T) {
 		INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash, metadata)
 		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-ok', '{"summary_date":"2026-03-08"}'),
 		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-bad', '{"summary_date":"not a date"}'),
-		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-impossible', '{"summary_date":"2026-13-45"}');
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-impossible', '{"summary_date":"2026-13-45"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-word', '{"summary_date":"today"}');
 		INSERT INTO ohs_data.category_samples (tenant_id, user_id, provider, category_type, value_int, start_date, content_hash, metadata)
 		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', 'menstrual_flow', 1, now(), 'cat-tz', '{"timezone":"Asia/Tokyo"}'),
 		       (gen_random_uuid(), gen_random_uuid(), 'p', 'menstrual_flow', 1, now(), 'cat-none', '{}');
@@ -511,13 +512,9 @@ func TestVaultMigrationBackfill(t *testing.T) {
 		if (w.tz == "") != (r.tz == nil) || (r.tz != nil && *r.tz != w.tz) {
 			t.Errorf("%s: tz = %v, want %q", hash, r.tz, w.tz)
 		}
-		// metadata->>'derived' = 'true' is NULL when the key is absent, as in the
-		// code that reads it.
-		if hash != "bare" && hash != "watch-by-product" && (r.derived == nil || *r.derived != w.derived) {
+		// A row with no flag is not derived, as in the code that reads it.
+		if r.derived == nil || *r.derived != w.derived {
 			t.Errorf("%s: derived = %v, want %v", hash, r.derived, w.derived)
-		}
-		if hash == "bare" && r.derived != nil {
-			t.Errorf("bare: derived = %v, want NULL (no key)", *r.derived)
 		}
 		if hash == "watch-by-product" && (r.synthesized == nil || !*r.synthesized) {
 			t.Errorf("watch-by-product: synthesized = %v, want true", r.synthesized)
@@ -539,7 +536,7 @@ func TestVaultMigrationBackfill(t *testing.T) {
 		}
 		return v
 	}
-	for hash, w := range map[string]string{"sd-ok": "2026-03-08", "sd-bad": "", "sd-impossible": ""} {
+	for hash, w := range map[string]string{"sd-ok": "2026-03-08", "sd-bad": "", "sd-impossible": "", "sd-word": ""} {
 		got := str(`SELECT summary_date::text FROM ohs_data.quantity_samples WHERE content_hash = $1`, hash)
 		if (w == "") != (got == nil) || (got != nil && *got != w) {
 			t.Errorf("quantity summary_date %s = %v, want %q", hash, got, w)
