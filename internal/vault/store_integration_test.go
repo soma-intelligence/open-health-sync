@@ -27,6 +27,8 @@ type countingProvider struct {
 	KeyProvider
 	wraps, unwraps atomic.Int64
 	down           atomic.Bool
+	// delay holds every Unwrap that long, so concurrent misses overlap.
+	delay time.Duration
 }
 
 func newCountingProvider(t *testing.T) *countingProvider {
@@ -46,6 +48,7 @@ func (p *countingProvider) Wrap(ctx context.Context, plain, aad []byte) ([]byte,
 
 func (p *countingProvider) Unwrap(ctx context.Context, wrapped, aad []byte, version string) ([]byte, error) {
 	p.unwraps.Add(1)
+	time.Sleep(p.delay)
 	if p.down.Load() {
 		return nil, fmt.Errorf("%w: connection refused", ErrProviderUnavailable)
 	}
@@ -380,4 +383,94 @@ func TestShredNotifyEvictsOtherVault(t *testing.T) {
 // cachedUser reports whether the user's keys are in the cache (tests).
 func (v *Vault) cachedUser(tenant, user uuid.UUID) bool {
 	return v.users.get(userRef{tenant, user}, func(*userEntry) {})
+}
+
+// A tenant key read inside a transaction that later rolls back is never
+// cached: the next tenant key, of the same version, would otherwise open
+// nothing.
+func TestTenantKeyFromRolledBackTxIsNotCached(t *testing.T) {
+	ctx := context.Background()
+	e := newStoreEnv(t)
+	clk := &fakeClock{t: time.Now()}
+	v := e.vault(newCountingProvider(t), Options{CanOpen: true, CacheTTL: time.Minute})
+	v.setClock(clk.now)
+	u1, u2, u3 := e.user("u-1"), e.user("u-2"), e.user("u-3")
+
+	tx, err := e.pool.Begin(ctx)
+	require.NoError(t, err)
+	require.NoError(t, v.EnsureUser(ctx, tx, e.tenant, u1), "creates the tenant key")
+	require.NoError(t, v.EnsureUser(ctx, tx, e.tenant, u2), "reads it back through the transaction")
+	require.NoError(t, tx.Rollback(ctx))
+	require.Zero(t, e.count(`SELECT count(*) FROM ohs_core.vault_keys WHERE tenant_id = $1`, e.tenant))
+
+	require.NoError(t, e.ensure(v, u3), "a new tenant key, version 1 again")
+	_, err = v.ForUser(ctx, e.tenant, u3)
+	require.NoError(t, err)
+	clk.t = clk.t.Add(time.Minute)
+	_, err = v.ForUser(ctx, e.tenant, u3)
+	require.NoError(t, err, "after the time to live too")
+}
+
+func TestConcurrentMissesUnwrapOnce(t *testing.T) {
+	ctx := context.Background()
+	e := newStoreEnv(t)
+	setup := v0(e)
+	users := make([]uuid.UUID, 8)
+	for i := range users {
+		users[i] = e.user(fmt.Sprintf("u-%d", i))
+		require.NoError(t, e.ensure(setup, users[i]))
+	}
+	p := newCountingProvider(t)
+	p.delay = 100 * time.Millisecond
+	v := e.vault(p, Options{CanOpen: true})
+	var wg sync.WaitGroup
+	errs := make([]error, 2*len(users))
+	for i := range errs {
+		wg.Go(func() {
+			_, errs[i] = v.ForUser(ctx, e.tenant, users[i%len(users)])
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	require.Equal(t, int64(1), p.unwraps.Load(), "concurrent misses of one cold tenant share one unwrap")
+}
+
+// A listener that loses its connection drops the user cache at once: an
+// eviction sent while it reconnects would be lost.
+func TestListenerFailurePurgesAtOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e := newStoreEnv(t)
+	u := e.user("u-1")
+	v := v0(e)
+	require.NoError(t, e.ensure(v, u))
+	listening := make(chan struct{}, 4)
+	v.onListen = func() { listening <- struct{}{} }
+	done := make(chan error, 1)
+	go func() { done <- v.Listen(ctx) }()
+	select {
+	case <-listening:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Listen did not start")
+	}
+	_, err := v.ForUser(ctx, e.tenant, u)
+	require.NoError(t, err)
+	require.True(t, v.cachedUser(e.tenant, u))
+
+	var killed bool
+	require.NoError(t, e.pool.QueryRow(ctx, `
+		SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+		WHERE datname = current_database() AND query = 'LISTEN ohs_vault' AND pid <> pg_backend_pid()`).Scan(&killed))
+	require.True(t, killed)
+	// The reconnect waits a second; the purge comes before it.
+	require.Eventually(t, func() bool { return !v.cachedUser(e.tenant, u) }, 500*time.Millisecond, 10*time.Millisecond)
+	select {
+	case <-listening:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Listen did not reconnect")
+	}
+	cancel()
+	require.NoError(t, <-done)
 }

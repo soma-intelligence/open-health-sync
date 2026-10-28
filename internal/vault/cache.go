@@ -150,3 +150,40 @@ func (c *cache[K, V]) drop(el *list.Element) {
 	delete(c.items, e.key)
 	e.val.Zero()
 }
+
+// flights merges concurrent loads of one key: the first caller runs the load,
+// the others wait for its result. A result is shared read-only by every
+// caller of the flight, so it must not be a value the cache owns.
+type flights[K comparable, V any] struct {
+	mu sync.Mutex
+	m  map[K]*flight[V]
+}
+
+type flight[V any] struct {
+	done chan struct{}
+	val  V
+	err  error
+}
+
+func (g *flights[K, V]) do(k K, load func() (V, error)) (V, error) {
+	g.mu.Lock()
+	if g.m == nil {
+		g.m = map[K]*flight[V]{}
+	}
+	if f, ok := g.m[k]; ok {
+		g.mu.Unlock()
+		<-f.done
+		return f.val, f.err
+	}
+	f := &flight[V]{done: make(chan struct{})}
+	g.m[k] = f
+	g.mu.Unlock()
+	defer func() {
+		g.mu.Lock()
+		delete(g.m, k)
+		g.mu.Unlock()
+		close(f.done)
+	}()
+	f.val, f.err = load()
+	return f.val, f.err
+}

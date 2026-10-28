@@ -66,6 +66,9 @@ func (v *Vault) Listen(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil
 		}
+		// Evictions sent from now until the next LISTEN are lost: drop the
+		// cache before the wait, not only after the reconnect.
+		v.users.purge()
 		if listened {
 			backoff = time.Second
 		}
@@ -86,7 +89,11 @@ func (v *Vault) listenOnce(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("connect: %w", err)
 	}
-	defer conn.Close(context.WithoutCancel(ctx))
+	defer func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		conn.Close(cctx)
+	}()
 	if _, err := conn.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
 		return false, fmt.Errorf("listen: %w", err)
 	}

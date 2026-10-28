@@ -5,6 +5,7 @@ package vault
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -61,16 +62,23 @@ type Vault struct {
 	metrics  *Metrics
 	users    *cache[userRef, *userEntry]
 	tenants  *cache[tenantRef, *tenantKey]
-	ttl      time.Duration
+	// userLoads and tenantLoads merge concurrent misses of one user or
+	// one tenant key, so a cold tenant costs one provider call.
+	userLoads   flights[userRef, *userEntry]
+	tenantLoads flights[tenantRef, *tenantKey]
+	ttl         time.Duration
 	// onListen, when set (tests), runs once Listen listens.
 	onListen func()
 }
 
 type userRef struct{ tenant, user uuid.UUID }
 
+// tenantRef names a tenant key by its row: the digest of the wrapped value
+// makes a cached key match only the row it was unwrapped from.
 type tenantRef struct {
 	tenant  uuid.UUID
 	version uint32
+	wrapped [32]byte // SHA-256 of vault_keys.wrapped
 }
 
 // tenantKey is an unwrapped tenant key.
@@ -306,14 +314,30 @@ func (v *Vault) ForUser(ctx context.Context, tenant, user uuid.UUID) (*UserVault
 		return u, nil
 	}
 	v.metrics.cacheResult(false)
-	epoch := v.users.epoch()
-	e, err := v.loadUser(ctx, ref)
+	// The loaded entry is shared by the callers of the flight and never
+	// zeroed by the cache, which holds a clone of it.
+	e, err := v.userLoads.do(ref, func() (*userEntry, error) {
+		epoch := v.users.epoch()
+		e, err := v.loadUser(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		v.users.put(ref, e.clone(), epoch)
+		return e, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	u = v.userVault(ref, e)
-	v.users.put(ref, e, epoch)
-	return u, nil
+	return v.userVault(ref, e), nil
+}
+
+func (e *userEntry) clone() *userEntry {
+	c := &userEntry{keys: make(map[uint32]*UserKeys, len(e.keys)), newest: e.newest}
+	for ver, k := range e.keys {
+		kc := *k
+		c.keys[ver] = &kc
+	}
+	return c
 }
 
 // userVault copies e for one caller: the cache may zero e when it evicts it,
@@ -392,14 +416,11 @@ func (v *Vault) openUserKey(ctx context.Context, ref userRef, version uint32, wr
 }
 
 // tenantKey returns a copy of the tenant key of that version, from the cache
-// or unwrapped by the provider now. The caller zeroes it.
+// or unwrapped by the provider now. The caller zeroes it. The row is read
+// through db every time, so the cache answers only for the row stored now;
+// a key read through a transaction (db is not the pool) is never cached,
+// since that transaction may still roll back.
 func (v *Vault) tenantKey(ctx context.Context, db Querier, tenant uuid.UUID, version uint32) (*tenantKey, error) {
-	ref := tenantRef{tenant, version}
-	k := new(tenantKey)
-	if v.tenants.get(ref, func(c *tenantKey) { *k = *c }) {
-		return k, nil
-	}
-	epoch := v.tenants.epoch()
 	var (
 		wrapped []byte
 		parent  string
@@ -413,17 +434,38 @@ func (v *Vault) tenantKey(ctx context.Context, db Querier, tenant uuid.UUID, ver
 	if err != nil {
 		return nil, fmt.Errorf("vault: tenant key: %w", err)
 	}
-	plain, err := v.unwrap(ctx, wrapped, keyAAD(tenant, uuid.Nil, version), parent)
+	ref := tenantRef{tenant: tenant, version: version, wrapped: sha256.Sum256(wrapped)}
+	k := new(tenantKey)
+	if v.tenants.get(ref, func(c *tenantKey) { *k = *c }) {
+		return k, nil
+	}
+	committed := false
+	if p, ok := db.(*pgxpool.Pool); ok && p == v.pool {
+		committed = true
+	}
+	// The flight's key is shared by its callers and not owned by the cache.
+	shared, err := v.tenantLoads.do(ref, func() (*tenantKey, error) {
+		epoch := v.tenants.epoch()
+		plain, err := v.unwrap(ctx, wrapped, keyAAD(tenant, uuid.Nil, version), parent)
+		if err != nil {
+			return nil, fmt.Errorf("vault: tenant key %d: %w", version, err)
+		}
+		defer clear(plain)
+		if len(plain) != len(tenantKey{}) {
+			return nil, fmt.Errorf("vault: tenant key %d is %d bytes", version, len(plain))
+		}
+		got := new(tenantKey)
+		copy(got[:], plain)
+		if committed {
+			cached := *got
+			v.tenants.put(ref, &cached, epoch)
+		}
+		return got, nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("vault: tenant key %d: %w", version, err)
+		return nil, err
 	}
-	defer clear(plain)
-	if len(plain) != len(k) {
-		return nil, fmt.Errorf("vault: tenant key %d is %d bytes", version, len(plain))
-	}
-	copy(k[:], plain)
-	cached := *k
-	v.tenants.put(ref, &cached, epoch)
+	*k = *shared
 	return k, nil
 }
 
@@ -457,7 +499,9 @@ func (v *Vault) Shred(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID) er
 	if _, err := tx.Exec(ctx, `SELECT pg_notify($1, $2)`, notifyChannel, userPayload(tenant, user)); err != nil {
 		return fmt.Errorf("vault: shred: notify: %w", err)
 	}
-	// This process may not listen (no Listen running): drop its copy now.
+	// Drop this process's copy now. Before the commit this holds only while
+	// Listen runs: a ForUser between here and the commit may cache the keys
+	// again, and the NOTIFY delivered at commit evicts them once more.
 	v.users.remove(userRef{tenant, user})
 	return nil
 }
