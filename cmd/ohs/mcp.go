@@ -317,5 +317,19 @@ func proxyMCP(ctx context.Context, endpoint *url.URL, secret string, local sdk.T
 	if n == 0 {
 		return fmt.Errorf("mcp: %s lists no tools", shown)
 	}
+	// Prompts are forwarded the same way, when the instance has any (0.2.0
+	// and later). A prompt error, a missing argument for one, comes back as
+	// the instance's JSON-RPC error.
+	if init := remote.InitializeResult(); init != nil && init.Capabilities != nil && init.Capabilities.Prompts != nil {
+		for prompt, err := range remote.Prompts(ctx, nil) {
+			if err != nil {
+				return fmt.Errorf("mcp: list prompts of %s: %w", shown, err)
+			}
+			name := prompt.Name
+			srv.AddPrompt(prompt, func(ctx context.Context, req *sdk.GetPromptRequest) (*sdk.GetPromptResult, error) {
+				return remote.GetPrompt(ctx, &sdk.GetPromptParams{Name: name, Arguments: req.Params.Arguments})
+			})
+		}
+	}
 	return srv.Run(ctx, local)
 }

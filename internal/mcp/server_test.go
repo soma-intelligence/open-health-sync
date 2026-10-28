@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -329,6 +330,9 @@ func TestPrompts(t *testing.T) {
 
 	_, err = cs.GetPrompt(context.Background(), &sdk.GetPromptParams{Name: "taper_check"})
 	assert.ErrorContains(t, err, "event_date")
+	var wire *jsonrpc.Error
+	require.ErrorAs(t, err, &wire)
+	assert.Equal(t, int64(jsonrpc.CodeInvalidParams), wire.Code, "a missing argument is invalid params")
 	assert.Contains(t, cs.InitializeResult().Instructions, "do not diagnose")
 }
 
