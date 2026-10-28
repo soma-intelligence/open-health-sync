@@ -15,6 +15,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // maxJSONBody caps a JSON request body.
@@ -31,13 +32,17 @@ func notFound(w http.ResponseWriter, what string) {
 }
 
 // internalError logs the cause (never sent) and answers 500, or 503 with
-// Retry-After when the database could not be reached: that request can be
-// retried as is.
+// Retry-After when the database or the vault's key provider could not be
+// reached: that request can be retried as is.
 func internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
 	slog.ErrorContext(r.Context(), msg, "error", err, "route", r.Pattern)
 	if db.Unavailable(err) {
 		// The cause may be the raw store's network as well as the database's.
 		auth.WriteUnavailable(w, "storage is unavailable; retry in a few seconds")
+		return
+	}
+	if errors.Is(err, vault.ErrProviderUnavailable) {
+		auth.WriteUnavailable(w, "the key provider is unavailable; retry in a few seconds")
 		return
 	}
 	problem(w, http.StatusInternalServerError, "an internal error occurred")

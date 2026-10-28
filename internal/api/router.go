@@ -32,6 +32,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -130,6 +131,9 @@ type Deps struct {
 	// TrustedProxies (OHS_TRUSTED_PROXIES) are the reverse proxies whose
 	// X-Forwarded-For names the client address of a rate limited request.
 	TrustedProxies []netip.Prefix
+	// Vault holds the tenant and user keys. When set, /readyz checks that
+	// its key provider opens keys and /metrics carries its counters.
+	Vault *vault.Vault
 }
 
 type server struct {
