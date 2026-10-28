@@ -459,6 +459,25 @@ func TestVaultMigrationBackfill(t *testing.T) {
 		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', DATE '2026-03-08', 'sum', '{"summary_date":"2026-03-08"}')`); err != nil {
 		t.Fatalf("seed summary: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-ok', '{"summary_date":"2026-03-08"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-bad', '{"summary_date":"not a date"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-impossible', '{"summary_date":"2026-13-45"}');
+		INSERT INTO ohs_data.category_samples (tenant_id, user_id, provider, category_type, value_int, start_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', 'menstrual_flow', 1, now(), 'cat-tz', '{"timezone":"Asia/Tokyo"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'menstrual_flow', 1, now(), 'cat-none', '{}');
+		INSERT INTO ohs_data.sleep_sessions (tenant_id, user_id, provider, bedtime_start, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', now(), 'sl-watch', '{"sourceName":"Apple Watch","synthesized":true}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', now(), 'sl-phone', '{"sourceName":"iPhone"}');
+		INSERT INTO ohs_data.workouts (tenant_id, user_id, provider, activity_type, start_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', 'run', now(), 'wo-watch', '{"sourceName":"Apple Watch"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'run', now(), 'wo-none', '{}');
+		INSERT INTO ohs_data.daily_summaries (tenant_id, user_id, provider, summary_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', DATE '2026-03-09', 'ds-derived', '{"derived":true}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', DATE '2026-03-10', 'ds-plain', '{}')`); err != nil {
+		t.Fatalf("seed promoted tables: %v", err)
+	}
 	if err := m.Migrate(44); err != nil {
 		t.Fatalf("up to 44: %v", err)
 	}
@@ -505,6 +524,58 @@ func TestVaultMigrationBackfill(t *testing.T) {
 		}
 		if r.sourceKey != nil || r.sealed != nil {
 			t.Errorf("%s: source_key and sealed must stay NULL", hash)
+		}
+	}
+
+	str := func(q, hash string) (v *string) {
+		if err := pool.QueryRow(ctx, q, hash).Scan(&v); err != nil {
+			t.Fatalf("%s %s: %v", q, hash, err)
+		}
+		return v
+	}
+	flag := func(q, hash string) (v *bool) {
+		if err := pool.QueryRow(ctx, q, hash).Scan(&v); err != nil {
+			t.Fatalf("%s %s: %v", q, hash, err)
+		}
+		return v
+	}
+	for hash, w := range map[string]string{"sd-ok": "2026-03-08", "sd-bad": "", "sd-impossible": ""} {
+		got := str(`SELECT summary_date::text FROM ohs_data.quantity_samples WHERE content_hash = $1`, hash)
+		if (w == "") != (got == nil) || (got != nil && *got != w) {
+			t.Errorf("quantity summary_date %s = %v, want %q", hash, got, w)
+		}
+	}
+	if got := str(`SELECT tz FROM ohs_data.category_samples WHERE content_hash = $1`, "cat-tz"); got == nil || *got != "Asia/Tokyo" {
+		t.Errorf("category tz = %v", got)
+	}
+	if got := str(`SELECT tz FROM ohs_data.category_samples WHERE content_hash = $1`, "cat-none"); got != nil {
+		t.Errorf("category tz without key = %v, want NULL", *got)
+	}
+	for _, c := range []struct {
+		table, hash string
+		worn        bool
+	}{{"sleep_sessions", "sl-watch", true}, {"sleep_sessions", "sl-phone", false},
+		{"workouts", "wo-watch", true}, {"workouts", "wo-none", false}} {
+		got := flag(`SELECT worn FROM ohs_data.`+c.table+` WHERE content_hash = $1`, c.hash)
+		if got == nil || *got != c.worn {
+			t.Errorf("%s %s: worn = %v, want %v", c.table, c.hash, got, c.worn)
+		}
+	}
+	if got := flag(`SELECT synthesized FROM ohs_data.sleep_sessions WHERE content_hash = $1`, "sl-watch"); got == nil || !*got {
+		t.Errorf("sleep synthesized = %v, want true", got)
+	}
+	if got := flag(`SELECT synthesized FROM ohs_data.sleep_sessions WHERE content_hash = $1`, "sl-phone"); got == nil || *got {
+		t.Errorf("sleep synthesized without key = %v, want false", got)
+	}
+	for _, hash := range []string{"sl-watch", "sl-phone"} {
+		var k []byte
+		if err := pool.QueryRow(ctx, `SELECT source_key FROM ohs_data.sleep_sessions WHERE content_hash = $1`, hash).Scan(&k); err != nil || k != nil {
+			t.Errorf("sleep source_key %s = %v err=%v, want NULL", hash, k, err)
+		}
+	}
+	for hash, w := range map[string]bool{"ds-derived": true, "ds-plain": false} {
+		if got := flag(`SELECT derived FROM ohs_data.daily_summaries WHERE content_hash = $1`, hash); got == nil || *got != w {
+			t.Errorf("summary derived %s = %v, want %v", hash, got, w)
 		}
 	}
 

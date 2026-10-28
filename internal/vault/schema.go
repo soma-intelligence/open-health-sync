@@ -24,7 +24,8 @@ var Unsealed = []string{"quantity_codes", "deleted_records", "record_aliases", "
 // Clear lists every other column of the table, so that a column added by a later
 // migration must be placed on purpose (sealed or clear) before the coverage test
 // passes. The columns the vault migration adds (sealed, content_mac, source_key,
-// worn, tz, derived, synthesized) are listed with the tables they were added to.
+// worn, tz, derived, synthesized, summary_date) are listed with the tables they
+// were added to (daily_summaries had summary_date already).
 
 // Schema describes the sealed columns of every sealed table, keyed by table name
 // without the schema prefix.
@@ -53,7 +54,7 @@ var Schema = map[string]Table{
 			{"was_user_entered", 7, KindBool},
 			{"metadata", 8, KindJSON},
 		},
-		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "external_id", "quantity_type", "unit", "is_primary_source", "start_date", "end_date", "content_hash", "ingested_at", "sealed", "content_mac", "source_key", "worn", "tz", "derived", "synthesized"},
+		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "external_id", "quantity_type", "unit", "is_primary_source", "start_date", "end_date", "content_hash", "ingested_at", "sealed", "content_mac", "source_key", "worn", "tz", "derived", "synthesized", "summary_date"},
 		Identity: []string{"content_hash", "start_date"},
 		MAC:      true,
 	},
@@ -81,7 +82,7 @@ var Schema = map[string]Table{
 			{"device_id", 4, KindText},
 			{"metadata", 5, KindJSON},
 		},
-		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "external_id", "category_type", "start_date", "end_date", "content_hash", "ingested_at", "sealed"},
+		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "external_id", "category_type", "start_date", "end_date", "content_hash", "ingested_at", "sealed", "tz"},
 		Identity: []string{"content_hash", "start_date"},
 	},
 	"heartbeat_samples": {
@@ -134,7 +135,7 @@ var Schema = map[string]Table{
 			{"device_id", 11, KindText},
 			{"metadata", 12, KindJSON},
 		},
-		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "external_id", "bedtime_start", "bedtime_end", "content_hash", "ingested_at", "sealed", "content_mac"},
+		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "external_id", "bedtime_start", "bedtime_end", "content_hash", "ingested_at", "sealed", "content_mac", "source_key", "worn", "synthesized"},
 		Identity: []string{"content_hash", "bedtime_start"},
 		MAC:      true,
 	},
@@ -161,7 +162,7 @@ var Schema = map[string]Table{
 			{"device_id", 9, KindText},
 			{"metadata", 10, KindJSON},
 		},
-		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "external_id", "activity_type", "start_date", "end_date", "content_hash", "ingested_at", "sealed", "content_mac"},
+		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "external_id", "activity_type", "start_date", "end_date", "content_hash", "ingested_at", "sealed", "content_mac", "source_key", "worn"},
 		Identity: []string{"content_hash", "start_date"},
 		MAC:      true,
 	},
@@ -239,7 +240,7 @@ var Schema = map[string]Table{
 			{"hrv_avg_ms", 12, KindFloat64},
 			{"metadata", 13, KindJSON},
 		},
-		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "summary_date", "content_hash", "ingested_at", "sealed", "content_mac"},
+		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "summary_date", "content_hash", "ingested_at", "sealed", "content_mac", "derived"},
 		Identity: []string{"content_hash", "summary_date"},
 		MAC:      true,
 	},

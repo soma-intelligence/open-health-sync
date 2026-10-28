@@ -38,18 +38,21 @@ ALTER TABLE ohs_data.quantity_samples ALTER COLUMN value SET NOT NULL, ALTER COL
 
 ALTER TABLE ohs_data.failed_records    DROP COLUMN sealed;
 ALTER TABLE ohs_data.time_tags         DROP COLUMN sealed;
-ALTER TABLE ohs_data.daily_summaries   DROP COLUMN sealed, DROP COLUMN content_mac;
+ALTER TABLE ohs_data.daily_summaries   DROP COLUMN sealed, DROP COLUMN content_mac, DROP COLUMN derived;
 ALTER TABLE ohs_data.observations      DROP COLUMN sealed;
 ALTER TABLE ohs_data.nutrition_logs    DROP COLUMN sealed, DROP COLUMN content_mac;
 ALTER TABLE ohs_data.route_points      DROP COLUMN sealed;
 ALTER TABLE ohs_data.workout_tracks    DROP COLUMN sealed;
-ALTER TABLE ohs_data.workouts          DROP COLUMN sealed, DROP COLUMN content_mac;
+ALTER TABLE ohs_data.workouts
+    DROP COLUMN sealed, DROP COLUMN content_mac, DROP COLUMN source_key, DROP COLUMN worn;
 ALTER TABLE ohs_data.sleep_phases      DROP COLUMN sealed;
-ALTER TABLE ohs_data.sleep_sessions    DROP COLUMN sealed, DROP COLUMN content_mac;
+ALTER TABLE ohs_data.sleep_sessions
+    DROP COLUMN sealed, DROP COLUMN content_mac, DROP COLUMN source_key, DROP COLUMN worn,
+    DROP COLUMN synthesized;
 ALTER TABLE ohs_data.ecg_samples       DROP COLUMN sealed;
 ALTER TABLE ohs_data.ecg_recordings    DROP COLUMN sealed;
 ALTER TABLE ohs_data.heartbeat_samples DROP COLUMN sealed;
-ALTER TABLE ohs_data.category_samples  DROP COLUMN sealed;
+ALTER TABLE ohs_data.category_samples  DROP COLUMN sealed, DROP COLUMN tz;
 ALTER TABLE ohs_data.quantity_samples
     DROP COLUMN sealed,
     DROP COLUMN content_mac,
@@ -57,7 +60,8 @@ ALTER TABLE ohs_data.quantity_samples
     DROP COLUMN worn,
     DROP COLUMN tz,
     DROP COLUMN derived,
-    DROP COLUMN synthesized;
+    DROP COLUMN synthesized,
+    DROP COLUMN summary_date;
 
 DROP TABLE IF EXISTS ohs_core.vault_keys;
 DROP TABLE IF EXISTS ohs_core.vault_root;

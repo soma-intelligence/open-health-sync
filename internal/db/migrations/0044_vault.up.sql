@@ -62,19 +62,25 @@ ALTER TABLE ohs_data.quantity_samples
     ADD COLUMN worn        boolean,
     ADD COLUMN tz          text,
     ADD COLUMN derived     boolean,
-    ADD COLUMN synthesized boolean;
-ALTER TABLE ohs_data.category_samples  ADD COLUMN sealed bytea;
+    ADD COLUMN synthesized boolean,
+    ADD COLUMN summary_date date;
+ALTER TABLE ohs_data.category_samples  ADD COLUMN sealed bytea, ADD COLUMN tz text;
 ALTER TABLE ohs_data.heartbeat_samples ADD COLUMN sealed bytea;
 ALTER TABLE ohs_data.ecg_recordings    ADD COLUMN sealed bytea;
 ALTER TABLE ohs_data.ecg_samples       ADD COLUMN sealed bytea;
-ALTER TABLE ohs_data.sleep_sessions    ADD COLUMN sealed bytea, ADD COLUMN content_mac bytea;
+ALTER TABLE ohs_data.sleep_sessions
+    ADD COLUMN sealed bytea, ADD COLUMN content_mac bytea, ADD COLUMN source_key bytea,
+    ADD COLUMN worn boolean, ADD COLUMN synthesized boolean;
 ALTER TABLE ohs_data.sleep_phases      ADD COLUMN sealed bytea;
-ALTER TABLE ohs_data.workouts          ADD COLUMN sealed bytea, ADD COLUMN content_mac bytea;
+ALTER TABLE ohs_data.workouts
+    ADD COLUMN sealed bytea, ADD COLUMN content_mac bytea, ADD COLUMN source_key bytea,
+    ADD COLUMN worn boolean;
 ALTER TABLE ohs_data.workout_tracks    ADD COLUMN sealed bytea;
 ALTER TABLE ohs_data.route_points      ADD COLUMN sealed bytea;
 ALTER TABLE ohs_data.nutrition_logs    ADD COLUMN sealed bytea, ADD COLUMN content_mac bytea;
 ALTER TABLE ohs_data.observations      ADD COLUMN sealed bytea;
-ALTER TABLE ohs_data.daily_summaries   ADD COLUMN sealed bytea, ADD COLUMN content_mac bytea;
+ALTER TABLE ohs_data.daily_summaries
+    ADD COLUMN sealed bytea, ADD COLUMN content_mac bytea, ADD COLUMN derived boolean;
 ALTER TABLE ohs_data.time_tags         ADD COLUMN sealed bytea;
 ALTER TABLE ohs_data.failed_records    ADD COLUMN sealed bytea;
 
@@ -121,13 +127,40 @@ ALTER TABLE ohs_data.time_tags
 -- writer_deletions.go, sleep_sessionize.go).
 -- source_key is a keyed HMAC of the source under the user's index key, which SQL
 -- cannot compute: it stays NULL here and the seal command fills it.
--- daily_summaries.summary_date is a column of the table already, so it needs no
--- backfill.
+-- sleep sessions and workouts have no source columns of their own: the merged
+-- view reads the app that wrote them from metadata (parentWear, merge.go), so
+-- worn is metadata->>'sourceName' ILIKE '%watch%' there. daily_summaries.derived
+-- keeps the "IS DISTINCT FROM 'true'" meaning of writer_deletions.go: a row with
+-- no flag is not derived. summary_date of a quantity sample is the day its
+-- metadata names (model.MetadataSummaryDate); a value that is not a date gives
+-- NULL instead of failing the migration.
+-- daily_summaries.summary_date is a column of the table already.
+CREATE FUNCTION pg_temp.vault_try_date(v text) RETURNS date
+LANGUAGE plpgsql IMMUTABLE AS $f$
+BEGIN
+    RETURN v::date;
+EXCEPTION WHEN others THEN
+    RETURN NULL;
+END $f$;
+
 UPDATE ohs_data.quantity_samples SET
-    worn        = concat_ws(' ', product_type, device_model, source_name) ILIKE '%watch%',
-    tz          = metadata->>'timezone',
-    derived     = metadata->>'derived' = 'true',
-    synthesized = metadata->>'synthesized' = 'true';
+    worn         = concat_ws(' ', product_type, device_model, source_name) ILIKE '%watch%',
+    tz           = metadata->>'timezone',
+    derived      = metadata->>'derived' = 'true',
+    synthesized  = metadata->>'synthesized' = 'true',
+    summary_date = pg_temp.vault_try_date(metadata->>'summary_date');
+
+UPDATE ohs_data.category_samples SET tz = metadata->>'timezone';
+
+UPDATE ohs_data.sleep_sessions SET
+    worn        = coalesce(metadata->>'sourceName' ILIKE '%watch%', false),
+    synthesized = coalesce(metadata->>'synthesized' = 'true', false);
+
+UPDATE ohs_data.workouts SET worn = coalesce(metadata->>'sourceName' ILIKE '%watch%', false);
+
+UPDATE ohs_data.daily_summaries SET derived = coalesce(metadata->>'derived' = 'true', false);
+
+DROP FUNCTION pg_temp.vault_try_date(text);
 
 -- ===========================================================================
 -- Hourly statistics, sealed
