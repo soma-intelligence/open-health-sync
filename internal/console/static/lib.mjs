@@ -114,6 +114,30 @@ export function formatAgo(seconds) {
   return future ? `in ${out}` : out;
 }
 
+// syncSchedule turns a provider's sync policy (the sync field of
+// GET /v1/admin/providers/{provider}, in seconds) into the rows of the
+// provider page, in plain words. null (a provider the server never pulls)
+// gives no row. push is whether the provider sends notifications: without
+// them, the scheduler only ever uses pull_every_without_push_seconds.
+export function syncSchedule(sync, push = false) {
+  if (!sync) return [];
+  const every = (s) => `Every ${formatAgo(s)}`;
+  const rows = [];
+  if (!push) {
+    rows.push(["Pulled", every(sync.pull_every_without_push_seconds)]);
+  } else if (sync.pull_every_seconds === sync.pull_every_without_push_seconds) {
+    rows.push(["Pulled", every(sync.pull_every_seconds)]);
+  } else {
+    rows.push(["Pulled while notifications arrive", every(sync.pull_every_seconds)]);
+    rows.push(["Pulled without notifications", every(sync.pull_every_without_push_seconds)]);
+  }
+  rows.push(["Each pull reads again", `The last ${formatAgo(sync.lookback_seconds)}, for late or revised data`]);
+  rows.push(["After an outage", `Catches up to ${formatAgo(sync.max_catch_up_seconds)}`]);
+  rows.push(["New connections", `Backfilled over ${formatAgo(sync.backfill_seconds)}, ${formatAgo(sync.backfill_chunk_seconds)} per job`]);
+  rows.push(["Daily reconciliation", sync.reconcile_seconds > 0 ? `The first pull after 00:00 UTC reads the last ${formatAgo(sync.reconcile_seconds)}` : "Off"]);
+  return rows;
+}
+
 // formatTime renders an RFC 3339 time as "2026-10-13 08:30 UTC (3 h ago)".
 // null or an unparsable value reads "-" or the raw text.
 export function formatTime(iso, now = Date.now()) {

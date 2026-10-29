@@ -27,6 +27,9 @@ type adminProviderJSON struct {
 	Keys   []adminKeyJSON   `json:"keys"`
 	Error  *string          `json:"error"`
 	URLs   adminProviderURL `json:"urls"`
+	// Sync is how the collect role pulls the provider, null for one it
+	// never pulls (an upload from an app).
+	Sync *adminSyncJSON `json:"sync"`
 	// UpdatedAt and UpdatedBy (an API key id) are of the last change saved
 	// from the console, null when none was.
 	UpdatedAt *time.Time `json:"updated_at"`
@@ -50,6 +53,34 @@ type adminProviderURL struct {
 	Redirect *string `json:"redirect"`
 	// Inbound receives the provider's notifications, for a push provider.
 	Inbound *string `json:"inbound"`
+}
+
+// adminSyncJSON is a provider's sync policy (connector.SyncPolicy), in
+// seconds. ReconcileSeconds is 0 when the daily reconciliation is off.
+type adminSyncJSON struct {
+	PullEverySeconds            int64 `json:"pull_every_seconds"`
+	PullEveryWithoutPushSeconds int64 `json:"pull_every_without_push_seconds"`
+	LookbackSeconds             int64 `json:"lookback_seconds"`
+	MaxCatchUpSeconds           int64 `json:"max_catch_up_seconds"`
+	BackfillSeconds             int64 `json:"backfill_seconds"`
+	BackfillChunkSeconds        int64 `json:"backfill_chunk_seconds"`
+	ReconcileSeconds            int64 `json:"reconcile_seconds"`
+}
+
+// syncJSON is the sync policy the scheduler runs c on, nil when the server
+// never pulls c.
+func syncJSON(c connector.Connector) *adminSyncJSON {
+	if _, ok := connector.AsOAuth(c); !ok {
+		return nil
+	}
+	p := connector.SyncPolicyOf(c)
+	sec := func(d time.Duration) int64 { return int64(d / time.Second) }
+	return &adminSyncJSON{
+		PullEverySeconds: sec(p.PullEvery), PullEveryWithoutPushSeconds: sec(p.PullEveryWithoutPush),
+		LookbackSeconds: sec(p.Lookback), MaxCatchUpSeconds: sec(p.MaxCatchUp),
+		BackfillSeconds: sec(p.Backfill), BackfillChunkSeconds: sec(p.BackfillChunk),
+		ReconcileSeconds: sec(p.Reconcile),
+	}
 }
 
 type adminProviderPatch struct {
@@ -77,7 +108,7 @@ func (s *server) mountAdmin(mux *http.ServeMux) {
 func (s *server) toAdminProvider(st providerset.State) adminProviderJSON {
 	c := st.Connector
 	out := adminProviderJSON{Slug: st.Slug, Name: collect.ProviderName(st.Slug), Kinds: kinds(c), Status: st.Status,
-		Enabled: st.Enabled, Keys: []adminKeyJSON{}, UpdatedAt: st.UpdatedAt}
+		Enabled: st.Enabled, Keys: []adminKeyJSON{}, UpdatedAt: st.UpdatedAt, Sync: syncJSON(c)}
 	if st.Source != "" {
 		src := st.Source
 		out.Source = &src

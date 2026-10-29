@@ -54,6 +54,7 @@ import {
   sleepNights,
   splitFigure,
   statSeries,
+  syncSchedule,
   webhookLabel,
   workoutSeconds,
   workoutSummary,
@@ -514,4 +515,32 @@ test("formatDuration, compact, dayLabel, labelDays and clip", () => {
   assert.deepEqual(labelDays(3, 10), [0, 1, 2]);
   assert.equal(clip("High intensity interval training", 16), "High intensity…");
   assert.equal(clip("Running", 16), "Running");
+});
+
+test("syncSchedule", () => {
+  assert.deepEqual(syncSchedule(null), []);
+  const dexcom = {
+    pull_every_seconds: 21600,
+    pull_every_without_push_seconds: 3600,
+    lookback_seconds: 21600,
+    max_catch_up_seconds: 604800,
+    backfill_seconds: 7776000,
+    backfill_chunk_seconds: 604800,
+    reconcile_seconds: 172800,
+  };
+  // Dexcom sends no notifications: only the interval without them applies.
+  assert.deepEqual(syncSchedule(dexcom), [
+    ["Pulled", "Every 1 h"],
+    ["Each pull reads again", "The last 6 h, for late or revised data"],
+    ["After an outage", "Catches up to 7 d"],
+    ["New connections", "Backfilled over 90 d, 7 d per job"],
+    ["Daily reconciliation", "The first pull after 00:00 UTC reads the last 2 d"],
+  ]);
+  assert.deepEqual(syncSchedule(dexcom, true).slice(0, 2), [
+    ["Pulled while notifications arrive", "Every 6 h"],
+    ["Pulled without notifications", "Every 1 h"],
+  ]);
+  const rows = syncSchedule({ ...dexcom, pull_every_seconds: 86400, pull_every_without_push_seconds: 86400, reconcile_seconds: 0 }, true);
+  assert.deepEqual(rows[0], ["Pulled", "Every 1 d"]);
+  assert.deepEqual(rows.at(-1), ["Daily reconciliation", "Off"]);
 });

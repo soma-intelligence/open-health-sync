@@ -9,6 +9,11 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- The console's provider page shows the provider's sync schedule: how often it is pulled, with and
+  without notifications, how far each pull reads again, the catch-up after an outage, the backfill
+  of a new connection and the daily reconciliation. `GET /v1/admin/providers` and
+  `GET /v1/admin/providers/{provider}` serve it as `sync` (seconds, null for an upload from an
+  app). See [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
 - `deploy/Caddyfile`: Caddy with automatic TLS in front of the compose stack, and the routes to
   keep on `ohs` when the host serves other pages too, so `/healthz` and `/readyz` are never
   redirected. See [docs/self-hosting.md](docs/self-hosting.md#reverse-proxy).
