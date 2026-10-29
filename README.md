@@ -1,7 +1,7 @@
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/koi-hero-dark.gif">
-  <img src="docs/assets/readme/koi-hero-light.gif" width="100%" alt="Sync health data in peace. Koi drawn in characters swim around the line, in a seamless loop.">
+  <img src="docs/assets/readme/koi-hero-light.gif" width="100%" alt="Sync health data in peace. Koi drawn in characters swim around the line, in an endless loop.">
 </picture>
 </p>
 
@@ -24,8 +24,8 @@ gives it back in one clean format, through one API.
 
 - **In:** Apple Health, Health Connect, Garmin, Oura, WHOOP, Fitbit, Withings, Polar, Strava,
   Dexcom and [more](docs/connectors/README.md).
-- **Out:** a REST API, FHIR R4, CSV and Parquet, and an [MCP server](docs/mcp.md) so an AI agent
-  can read your data.
+- **Out:** a REST API, FHIR R4, Open mHealth, signed webhooks, CSV and Parquet, native SDKs, and
+  an [MCP server](docs/mcp.md) so an AI agent can read your data.
 - **Runs anywhere:** one program plus Postgres, even on a Raspberry Pi. Your data stays with you.
 
 ## Try it
