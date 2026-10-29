@@ -7,7 +7,7 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-10-28
+## [0.3.0] - 2026-10-29
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
 samples leave the server, a stress and fuzz pass fixed how `ohs` behaves under load, outages and
