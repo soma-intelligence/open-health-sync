@@ -67,7 +67,7 @@ func mapMetricsDay(fields map[string]any, userID string) (*model.MapResult, erro
 		return nil, fmt.Errorf("ultrahuman: %s: %w", DataTypeMetrics, err)
 	}
 	date, err := time.Parse("2006-01-02", rd.Date)
-	if err != nil {
+	if err != nil || date.IsZero() {
 		return nil, fmt.Errorf("ultrahuman: %s: date %q not understood", DataTypeMetrics, rd.Date)
 	}
 	var env envelope
@@ -420,7 +420,7 @@ func glucose(v float64, unit string) (float64, string, bool) {
 		return v, "mg/dL", true
 	case "mmol/l":
 		out, outUnit, err := model.ToStorageUnit("blood_glucose", v, "mmol/L")
-		if err != nil {
+		if err != nil || math.IsInf(out, 0) {
 			return 0, "", false
 		}
 		return out, outUnit, true
@@ -469,7 +469,7 @@ func unixTime(v float64) (time.Time, bool) {
 	if v > 1e11 {
 		v /= 1000
 	}
-	if v < 1420070400 || v > 4102444800 {
+	if !(v >= 1420070400 && v <= 4102444800) { // written so NaN is refused
 		return time.Time{}, false
 	}
 	sec, frac := math.Modf(v)

@@ -118,6 +118,15 @@ func offsetZone(minutes int) string {
 	return "Etc/GMT+" + strconv.Itoa(-h)
 }
 
+// maxOffsetMinutes bounds a UTC offset: no zone is more than 14 hours from
+// UTC, so a larger offset is not a zone and is ignored.
+const maxOffsetMinutes = 14 * 60
+
+// validOffset reports whether p is set and a UTC offset some zone uses.
+func validOffset(p *int) bool {
+	return p != nil && *p >= -maxOffsetMinutes && *p <= maxOffsetMinutes
+}
+
 // offsetMinutes is the UTC offset of t's zone in minutes.
 func offsetMinutes(t time.Time) int {
 	_, off := t.Zone()

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,7 +95,7 @@ func (n *num) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return nil // an unreadable figure is absent, not a broken line
 	}
 	n.v, n.ok = f, true
@@ -393,12 +394,14 @@ func (b *builder) session(res *model.MapResult, sg segment) {
 		})
 	}
 	if len(totals) == 0 {
-		// No hypnogram: the report's own stage minutes.
+		// No hypnogram: the report's own stage minutes. A stage longer
+		// than the night is not a reading (and would overflow the sum).
+		night := end.Sub(start).Minutes()
 		for phase, n := range map[string]num{
 			model.SleepStageDeep: sg.DeepMinutes, model.SleepStageLight: sg.LightMinutes,
 			model.SleepStageREM: sg.REMMinutes, model.SleepStageAwake: sg.AwakeMinutes,
 		} {
-			if v, ok := n.pos(); ok {
+			if v, ok := n.pos(); ok && v <= night {
 				totals[phase] = int(v * 60)
 			}
 		}

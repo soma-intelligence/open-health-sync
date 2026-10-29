@@ -206,6 +206,21 @@ func TestMapWellnessErrors(t *testing.T) {
 	}
 }
 
+// An elapsed or moving time too large for a time.Duration used to wrap:
+// 2^55 + 3600 seconds put the end one hour after the start while the stored
+// duration read 36028797018967568 s. Such a figure is not a duration.
+func TestMapActivityDurationThatOverflowsIsDropped(t *testing.T) {
+	res, err := mapLine(t, DataTypeActivity, `{"id":"i1","type":"Run","start_date":"2026-03-01T07:00:00Z",
+		"elapsed_time":36028797018967568,"moving_time":36028797018967568}`)
+	require.NoError(t, err)
+	require.Len(t, res.Workouts, 1)
+	w := res.Workouts[0]
+	assert.True(t, w.EndDate.Equal(w.StartDate))
+	assert.Nil(t, w.DurationS)
+	assert.NotContains(t, w.Metadata, "elapsed_time_s")
+	assert.NotContains(t, w.Metadata, "moving_time_s")
+}
+
 func TestMapUnknownDataType(t *testing.T) {
 	res, err := mapLine(t, "calendar", `{"id":"x"}`)
 	require.NoError(t, err)

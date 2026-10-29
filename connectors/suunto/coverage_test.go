@@ -96,6 +96,15 @@ func TestFetchWorkouts_UnreadableStartAndNoID(t *testing.T) {
 	assert.Equal(t, utcDay(mar1), out[2].day, "so is a zero start")
 }
 
+func TestFetchWorkouts_NullItemSkipped(t *testing.T) {
+	s := &listServer{}
+	c := s.start(t, 10, func(string) string { return `{"error":null,"payload":[null,{"workoutKey":"k1"}]}` })
+	out, err := c.fetchWorkouts(context.Background(), "tok", mar1, fakeNow)
+	require.NoError(t, err)
+	require.Len(t, out, 1, "a null entry holds no workout and is not stored as a line")
+	assert.JSONEq(t, `{"workoutKey":"k1"}`, string(out[0].line))
+}
+
 func TestFetchWorkouts_BadPages(t *testing.T) {
 	for name, body := range map[string]string{
 		"item not an object": `[[1]]`,

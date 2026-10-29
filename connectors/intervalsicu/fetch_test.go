@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,6 +152,29 @@ func TestFetchBadAnswer(t *testing.T) {
 	f.Activities = []json.RawMessage{json.RawMessage(`{"id":"i9","start_date_local":"2026-03-01T08:00:00","start_date":5}`)}
 	err := c.Fetch(context.Background(), testConn(), winFrom, winTo, &recordingSink{})
 	assert.Error(t, err)
+}
+
+// A null entry of a list used to be stored as the raw line "null", which is
+// not a record and failed Map on every replay.
+func TestFetchNullEntryIsSkipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/wellness") {
+			_, _ = w.Write([]byte(`[null, {"id":"2026-03-01","weight":70}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[null, {"id":"i1","start_date":"2026-03-01T07:00:00Z"}]`))
+	}))
+	defer srv.Close()
+	c := New(Options{ClientID: "a", ClientSecret: "b", APIBase: srv.URL, HTTPClient: srv.Client(), Now: func() time.Time { return fakeNow }})
+	sink := &recordingSink{}
+	require.NoError(t, c.Fetch(context.Background(), testConn(), winFrom, winTo, sink))
+	for _, call := range sink.calls {
+		for _, l := range call.Lines {
+			assert.NotEqual(t, "null", string(l), call.DataType)
+		}
+	}
+	assert.Equal(t, []string{"i1"}, sink.ids(t, DataTypeActivity))
+	assert.Equal(t, []string{"2026-03-01"}, sink.ids(t, DataTypeWellness))
 }
 
 // TestFetchThenMap runs the fetched lines through Map, as the ETL would.

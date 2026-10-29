@@ -22,7 +22,7 @@ func exerciseStart(e Exercise) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	if !zoned && e.StartTimeUTCOffset != nil {
+	if !zoned && validOffset(e.StartTimeUTCOffset) {
 		t = t.Add(-time.Duration(*e.StartTimeUTCOffset) * time.Minute)
 	}
 	return t.UTC(), nil
@@ -76,7 +76,7 @@ func mapExercise(line []byte, userID string) (*model.MapResult, error) {
 	setIf(md, "has_route", e.HasRoute)
 	if t, zoned, err := parseTime(e.StartTime); err == nil && zoned {
 		md = withOffset(md, offsetMinutes(t))
-	} else if e.StartTimeUTCOffset != nil {
+	} else if validOffset(e.StartTimeUTCOffset) {
 		md = withOffset(md, *e.StartTimeUTCOffset)
 	}
 

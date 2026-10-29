@@ -142,6 +142,11 @@ func (c *Connector) fetchWorkouts(ctx context.Context, token string, from, to ti
 			return nil, fmt.Errorf("page %d: %w", page+1, err)
 		}
 		for _, it := range items {
+			// A null entry holds no workout; stored, it would be a raw line
+			// that is not an object.
+			if bytes.Equal(bytes.TrimSpace(it), []byte("null")) {
+				continue
+			}
 			line, err := compact(it)
 			if err != nil {
 				return nil, fmt.Errorf("page %d: %w", page+1, err)

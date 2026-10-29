@@ -5,6 +5,7 @@ package ultrahuman
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -37,8 +38,8 @@ type metricItem struct {
 }
 
 // num is a lenient number: a JSON number, a numeric string, or nothing (null,
-// absent, or anything else, which reads as missing rather than failing the
-// whole day).
+// absent, "NaN", "Inf" or anything else, which reads as missing rather than
+// failing the whole day).
 type num struct {
 	V   float64
 	Set bool
@@ -60,7 +61,7 @@ func (n *num) UnmarshalJSON(b []byte) error {
 		s = strings.TrimSpace(str)
 	}
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 		return nil
 	}
 	*n = num{V: v, Set: true}

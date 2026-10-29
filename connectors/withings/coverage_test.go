@@ -291,3 +291,36 @@ func TestNotify_TransportErrorHidesTheCallback(t *testing.T) {
 	assert.NotContains(t, err.Error(), "secret-signature")
 	assert.NotContains(t, err.Error(), "callbackurl")
 }
+
+// A null entry of a list holds no record: it is skipped, never stored as a
+// line that is not an object, and never fails the pull.
+func TestFetch_NullEntriesSkipped(t *testing.T) {
+	s := &measureServer{}
+	c := s.start(t, func(form map[string]string) string {
+		switch form["action"] {
+		case "getmeas":
+			return `{"status":0,"body":{"measuregrps":[null,{"grpid":1,"date":1772359200,"measures":[]}],"more":0}}`
+		case "getactivity":
+			return `{"status":0,"body":{"activities":[null,{"date":"2026-03-01","steps":5}],"more":false}}`
+		case "getintradayactivity":
+			return `{"status":0,"body":{"series":{"1772359200":null,"1772359260":{"steps":5}}}}`
+		}
+		return `{"status":0,"body":{"series":[null,{"id":1,"startdate":1772359200,"enddate":1772362800,"timestamp":1772359200}],"more":false}}`
+	})
+	ctx := context.Background()
+	for name, fetch := range map[string]func() ([]dayLine, error){
+		"measure":  func() ([]dayLine, error) { return c.fetchMeasure(ctx, "tok", fetchFrom, fetchTo) },
+		"activity": func() ([]dayLine, error) { return c.fetchActivity(ctx, "tok", fetchFrom, fetchTo) },
+		"intraday": func() ([]dayLine, error) { return c.fetchIntraday(ctx, "tok", fetchFrom, fetchTo) },
+		"sleep":    func() ([]dayLine, error) { return c.fetchSleep(ctx, "tok", fetchFrom, fetchTo) },
+		"workouts": func() ([]dayLine, error) { return c.fetchWorkouts(ctx, "tok", fetchFrom, fetchTo) },
+		"heart":    func() ([]dayLine, error) { return c.fetchHeart(ctx, "tok", fetchFrom, fetchTo) },
+	} {
+		out, err := fetch()
+		require.NoError(t, err, name)
+		require.NotEmpty(t, out, name)
+		for _, l := range out {
+			assert.Equal(t, byte('{'), l.line[0], "%s stored %q", name, l.line)
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"sort"
 	"strconv"
@@ -72,10 +73,16 @@ type dayLine struct {
 func (c *Connector) fetchType(ctx context.Context, token, dt string, from, to time.Time) ([]dayLine, error) {
 	k := kinds[dt]
 	var (
-		out  []dayLine
-		key  string
-		seen = map[string]bool{}
+		out     []dayLine
+		key     string
+		seen    = map[string]bool{}
+		skipped int
 	)
+	defer func() {
+		if skipped > 0 {
+			slog.Warn("omron: skipped measurements without a readable dateTime", "provider", Slug, "type", dt, "count", skipped)
+		}
+	}()
 	for page := 0; page < maxPages; page++ {
 		form := url.Values{}
 		form.Set("type", dt)
@@ -116,12 +123,17 @@ func (c *Connector) fetchType(ctx context.Context, token, dt string, from, to ti
 			var head struct {
 				DateTime string `json:"dateTime"`
 			}
+			// A measurement without a readable time cannot be placed on a
+			// day. Failing the type for it would fail every retry too, so it
+			// is skipped and counted instead.
 			if err := json.Unmarshal(it, &head); err != nil {
-				return nil, fmt.Errorf("decode measurement: %w", err)
+				skipped++
+				continue
 			}
 			at, err := parseUTC(head.DateTime)
 			if err != nil {
-				return nil, err
+				skipped++
+				continue
 			}
 			if !at.Before(to) {
 				reachedEnd = true

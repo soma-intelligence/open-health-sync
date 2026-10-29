@@ -101,6 +101,37 @@ func TestFilter(t *testing.T) {
 	assert.Empty(t, onlyHeart.NutritionLogs)
 }
 
+// TestFilterFigures: a sleep session, a workout or a daily summary keeps its
+// place under its own category, but a figure it carries of a category that
+// is not allowed is dropped (the figures of docs/share-links.md).
+func TestFilterFigures(t *testing.T) {
+	v := func(x float64) *float64 { return &x }
+	mr := &model.MapResult{
+		SleepSessions: []model.SleepSession{{SleepScore: v(80), HRVAvgMs: v(50), RestingHR: v(52),
+			RespiratoryRate: v(14), SpO2Avg: v(96)}},
+		Workouts:       []model.Workout{{AvgHeartRate: v(140), MaxHeartRate: v(170), VO2Max: v(48)}},
+		DailySummaries: []model.DailySummary{{SleepScore: v(80), RestingHR: v(52), HRVAvgMs: v(50)}},
+	}
+	assert.Zero(t, Filter(mr, func(c string) bool { return c == Activity || c == Sleep }), "no record goes")
+	s, w, d := mr.SleepSessions[0], mr.Workouts[0], mr.DailySummaries[0]
+	assert.Equal(t, v(80), s.SleepScore)
+	assert.Nil(t, s.HRVAvgMs)
+	assert.Nil(t, s.RestingHR)
+	assert.Nil(t, s.RespiratoryRate)
+	assert.Nil(t, s.SpO2Avg)
+	assert.Nil(t, w.AvgHeartRate)
+	assert.Nil(t, w.MaxHeartRate)
+	assert.Nil(t, w.VO2Max)
+	assert.Equal(t, v(80), d.SleepScore)
+	assert.Nil(t, d.RestingHR)
+	assert.Nil(t, d.HRVAvgMs)
+
+	mr = &model.MapResult{DailySummaries: []model.DailySummary{{SleepScore: v(80), RestingHR: v(52)}}}
+	Filter(mr, func(c string) bool { return c != Sleep })
+	assert.Nil(t, mr.DailySummaries[0].SleepScore)
+	assert.Equal(t, v(52), mr.DailySummaries[0].RestingHR)
+}
+
 func TestPolicyAllows(t *testing.T) {
 	assert.True(t, Policy{}.Allows(Heart), "no consent recorded, not required: everything")
 	assert.False(t, Policy{Required: true}.Allows(Heart), "no consent recorded, required: nothing")

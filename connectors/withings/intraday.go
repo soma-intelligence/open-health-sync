@@ -30,6 +30,11 @@ var intradayMetrics = []intradayMetric{
 	{quantityType: model.QTHeartRate, unit: "bpm", value: func(p IntradayPoint) *float64 { return p.HeartRate }},
 }
 
+// maxIntradayDuration bounds an interval's duration in seconds. Past a day
+// it is no intraday interval, and a large one overflows time.Duration into
+// a wrong, plausible looking end.
+const maxIntradayDuration = 24 * 60 * 60
+
 // mapIntraday maps one intraday interval. A zero heart rate is a missing
 // reading and is skipped; zero steps, calories or distance are real zeros.
 // Withings gives no time zone on this endpoint. An interval Withings sends
@@ -45,7 +50,7 @@ func mapIntraday(line []byte, userID string) (*model.MapResult, error) {
 	}
 	start := ParseWithingsTimestamp(p.Timestamp)
 	end := start
-	if p.Duration != nil && *p.Duration > 0 {
+	if p.Duration != nil && *p.Duration > 0 && *p.Duration <= maxIntradayDuration {
 		end = start.Add(time.Duration(*p.Duration) * time.Second)
 	}
 

@@ -196,6 +196,11 @@ func (c *Connector) list(ctx context.Context, token, path string, q url.Values) 
 	}
 	out := make([][]byte, 0, len(items))
 	for _, it := range items {
+		// A null entry holds no record; stored, it would be a raw line that
+		// is not an object.
+		if bytes.Equal(bytes.TrimSpace(it), []byte("null")) {
+			continue
+		}
 		line, err := compact(it)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)

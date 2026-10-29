@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -29,7 +30,7 @@ func (n *num) UnmarshalJSON(b []byte) error {
 		b = []byte(strings.TrimSpace(s))
 	}
 	f, err := strconv.ParseFloat(string(b), 64)
-	if err != nil {
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return fmt.Errorf("not a number: %s", clip(string(b), 40))
 	}
 	*n = num(f)

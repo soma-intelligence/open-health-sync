@@ -3,6 +3,7 @@
 package ultrahuman
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -328,7 +329,43 @@ func TestUnixTime(t *testing.T) {
 	require.False(t, ok)
 	_, ok = unixTime(math.MaxFloat64)
 	require.False(t, ok)
+	_, ok = unixTime(math.NaN())
+	require.False(t, ok, "NaN passes every comparison")
 	got, ok := unixTime(1773046800.5)
 	require.True(t, ok)
 	require.Equal(t, 500*time.Millisecond, time.Duration(got.Nanosecond()))
+}
+
+func TestGlucoseOverflowDropped(t *testing.T) {
+	_, _, ok := glucose(1e308, "mmol/L")
+	require.False(t, ok, "1e308 mmol/L overflows to +Inf mg/dL")
+	v, unit, ok := glucose(5.5, "mmol/L")
+	require.True(t, ok)
+	require.Equal(t, "mg/dL", unit)
+	require.InDelta(t, 99.1, v, 0.1)
+}
+
+func TestMap_ZeroDateRefused(t *testing.T) {
+	body := `{"data":{"metric_data":[{"type":"vo2_max","object":{"value":45}}]}}`
+	_, err := mapFields(t, map[string]any{"date": "0001-01-01", "body": json.RawMessage(body)})
+	require.Error(t, err)
+}
+
+func TestMap_NonFiniteValuesAreMissing(t *testing.T) {
+	body := `{"data":{"metric_data":[` +
+		`{"type":"hr","object":{"values":[{"value":"NaN","timestamp":1772931600},{"value":"Inf","timestamp":1772931900},{"value":61,"timestamp":"NaN"}]}},` +
+		`{"type":"temp","object":{"values":[{"value":"nan","timestamp":1772931600}]}},` +
+		`{"type":"temperature_deviation","object":{"value":"NaN"}},` +
+		`{"type":"steps","object":{"total":"Inf"}},` +
+		`{"type":"vo2_max","object":{"value":"+Inf"}},` +
+		`{"type":"Sleep","object":{"bedtime_start":1772920800,"bedtime_end":1772949600,` +
+		`"sleep_stages":[{"type":"deep_sleep","stage_time":"Inf"}],"sleep_score":{"score":"NaN"},"spo2":{"value":"Inf"}}}]}}`
+	res, err := mapFields(t, map[string]any{"date": "2026-03-08", "body": json.RawMessage(body)})
+	require.NoError(t, err)
+	require.Empty(t, res.QuantitySamples, "NaN and Inf are not readings")
+	require.Len(t, res.SleepSessions, 1)
+	s := res.SleepSessions[0]
+	require.Nil(t, s.DeepSleepSeconds)
+	require.Nil(t, s.SleepScore)
+	require.Nil(t, s.SpO2Avg)
 }

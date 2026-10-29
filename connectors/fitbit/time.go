@@ -50,7 +50,7 @@ func parseDuration(s string) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("duration %s is not a number of seconds", strconv.Quote(clip(s, 40)))
 	}
-	if f > 1e9 || f < -1e9 {
+	if !(f >= -1e9 && f <= 1e9) {
 		return 0, fmt.Errorf("duration %s is out of range", strconv.Quote(clip(s, 40)))
 	}
 	return time.Duration(f * float64(time.Second)), nil

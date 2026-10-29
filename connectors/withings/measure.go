@@ -14,6 +14,11 @@ import (
 // weight), not a reading.
 const categoryObjective = 2
 
+// maxMeasureUnit bounds the power of ten of a measure. Withings writes a few
+// digits (-3 for a weight in grams); past this a value is no reading, and
+// Float64 would loop once per power or scale to +Inf.
+const maxMeasureUnit = 18
+
 // mapMeasure turns one getmeas group into one QuantitySample per known
 // meastype. Unknown meastypes are skipped with a warning.
 func mapMeasure(line []byte, userID string) (*model.MapResult, error) {
@@ -40,6 +45,10 @@ func mapMeasure(line []byte, userID string) (*model.MapResult, error) {
 		info, known := withingsMeasTypes[m.Type]
 		if !known {
 			slog.Warn("withings: unknown meastype skipped", "provider", Slug, "meastype", m.Type)
+			continue
+		}
+		if m.Unit < -maxMeasureUnit || m.Unit > maxMeasureUnit {
+			slog.Warn("withings: measure with an out of range power of ten skipped", "provider", Slug, "meastype", m.Type, "unit", m.Unit)
 			continue
 		}
 		value := m.Float64()

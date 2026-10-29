@@ -8,7 +8,12 @@
 package mcp
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -64,8 +69,72 @@ func NewHandler(d Deps) http.Handler {
 			auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "a valid API key or user token is required")
 			return
 		}
-		h.ServeHTTP(w, r)
+		pw := &problemWriter{ResponseWriter: w}
+		h.ServeHTTP(pw, r)
+		pw.finish()
 	})
+}
+
+// maxErrorDetail bounds the text of a transport error kept as a problem's
+// detail.
+const maxErrorDetail = 512
+
+// problemWriter turns the plain text errors of the transport and of the
+// cross-origin guard (http.Error: a wrong content type, a body that is not
+// JSON-RPC, a cross-site page, another method) into RFC 9457 problems, as
+// every other error of the API is. Anything else passes through as written.
+type problemWriter struct {
+	http.ResponseWriter
+	status int
+	detail bytes.Buffer
+}
+
+func (w *problemWriter) WriteHeader(code int) {
+	if w.status != 0 {
+		return
+	}
+	if code >= 400 && strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") {
+		w.status = code
+		return
+	}
+	w.status = -1
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *problemWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.status > 0 {
+		if room := maxErrorDetail - w.detail.Len(); room > 0 {
+			w.detail.Write(b[:min(len(b), room)])
+		}
+		return len(b), nil
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Flush lets a streamed answer through; a held error is written by finish.
+func (w *problemWriter) Flush() {
+	if w.status > 0 {
+		return
+	}
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *problemWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *problemWriter) finish() {
+	if w.status <= 0 {
+		return
+	}
+	detail := strings.TrimSpace(w.detail.String())
+	if detail == "" {
+		detail = strings.ToLower(http.StatusText(w.status))
+	}
+	auth.WriteProblem(w.ResponseWriter, w.status, http.StatusText(w.status), detail)
 }
 
 const instructions = `Open Health Sync: read-only access to health data (quantity samples, ` +
@@ -89,5 +158,31 @@ func newServer(d Deps, p auth.Principal, cache *sdk.SchemaCache) *sdk.Server {
 		&sdk.ServerOptions{Instructions: instructions, SchemaCache: cache})
 	addTools(s, &tools{d: d, p: p})
 	addPrompts(s)
+	s.AddReceivingMiddleware(hideDecodeErrors)
 	return s
+}
+
+// hideDecodeErrors rewrites the refusal of arguments that pass the input
+// schema but do not fit the Go argument types (an integer past int64): the
+// SDK's decoder names the server's own struct types, which is no help to the
+// caller.
+func hideDecodeErrors(next sdk.MethodHandler) sdk.MethodHandler {
+	return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+		res, err := next(ctx, method, req)
+		r, ok := res.(*sdk.CallToolResult)
+		if err != nil || !ok || !r.IsError || r.GetError() == nil {
+			return res, err
+		}
+		var te toolError
+		if errors.As(r.GetError(), &te) || !strings.HasPrefix(r.GetError().Error(), "json: ") {
+			return res, err
+		}
+		msg := "an argument is out of range or of the wrong type"
+		var ute *json.UnmarshalTypeError
+		if errors.As(r.GetError(), &ute) && ute.Field != "" {
+			msg = ute.Field + " is out of range or of the wrong type"
+		}
+		r.Content = []sdk.Content{&sdk.TextContent{Text: msg}}
+		return r, nil
+	}
 }

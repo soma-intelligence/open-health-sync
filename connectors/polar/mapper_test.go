@@ -163,6 +163,69 @@ func TestMapSleep(t *testing.T) {
 	assert.Equal(t, s.ContentHash, res2.SleepPhases[0].ParentContentHash)
 }
 
+// No zone is more than 14 hours from UTC. An offset of 100000 minutes used to
+// move an exercise and a day of heart rate by 69 days, into dates validation
+// accepts, and was stored as the record's offset.
+func TestMap_OffsetBeyondFourteenHoursIsIgnored(t *testing.T) {
+	res, err := mapLine(t, DataTypeExercise, `{"id":"X","start_time":"2026-03-05T07:30:00","start_time_utc_offset":100000,"duration":"PT30M"}`)
+	require.NoError(t, err)
+	w := res.Workouts[0]
+	assert.Equal(t, time.Date(2026, 3, 5, 7, 30, 0, 0, time.UTC), w.StartDate, "read as UTC, as without an offset")
+	assert.NotContains(t, w.Metadata, "utc_offset_minutes")
+
+	res, err = mapLine(t, DataTypeContinuousHR, `{"date":"2026-03-04","utc_offset_minutes":-100000,"heart_rate_samples":[{"heart_rate":60,"sample_time":"08:00"}]}`)
+	require.NoError(t, err)
+	q := res.QuantitySamples[0]
+	assert.Equal(t, time.Date(2026, 3, 4, 8, 0, 0, 0, time.UTC), q.StartDate, "read as UTC, as without an offset")
+	assert.NotContains(t, q.Metadata, "utc_offset_minutes")
+	assert.Equal(t, true, q.Metadata["local_time_as_utc"])
+
+	res, err = mapLine(t, DataTypeExercise, `{"id":"X","start_time":"2026-03-05T07:30:00+14:00"}`)
+	require.NoError(t, err)
+	assert.Equal(t, 840, res.Workouts[0].Metadata["utc_offset_minutes"], "+14:00 is a real zone")
+
+	res, err = mapLine(t, DataTypeExercise, `{"id":"X","start_time":"2026-03-05T07:30:00+23:59"}`)
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 3, 4, 7, 31, 0, 0, time.UTC), res.Workouts[0].StartDate, "the instant RFC 3339 names")
+	assert.NotContains(t, res.Workouts[0].Metadata, "utc_offset_minutes")
+}
+
+// "1:00" and "01:00" name the same clock time. The hypnogram and the heart
+// rate samples are JSON objects, read in random order, so which stage and
+// which reading won that instant used to change from one Map to the next.
+func TestMapSleep_SameClockTwiceIsDeterministic(t *testing.T) {
+	line := `{"date":"2026-03-04","sleep_start_time":"2026-03-03T23:30:00+01:00","sleep_end_time":"2026-03-04T07:00:00+01:00",
+		"hypnogram":{"23:30":2,"1:00":4,"01:00":1},"heart_rate_samples":{"0:5":51,"00:05":52}}`
+	first, err := mapLine(t, DataTypeSleep, line)
+	require.NoError(t, err)
+	require.Len(t, first.QuantitySamples, 1, "one reading per instant")
+	for i := 0; i < 50; i++ {
+		again, err := mapLine(t, DataTypeSleep, line)
+		require.NoError(t, err)
+		require.Equal(t, first, again)
+	}
+}
+
+// The total sleep is the sum of the stages. A negative stage, or two that
+// overflow an int, used to give a total that looked right (3600 s from
+// -3600 and 7200; 4032 s from two stages of 2^63 - 1024): validation then
+// cleared the bad stages and stored that total.
+func TestMapSleep_TotalNeedsStagesOfOneNight(t *testing.T) {
+	for name, stages := range map[string]string{
+		"negative": `"deep_sleep":-3600,"rem_sleep":7200`,
+		"overflow": `"deep_sleep":9223372036854774784,"rem_sleep":9223372036854774784,"light_sleep":5648`,
+		"too long": `"deep_sleep":90000,"rem_sleep":3600`,
+	} {
+		res, err := mapLine(t, DataTypeSleep, `{"date":"2026-03-04","sleep_start_time":"2026-03-03T23:00:00","sleep_end_time":"2026-03-04T07:00:00",`+stages+`}`)
+		require.NoError(t, err, name)
+		assert.Nil(t, res.SleepSessions[0].TotalSleepSeconds, name)
+	}
+	res, err := mapLine(t, DataTypeSleep, `{"date":"2026-03-04","sleep_start_time":"2026-03-03T23:00:00","sleep_end_time":"2026-03-04T07:00:00","deep_sleep":0,"rem_sleep":7200}`)
+	require.NoError(t, err)
+	require.NotNil(t, res.SleepSessions[0].TotalSleepSeconds)
+	assert.Equal(t, 7200, *res.SleepSessions[0].TotalSleepSeconds)
+}
+
 func TestMapSleep_Edges(t *testing.T) {
 	res, err := mapLine(t, DataTypeSleep, fixtureItem(t, "sleep.json", "nights", 1))
 	require.NoError(t, err)

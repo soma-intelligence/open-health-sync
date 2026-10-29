@@ -234,6 +234,26 @@ func TestMapMeasure_UnknownMeastypeSkipped(t *testing.T) {
 	assert.Len(t, res.QuantitySamples, 2)
 }
 
+// A power of ten no scale writes is not a reading: a huge one spun the
+// scaling loop for hours, a large one scaled the value to +Inf.
+func TestMapMeasure_OutOfRangeUnitSkipped(t *testing.T) {
+	for _, unit := range []string{"400", "-400", "9000000000000000000"} {
+		done := make(chan model.MapResult, 1)
+		go func() {
+			res, _ := mapLine(t, DataTypeMeasure, `{"grpid":9,"date":1709337600,"category":1,"measures":[
+			  {"type":1,"value":7234,"unit":`+unit+`},{"type":11,"value":72,"unit":0}]}`)
+			done <- res
+		}()
+		select {
+		case res := <-done:
+			require.Len(t, res.QuantitySamples, 1, "unit %s", unit)
+			assert.Equal(t, model.QTHeartRate, res.QuantitySamples[0].QuantityType)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("unit %s: Map did not return", unit)
+		}
+	}
+}
+
 func TestMapMeasure_MissingDateErrors(t *testing.T) {
 	_, err := mapLine(t, DataTypeMeasure, `{"grpid":6,"measures":[{"type":1,"value":7234,"unit":-2}]}`)
 	assert.Error(t, err)
@@ -575,6 +595,20 @@ func TestMapIntraday_ZeroHeartRateSkipped(t *testing.T) {
 	steps, ok := m[model.QTStepCountIntraday]
 	require.True(t, ok)
 	assert.Equal(t, 0.0, steps.Value)
+}
+
+// A duration past a day is no intraday interval. 18446744074 s overflowed
+// the nanosecond count and wrapped to an interval of 0.29 s that validation
+// let through.
+func TestMapIntraday_OutOfRangeDurationIgnored(t *testing.T) {
+	for _, d := range []string{"18446744074", "1e20", "86401"} {
+		res := mustMap(t, DataTypeIntraday, `{"timestamp":1709370000,"steps":10,"duration":`+d+`}`)
+		require.Len(t, res.QuantitySamples, 1, d)
+		s := res.QuantitySamples[0]
+		assert.Equal(t, s.StartDate, s.EndDate, "duration %s", d)
+	}
+	s := mustMap(t, DataTypeIntraday, `{"timestamp":1709370000,"steps":10,"duration":86400}`).QuantitySamples[0]
+	assert.Equal(t, 24*time.Hour, s.EndDate.Sub(s.StartDate))
 }
 
 func TestMapIntraday_MissingTimestampErrors(t *testing.T) {

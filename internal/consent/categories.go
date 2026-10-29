@@ -100,7 +100,8 @@ func Of(typeName string) string {
 // Filter removes from mr every record whose category allowed refuses, and
 // returns how many it removed. A child goes with its parent: route points
 // follow their workout (and Location), sleep phases their session, ECG
-// voltage its recording.
+// voltage its recording. A figure a record that stays carries of a refused
+// category (see figures) is cleared; it is not counted.
 func Filter(mr *model.MapResult, allowed func(category string) bool) int {
 	n := 0
 	keep := func(ok bool) bool {
@@ -142,5 +143,61 @@ func Filter(mr *model.MapResult, allowed func(category string) bool) int {
 		n += len(mr.NutritionLogs)
 		mr.NutritionLogs = nil
 	}
+	for i := range mr.SleepSessions {
+		clearFigures(allowed, sleepFigures(&mr.SleepSessions[i]))
+	}
+	for i := range mr.Workouts {
+		clearFigures(allowed, workoutFigures(&mr.Workouts[i]))
+	}
+	for i := range mr.DailySummaries {
+		clearFigures(allowed, dailyFigures(&mr.DailySummaries[i]))
+	}
 	return n
+}
+
+// figure is one figure a sleep session, a workout or a daily summary carries
+// that belongs to another category than the record's, as share links file
+// them: a session's or a day's resting heart rate is heart data, a workout's
+// VO2 max respiratory data, a day's sleep score sleep data. Column is the
+// figure's column in table. A refused category takes these figures out of the
+// records that stay.
+type figure struct{ table, column, category string }
+
+// figures lists every such figure.
+var figures = []figure{
+	{"ohs_data.sleep_sessions", "hrv_avg_ms", Heart},
+	{"ohs_data.sleep_sessions", "resting_hr", Heart},
+	{"ohs_data.sleep_sessions", "respiratory_rate", Respiratory},
+	{"ohs_data.sleep_sessions", "spo2_avg", Respiratory},
+	{"ohs_data.workouts", "avg_heart_rate", Heart},
+	{"ohs_data.workouts", "max_heart_rate", Heart},
+	{"ohs_data.workouts", "vo2_max", Respiratory},
+	{"ohs_data.daily_summaries", "resting_hr", Heart},
+	{"ohs_data.daily_summaries", "hrv_avg_ms", Heart},
+	{"ohs_data.daily_summaries", "sleep_score", Sleep},
+}
+
+type figureField struct {
+	category string
+	v        **float64
+}
+
+func sleepFigures(s *model.SleepSession) []figureField {
+	return []figureField{{Heart, &s.HRVAvgMs}, {Heart, &s.RestingHR}, {Respiratory, &s.RespiratoryRate}, {Respiratory, &s.SpO2Avg}}
+}
+
+func workoutFigures(w *model.Workout) []figureField {
+	return []figureField{{Heart, &w.AvgHeartRate}, {Heart, &w.MaxHeartRate}, {Respiratory, &w.VO2Max}}
+}
+
+func dailyFigures(d *model.DailySummary) []figureField {
+	return []figureField{{Heart, &d.RestingHR}, {Heart, &d.HRVAvgMs}, {Sleep, &d.SleepScore}}
+}
+
+func clearFigures(allowed func(string) bool, fs []figureField) {
+	for _, f := range fs {
+		if !allowed(f.category) {
+			*f.v = nil
+		}
+	}
 }

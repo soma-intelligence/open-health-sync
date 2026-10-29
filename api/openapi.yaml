@@ -45,7 +45,7 @@ info:
     to 128 letters, digits, `-`, `_` or `.`, else a fresh one); a problem body repeats it as
     `request_id`, and the server logs carry it too.
 
-    **Idempotency.** `Idempotency-Key` (1 to 255 characters) is honoured on
+    **Idempotency.** `Idempotency-Key` (1 to 255 characters of UTF-8 text) is honoured on
     `POST /v1/users`, `POST /v1/users/{id}/tags` and `POST /v1/users/{id}/self-reports`: a retry with the same key and the same request within 24 hours gets the first response back, with
     `Idempotent-Replayed: true`. The same key with another request is a 422; a retry while
     the first call still runs is a 409. Token minting ignores the header (replaying it would
@@ -2952,7 +2952,10 @@ paths:
         `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_rr_intervals`,
         `get_hrv`, `get_menstrual_cycles`, `get_tags`, `get_coverage`, `list_connections`. Each
         tool result is JSON text with `records`, `next_cursor` and `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
-        is a tool error inside a 200, as MCP prescribes. See docs/mcp.md.
+        is a tool error inside a 200, as MCP prescribes. A request the transport refuses (a
+        body that is not JSON-RPC, an `Accept` without both `application/json` and
+        `text/event-stream`, a body over 4 MiB, another content type than
+        `application/json`, a cross-origin browser page) is a problem. See docs/mcp.md.
       requestBody:
         content:
           application/json:
@@ -2964,8 +2967,15 @@ paths:
             application/json:
               schema: { type: object }
         "202": { description: Notification accepted. }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415":
+          description: The body is not sent as application/json.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /v1/tenant:
     get:
@@ -5457,7 +5467,7 @@ components:
 
     AdminProvider:
       type: object
-      required: [slug, name, kinds, status, enabled, source, keys, error, urls, updated_at, updated_by]
+      required: [slug, name, kinds, status, enabled, source, keys, error, urls, sync, updated_at, updated_by]
       properties:
         slug: { type: string }
         name: { type: string }
@@ -5486,8 +5496,29 @@ components:
           properties:
             redirect: { type: [string, "null"], description: "The OAuth redirect URI, for a provider users connect to." }
             inbound: { type: [string, "null"], description: "Where the provider posts notifications, for a push provider." }
+        sync:
+          oneOf:
+            - { $ref: "#/components/schemas/AdminProviderSync" }
+            - { type: "null" }
+          description: How the server pulls this provider. Null for one it never pulls (an upload from an app).
         updated_at: { type: [string, "null"], format: date-time }
         updated_by: { type: [string, "null"], description: The id of the API key that saved the last change. }
+
+    AdminProviderSync:
+      type: object
+      description: |
+        The provider's sync policy, in seconds. See
+        [background sync](https://github.com/soma-intelligence/open-health-sync/blob/main/docs/background-sync.md#sync-policy-per-provider).
+      required: [pull_every_seconds, pull_every_without_push_seconds, lookback_seconds, max_catch_up_seconds,
+        backfill_seconds, backfill_chunk_seconds, reconcile_seconds]
+      properties:
+        pull_every_seconds: { type: integer, description: "The regular pull interval while the provider's notifications arrive.", examples: [21600] }
+        pull_every_without_push_seconds: { type: integer, description: "The interval when no notification arrives.", examples: [3600] }
+        lookback_seconds: { type: integer, description: "How far before the previous window each regular pull reads again, for late or revised data.", examples: [21600] }
+        max_catch_up_seconds: { type: integer, description: "How far back a regular pull reaches after an outage.", examples: [604800] }
+        backfill_seconds: { type: integer, description: "How far back a new connection is pulled.", examples: [7776000] }
+        backfill_chunk_seconds: { type: integer, description: "The window of one backfill job.", examples: [604800] }
+        reconcile_seconds: { type: integer, description: "How far the first pull of each UTC day reaches, 0 when the daily reconciliation is off.", examples: [172800] }
 
     AdminProviderKey:
       type: object

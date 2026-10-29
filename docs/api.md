@@ -600,7 +600,7 @@ Provider settings are instance wide, so their routes need a key of an
 
 | Route | Purpose |
 |---|---|
-| `GET /v1/admin/providers` | Every connector of the binary: `status` (`active`, `off`, `not_configured`, `error`, `built_in`), where its keys come from (`env`, `console`), each key (required, secret, set, and its value only when it is not a secret), and the redirect and notification URLs to register at the provider |
+| `GET /v1/admin/providers` | Every connector of the binary: `status` (`active`, `off`, `not_configured`, `error`, `built_in`), where its keys come from (`env`, `console`), each key (required, secret, set, and its value only when it is not a secret), the redirect and notification URLs to register at the provider, and `sync`, the provider's [sync policy](background-sync.md#sync-policy-per-provider) in seconds (null for an upload from an app) |
 | `GET /v1/admin/providers/{provider}` | One of them |
 | `PATCH /v1/admin/providers/{provider}` | `{"keys": {"CLIENT_ID": "...", "CLIENT_SECRET": "..."}, "enabled": true}`; a `null` key removes it. The connector checks the keys before they are stored (422 with its message). 409 when the provider's keys come from the environment and the body changes keys |
 | `DELETE /v1/admin/providers/{provider}` | Forget the keys and the on/off choice saved in the console; 404 when nothing was saved |

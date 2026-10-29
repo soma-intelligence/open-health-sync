@@ -4,6 +4,7 @@ package intervalsicu
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -65,12 +66,12 @@ func mapActivity(line []byte, userID string) (*model.MapResult, error) {
 
 	end := start
 	var dur *int
-	if a.ElapsedTime != nil && *a.ElapsedTime >= 0 {
+	if seconds(a.ElapsedTime) {
 		end = start.Add(time.Duration(*a.ElapsedTime) * time.Second)
 		md["elapsed_time_s"] = *a.ElapsedTime
 		dur = a.ElapsedTime
 	}
-	if a.MovingTime != nil && *a.MovingTime >= 0 {
+	if seconds(a.MovingTime) {
 		md["moving_time_s"] = *a.MovingTime
 		if a.ElapsedTime == nil {
 			end = start.Add(time.Duration(*a.MovingTime) * time.Second)
@@ -190,6 +191,14 @@ var upstreams = map[string]string{
 	"POLAR":          "polar",
 	"STRAVA":         "strava",
 }
+
+// maxSeconds is the longest duration in seconds a time.Duration holds
+// (about 292 years). A longer one would wrap when turned into a span.
+const maxSeconds = math.MaxInt64 / int(time.Second)
+
+// seconds reports whether v is a duration in seconds a workout can have: set,
+// not negative and not so large it wraps.
+func seconds(v *int) bool { return v != nil && *v >= 0 && *v <= maxSeconds }
 
 func positive(v *float64) bool { return v != nil && *v > 0 }
 

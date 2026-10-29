@@ -152,6 +152,18 @@ func TestMapActivity_MissingFiguresSkipped(t *testing.T) {
 	assert.NotContains(t, w.Metadata, "timezone")
 }
 
+// An elapsed or moving time too large for a time.Duration used to wrap:
+// 2^55 + 3600 seconds put the end one hour after the start while the stored
+// duration read 36028797018967568 s. Such a figure is not a duration.
+func TestMapActivity_DurationThatOverflowsIsDropped(t *testing.T) {
+	w := mapOne(t, map[string]any{"id": 5.0, "start_date": "2026-03-01T07:30:00Z", "sport_type": "Run",
+		"elapsed_time": 36028797018967568.0, "moving_time": 36028797018967568.0})
+	assert.True(t, w.EndDate.Equal(w.StartDate))
+	assert.Nil(t, w.DurationS)
+	assert.NotContains(t, w.Metadata, "elapsed_time_s")
+	assert.NotContains(t, w.Metadata, "moving_time_s")
+}
+
 func TestSportType(t *testing.T) {
 	assert.Equal(t, sport{activity: "cycling", indoor: true}, sportType("VirtualRide"))
 	assert.Equal(t, "running", sportType("TrailRun").activity)

@@ -110,7 +110,8 @@ func when(arrived time.Time, m *measurement) (time.Time, string) {
 }
 
 // offsetZone is the Etc/GMT zone of a whole hour offset ("Etc/GMT-2" is
-// UTC+2), "Etc/UTC" for 0, and "" otherwise.
+// UTC+2), "Etc/UTC" for 0, and "" otherwise. Etc/GMT zones run from UTC-12
+// to UTC+14 only.
 func offsetZone(minutes int) string {
 	if minutes == 0 {
 		return "Etc/UTC"
@@ -119,6 +120,9 @@ func offsetZone(minutes int) string {
 		return ""
 	}
 	h := minutes / 60
+	if h < -12 || h > 14 {
+		return ""
+	}
 	if h > 0 {
 		return "Etc/GMT-" + strconv.Itoa(h)
 	}

@@ -66,6 +66,9 @@ func mapEGV(fields map[string]any, userID string) (*model.MapResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dexcom: egvs: systemTime: %w", err)
 	}
+	if at.IsZero() {
+		return nil, fmt.Errorf("dexcom: egvs: zero systemTime %q", r.SystemTime)
+	}
 	at = at.UTC()
 
 	unit := r.Unit
@@ -140,7 +143,11 @@ func displayOffset(system, display string) (int, bool) {
 	}
 	if dOff {
 		_, sec := d.Zone()
-		return sec / 60, true
+		minutes := sec / 60
+		if minutes < -12*60 || minutes > 14*60 {
+			return 0, false
+		}
+		return minutes, true
 	}
 	s, _, err := parseTime(system)
 	if err != nil {

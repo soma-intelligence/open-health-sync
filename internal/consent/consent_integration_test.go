@@ -206,3 +206,56 @@ func TestPurge(t *testing.T) {
 	assert.Equal(t, 1, rows("oura", `SELECT count(*) FROM ohs_data.sleep_sessions`))
 	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_sync.consent_purges WHERE finished_at IS NULL`))
 }
+
+// TestPurgeFigures: revoking heart (or sleep, or respiratory) takes the
+// figures of that category out of the sleep sessions, workouts and daily
+// summaries that stay, from that source only.
+func TestPurgeFigures(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+	ten, user := uuid.New(), uuid.New()
+	at := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	for _, provider := range []string{"oura", "withings"} {
+		_, err := pool.Exec(ctx, `INSERT INTO ohs_data.sleep_sessions (tenant_id, user_id, provider, bedtime_start,
+				sleep_score, hrv_avg_ms, resting_hr, respiratory_rate, spo2_avg, content_hash)
+			VALUES ($1, $2, $3, $4, 80, 50, 52, 14, 96, $3)`, ten, user, provider, at)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO ohs_data.workouts (tenant_id, user_id, provider, activity_type, start_date,
+				avg_heart_rate, max_heart_rate, vo2_max, content_hash)
+			VALUES ($1, $2, $3, 'running', $4, 140, 170, 48, $3)`, ten, user, provider, at)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO ohs_data.daily_summaries (tenant_id, user_id, provider, summary_date,
+				step_count, sleep_score, resting_hr, hrv_avg_ms, content_hash)
+			VALUES ($1, $2, $3, '2026-09-01', 9000, 80, 52, 50, $3)`, ten, user, provider)
+		require.NoError(t, err)
+	}
+	set(t, pool, ten, user, "oura", consent.Activity)
+	purger := consent.NewPurger(pool)
+	for {
+		did, err := purger.Once(ctx)
+		require.NoError(t, err)
+		if !did {
+			break
+		}
+	}
+	figures := func(provider string) [6]*float64 {
+		var f [6]*float64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT w.avg_heart_rate, w.max_heart_rate, w.vo2_max,
+				d.resting_hr, d.hrv_avg_ms, d.sleep_score
+			FROM ohs_data.workouts w JOIN ohs_data.daily_summaries d
+				ON d.tenant_id = w.tenant_id AND d.user_id = w.user_id AND d.provider = w.provider
+			WHERE w.tenant_id = $1 AND w.user_id = $2 AND w.provider = $3`, ten, user, provider).
+			Scan(&f[0], &f[1], &f[2], &f[3], &f[4], &f[5]))
+		return f
+	}
+	assert.Equal(t, [6]*float64{}, figures("oura"), "the heart, respiratory and sleep figures of oura are gone")
+	assert.Equal(t, 1, count(t, pool, `SELECT count(*) FROM ohs_data.daily_summaries
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'oura' AND step_count = 9000`, ten, user), "the day stays")
+	for _, f := range figures("withings") {
+		assert.NotNil(t, f, "another source is untouched")
+	}
+	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.sleep_sessions
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'oura'`, ten, user), "sleep revoked: the session goes")
+}

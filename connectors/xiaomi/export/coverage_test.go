@@ -46,6 +46,9 @@ func TestToLine(t *testing.T) {
 		{"value an array", map[string]string{"key": "k", "time": "1", "value": `[1]`}, "unreadable value", Line{}},
 		{"value broken", map[string]string{"key": "k", "time": "1", "value": `{"a":`}, "unreadable value", Line{}},
 		{"value empty", map[string]string{"key": "k", "time": "1"}, "unreadable value", Line{}},
+		// Valid JSON syntax, but no float64 holds 1e700: the server's NDJSON
+		// reader would park the line as malformed.
+		{"value number out of range", map[string]string{"key": "k", "time": "1", "value": `{"steps":1e700}`}, "unreadable value", Line{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

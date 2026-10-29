@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"tABle\":\"fitness_data\",\"keY\":\"sleep\",\"vAlue\":{\"Bedtime\":1000000000,\"wAke_up_time\":1000010000,\"sleep_deep_durAtion\":1,\"sleep_rem_durAtion\":1e20}}")

@@ -41,7 +41,7 @@ const (
 
 // formatVersion names the conversion rules. Bump it when a change alters the
 // lines produced, so a re-run after an upgrade uses a fresh batch.
-const formatVersion = "1"
+const formatVersion = "2"
 
 // DefaultMaxPartBytes caps the uncompressed NDJSON of one part.
 const DefaultMaxPartBytes = 8 << 20
@@ -311,7 +311,10 @@ func toLine(table string, row map[string]string) (Line, string) {
 		l.UpdateTime = u
 	}
 	v := bytes.TrimSpace([]byte(row["value"]))
-	if len(v) == 0 || v[0] != '{' || !json.Valid(v) {
+	// Decoded the way the server reads a line, not only checked for syntax:
+	// a number no float64 holds (1e700) is valid JSON the server refuses.
+	var obj map[string]any
+	if len(v) == 0 || v[0] != '{' || json.Unmarshal(v, &obj) != nil {
 		return l, "unreadable value"
 	}
 	var compact bytes.Buffer

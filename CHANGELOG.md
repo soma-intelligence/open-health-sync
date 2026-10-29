@@ -14,6 +14,11 @@ release may change the API, the configuration or the database schema.
   and the server pulls their record from its FHIR R4 API. Every resource is kept raw; vital signs
   become quantity samples and the other Observations (labs) generic observations of type
   `ehr`. See [docs/connectors/smart-fhir.md](docs/connectors/smart-fhir.md).
+- The console's provider page shows the provider's sync schedule: how often it is pulled, with and
+  without notifications, how far each pull reads again, the catch-up after an outage, the backfill
+  of a new connection and the daily reconciliation. `GET /v1/admin/providers` and
+  `GET /v1/admin/providers/{provider}` serve it as `sync` (seconds, null for an upload from an
+  app). See [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
 - `deploy/Caddyfile`: Caddy with automatic TLS in front of the compose stack, and the routes to
   keep on `ohs` when the host serves other pages too, so `/healthz` and `/readyz` are never
   redirected. See [docs/self-hosting.md](docs/self-hosting.md#reverse-proxy).
@@ -82,6 +87,33 @@ release may change the API, the configuration or the database schema.
 
 ### Fixed
 
+- A NaN or infinite value no longer passes validation. NaN failed no range check and +Inf passed
+  every rule with no ceiling, so a connector that read `"NaN"` or `"Infinity"` stored it.
+- Connector fuzzing (new fuzz tests for Dexcom, Fitbit, Health Connect, intervals.icu, OMRON,
+  Polar, Strava, Suunto, Ultrahuman, Withings, Xiaomi and Bluetooth) found and fixed:
+  - `"NaN"`, `"Inf"` and overflowing unit conversions read as figures (OMRON, Ultrahuman,
+    Fitbit, Health Connect, Xiaomi); they now read as missing.
+  - Durations that overflowed into wrong ends or negative totals (Strava, intervals.icu,
+    Withings intraday, Xiaomi and Polar sleep stages).
+  - A Withings measure with a huge power of ten hung the mapper or scaled to infinity.
+  - Zero times (Dexcom, OMRON, Ultrahuman) and UTC offsets no zone uses (Dexcom, OMRON, Polar,
+    Bluetooth) were accepted.
+  - `null` list entries were stored as raw lines, and failed every Withings pull.
+  - A Polar hypnogram with a clock time written twice mapped differently from run to run.
+  - The Xiaomi export converter wrote a line the server could not decode (`formatVersion` 2).
+- One Dexcom or OMRON record without a readable time failed the whole window on every retry;
+  it is now skipped and counted in a warning.
+- An `Idempotency-Key` that is not UTF-8 answered 500; it now answers 400.
+- A read bound outside the years 1 to 9999 (`start=0000-01-01`, or year 1 with a `+23:59`
+  offset) answered 500; the REST API and the MCP tools now refuse it.
+- `/mcp` transport errors (400, 403, 405, 413, 415) were plain text; they are now
+  `application/problem+json`, and the OpenAPI document lists them.
+- MCP argument decode errors named internal Go types; they now name the argument only.
+- A time zone written as `Local` was read in the server's own zone in FHIR daily summaries,
+  daily rollups and cycles; it now reads as UTC.
+- Consent: a refused category (heart, respiratory, sleep and the others in
+  [docs/consent.md](docs/consent.md)) is now also cleared from the figures of sleep sessions,
+  workouts and daily summaries that stay, at ingest and when a revocation is purged.
 - A NUL character or invalid UTF-8 in a path, a query parameter or a JSON string no longer ends
   in a 500 (31 operations did) or an MCP "internal error": the path and the query are checked
   before routing and answer 400, a JSON body with a `\u0000` answers 400 naming the field, and an
@@ -181,6 +213,9 @@ release may change the API, the configuration or the database schema.
 
 ### Security
 
+- Webhook destinations: the private address guard now also refuses 0.0.0.0/8, 192.0.0.0/24,
+  198.18.0.0/15, 240.0.0.0/4 and fec0::/10, and judges NAT64, 6to4 and IPv4-compatible IPv6
+  addresses by the IPv4 address they carry.
 - `github.com/klauspost/compress` 1.18.7 (GO-2026-5841). `govulncheck` found the vulnerable
   code unreachable from Open Health Sync; the bump keeps it so.
 

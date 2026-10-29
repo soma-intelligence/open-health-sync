@@ -322,13 +322,17 @@ func parseTime(name, v string) (time.Time, error) {
 	if v == "" {
 		return time.Time{}, nil
 	}
-	if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-		return t.UTC(), nil
+	t, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil {
+		if t, err = time.Parse(time.DateOnly, v); err != nil {
+			return time.Time{}, toolError(name + " is not an RFC 3339 time or a YYYY-MM-DD date")
+		}
 	}
-	if t, err := time.Parse(time.DateOnly, v); err == nil {
-		return t.UTC(), nil
+	// Postgres has no year 0 as a date, so the REST API refuses it too.
+	if y := t.UTC().Year(); y < 1 || y > 9999 {
+		return time.Time{}, toolError(name + " is out of range: use a time in the years 0001 to 9999 (UTC)")
 	}
-	return time.Time{}, toolError(name + " is not an RFC 3339 time or a YYYY-MM-DD date")
+	return t.UTC(), nil
 }
 
 // readErr maps a read layer error; notFound names what was missing.

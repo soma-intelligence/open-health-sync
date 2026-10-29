@@ -300,7 +300,23 @@ func TestMapRejectsAndSkips(t *testing.T) {
 	require.ErrorContains(t, err, "without id")
 	_, err = c.Map(connector.RawRecord{DataType: DataTypeBloodPressure, Fields: map[string]any{"id": 1, "dateTime": "soon"}})
 	require.Error(t, err)
+	_, err = c.Map(connector.RawRecord{DataType: DataTypeBloodPressure, Fields: fieldsOf(t, bpRecord(1, "0001-01-01T00:00:00", 120, 80, 60))})
+	require.Error(t, err, "the zero time is no measurement instant")
 	res, err := c.Map(connector.RawRecord{DataType: "activity", Fields: map[string]any{"id": 1}})
+	require.NoError(t, err)
+	require.Empty(t, res.QuantitySamples)
+}
+
+func TestMapRefusesNonFiniteValues(t *testing.T) {
+	c := New(Options{})
+	res, err := c.Map(connector.RawRecord{UserID: testUser, DataType: DataTypeWeight, Fields: map[string]any{
+		"id": 2, "dateTime": "2026-03-02T08:00:00", "weight": "Infinity", "weightPref": "kg", "bmiValue": "inf", "bodyFatPercentage": "NaN",
+	}})
+	require.NoError(t, err)
+	require.Empty(t, res.QuantitySamples, "a value that is not a finite number is not a reading")
+
+	res, err = c.Map(connector.RawRecord{UserID: testUser, DataType: DataTypeBloodPressure,
+		Fields: fieldsOf(t, bpRecord(5, "2026-03-02T08:00:00", "+Inf", "Inf", "Inf"))})
 	require.NoError(t, err)
 	require.Empty(t, res.QuantitySamples)
 }
@@ -311,8 +327,25 @@ func TestUTCOffset(t *testing.T) {
 		require.True(t, ok, in)
 		require.Equal(t, want, got, in)
 	}
-	for _, in := range []string{``, `null`, `"+15:00"`, `"abc"`, `"61"`} {
+	for _, in := range []string{``, `null`, `"+15:00"`, `"abc"`, `"61"`, `"+-1:30"`, `"-+5:00"`, `"--5:00"`, `"+5:+0"`} {
 		_, ok := utcOffset(json.RawMessage(in))
 		require.False(t, ok, in)
 	}
+}
+
+// One measurement without a readable time cannot be placed on a day, and
+// failing the type for it would fail every retry too: it is skipped and the
+// rest of the page lands.
+func TestFetchSkipsUndatableMeasurements(t *testing.T) {
+	f := newFake(t)
+	f.bp = []map[string]any{
+		{"id": float64(1), "dateTime": "garbage"},
+		{"id": float64(2)},
+		bpRecord(3, "2026-03-02T07:00:00", 121, 81, 61),
+	}
+	c := f.connector()
+	from := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	var s sink
+	require.NoError(t, c.Fetch(context.Background(), connector.Connection{Tokens: connector.Tokens{Access: "acc-1"}}, from, from.AddDate(0, 0, 7), &s))
+	require.Len(t, s.lines, 1)
 }

@@ -5,6 +5,7 @@ package xiaomi
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -116,4 +117,42 @@ func TestMapEmptyMinuteRows(t *testing.T) {
 	require.Error(t, err)
 	_, err = New().Map(connector.RawRecord{UserID: testUser, Fields: parse(t, `{"table":"fitness_data","key":"steps","value":{"steps":2}}`)})
 	require.Error(t, err)
+}
+
+// TestMapNonFiniteFiguresAbsent: strconv reads "NaN" and "Inf" as numbers. A
+// NaN time passed the 2000 to 2100 check (NaN compares false) and became
+// 1970-01-01, an Inf figure passed pos() and became an Inf sample. Both are
+// absent figures.
+func TestMapNonFiniteFiguresAbsent(t *testing.T) {
+	res, err := New().Map(connector.RawRecord{UserID: testUser, Fields: parse(t,
+		`{"table":"fitness_data","key":"heart_rate","time":1772928240,"value":{"time":"NaN","bpm":60}}`)})
+	require.NoError(t, err)
+	require.Len(t, res.QuantitySamples, 1)
+	require.Equal(t, time.Unix(1772928240, 0).UTC(), res.QuantitySamples[0].StartDate, "the row's time, not 1970")
+
+	res, err = New().Map(connector.RawRecord{UserID: testUser, Fields: parse(t,
+		`{"table":"fitness_data","key":"steps","time":1772960400,"value":{"steps":"Inf","distance":"-Inf","timezone":"NaN"}}`)})
+	require.NoError(t, err)
+	require.Empty(t, res.QuantitySamples)
+
+	res, err = New().Map(connector.RawRecord{UserID: testUser, Fields: parse(t,
+		`{"table":"fitness_data","key":"spo2","time":1772935200,"value":{"spo2":97,"timezone":"NaN"}}`)})
+	require.NoError(t, err)
+	require.Len(t, res.QuantitySamples, 1)
+	require.NotContains(t, res.QuantitySamples[0].Metadata, "utc_offset_minutes", "a NaN timezone is no offset")
+}
+
+// TestMapSleepStageMinutesLongerThanTheNight: a stage figure is converted
+// to seconds as an int, and the total adds three of them. A figure of 1e20
+// minutes saturated the int and the sum wrapped around to a negative total.
+// A stage longer than its night is not a reading.
+func TestMapSleepStageMinutesLongerThanTheNight(t *testing.T) {
+	res := mapOne(t, parse(t, `{"table":"fitness_data","key":"sleep","value":{"bedtime":1772900000,"wake_up_time":1772928800,`+
+		`"sleep_deep_duration":60,"sleep_rem_duration":1e20,"sleep_light_duration":9000}}`))
+	require.Len(t, res.SleepSessions, 1)
+	s := res.SleepSessions[0]
+	require.Equal(t, 3600, *s.DeepSleepSeconds)
+	require.Equal(t, 0, *s.REMSleepSeconds, "a stage longer than the night is dropped")
+	require.Equal(t, 0, *s.LightSleepSeconds, "9000 minutes do not fit an 8 h night")
+	require.Equal(t, 3600, *s.TotalSleepSeconds)
 }

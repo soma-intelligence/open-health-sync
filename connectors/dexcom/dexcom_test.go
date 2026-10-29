@@ -322,3 +322,44 @@ func TestDisplayOffsetRounds(t *testing.T) {
 	_, ok = displayOffset("2026-01-21T07:00:00", "2026-01-23T07:00:00")
 	require.False(t, ok)
 }
+
+func TestMapEGVRefusesZeroSystemTime(t *testing.T) {
+	rec := egvRecord("rec-zero", "0001-01-01T00:00:00", "0001-01-01T00:00:00", 100)
+	_, err := New(Options{}).Map(connector.RawRecord{UserID: testUser, DataType: DataTypeEGV, Fields: fieldsOf(t, rec)})
+	require.Error(t, err)
+}
+
+func TestDisplayOffsetRefusesWrittenOffsetsOutOfRange(t *testing.T) {
+	for _, display := range []string{"2026-03-01T09:00:00+23:59", "2026-03-01T09:00:00-23:00", "2026-03-01T09:00:00+14:15", "2026-03-01T09:00:00-12:30"} {
+		_, ok := displayOffset("2026-03-01T08:00:00", display)
+		require.False(t, ok, display)
+	}
+	off, ok := displayOffset("2026-03-01T08:00:00", "2026-03-01T09:00:00+14:00")
+	require.True(t, ok)
+	require.Equal(t, 14*60, off)
+
+	rec := egvRecord("rec-far", "2026-03-01T08:00:00", "2026-03-01T09:00:00+23:59", 100)
+	res, err := New(Options{}).Map(connector.RawRecord{UserID: testUser, DataType: DataTypeEGV, Fields: fieldsOf(t, rec)})
+	require.NoError(t, err)
+	require.NotContains(t, res.QuantitySamples[0].Metadata, "utc_offset_minutes")
+}
+
+// One record without a readable time cannot be placed on a day, and failing
+// the whole window for it would fail every retry too: it is skipped and the
+// rest of the window lands.
+func TestFetchSkipsUndatableRecords(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"records":[null,{"systemTime":"garbage"},{"systemTime":""},` +
+			`{"recordId":"r1","systemTime":"2026-03-10T08:00:00","displayTime":"2026-03-10T09:00:00","value":110}]}`))
+	}))
+	defer srv.Close()
+	c := New(Options{APIBase: srv.URL, HTTPClient: srv.Client(), ChunkDelay: -1,
+		Now:   func() time.Time { return fakeNow },
+		Sleep: func(context.Context, time.Duration) error { return nil }})
+	var s sink
+	conn := connector.Connection{Tokens: connector.Tokens{Access: "acc-1"}}
+	require.NoError(t, c.Fetch(context.Background(), conn, fakeNow.Add(-24*time.Hour), fakeNow, &s))
+	day := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	require.Len(t, s.calls[day], 1)
+	require.Contains(t, string(s.calls[day][0]), `"r1"`)
+}

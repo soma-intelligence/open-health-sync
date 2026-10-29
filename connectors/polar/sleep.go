@@ -12,6 +12,9 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
+// maxStageSeconds is the longest a sleep stage of one night can last.
+const maxStageSeconds = 24 * 60 * 60
+
 // hypnogramStages maps the AccessLink hypnogram codes to the canonical
 // stages: 0 wake, 1 REM, 2 lighter non-REM (N1), 3 light non-REM (N2),
 // 4 deep non-REM (N3). 5 (unknown, for example poor skin contact) and any
@@ -98,13 +101,22 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		Replaceable:       true,
 	}
 	if s.DeepSleep != nil || s.REMSleep != nil || s.LightSleep != nil {
-		total := 0
+		total, ok := 0, true
 		for _, p := range []*int{s.DeepSleep, s.REMSleep, s.LightSleep} {
-			if p != nil {
-				total += *p
+			if p == nil {
+				continue
 			}
+			// A stage outside one night is not a stage: the sum would be
+			// a total validation cannot tell from a real one.
+			if *p < 0 || *p > maxStageSeconds {
+				ok = false
+				break
+			}
+			total += *p
 		}
-		session.TotalSleepSeconds = &total
+		if ok {
+			session.TotalSleepSeconds = &total
+		}
 	}
 	session.ContentHash = model.ComputeContentHash(map[string]string{
 		"user_id":   userID,
@@ -130,6 +142,7 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 
 	type mark struct {
 		at    time.Time
+		clock string
 		stage int
 	}
 	var marks []mark
@@ -138,9 +151,16 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("polar: sleep hypnogram: %w", err)
 		}
-		marks = append(marks, mark{at: at, stage: stage})
+		marks = append(marks, mark{at: at, clock: clock, stage: stage})
 	}
-	sort.Slice(marks, func(i, j int) bool { return marks[i].at.Before(marks[j].at) })
+	// Two spellings of one clock time ("1:00", "01:00") land on one instant:
+	// the clock breaks the tie, so the map's random order never decides.
+	sort.Slice(marks, func(i, j int) bool {
+		if !marks[i].at.Equal(marks[j].at) {
+			return marks[i].at.Before(marks[j].at)
+		}
+		return marks[i].clock < marks[j].clock
+	})
 	dropped := 0
 	sessionEnd := end.UTC()
 	for i, m := range marks {
@@ -168,8 +188,9 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 	noteDroppedSleepStates(dropped)
 
 	type reading struct {
-		at time.Time
-		v  float64
+		at    time.Time
+		clock string
+		v     float64
 	}
 	readings := make([]reading, 0, len(s.HeartRateSamples))
 	for clock, v := range s.HeartRateSamples {
@@ -180,11 +201,19 @@ func mapSleep(line []byte, userID string) (*model.MapResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("polar: sleep heart rate: %w", err)
 		}
-		readings = append(readings, reading{at: at, v: v})
+		readings = append(readings, reading{at: at, clock: clock, v: v})
 	}
-	sort.Slice(readings, func(i, j int) bool { return readings[i].at.Before(readings[j].at) })
-	for _, rd := range readings {
+	sort.Slice(readings, func(i, j int) bool {
+		if !readings[i].at.Equal(readings[j].at) {
+			return readings[i].at.Before(readings[j].at)
+		}
+		return readings[i].clock < readings[j].clock
+	})
+	for i, rd := range readings {
 		at, v := rd.at, rd.v
+		if i > 0 && at.Equal(readings[i-1].at) {
+			continue // one reading per instant: the first clock spelling
+		}
 		hmd := map[string]any{"context": "sleep"}
 		if zoned {
 			hmd = withOffset(hmd, offset)

@@ -186,5 +186,17 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 			return 0, err
 		}
 	}
+	// The figures of cat that records of other categories carry go too; the
+	// records stay, so they are not counted as deleted.
+	for _, f := range figures {
+		if f.category != cat {
+			continue
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET %s = NULL
+			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND %s IS NOT NULL`, f.table, f.column, f.column),
+			tenant, user, provider); err != nil {
+			return 0, fmt.Errorf("consent: purge %s figure %s.%s: %w", cat, f.table, f.column, err)
+		}
+	}
 	return total, nil
 }

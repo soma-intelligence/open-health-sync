@@ -255,3 +255,16 @@ func TestCyclesEmpty(t *testing.T) {
 	assert.NotNil(t, s.out)
 	assert.False(t, s.more)
 }
+
+// "Local" is the server's zone, not the user's: a flow day must not move with
+// the host TZ.
+func TestCycleZoneRefusesLocal(t *testing.T) {
+	local := time.Local
+	time.Local = time.FixedZone("server", -7*3600)
+	t.Cleanup(func() { time.Local = local })
+
+	s := newCycleScan(cycleWindow{})
+	if got := s.zone("Local"); got != time.UTC {
+		t.Fatalf("zone(Local) = %v, want UTC", got)
+	}
+}
