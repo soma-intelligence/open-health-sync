@@ -286,6 +286,8 @@ export interface AdminProvider {
   error: string | null;
   /** The addresses to register in the provider's developer portal. */
   urls: AdminProviderUrl;
+  /** How the server pulls this provider. Null for one it never pulls (an upload from an app). */
+  sync: AdminProviderSync | unknown;
   updated_at: string | null;
   /** The id of the API key that saved the last change. */
   updated_by: string | null;
@@ -297,6 +299,27 @@ export interface AdminProviderUrl {
   redirect: string | null;
   /** Where the provider posts notifications, for a push provider. */
   inbound: string | null;
+}
+
+/**
+ * The provider's sync policy, in seconds. See
+ * [background sync](https://github.com/soma-intelligence/open-health-sync/blob/main/docs/background-sync.md#sync-policy-per-provider).
+ */
+export interface AdminProviderSync {
+  /** The regular pull interval while the provider's notifications arrive. */
+  pull_every_seconds: number;
+  /** The interval when no notification arrives. */
+  pull_every_without_push_seconds: number;
+  /** How far before the previous window each regular pull reads again, for late or revised data. */
+  lookback_seconds: number;
+  /** How far back a regular pull reaches after an outage. */
+  max_catch_up_seconds: number;
+  /** How far back a new connection is pulled. */
+  backfill_seconds: number;
+  /** The window of one backfill job. */
+  backfill_chunk_seconds: number;
+  /** How far the first pull of each UTC day reaches, 0 when the daily reconciliation is off. */
+  reconcile_seconds: number;
 }
 
 export interface AdminProviderKey {
