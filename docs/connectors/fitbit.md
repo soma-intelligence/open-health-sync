@@ -31,8 +31,12 @@ legacy Fitbit tokens cannot be carried over (every user consents again).
   weeks ([app verification](https://developers.google.com/health/app-verification)).
 - **7 day refresh tokens in Testing.** While the consent screen's publishing status is
   *Testing*, Google expires refresh tokens after 7 days: each user's connection turns
-  `needs_reauth` weekly and they must connect again. Publishing the app avoids it; whether an
-  unverified app with restricted scopes can be published is **(to confirm)**.
+  `needs_reauth` weekly and they must connect again. Publishing the app avoids it. A project
+  reported in [#206](https://github.com/soma-intelligence/open-health-sync/issues/206) moved an
+  unverified app with the restricted scopes to *In production*: after a fresh consent the token
+  answer no longer carried `refresh_token_expires_in`, and its refresh token kept working past 7
+  days. Users then see Google's "hasn't verified this app" warning and continue under Advanced;
+  the 100 user limit still applies.
 - **Users link first.** A user must link their Google Account to Google Health in the Fitbit
   (Google Health) mobile app before consenting. If they have not, the connect fails with a clear
   message ("this Google Account is not linked to Google Health yet...") and the grant is revoked.
@@ -126,8 +130,12 @@ object of the data type, one data point per line. The filter per kind of data ty
 | Sleep | `sleep` | `sleep.interval.end_time` in the window |
 
 The filter field names of daily types are written in snake case (`daily_resting_heart_rate.date`)
-as on Google's data types page; the list reference shows one example in camel case
-(`dailyHeartRateVariability.date`). Which one the API accepts is **(to confirm)**.
+as on Google's data types page. The API accepts this form: a live project
+([#206](https://github.com/soma-intelligence/open-health-sync/issues/206)) gets the expected
+points for all six daily types above. The list reference also shows one camel case example
+(`dailyHeartRateVariability.date`). Civil time filters work too
+(`sleep.interval.civil_end_time`, `vo2_max.sample_time.civil_time`), and filtering `exercise` by
+its end time is refused, which is why the connector filters it by start time.
 
 The connector uses the default data source family (`all-sources`): points from every source the
 user has (tracker, phone, scale, other apps) are pulled, and the source is kept in metadata and
@@ -276,12 +284,13 @@ Notes on the mapping:
 
 ## To verify with a real project
 
-- The filter field spelling of daily types, and every scope assignment marked above.
+- Every scope assignment marked above.
 - The webhook signature format (base64 alphabet, DER) and whether a 200 answer stops retries.
 - The exact notification `dataType` spelling (kebab case per the docs; snake and camel case are
   accepted too) and batch shape.
 - Which data types support webhook subscriptions, and the credentials creating a subscriber needs.
-- History depth, and the Testing-mode and publishing limits above.
+- History depth, and whether a project created after Google stopped onboarding can still enable
+  the API (enabling it on an existing project worked in October 2026).
 
 ## Sources
 
