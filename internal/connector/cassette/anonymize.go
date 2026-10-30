@@ -300,6 +300,8 @@ func (a *anon) scalar(key string, v any) any {
 			return ""
 		case birthKeys[n]:
 			return "1980-01-01"
+		case identityKey(key) && isDay(x): // a day as id (intervals.icu wellness) moves like any date
+			return a.dates(x)
 		case identityKey(key):
 			return a.stand(x)
 		case zoneKeys[n] && strings.Contains(x, "/"):
@@ -655,6 +657,12 @@ var (
 	digitsIDRE = regexp.MustCompile(`^\d{5,}$`)
 	linkRE     = regexp.MustCompile(`<[^>]*>`)
 )
+
+// isDay reports whether s is a bare ISO date.
+func isDay(s string) bool {
+	_, err := time.Parse(time.DateOnly, s)
+	return err == nil
+}
 
 // isHexID reports whether s looks like a hex identifier: 16 or more
 // lower-case hex characters mixing digits and letters.

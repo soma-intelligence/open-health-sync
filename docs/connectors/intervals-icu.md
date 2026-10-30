@@ -11,7 +11,7 @@ data of all of those, and each workout says which upstream it came from.
 
 Status: available. OAuth apps are approved by the intervals.icu developer on request. Tests
 run against a fake of the intervals.icu API built from the public documentation and forum
-guides.
+guides, and CI replays a recording of a real account.
 
 ## Before you start: access and limits
 
