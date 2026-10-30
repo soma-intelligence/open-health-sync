@@ -1,4 +1,4 @@
 {
   "title": "How-to",
-  "pages": ["index", "apple-health-to-postgres", "apple-health-mcp", "oura-fhir", "whoop-export", "withings-export", "garmin-export", "..."]
+  "pages": ["index", "apple-health-to-postgres", "apple-health-mcp", "oura-fhir", "whoop-export", "withings-export", "garmin-export", "strava-export", "..."]
 }
