@@ -7,6 +7,14 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-29
+
+A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
+samples leave the server, a stress and fuzz pass fixed how `ohs` behaves under load, outages and
+bad input, and many figures are now validated. Migration `0043` applies on start. The compose file
+caps `ohs` at 1 GB, Garmin notifications need `OHS_GARMIN_INBOUND_TOKEN`, and an uploaded part may
+expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before you upgrade.
+
 ### Added
 
 - The console's provider page shows the provider's sync schedule: how often it is pulled, with and
@@ -1093,7 +1101,8 @@ First public release, an early preview. See the
   `ghcr.io/soma-intelligence/open-health-sync`, and static binaries for Linux and macOS on
   amd64 and arm64 with SHA-256 checksums.
 
-[Unreleased]: https://github.com/soma-intelligence/open-health-sync/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/soma-intelligence/open-health-sync/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/soma-intelligence/open-health-sync/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/soma-intelligence/open-health-sync/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/soma-intelligence/open-health-sync/compare/v0.0.1...v0.0.2
