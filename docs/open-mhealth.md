@@ -141,6 +141,13 @@ go test ./internal/omh              # validate
 go test ./internal/omh -update      # rewrite the golden files after a mapping change
 ```
 
+The golden data points come from the mapping alone. `make conformance` checks what the server
+really serves: a clean synthetic dataset of every connector goes through a whole server on a fresh
+database, and every data point `/omh/data-points` returns is checked the same way, with the run
+failing if any schema the mapping emits is missing from it. CI runs it on every pull request (the
+`conformance` job of `.github/workflows/ci.yml`), together with the HL7 validator on the FHIR the
+same server served ([fhir.md](fhir.md#validation)).
+
 ## Not in this version
 
 - Daily summaries: Open mHealth has no daily summary schema. Their steps and energy are in the

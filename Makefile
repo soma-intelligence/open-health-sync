@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test
+.PHONY: setup build image test test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate conformance release-check record sdk sdk-test
 
 setup:
 	git config core.hooksPath .githooks
@@ -96,6 +96,17 @@ guard:
 # (.github/workflows/fhir-validate.yml). See docs/fhir.md.
 fhir-validate:
 	scripts/fhir-validate.sh
+
+# What the server really serves, through the official validators: a clean
+# synthetic dataset of every connector through a whole server (Docker), every
+# Open mHealth data point against the official schemas, then the FHIR it
+# served through the HL7 validator (Java 17+ and the network). CI runs it on
+# every pull request (the conformance job of ci.yml). See docs/fhir.md.
+CONFORMANCE_OUT ?= $(CURDIR)/.conformance
+conformance:
+	rm -rf $(CONFORMANCE_OUT)
+	OHS_CONFORMANCE=1 OHS_FHIR_OUT=$(CONFORMANCE_OUT) go test -tags integration -count=1 -timeout 20m -run TestEveryOutputConforms ./test/synthflow/
+	scripts/fhir-validate.sh $(CONFORMANCE_OUT)
 
 # Checks to run before tagging a release, with the tag to come:
 #   make release-check RELEASE_TAG=v0.3.0
