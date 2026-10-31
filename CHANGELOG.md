@@ -7,6 +7,11 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- A how-to for importing Strava account archives, including compressed activity files, into
+  PostgreSQL, querying workouts and routes by recording source, and exporting CSV or Parquet.
+
 ## [0.3.0] - 2026-10-29
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit

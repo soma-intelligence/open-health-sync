@@ -454,6 +454,13 @@ sources["docs/how-to/garmin-export.md"] = [
       "Load a Garmin Connect account export (FIT files) into PostgreSQL: activities with distance, heart rate, GPS routes and power, queried in SQL or exported as CSV or Parquet. No Garmin API keys needed.",
   },
 ];
+sources["docs/how-to/strava-export.md"] = [
+  {
+    page: "(guides)/how-to/strava-export",
+    description:
+      "Import a Strava account archive (FIT, GPX and TCX, including gzip files) into PostgreSQL, query workouts and routes by their recording source, and export CSV or Parquet.",
+  },
+];
 for (const file of readdirSync(join(repo, "docs", "how-to")).sort()) {
   if (!file.endsWith(".md") || file === "README.md" || sources[`docs/how-to/${file}`]) continue;
   sources[`docs/how-to/${file}`] = [{ page: `(guides)/how-to/${file.replace(/\.md$/, "")}` }];
