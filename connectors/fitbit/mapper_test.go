@@ -280,6 +280,13 @@ func TestMapRelayedPlatformAttribution(t *testing.T) {
 	assert.Equal(t, Slug, own.SourceSlug)
 	assert.Equal(t, sourceName, own.SourceName)
 
+	// No dataSource: no source named, a stream apart from the tracker's.
+	bare := single(t, DataTypeSteps, []byte(`{
+		"steps":{"interval":{"startTime":"2026-03-09T07:00:00Z","startUtcOffset":"3600s","endTime":"2026-03-09T07:01:00Z","endUtcOffset":"3600s"},"count":"120"}}`))
+	assert.Equal(t, Slug, bare.SourceSlug)
+	assert.Empty(t, bare.SourceName)
+	assert.NotEqual(t, own.ContentHash, bare.ContentHash)
+
 	day := single(t, DataTypeDailyRestingHR, []byte(`{`+healthKitSource+`,
 		"dailyRestingHeartRate":{"date":{"year":2026,"month":10,"day":9},"beatsPerMinute":"55"}}`))
 	assert.Equal(t, "apple_health", day.SourceSlug)
