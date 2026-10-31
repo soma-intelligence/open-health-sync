@@ -19,6 +19,7 @@ var generatedDataTypes = map[string][]string{
 	"omron":          {"category", "sample", "blood_pressure_diastolic", "blood_pressure_systolic", "body_fat_percentage", "body_mass", "body_mass_index", "heart_rate", "visceral_fat_rating"},
 	"oura":           {"category", "sample", "sleep", "workout", "active_energy_burned", "body_temperature_deviation", "distance_walking_running", "heart_rate", "moderate_activity_time", "oxygen_saturation", "readiness_hrv_balance", "readiness_score", "recovery_high_time", "respiratory_rate", "resting_heart_rate", "sleep_score", "step_count", "stress_high_time", "vigorous_activity_time", "vo2_max"},
 	"polar":          {"sample", "sleep", "workout", "active_energy_burned", "body_mass", "distance_walking_running", "heart_rate", "height", "hrv_rmssd", "respiratory_rate", "resting_heart_rate", "step_count", "vo2_max"},
+	"smart_fhir":     {"observation", "sample", "blood_glucose", "blood_pressure_diastolic", "blood_pressure_systolic", "body_fat_percentage", "body_mass", "body_mass_index", "body_temperature", "heart_rate", "height", "oxygen_saturation", "respiratory_rate", "resting_heart_rate"},
 	"strava":         {"workout"},
 	"suunto":         {"workout"},
 	"ultrahuman":     {"sample", "sleep", "blood_glucose", "body_temperature_deviation", "heart_rate", "hrv_rmssd", "resting_heart_rate", "skin_temperature", "step_count", "step_count_intraday", "vo2_max"},
