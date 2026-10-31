@@ -90,6 +90,14 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 
 ### Fixed
 
+- `ohs mcp` (stdio) forwards the instance's prompts, not only its tools: a desktop agent
+  launched through it listed no prompts, and `prompts/get` answered `unknown prompt`.
+- A prompt called without a required argument (`taper_check` without `event_date`...) answers
+  the JSON-RPC invalid params error (-32602), not code 0.
+- `ohs seed --demo` prints calls to `OHS_PUBLIC_URL` when `OHS_URL` is unset, as it is inside
+  the compose container, instead of `http://localhost:8080` whatever the port.
+- `make backup-test` runs on macOS: it no longer relies on GNU `stat -c`, `sed -i` or
+  `sha256sum`.
 - A NaN or infinite value no longer passes validation. NaN failed no range check and +Inf passed
   every rule with no ceiling, so a connector that read `"NaN"` or `"Infinity"` stored it.
 - Connector fuzzing (new fuzz tests for Dexcom, Fitbit, Health Connect, intervals.icu, OMRON,
