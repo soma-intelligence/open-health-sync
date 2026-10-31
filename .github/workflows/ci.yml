@@ -66,6 +66,39 @@ jobs:
         with:
           version: v2.14.0
 
+  conformance:
+    # What the server really serves, through the official validators: the
+    # synthetic data of every connector through a whole server, every Open
+    # mHealth data point against the official schemas, then the FHIR it served
+    # through the HL7 validator. See docs/fhir.md#validation.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Every connector through the server, Open mHealth against the official schemas
+        env:
+          OHS_CONFORMANCE: "1"
+          OHS_FHIR_OUT: ${{ runner.temp }}/fhir-out
+        run: go test -tags integration -count=1 -timeout 20m -run TestEveryOutputConforms -v ./test/synthflow/
+      - name: HL7 validator on the FHIR the server served
+        env:
+          FHIR_VALIDATOR_DIR: ${{ runner.temp }}/fhir-validator
+        run: scripts/fhir-validate.sh "${{ runner.temp }}/fhir-out"
+      - name: Keep the served FHIR files
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conformance-fhir
+          path: ${{ runner.temp }}/fhir-out
+          if-no-files-found: ignore
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
