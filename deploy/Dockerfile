@@ -8,7 +8,7 @@
 # run scripts/image-without-buildx.sh instead.
 # The build stage always runs on the build machine and cross-compiles with Go,
 # so arm64 images need no emulation.
-FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     -o /out/ohs ./cmd/ohs
 RUN mkdir -p /out/raw
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
 LABEL io.modelcontextprotocol.server.name="io.github.soma-intelligence/open-health-sync" \
       org.opencontainers.image.source="https://github.com/soma-intelligence/open-health-sync" \
       org.opencontainers.image.description="Self-hosted health data aggregator: eighteen sources in one canonical model, REST API, read-only MCP server, FHIR R4 and Open mHealth." \

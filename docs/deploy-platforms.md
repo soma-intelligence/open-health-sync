@@ -196,7 +196,7 @@ TimescaleDB image. In the Railway dashboard:
 1. **New project, Deploy from GitHub repo**, and pick this repository or your fork. Rename the
    service `ohs`. Cancel the first deploy if it starts: it fails without a volume and variables.
 2. **Add the database.** In the project, **Create, Docker Image**, with
-   `timescale/timescaledb:latest-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2`
+   `timescale/timescaledb:latest-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538`
    (the digest of `deploy/docker-compose.yml`). Name it `ohs-db`, attach a volume on
    `/var/lib/postgresql/data`, and set its variables:
 
