@@ -7,6 +7,17 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- A blood glucose of 0 mg/dL and an HRV sample (SDNN or RMSSD) of 0 ms are refused: a meter
+  shows LO, never 0, and no live heart has no beat-to-beat variability. The HRV figure of a night
+  or a day is still only flagged at 0.
+- Body mass and each of its parts (lean, fat, muscle, bone, water) are refused above 650 kg, and
+  a BMI above 250: a body mass of 3000 kg, a unit slip, used to be stored with a flag.
+- Fitbit: a data point sent without its optional `dataSource` names no source and forms a stream
+  of its own, so a point re-sent without its source is counted once by the merged reads and the
+  daily totals instead of twice.
+
 ## [0.3.0] - 2026-10-29
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit

@@ -157,6 +157,8 @@ harness on every line once bug 7 was fixed, and found what the harness cannot se
   Withings, Dexcom, Omron), as the harness predicted.
 - Fitbit: a data point re-sent without its optional `dataSource` is stored a second time, as
   the hash keys on the source. Google Health API points mostly have no `name` to dedupe on.
+  Decided since: a point without a source is a stream of its own (no source name), so the
+  merged reads and the daily totals count the reading once; both copies stay in `view=all`.
 
 ## Bugs it found
 
@@ -186,8 +188,9 @@ Seen and left as they are, for a decision:
 - Timestamps at the Unix or FIT epoch (1970, 1989) were stored, as no rule bounded the past.
   Decided since: every record kind refuses a time before 1990-01-01 UTC.
 - A blood glucose of 0 mg/dL is stored (the hard band starts at 0, inclusive), as is an HRV of
-  0 ms.
+  0 ms. Decided since: both are refused (an exclusive zero) on quantity samples.
 - A body mass of 3000 kg is stored with a suspect flag only (the hard band has no ceiling).
+  Decided since: body mass and its parts are refused above 650 kg, BMI above 250.
 - About 25 HealthKit types are skipped as unknown by the Apple Health connector, among them
   `AppleWalkingSteadiness`, `SixMinuteWalkTestDistance`, `AppleSleepingBreathingDisturbances`,
   `HeartRateVariabilityRMSSD`, `TimeInDaylight`, `WorkoutEffortScore`,

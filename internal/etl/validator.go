@@ -320,15 +320,16 @@ func checkRange(s *model.QuantitySample, r rangeRule) *ValidationError {
 	return nil
 }
 
-// hardRangeMessage phrases a hard-band violation. Metrics with no physical
-// ceiling keep the "must be non-negative" / "must be positive" wording the
-// pre-table validator used, because the recovery tooling and the existing
-// failed_records rows carry it.
+// hardRangeMessage phrases a hard-band violation. A value at or under an
+// exclusive zero, and any value of a metric with no physical ceiling, keep the
+// "must be positive" / "must be non-negative" wording the pre-table validator
+// used, because the recovery tooling and the existing failed_records rows
+// carry it.
 func hardRangeMessage(qt string, r rangeRule, v float64) string {
+	if r.HardMinExclusive && r.HardMin == 0 && v <= 0 {
+		return fmt.Sprintf("%s must be positive: %g", qt, v)
+	}
 	if math.IsInf(r.HardMax, 1) {
-		if r.HardMinExclusive {
-			return fmt.Sprintf("%s must be positive: %g", qt, v)
-		}
 		return fmt.Sprintf("%s must be non-negative: %g", qt, v)
 	}
 	return fmt.Sprintf("%s out of range [%g,%g]%s: %g", qt, r.HardMin, r.HardMax, unitSuffix(r.Unit), v)
