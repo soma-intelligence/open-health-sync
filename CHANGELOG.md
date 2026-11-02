@@ -17,6 +17,11 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 
 ### Added
 
+- SMART on FHIR connector (`smart_fhir`, preview): a patient connects their health system's
+  patient portal (Epic MyChart and any certified US EHR) with a standalone SMART launch and PKCE,
+  and the server pulls their record from its FHIR R4 API. Every resource is kept raw; vital signs
+  become quantity samples and the other Observations (labs) generic observations of type
+  `ehr`. See [docs/connectors/smart-fhir.md](docs/connectors/smart-fhir.md).
 - The console's provider page shows the provider's sync schedule: how often it is pulled, with and
   without notifications, how far each pull reads again, the catch-up after an outage, the backfill
   of a new connection and the daily reconciliation. `GET /v1/admin/providers` and

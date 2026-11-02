@@ -121,6 +121,10 @@ var publicKeys = map[string]bool{
 	"ENVIRONMENT":       true,
 	"WEBHOOK_SIGNATURE": true,
 	"SUBSCRIPTION_ID":   true,
+	"FHIR_BASE_URL":     true,
+	"AUTHORIZE_URL":     true,
+	"TOKEN_URL":         true,
+	"SCOPES":            true,
 }
 
 // SecretKey reports whether the value of an operator key (a FIELD of

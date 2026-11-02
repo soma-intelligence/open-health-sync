@@ -84,6 +84,7 @@ So each connector declares how it is pulled (`connector.SyncPolicy`, see
 | OMRON | | 3 h | 72 h | 30 days | 14 days |
 | Oura | 6 h | 1 h | 24 h | 90 days | 7 days |
 | Polar | 6 h | 1 h | 24 h | 28 days | 7 days |
+| SMART on FHIR | | 24 h | 7 days | 365 days | none |
 | Strava | 12 h | 3 h | 24 h | 30 days | 7 days |
 | Suunto | 24 h | 24 h | 24 h | 28 days | none |
 | Ultrahuman | | 3 h | 48 h | 30 days | 7 days |
