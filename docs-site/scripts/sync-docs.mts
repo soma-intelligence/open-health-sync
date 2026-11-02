@@ -409,7 +409,7 @@ sources["docs/how-to/README.md"] = [
     page: "(guides)/how-to/index",
     title: "How-to guides",
     description:
-      "Step by step guides for one task each: Apple Health into PostgreSQL, Apple Health in Claude through MCP, Oura data as FHIR R4, WHOOP data as CSV or Parquet, Withings weight and blood pressure as CSV or SQL, Garmin activities in PostgreSQL.",
+      "Step by step guides for one task each: Apple Health into PostgreSQL or CSV, Apple Health in Claude through MCP, Oura data as FHIR R4, WHOOP data as CSV or Parquet, Withings weight and blood pressure as CSV or SQL, Garmin activities in PostgreSQL.",
   },
 ];
 sources["docs/how-to/apple-health-to-postgres.md"] = [
@@ -417,6 +417,13 @@ sources["docs/how-to/apple-health-to-postgres.md"] = [
     page: "(guides)/how-to/apple-health-to-postgres",
     description:
       "Load the Apple Health export (export.zip) into PostgreSQL as clean tables of samples, sleep, workouts and daily summaries, then query it with SQL.",
+  },
+];
+sources["docs/how-to/apple-health-to-csv.md"] = [
+  {
+    page: "(guides)/how-to/apple-health-to-csv",
+    description:
+      "Convert the Apple Health export (export.zip, export.xml) to CSV or Parquet: daily summaries, samples, sleep and workouts, with iPhone and Apple Watch duplicates merged. Runs on your own computer.",
   },
 ];
 sources["docs/how-to/apple-health-mcp.md"] = [
