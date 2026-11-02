@@ -200,7 +200,8 @@ writer, so running the command again adds nothing (content hash dedup).
                       (default the persona's own: 1 for mix)
 
 Prints the tenant id, the user id, the API key when one was created, and
-curl calls to try (OHS_URL, default http://localhost:8080). Needs
+curl calls to try (OHS_URL, else OHS_PUBLIC_URL, else
+http://localhost:8080). Needs
 OHS_DATABASE_URL. Details: docs/demo.md.
 `,
 }

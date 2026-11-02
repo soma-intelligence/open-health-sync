@@ -151,7 +151,12 @@ func formatCounts(c etl.Counts) string {
 // printSeedSummary prints the ids, the key when one was created, and calls to
 // try. The key is shown once: it is not stored in clear.
 func printSeedSummary(out io.Writer, tenantID, userID uuid.UUID, key string) error {
+	// OHS_PUBLIC_URL is what the container knows: inside compose OHS_URL is
+	// unset, and the port may not be 8080.
 	base := os.Getenv("OHS_URL")
+	if base == "" {
+		base = os.Getenv("OHS_PUBLIC_URL")
+	}
 	if base == "" {
 		base = "http://localhost:8080"
 	}

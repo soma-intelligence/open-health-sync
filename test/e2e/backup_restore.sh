@@ -73,7 +73,7 @@ api_reads() {
   echo "spo2 $(e2e_count "$1" "$2" '/samples?type=oxygen_saturation')"
   echo "sleep $(e2e_count "$1" "$2" /sleep)"
   echo "workouts $(e2e_count "$1" "$2" /workouts)"
-  echo "heart_rate_digest $(e2e_collect "$1" "$2" '/samples?type=heart_rate' 'tojson' | sort | sha256sum | cut -d' ' -f1)"
+  echo "heart_rate_digest $(e2e_collect "$1" "$2" '/samples?type=heart_rate' 'tojson' | sort | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)"
 }
 
 # same LABEL GOT WANT: GOT and WANT are identical, non-empty texts.
@@ -124,7 +124,9 @@ manifest=$(tar -xOf "$ARCHIVE" manifest.txt)
 check "manifest schema version" "$(sed -n 's/^migration_version=//p' <<<"$manifest")" "$SCHEMA_BEFORE"
 grep -q '^raw_included=yes$' <<<"$manifest" && ok "manifest: raw files included" || fail "manifest: $manifest"
 grep -q '^ohs_version=ohs ' <<<"$manifest" && ok "manifest: $(grep '^ohs_version=' <<<"$manifest")" || fail "manifest has no ohs version"
-[ "$(stat -c %a "$ARCHIVE")" = 600 ] && ok "archive mode 600" || fail "archive mode $(stat -c %a "$ARCHIVE")"
+# GNU stat takes -c, BSD stat (macOS) -f.
+mode=$(stat -c %a "$ARCHIVE" 2>/dev/null || stat -f %Lp "$ARCHIVE")
+[ "$mode" = 600 ] && ok "archive mode 600" || fail "archive mode $mode"
 scripts/restore.sh --verify "$ARCHIVE" 2>"$E2E_WORK/verify.log" && ok "restore.sh --verify accepts it" ||
   { cat "$E2E_WORK/verify.log"; fail "restore.sh --verify"; }
 ENC_KEY=$(sed -n 's/^OHS_ENCRYPTION_KEY=//p' "$OHS_E2E_ENV_FILE")
@@ -146,7 +148,9 @@ api GET "/v1/users/$USER_ID/coverage" "$KEY" || true
 step "5. restore refuses an archive newer than the image"
 mkdir -p "$E2E_WORK/newer"
 tar -C "$E2E_WORK/newer" -xf "$ARCHIVE"
-sed -i 's/^migration_version=.*/migration_version=99999/' "$E2E_WORK/newer/manifest.txt"
+# No sed -i: GNU and BSD sed disagree on its argument.
+sed 's/^migration_version=.*/migration_version=99999/' "$E2E_WORK/newer/manifest.txt" >"$E2E_WORK/newer/manifest.new"
+mv "$E2E_WORK/newer/manifest.new" "$E2E_WORK/newer/manifest.txt"
 tar -C "$E2E_WORK/newer" -cf "$E2E_WORK/newer.tar" manifest.txt database.dump raw.tar.gz
 if scripts/restore.sh --yes "$E2E_WORK/newer.tar" >"$E2E_WORK/newer.log" 2>&1; then
   fail "restore.sh accepted schema version 99999"
