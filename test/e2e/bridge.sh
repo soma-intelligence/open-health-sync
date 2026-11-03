@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # ohs-bridge end to end, on the real compose stack and without a radio: a
-# spool file as `ohs-bridge run` leaves it (a heart rate strap and a blood
-# pressure cuff, invented readings in the GATT layouts) is sealed and sent by
+# spool file as `ohs-bridge run` leaves it (a heart rate strap, a blood
+# pressure cuff and a Polar optical sensor's PP interval and ECG frames,
+# invented readings in the GATT and Polar layouts) is sealed and sent by
 # `ohs-bridge flush`; a folder holding a FIT activity and a FIT monitoring
 # file goes through `ohs-bridge files`. The server's decoded samples, RR
 # intervals and workout are read back, and a second run sends nothing.
@@ -45,12 +46,17 @@ mkdir -p "$OHS_BRIDGE_STATE/spool" "$E2E_WORK/watch/GARMIN/Activity"
 step "a spool left by the daemon is sealed and sent"
 strap='"device":{"name":"Polar H10","manufacturer":"Polar Electro Oy","model":"H10"}'
 cuff='"device":{"name":"BLEsmart","manufacturer":"OMRON HEALTHCARE Co., Ltd.","model":"HEM-7600T"}'
+optical='"device":{"name":"Polar Sense","manufacturer":"Polar Electro Oy","model":"Polar Sense"}'
 {
   # 72 bpm with RR 1000, 799.8 and 1000 ms; then 73 bpm.
   echo "{\"at\":\"2026-03-01T08:00:00.000+01:00\",\"char\":\"2a37\",\"value\":\"1048000433030004\",\"session\":\"e2e-strap-1\",$strap}"
   echo "{\"at\":\"2026-03-01T08:00:01.000+01:00\",\"char\":\"2a37\",\"value\":\"0049\",\"session\":\"e2e-strap-1\",$strap}"
   # 121/79 mmHg, mean 93, the cuff's clock 2026-03-01 07:30, pulse 64.
   echo "{\"at\":\"2026-03-01T08:01:00.000+01:00\",\"char\":\"2a35\",\"value\":\"0679004f005d00ea070301071e004000\",\"session\":\"e2e-cuff-1\",$cuff}"
+  # Polar PP intervals: 845 and 830 ms on the skin, 66 bpm; then an ECG frame
+  # (1000 and -1000 microvolts), stored and not mapped.
+  echo "{\"at\":\"2026-03-01T08:02:00.000+01:00\",\"char\":\"fb005c82-02e7-f387-1cad-8acd2d8df0c8\",\"value\":\"03010203040506070800414d030c0006423e030a0006\",\"ctx\":\"03\",\"session\":\"e2e-optical-1\",$optical}"
+  echo "{\"at\":\"2026-03-01T08:02:01.000+01:00\",\"char\":\"fb005c82-02e7-f387-1cad-8acd2d8df0c8\",\"value\":\"00010203040506070800e8030018fcff\",\"ctx\":\"000001820001010e00\",\"session\":\"e2e-strap-2\",$strap}"
 } >"$OHS_BRIDGE_STATE/spool/0000000000000001.ndjson"
 "$BRIDGE" flush >"$E2E_WORK/flush.log" 2>&1 || { cat "$E2E_WORK/flush.log"; die "ohs-bridge flush"; }
 grep -q "parts: 1 sent (0 already stored), 0 refused, 0 still queued" "$E2E_WORK/flush.log" &&
@@ -70,10 +76,10 @@ step "processed and read back"
 e2e_wait_processed "$KEY" "$USER_ID" 120 || die "processing"
 range="start=2026-03-01&end=2026-03-02&view=all"
 bt_hr=$(e2e_collect "$KEY" "$USER_ID" "/samples?type=heart_rate&$range" 'select(.provider == "bluetooth") | .value' | sort -n | tr '\n' ' ')
-[ "$bt_hr" = "64 72 73 " ] && ok "heart rate from the strap and the cuff: $bt_hr" || fail "bluetooth heart rate: got '$bt_hr'"
+[ "$bt_hr" = "64 66 72 73 " ] && ok "heart rate from the strap, the cuff and the PP intervals: $bt_hr" || fail "bluetooth heart rate: got '$bt_hr'"
 sys=$(e2e_collect "$KEY" "$USER_ID" "/samples?type=blood_pressure_systolic&$range" '"\(.value) \(.unit) \(.source) \(.start_date)"')
 [[ "$sys" == "121 mmHg omron 2026-03-01T06:30:00"* ]] && ok "systolic on the cuff's clock: $sys" || fail "systolic: got '$sys'"
-check "RR intervals" "$(e2e_collect "$KEY" "$USER_ID" "/rr-intervals?start=2026-03-01&end=2026-03-02" '.rr_ms' | wc -l | tr -d ' ')" 3
+check "RR intervals" "$(e2e_collect "$KEY" "$USER_ID" "/rr-intervals?start=2026-03-01&end=2026-03-02" '.rr_ms' | wc -l | tr -d ' ')" 5
 check "workouts" "$(e2e_count "$KEY" "$USER_ID" /workouts)" 1
 
 e2e_summary

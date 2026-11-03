@@ -55,7 +55,8 @@ activities. No code is taken from it.
 - Uploading to a vendor cloud (Garmin Connect, Polar Flow). Data goes to the person's own
   server only.
 - Vendor-specific Bluetooth protocols (Withings, Oura, WHOOP, Xiaomi bands). Their cloud or
-  phone store paths stay.
+  phone store paths stay. Polar's measurement streams came later, with the vendor driver
+  model of [vendor-bluetooth.md](vendor-bluetooth.md), which also maps the other vendors.
 - Continuous glucose monitors (the CGM Service needs session handling and, for most
   sensors, vendor encryption), fitness machines (FTMS), cycling power and running speed.
   Listed in the plan as next steps.

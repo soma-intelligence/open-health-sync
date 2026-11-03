@@ -2827,7 +2827,12 @@ export class OpenHealthSync {
    * (`device` and `device_user` optional; the line format is in docs/connectors/bluetooth.md;
    * `ohs-bridge` and the Swift and Kotlin SDKs write it). The server decodes heart rate with
    * RR intervals, blood pressure, weight, body composition, glucose, temperature and pulse
-   * oximetry; other characteristics are stored and not mapped. The part is refused with
+   * oximetry, and the PP intervals of Polar's measurement service (a vendor characteristic,
+   * sent with its full 128-bit UUID and an optional `ctx` hex field: the settings its stream
+   * was started with); other characteristics are stored and not mapped. A client that
+   * decodes a vendor protocol itself sends `sample` (`type`, `value`, `unit`, `start`,
+   * optional `end`) instead of `value`; the type must be declared and the unit convert to
+   * its storage unit. The part is refused with
    * 400, and nothing is stored, when a line breaks the format; a value that does not decode
    * is a failed record of its line only. Same headers, limits and answers as the Apple
    * Health upload.

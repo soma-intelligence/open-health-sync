@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 //! The upload line: one characteristic value as the device sent it, with the
-//! time it arrived. The format is the upload contract of
-//! `POST /v1/ingest/bluetooth` (docs/connectors/bluetooth.md).
+//! time it arrived, or one value a vendor driver decoded. The format is the
+//! upload contract of `POST /v1/ingest/bluetooth`
+//! (docs/connectors/bluetooth.md).
 
 use chrono::{DateTime, FixedOffset, SecondsFormat};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::codec;
 
 /// The longest value a line may carry, the ATT maximum attribute length.
 pub const MAX_VALUE_BYTES: usize = 512;
+
+/// The longest context a line may carry: the bytes a vendor protocol adds so
+/// the server can read a value on its own (a Polar stream's settings).
+pub const MAX_CTX_BYTES: usize = 64;
 
 /// The longest device string, in characters.
 const MAX_TEXT: usize = 128;
@@ -55,6 +61,8 @@ struct Line<'a> {
     at: String,
     char: String,
     value: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    ctx: String,
     session: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     device: Option<&'a Device>,
@@ -72,16 +80,115 @@ pub fn encode(
     device: &Device,
     device_user: Option<u8>,
 ) -> Option<String> {
+    encode_line(
+        at,
+        format!("{char:04x}"),
+        value,
+        &[],
+        session,
+        device,
+        device_user,
+    )
+}
+
+/// The line of a value on a vendor characteristic: its full UUID, and the
+/// context bytes its driver gave. None when the value or the context is
+/// longer than the server takes.
+pub fn encode_vendor(
+    at: &DateTime<FixedOffset>,
+    char: &Uuid,
+    value: &[u8],
+    ctx: &[u8],
+    session: &str,
+    device: &Device,
+) -> Option<String> {
+    if ctx.len() > MAX_CTX_BYTES {
+        return None;
+    }
+    encode_line(at, char.to_string(), value, ctx, session, device, None)
+}
+
+fn encode_line(
+    at: &DateTime<FixedOffset>,
+    char: String,
+    value: &[u8],
+    ctx: &[u8],
+    session: &str,
+    device: &Device,
+    device_user: Option<u8>,
+) -> Option<String> {
     if value.is_empty() || value.len() > MAX_VALUE_BYTES {
         return None;
     }
     let l = Line {
         at: at.to_rfc3339_opts(SecondsFormat::Millis, false),
-        char: format!("{char:04x}"),
+        char,
         value: codec::hex(value),
+        ctx: codec::hex(ctx),
         session,
         device: (!device.is_empty()).then_some(device),
         device_user,
+    };
+    let mut s = serde_json::to_string(&l).ok()?;
+    s.push('\n');
+    Some(s)
+}
+
+#[derive(Serialize)]
+struct SampleLine<'a> {
+    at: String,
+    char: String,
+    session: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device: Option<&'a Device>,
+    sample: SampleField,
+}
+
+#[derive(Serialize)]
+struct SampleField {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    value: f64,
+    unit: &'static str,
+    start: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end: Option<String>,
+}
+
+/// The line of a value a vendor driver decoded: `char` is the characteristic
+/// it came from. None for a value that is not a finite number, or a time
+/// before 1970 or that chrono cannot hold.
+pub fn encode_sample(
+    at: &DateTime<FixedOffset>,
+    char: &Uuid,
+    sample: &ohs_driver::Sample,
+    session: &str,
+    device: &Device,
+) -> Option<String> {
+    if !sample.value.is_finite() {
+        return None;
+    }
+    let time = |t: std::time::SystemTime| -> Option<String> {
+        let d = t.duration_since(std::time::UNIX_EPOCH).ok()?;
+        let t = DateTime::from_timestamp(i64::try_from(d.as_secs()).ok()?, d.subsec_nanos())?;
+        Some(t.to_rfc3339_opts(SecondsFormat::Millis, true))
+    };
+    let end = match sample.end {
+        Some(e) => Some(time(e)?),
+        None => None,
+    };
+    let l = SampleLine {
+        at: at.to_rfc3339_opts(SecondsFormat::Millis, false),
+        char: char.to_string(),
+        session,
+        device: (!device.is_empty()).then_some(device),
+        sample: SampleField {
+            kind: sample.kind,
+            value: sample.value,
+            unit: sample.unit,
+            start: time(sample.start)?,
+            end,
+        },
     };
     let mut s = serde_json::to_string(&l).ok()?;
     s.push('\n');
@@ -209,6 +316,61 @@ mod tests {
             None
         )
         .is_some());
+    }
+
+    #[test]
+    fn vendor_values_carry_their_uuid_and_context() {
+        let pmd: Uuid = "fb005c82-02e7-f387-1cad-8acd2d8df0c8".parse().unwrap();
+        let l = encode_vendor(
+            &at(),
+            &pmd,
+            &[0x00, 0x01],
+            &[0x00, 0x00, 0x01, 0x82, 0x00],
+            "abcdefgh",
+            &Device::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            l,
+            "{\"at\":\"2026-10-16T21:04:05.120+02:00\",\"char\":\"fb005c82-02e7-f387-1cad-8acd2d8df0c8\",\"value\":\"0001\",\"ctx\":\"0000018200\",\"session\":\"abcdefgh\"}\n"
+        );
+        let plain = encode_vendor(&at(), &pmd, &[0x01], &[], "abcdefgh", &Device::default());
+        assert!(!plain.unwrap().contains("ctx"));
+        assert!(
+            encode_vendor(&at(), &pmd, &[1], &[0; 65], "abcdefgh", &Device::default()).is_none()
+        );
+        assert!(encode_vendor(&at(), &pmd, &[], &[], "abcdefgh", &Device::default()).is_none());
+    }
+
+    #[test]
+    fn decoded_samples() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let ch: Uuid = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6".parse().unwrap();
+        let start = UNIX_EPOCH + Duration::from_millis(1_792_177_445_120);
+        let hr = ohs_driver::Sample::at("heart_rate", 62.0, "bpm", start);
+        let dev = Device {
+            name: "Band".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            encode_sample(&at(), &ch, &hr, "abcdefgh", &dev).unwrap(),
+            "{\"at\":\"2026-10-16T21:04:05.120+02:00\",\"char\":\"61080005-8d6d-82b8-614a-1c8cb0f8dcc6\",\"session\":\"abcdefgh\",\"device\":{\"name\":\"Band\"},\"sample\":{\"type\":\"heart_rate\",\"value\":62.0,\"unit\":\"bpm\",\"start\":\"2026-10-16T19:04:05.120Z\"}}\n"
+        );
+        let steps = ohs_driver::Sample {
+            end: Some(start + Duration::from_secs(60)),
+            ..ohs_driver::Sample::at("step_count_intraday", 84.0, "count", start)
+        };
+        let l = encode_sample(&at(), &ch, &steps, "abcdefgh", &Device::default()).unwrap();
+        assert!(l.contains("\"end\":\"2026-10-16T19:05:05.120Z\""), "{l}");
+        let nan = ohs_driver::Sample::at("heart_rate", f64::NAN, "bpm", start);
+        assert!(encode_sample(&at(), &ch, &nan, "abcdefgh", &dev).is_none());
+        let before = ohs_driver::Sample::at(
+            "heart_rate",
+            60.0,
+            "bpm",
+            UNIX_EPOCH - Duration::from_secs(1),
+        );
+        assert!(encode_sample(&at(), &ch, &before, "abcdefgh", &dev).is_none());
     }
 
     #[test]

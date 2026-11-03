@@ -37,8 +37,11 @@ type reading struct {
 type measurement struct {
 	readings []reading
 	// rr are the RR intervals in milliseconds, oldest first, rounded to the
-	// microsecond (Heart Rate Measurement only).
+	// microsecond (Heart Rate Measurement, Polar PP intervals).
 	rr []float64
+	// rrValid says which intervals to store, when not all: one the device
+	// flags as not valid still places the beats before it in time.
+	rrValid []bool
 	// clock is the device's time stamp, when the value has one; offset
 	// minutes are added to it (the glucose time offset field).
 	clock  *wallClock
@@ -71,6 +74,7 @@ var decoders = map[string]func(*reader) (*measurement, error){
 	CharTemperature:     decodeTemperature,
 	CharPLXSpotCheck:    decodePLXSpotCheck,
 	CharPLXContinuous:   decodePLXContinuous,
+	CharPolarPMDData:    decodePolarPMD,
 }
 
 // decodeHeartRate: flags (bit 0 value is uint16, bits 1-2 sensor contact,

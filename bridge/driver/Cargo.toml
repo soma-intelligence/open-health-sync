@@ -1,0 +1,12 @@
+[package]
+name = "ohs-driver"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "AGPL-3.0-only"
+description = "The interface between ohs-bridge and a vendor Bluetooth protocol: a state machine without I/O"
+repository = "https://github.com/soma-intelligence/open-health-sync"
+publish = false
+
+[dependencies]
+uuid = "1"
