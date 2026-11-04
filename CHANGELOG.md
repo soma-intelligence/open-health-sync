@@ -7,6 +7,12 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Changed
+
+- Migration `0044` indexes `ohs_data.record_aliases` on `(tenant_id, user_id, start_time)`.
+  Retention prunes aliases by start time and, without it, read every alias of each user on every
+  run (about one per stored HealthKit sample).
+
 ### Fixed
 
 - The ETL no longer collects the days an upload touches twice per batch: the second pass, which
