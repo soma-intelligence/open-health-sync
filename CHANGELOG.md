@@ -7,6 +7,13 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- The ETL no longer collects the days an upload touches twice per batch: the second pass, which
+  only matters when the batch deleted samples, now runs only then. The time zone a sample names is
+  loaded once per process instead of once per sample, which read and parsed tzdata again for every
+  Apple Health, Polar and Dexcom sample.
+
 ## [0.3.0] - 2026-10-29
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit

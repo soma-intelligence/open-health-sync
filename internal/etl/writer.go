@@ -253,9 +253,12 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	}
 	// The days whose additive samples a deletion removed are summed again.
 	// The days the batch's own samples touch are left to the caller, which
-	// derives them after this write.
-	for k := range touchedDays(sc, acc) {
-		delete(staleDays, k)
+	// derives them after this write. Most batches delete nothing, so the
+	// batch's days are only collected when there is something to subtract.
+	if len(staleDays) > 0 {
+		for k := range touchedDays(sc, acc) {
+			delete(staleDays, k)
+		}
 	}
 	if len(staleDays) > 0 {
 		n, k, err := deriveDailySummaries(ctx, tx, sc, staleDays)

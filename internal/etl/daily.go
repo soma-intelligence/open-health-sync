@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
@@ -55,11 +56,21 @@ func isAdditive(qt string) bool {
 	return false
 }
 
+// zoneCache holds the zones sampleLocation has loaded, by name. LoadLocation
+// reads and parses tzdata on every call and nearly every sample of a batch
+// names the same zone. Only zones that load are kept, so the cache is bounded
+// by the tz database, whatever names the metadata carries.
+var zoneCache sync.Map // string -> *time.Location
+
 // sampleLocation returns the time zone named in metadata, or UTC. "Local" (the
 // server's own zone) names no zone of the user's and reads as UTC too.
 func sampleLocation(md map[string]any) *time.Location {
 	if name, ok := md[MetadataTimezone].(string); ok && name != "" && name != "Local" {
+		if loc, ok := zoneCache.Load(name); ok {
+			return loc.(*time.Location)
+		}
 		if loc, err := time.LoadLocation(name); err == nil {
+			zoneCache.Store(name, loc)
 			return loc
 		}
 	}

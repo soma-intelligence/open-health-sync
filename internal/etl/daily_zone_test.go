@@ -21,3 +21,17 @@ func TestSampleLocationRefusesLocal(t *testing.T) {
 	assert.Equal(t, time.UTC, sampleLocation(map[string]any{MetadataTimezone: "Local"}))
 	assert.Equal(t, time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), localDate(at, map[string]any{MetadataTimezone: "Local"}))
 }
+
+// A zone is loaded once and served from the cache after; a name that does not
+// load reads as UTC and is not kept.
+func TestSampleLocationCachesZones(t *testing.T) {
+	md := map[string]any{MetadataTimezone: "Europe/Paris"}
+	first := sampleLocation(md)
+	assert.Equal(t, "Europe/Paris", first.String())
+	assert.Same(t, first, sampleLocation(md))
+
+	bad := map[string]any{MetadataTimezone: "Not/AZone"}
+	assert.Equal(t, time.UTC, sampleLocation(bad))
+	_, kept := zoneCache.Load("Not/AZone")
+	assert.False(t, kept)
+}
