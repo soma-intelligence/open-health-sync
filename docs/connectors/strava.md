@@ -55,7 +55,7 @@ ok    connector strava
 
 `CLIENT_ID` and `CLIENT_SECRET` are required: with only one set, `ohs doctor` fails and the
 connector stays off. `VERIFY_TOKEN` and `SUBSCRIPTION_ID` are optional; without
-`VERIFY_TOKEN` webhook events are refused and data still arrives every 3 hours, and without
+`VERIFY_TOKEN` webhook events are refused and data still arrives every 12 hours, and without
 `SUBSCRIPTION_ID` activity deletes are not applied.
 `GET /v1/providers` lists `strava` when it is on.
 
@@ -84,7 +84,9 @@ curl -s -X POST $OHS/v1/users/$USER_ID/connections/strava \
 
 Send the user to the returned `authorize_url`. After consent they land on your `redirect_uri`
 with `status=connected`. A new connection is backfilled over the last 30 days, then pulled
-every 12 hours while webhook events arrive and every 3 hours without them (Strava's read limits are low). Access tokens last 6 hours and are refreshed before they expire; Strava may
+every 12 hours, with or without webhook events: a pull reads one page of activities, so the
+default 1,000 reads a day cover about 400 connections. Webhook events bring new activities
+sooner. Access tokens last 6 hours and are refreshed before they expire; Strava may
 rotate the refresh token, and the new one is stored.
 
 Disconnecting the provider revokes the grant at Strava (`POST /oauth/revoke`), best effort.
