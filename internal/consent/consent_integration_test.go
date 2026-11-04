@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -258,4 +259,59 @@ func TestPurgeFigures(t *testing.T) {
 	}
 	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.sleep_sessions
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'oura'`, ten, user), "sleep revoked: the session goes")
+}
+
+// TestPurgeAliases: the record aliases of purged rows go with them. An alias
+// keeps the row's content hash and start, enough to brute-force the value.
+// The aliases of rows that stay, and of another source, stay.
+func TestPurgeAliases(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+	ten, user := uuid.New(), uuid.New()
+	at := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		_, err := pool.Exec(ctx, sql, args...)
+		require.NoError(t, err)
+	}
+	for _, provider := range []string{"apple_health", "withings"} {
+		h := func(s string) string { return fmt.Sprintf("%s-%s", provider, s) }
+		exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+			VALUES ($1, $2, $3, 'heart_rate', 61, $4, $5)`, ten, user, provider, at, h("hr"))
+		exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+			VALUES ($1, $2, $3, 'step_count', 100, $4, $5)`, ten, user, provider, at, h("steps"))
+		exec(`INSERT INTO ohs_data.nutrition_logs (tenant_id, user_id, provider, start_date, content_hash)
+			VALUES ($1, $2, $3, $4, $5)`, ten, user, provider, at, h("meal"))
+		for _, a := range []struct{ id, table, hash string }{
+			{"UUID-HR", "quantity_samples", h("hr")},
+			{"UUID-HR-COPY", "quantity_samples", h("hr")},
+			{"UUID-STEPS", "quantity_samples", h("steps")},
+			{"UUID-MEAL", "nutrition_logs", h("meal")},
+		} {
+			exec(`INSERT INTO ohs_data.record_aliases (tenant_id, user_id, provider, external_id, record_table, content_hash, start_time)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`, ten, user, provider, a.id, a.table, a.hash, at)
+		}
+	}
+	set(t, pool, ten, user, "apple_health", consent.Activity)
+	purger := consent.NewPurger(pool)
+	for {
+		did, err := purger.Once(ctx)
+		require.NoError(t, err)
+		if !did {
+			break
+		}
+	}
+	aliases := func(provider string) []string {
+		rows, err := pool.Query(ctx, `SELECT external_id FROM ohs_data.record_aliases
+			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 ORDER BY external_id`, ten, user, provider)
+		require.NoError(t, err)
+		ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		require.NoError(t, err)
+		return ids
+	}
+	assert.Equal(t, []string{"UUID-STEPS"}, aliases("apple_health"), "heart and nutrition revoked: their aliases go")
+	assert.Equal(t, []string{"UUID-HR", "UUID-HR-COPY", "UUID-MEAL", "UUID-STEPS"}, aliases("withings"),
+		"another source is untouched")
 }

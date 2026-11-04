@@ -5,8 +5,9 @@
 -- that saves a new copy before deleting the old one): each sample UUID that mapped to the
 -- row, stored or de-duplicated, keeps one alias here. A deletion of a UUID removes its
 -- alias, and the row only when no alias of it remains. start_time bounds the delete on
--- the hypertable. Ids only, no health values; erased with the user and the provider like
--- every table with user_id and provider columns.
+-- the hypertable. No health values in clear, but the content hash and start of the row:
+-- erased with the user and the provider like every table with user_id and provider
+-- columns, and with the rows they name by a consent purge.
 CREATE TABLE ohs_data.record_aliases (
     tenant_id    uuid        NOT NULL,
     user_id      uuid        NOT NULL,

@@ -24,6 +24,9 @@ release may change the API, the configuration or the database schema.
   of an app's samples rolled back the whole job, new samples included, and was parked after its
   retries. The ETL now lifts the limit for the job's transaction when the batch has deletions, as
   user deletion, retention and the consent purge already did.
+- A consent purge now deletes the record aliases (`ohs_data.record_aliases`) of the HealthKit
+  samples, workouts and nutrition logs it removes. They were left behind, and an alias keeps the
+  row's unkeyed content hash and start time, from which the purged value could be worked out.
 
 ## [0.3.0] - 2026-10-29
 

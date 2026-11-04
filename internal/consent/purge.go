@@ -100,11 +100,23 @@ func (p *Purger) Once(ctx context.Context) (bool, error) {
 }
 
 // typedTables hold a type name per row: the rows of the category are those
-// whose type Of files under it.
-var typedTables = []struct{ table, col string }{
-	{"ohs_data.quantity_samples", "quantity_type"},
-	{"ohs_data.category_samples", "category_type"},
-	{"ohs_data.observations", "canonical_code"},
+// whose type Of files under it. aliased names the table as record aliases
+// name it, when its rows can have aliases.
+var typedTables = []struct{ table, col, aliased string }{
+	{"ohs_data.quantity_samples", "quantity_type", "quantity_samples"},
+	{"ohs_data.category_samples", "category_type", "category_samples"},
+	{"ohs_data.observations", "canonical_code", ""},
+}
+
+// aliasesOf is the delete of the record aliases (migration 0043) of the rows
+// of table that cond, a condition on r, picks. It runs before those rows go:
+// an alias keeps the row's content hash and start, which with the user and
+// provider can be enough to work out the value it stood for.
+func aliasesOf(table, cond string) string {
+	return `DELETE FROM ohs_data.record_aliases a USING ohs_data.` + table + ` r
+		WHERE a.tenant_id = $1 AND a.user_id = $2 AND a.provider = $3 AND a.record_table = '` + table + `'
+		  AND r.tenant_id = $1 AND r.user_id = $2 AND r.provider = $3
+		  AND r.content_hash = a.content_hash AND r.start_date = a.start_time` + cond
 }
 
 // purge deletes the user's records of category cat that came from provider,
@@ -121,6 +133,13 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 			return fmt.Errorf("consent: purge %s: %w", cat, err)
 		}
 		total += tag.RowsAffected()
+		return nil
+	}
+	// Aliases are ids of records, not records: they are not counted.
+	dropAliases := func(sql string, args ...any) error {
+		if _, err := tx.Exec(ctx, sql, append([]any{tenant, user, provider}, args...)...); err != nil {
+			return fmt.Errorf("consent: purge %s aliases: %w", cat, err)
+		}
 		return nil
 	}
 	for _, t := range typedTables {
@@ -142,6 +161,11 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 		if len(match) == 0 {
 			continue
 		}
+		if t.aliased != "" {
+			if err := dropAliases(aliasesOf(t.aliased, ` AND r.`+t.col+` = ANY($4)`), match); err != nil {
+				return 0, err
+			}
+		}
 		if err := exec(fmt.Sprintf(`DELETE FROM %s
 			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND %s = ANY($4)`, t.table, t.col), match); err != nil {
 			return 0, err
@@ -150,7 +174,7 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 
 	const ofWorkouts = `workout_id IN (SELECT id FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3)`
-	var stmts []string
+	var aliased, stmts []string
 	switch cat {
 	case Sleep:
 		stmts = []string{
@@ -159,6 +183,7 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 			`DELETE FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 		}
 	case Activity:
+		aliased = []string{aliasesOf("workouts", "")}
 		stmts = []string{
 			`DELETE FROM ohs_data.route_points WHERE tenant_id = $1 AND user_id = $2 AND ` + ofWorkouts,
 			`DELETE FROM ohs_data.workout_tracks WHERE tenant_id = $1 AND user_id = $2 AND ` + ofWorkouts,
@@ -179,7 +204,13 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 	case Heart:
 		stmts = []string{`DELETE FROM ohs_data.heartbeat_samples WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`}
 	case Nutrition:
+		aliased = []string{aliasesOf("nutrition_logs", "")}
 		stmts = []string{`DELETE FROM ohs_data.nutrition_logs WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`}
+	}
+	for _, q := range aliased {
+		if err := dropAliases(q); err != nil {
+			return 0, err
+		}
 	}
 	for _, q := range stmts {
 		if err := exec(q); err != nil {
