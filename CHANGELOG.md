@@ -13,6 +13,11 @@ release may change the API, the configuration or the database schema.
   only matters when the batch deleted samples, now runs only then. The time zone a sample names is
   loaded once per process instead of once per sample, which read and parsed tzdata again for every
   Apple Health, Polar and Dexcom sample.
+- An upload whose deletions reach old, compressed `quantity_samples` chunks no longer fails past
+  TimescaleDB's default limit of 100,000 decompressed tuples. A HealthKit round that removed months
+  of an app's samples rolled back the whole job, new samples included, and was parked after its
+  retries. The ETL now lifts the limit for the job's transaction when the batch has deletions, as
+  user deletion, retention and the consent purge already did.
 
 ## [0.3.0] - 2026-10-29
 

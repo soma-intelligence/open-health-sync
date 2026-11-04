@@ -173,6 +173,13 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	}
 	var staleDays map[dayKey]*time.Location
 	if len(acc.Deletions) > 0 {
+		// A deletion may reach rows in compressed chunks: one of HealthKit's
+		// can span months of a user's segment. Lift the decompression cap for
+		// this transaction, as the other deletion paths do, or the DELETE fails
+		// past the default limit and takes the whole upload with it.
+		if _, err := tx.Exec(ctx, `SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0`); err != nil {
+			return nil, fmt.Errorf("apply deletions: %w", err)
+		}
 		apply := applyDeletions
 		if acc.AliasExternalIDs {
 			apply = applyAliasDeletions
