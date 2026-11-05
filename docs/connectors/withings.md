@@ -124,3 +124,20 @@ Withings measure codes the connector does not know are skipped with a warning in
 Rate limits (HTTP 429) defer the connection's job until `Retry-After`.
 If Withings refuses the refresh token the connection becomes `needs_reauth` and the user must
 connect again.
+
+## Provenance
+
+Every sample from this connector has `withings` as provider and source slug, and `Withings` as
+source name. Sleep sessions and workouts name only the provider.
+
+The device of a sample (`DeviceID`) is the `deviceid` Withings sends with the data: measures,
+daily activity, intraday activity and the AFib classification of an ECG carry it. It is an
+opaque id that Withings assigns, not a model name. The tests use invented ones such as
+`fake-scale-0001` and `fake-watch-0001`. An ECG recording keeps the same id in its metadata
+(`device_id`), next to the Withings `model` number.
+
+Sleep sessions have no device. Withings sends a `deviceid` with each workout as well, but the
+connector does not store it yet, so workouts have no device either.
+
+In FHIR output, the [Provenance](../fhir.md#provenance) of each Observation names its device,
+when it has one, and the provider.
