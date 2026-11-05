@@ -12,8 +12,7 @@ is in the [SDK overview](README.md). This page covers what is specific to TypeSc
 
 ## Install
 
-Nothing is published yet, and the package is marked `private` so it cannot be published by
-accident. Build it from this repository and install it from the folder:
+Nothing is published yet. Build it from this repository and install it from the folder:
 
 ```sh
 git clone https://github.com/soma-intelligence/open-health-sync.git

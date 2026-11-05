@@ -29,8 +29,16 @@ targets: [
 ]
 ```
 
-In Xcode, *File > Add Package Dependencies > Add Local* and pick `sdks/swift`. The package name and
-the way to depend on it may change with the first release.
+In Xcode, *File > Add Package Dependencies > Add Local* and pick `sdks/swift`.
+
+The repository root has a `Package.swift` for the same targets, so you can also depend on the
+repository URL, in Xcode or in a manifest. Use `branch: "main"` until a release tag includes that
+file, then `from:` that release:
+
+```swift
+.package(url: "https://github.com/soma-intelligence/open-health-sync.git", branch: "main"),
+// then .product(name: "OpenHealthSync", package: "open-health-sync")
+```
 
 ## Create a client
 

@@ -1,8 +1,9 @@
 # Open Health Sync server SDK for TypeScript
 
-A client of the Open Health Sync API for your backend, on Node.js 18 or later. It uses the
+A client of the API of Open Health Sync, the open source health data aggregator, for your
+backend, on Node.js 18 or later. It uses the
 global `fetch` and has no runtime dependency. Licensed AGPL-3.0-only, like the rest of the
-repository. Not published to npm.
+repository. Not on npm yet.
 
 - `src/client.ts` and `src/types.ts` are **generated** from `api/openapi.yaml` by
   `internal/sdkgen`. Do not edit them: change the OpenAPI document and run `make sdk` from the
@@ -41,7 +42,7 @@ for await (const day of ohs.iterDaily(userId, { start: "2026-01-01", end: "2026-
 
 Every operation of the API is a method named after its `operationId`; every cursor list also
 has an `iter...` method that follows `next_cursor`. Errors are thrown as `OhsError` (`status`,
-`title`, `detail`, `requestId`). See [docs/server-sdks.md](../../../docs/server-sdks.md).
+`title`, `detail`, `requestId`). See [docs/server-sdks.md](https://github.com/soma-intelligence/open-health-sync/blob/main/docs/server-sdks.md).
 
 ## Test
 

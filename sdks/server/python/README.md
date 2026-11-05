@@ -1,8 +1,9 @@
 # Open Health Sync server SDK for Python
 
-A client of the Open Health Sync API for your backend, on the Python standard library alone
+A client of the API of Open Health Sync, the open source health data aggregator, for your
+backend, on the Python standard library alone
 (`urllib.request`, `json`, `hmac`), Python 3.9 or later. Licensed AGPL-3.0-only, like the rest
-of the repository. Not published to PyPI.
+of the repository. Not on PyPI yet.
 
 - `open_health_sync/client.py` and `open_health_sync/models.py` are **generated** from
   `api/openapi.yaml` by `internal/sdkgen`. Do not edit them: change the OpenAPI document and run
@@ -41,7 +42,7 @@ for day in ohs.iter_daily(user_id, start="2026-01-01", end="2026-02-01"):
 Every operation of the API is a method named after its `operationId` in snake_case; every
 cursor list also has an `iter_...` method that follows `next_cursor`. Responses are plain
 dicts, typed as TypedDicts in `models.py`. Errors are raised as `OhsError` (`status`, `title`,
-`detail`, `request_id`). See [docs/server-sdks.md](../../../docs/server-sdks.md).
+`detail`, `request_id`). See [docs/server-sdks.md](https://github.com/soma-intelligence/open-health-sync/blob/main/docs/server-sdks.md).
 
 ## Test
 

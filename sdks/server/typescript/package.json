@@ -1,9 +1,29 @@
 {
   "name": "@open-health-sync/server",
-  "version": "1.0.0",
-  "description": "Server-side TypeScript client of the Open Health Sync API, generated from api/openapi.yaml.",
+  "version": "0.1.0",
+  "description": "Server-side TypeScript SDK for Open Health Sync, the open source health data aggregator: a typed client for every API route and webhook signature checks, generated from the OpenAPI document.",
+  "keywords": [
+    "health-data",
+    "wearables",
+    "apple-health",
+    "health-connect",
+    "fhir",
+    "webhooks",
+    "openapi",
+    "quantified-self",
+    "open-health-sync",
+    "terra-alternative"
+  ],
   "license": "AGPL-3.0-only",
-  "private": true,
+  "homepage": "https://github.com/soma-intelligence/open-health-sync/blob/main/docs/server-sdks.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soma-intelligence/open-health-sync.git",
+    "directory": "sdks/server/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/soma-intelligence/open-health-sync/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=18"
@@ -21,10 +41,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
     "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

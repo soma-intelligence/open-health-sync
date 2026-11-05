@@ -25,3 +25,5 @@ __pycache__/
 # Rust bridge and Swift SDK build output
 /bridge/target/
 /sdks/swift/.build/
+/.build/
+/.swiftpm/

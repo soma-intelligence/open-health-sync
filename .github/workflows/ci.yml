@@ -20,6 +20,8 @@ jobs:
       - run: go test ./...
       - name: Release tag check self-test
         run: scripts/check-release-tag_test.sh
+      - name: SDK tag check self-test
+        run: scripts/check-sdk-tag_test.sh
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"

@@ -1,0 +1,188 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Publishes one SDK to its package registry when a maintainer pushes its tag:
+#
+#   sdk-react-native-v0.1.0       npm            open-health-sync-react-native
+#   sdk-server-typescript-v0.1.0  npm            @open-health-sync/server
+#   sdk-server-python-v0.1.0      PyPI           open-health-sync
+#   sdk-flutter-v0.1.0            pub.dev        open_health_sync
+#   sdk-kotlin-v0.1.0             Maven Central  <group>:open-health-sync-kotlin
+#
+# Before anything is built, scripts/check-sdk-tag.sh checks that the tag is on
+# main and that its version is the one in the SDK's manifest. Each job then
+# runs the SDK's tests again and publishes.
+#
+# npm, PyPI and pub.dev use trusted publishing: the registry trusts this
+# workflow's GitHub OIDC token, so no registry token is stored here. The
+# Central Portal has no trusted publishing: its user token and the signing key
+# are secrets of the maven-central environment, and the upload is
+# USER_MANAGED, so the version is published only when a maintainer presses
+# Publish in the portal. Each job runs in its own environment (npm, pypi,
+# pub-dev, maven-central), where required reviewers can be added.
+#
+# A published version cannot be replaced on any of these registries: bump the
+# manifest and tag a new version instead.
+#
+# The Swift SDK needs no registry: Swift Package Manager and the Swift Package
+# Index read the root Package.swift at the repository's release tags.
+#
+# Actions are pinned by commit SHA, the release they resolve to in a comment.
+name: sdk-publish
+
+on:
+  push:
+    tags: ["sdk-*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.tag.outputs.name }}
+      dir: ${{ steps.tag.outputs.dir }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # main's history, to check the tag is on it
+      - name: The tag is on main and matches the SDK's manifest
+        id: tag
+        run: scripts/check-sdk-tag.sh "$GITHUB_REF_NAME" origin/main
+
+  npm:
+    needs: check
+    if: needs.check.outputs.name == 'react-native' || needs.check.outputs.name == 'server-typescript'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    defaults:
+      run:
+        working-directory: ${{ needs.check.outputs.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - name: npm with trusted publishing (11.5.1 or later)
+        run: npm install -g npm@11.6.2 && npm --version
+      - run: npm ci --no-audit --no-fund
+      - name: Tests (react-native)
+        if: needs.check.outputs.name == 'react-native'
+        run: npm run lint && npm test
+      - name: Tests (server-typescript)
+        if: needs.check.outputs.name == 'server-typescript'
+        run: npm run check && npm test
+      - name: Publish (prepublishOnly builds dist/)
+        run: npm publish --provenance --access public
+
+  pypi:
+    needs: check
+    if: needs.check.outputs.name == 'server-python'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    defaults:
+      run:
+        working-directory: ${{ needs.check.outputs.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install uv, pinned by hash
+        run: |
+          printf '%s\n' \
+            'uv==0.12.22 \' \
+            '  --hash=sha256:680769ef701922dd93426b73476073411941f51ac46991a6e5c5a6efbf68a713 \' \
+            '  --hash=sha256:972cb556d34372f4c19f5c8bba246c92c5a8bfda3f30b2a5b8e12fddd81ba441 \' \
+            '  --hash=sha256:04af20f84c122039c16a006b497ea25d4850543b3ac2bd879d96d36d9890bebc' \
+            >"$RUNNER_TEMP/uv-requirements.txt"
+          python -m pip install --require-hashes --no-deps -r "$RUNNER_TEMP/uv-requirements.txt"
+      - run: python -m unittest discover -s tests -v
+      - run: uv build --out-dir dist
+      - name: Publish
+        run: uv publish --trusted-publishing always dist/*
+
+  pub-dev:
+    needs: check
+    if: needs.check.outputs.name == 'flutter'
+    runs-on: ubuntu-latest
+    environment: pub-dev
+    permissions:
+      contents: read
+      id-token: write # pub.dev automated publishing; setup-dart exchanges the token
+    defaults:
+      run:
+        working-directory: ${{ needs.check.outputs.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart analyze --fatal-infos
+      - run: dart test
+      - name: Publish
+        run: dart pub publish --force
+
+  maven-central:
+    needs: check
+    if: needs.check.outputs.name == 'kotlin'
+    runs-on: ubuntu-latest
+    environment: maven-central
+    defaults:
+      run:
+        working-directory: ${{ needs.check.outputs.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The Maven group is a namespace verified in the Central Portal
+        run: |
+          group="$(sed -nE 's/^group = "([^"]+)"$/\1/p' build.gradle.kts)"
+          if [ -z "$group" ] || [ "$group" = "org.openhealthsync" ]; then
+            echo "build.gradle.kts still has the placeholder group '$group': set the verified namespace first" >&2
+            exit 1
+          fi
+          echo "group: $group"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: Test, build and sign into build/staging-repo
+        env:
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.MAVEN_SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.MAVEN_SIGNING_PASSWORD }}
+        run: ./gradlew --no-daemon build publishMavenPublicationToStagingRepository
+      - name: Bundle for the Central Portal
+        run: |
+          cd build/staging-repo
+          if ! find . -name '*.jar.asc' | grep -q .; then
+            echo "no signatures in build/staging-repo: is MAVEN_SIGNING_KEY set?" >&2
+            exit 1
+          fi
+          zip -qr ../central-bundle.zip . -x '*maven-metadata*'
+          unzip -l ../central-bundle.zip
+      - name: Upload (USER_MANAGED, published from the portal)
+        env:
+          CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          token="$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)"
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer $token" \
+            -F "bundle=@build/central-bundle.zip" \
+            "https://central.sonatype.com/api/v1/publisher/upload?name=open-health-sync-kotlin-${VERSION}&publishingType=USER_MANAGED"
+          echo
+          echo "Uploaded. Check the deployment and press Publish at https://central.sonatype.com/publishing/deployments"

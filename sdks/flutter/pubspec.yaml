@@ -1,11 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 name: open_health_sync
 description: >-
-  Dart client for the Open Health Sync REST API, for Flutter apps (iOS, Android,
-  desktop, web) and Dart servers. License AGPL-3.0-only.
+  Dart and Flutter client for Open Health Sync, the open source health data
+  aggregator: Apple Health, Health Connect, Oura, WHOOP, Withings and FHIR R4.
 version: 0.1.0
-publish_to: none
-repository: https://github.com/soma-intelligence/open-health-sync
+repository: https://github.com/soma-intelligence/open-health-sync/tree/main/sdks/flutter
+issue_tracker: https://github.com/soma-intelligence/open-health-sync/issues
+documentation: https://github.com/soma-intelligence/open-health-sync/blob/main/docs/sdks/flutter.md
+topics:
+  - health
+  - wearables
+  - fhir
+  - healthkit
+  - health-connect
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
