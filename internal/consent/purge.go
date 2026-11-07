@@ -119,6 +119,14 @@ func aliasesOf(table, cond string) string {
 		  AND r.content_hash = a.content_hash AND r.start_date = a.start_time` + cond
 }
 
+// allAliases is the delete of every record alias of table for the user and
+// provider. It serves the tables whose purge takes all of their rows: with no
+// join on a row, it also takes the aliases whose row is already gone.
+func allAliases(table string) string {
+	return `DELETE FROM ohs_data.record_aliases
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND record_table = '` + table + `'`
+}
+
 // purge deletes the user's records of category cat that came from provider,
 // and returns how many rows went.
 func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat string) (int64, error) {
@@ -183,7 +191,7 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 			`DELETE FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 		}
 	case Activity:
-		aliased = []string{aliasesOf("workouts", "")}
+		aliased = []string{allAliases("workouts")}
 		stmts = []string{
 			`DELETE FROM ohs_data.route_points WHERE tenant_id = $1 AND user_id = $2 AND ` + ofWorkouts,
 			`DELETE FROM ohs_data.workout_tracks WHERE tenant_id = $1 AND user_id = $2 AND ` + ofWorkouts,
@@ -204,7 +212,7 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 	case Heart:
 		stmts = []string{`DELETE FROM ohs_data.heartbeat_samples WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`}
 	case Nutrition:
-		aliased = []string{aliasesOf("nutrition_logs", "")}
+		aliased = []string{allAliases("nutrition_logs")}
 		stmts = []string{`DELETE FROM ohs_data.nutrition_logs WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`}
 	}
 	for _, q := range aliased {

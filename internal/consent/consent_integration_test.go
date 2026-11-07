@@ -263,7 +263,8 @@ func TestPurgeFigures(t *testing.T) {
 
 // TestPurgeAliases: the record aliases of purged rows go with them. An alias
 // keeps the row's content hash and start, enough to brute-force the value.
-// The aliases of rows that stay, and of another source, stay.
+// An alias whose row is already gone goes too. The aliases of rows that stay,
+// and of another source, stay.
 func TestPurgeAliases(t *testing.T) {
 	ctx := context.Background()
 	pool, err := db.Open(ctx, db.TestDB(t))
@@ -289,6 +290,7 @@ func TestPurgeAliases(t *testing.T) {
 			{"UUID-HR-COPY", "quantity_samples", h("hr")},
 			{"UUID-STEPS", "quantity_samples", h("steps")},
 			{"UUID-MEAL", "nutrition_logs", h("meal")},
+			{"UUID-MEAL-GONE", "nutrition_logs", h("meal-gone")},
 		} {
 			exec(`INSERT INTO ohs_data.record_aliases (tenant_id, user_id, provider, external_id, record_table, content_hash, start_time)
 				VALUES ($1, $2, $3, $4, $5, $6, $7)`, ten, user, provider, a.id, a.table, a.hash, at)
@@ -312,6 +314,6 @@ func TestPurgeAliases(t *testing.T) {
 		return ids
 	}
 	assert.Equal(t, []string{"UUID-STEPS"}, aliases("apple_health"), "heart and nutrition revoked: their aliases go")
-	assert.Equal(t, []string{"UUID-HR", "UUID-HR-COPY", "UUID-MEAL", "UUID-STEPS"}, aliases("withings"),
+	assert.Equal(t, []string{"UUID-HR", "UUID-HR-COPY", "UUID-MEAL", "UUID-MEAL-GONE", "UUID-STEPS"}, aliases("withings"),
 		"another source is untouched")
 }
