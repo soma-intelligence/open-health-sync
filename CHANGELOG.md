@@ -7,6 +7,32 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Changed
+
+- Migration `0044` indexes `ohs_data.record_aliases` on `(tenant_id, user_id, start_time)`.
+  Retention prunes aliases by start time and, without it, read every alias of each user on every
+  run (about one per stored HealthKit sample).
+- Strava is pulled every 12 hours with or without webhook events (it was every 3 hours without).
+  Push counts as healthy per athlete, so every athlete who had not posted in the last 24 hours was
+  pulled 8 times a day, and about 125 such connections spent the application's default 1,000 reads
+  a day. At 2 reads a day per connection, about 400 connections fit, with room for the pulls webhook
+  events start. See [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
+
+### Fixed
+
+- The ETL no longer collects the days an upload touches twice per batch: the second pass, which
+  only matters when the batch deleted samples, now runs only then. The time zone a sample names is
+  loaded once per process instead of once per sample, which read and parsed tzdata again for every
+  Apple Health, Polar and Dexcom sample.
+- An upload whose deletions reach old, compressed `quantity_samples` chunks no longer fails past
+  TimescaleDB's default limit of 100,000 decompressed tuples. A HealthKit round that removed months
+  of an app's samples rolled back the whole job, new samples included, and was parked after its
+  retries. The ETL now lifts the limit for the job's transaction when the batch has deletions, as
+  user deletion, retention and the consent purge already did.
+- A consent purge now deletes the record aliases (`ohs_data.record_aliases`) of the HealthKit
+  samples, workouts and nutrition logs it removes. They were left behind, and an alias keeps the
+  row's unkeyed content hash and start time, from which the purged value could be worked out.
+
 ## [0.3.0] - 2026-10-29
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit

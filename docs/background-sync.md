@@ -84,7 +84,7 @@ So each connector declares how it is pulled (`connector.SyncPolicy`, see
 | OMRON | | 3 h | 72 h | 30 days | 14 days |
 | Oura | 6 h | 1 h | 24 h | 90 days | 7 days |
 | Polar | 6 h | 1 h | 24 h | 28 days | 7 days |
-| Strava | 12 h | 3 h | 24 h | 30 days | 7 days |
+| Strava | 12 h | 12 h | 24 h | 30 days | 7 days |
 | Suunto | 24 h | 24 h | 24 h | 28 days | none |
 | Ultrahuman | | 3 h | 48 h | 30 days | 7 days |
 | WHOOP | 6 h | 1 h | 24 h | 90 days | 7 days |
@@ -92,9 +92,11 @@ So each connector declares how it is pulled (`connector.SyncPolicy`, see
 
 An empty cell means the provider sends no notifications. A Suunto pull makes 4 calls, so on the
 Development API (about 200 calls a week) an application serves about 7 users; more needs
-Suunto's Production API. Garmin pulls by upload time, so the
-default lookback is enough there. `pull_every_seconds` and `next_pull_at` in the freshness
-response follow the provider's interval.
+Suunto's Production API. A Strava pull reads one page of activities, so at 2 pulls a day an
+application's default 1,000 reads cover about 400 connections, with room for the pulls webhook
+events start; push counts as healthy per athlete, so the interval is the same without it.
+Garmin pulls by upload time, so the default lookback is enough there. `pull_every_seconds` and
+`next_pull_at` in the freshness response follow the provider's interval.
 
 The console's provider page (Sync schedule) and `GET /v1/admin/providers/{provider}` (`sync`) show
 the values of the running binary.

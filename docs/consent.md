@@ -45,7 +45,8 @@ returns the list of categories, so your consent screen can follow it.
   first consent counts as not granted.
 - **Revocation**: from the moment it commits, new records of the category are dropped. The
   records already stored from that source are deleted by the etl role in the background
-  (usually within seconds). Granting the category again before the purge runs keeps the data.
+  (usually within seconds), with the HealthKit sample ids (record aliases) that point at them.
+  Granting the category again before the purge runs keeps the data.
 - **Raw payloads** (the files the engine keeps as received) are not split by category: they
   follow `OHS_RETENTION_DAYS` and are deleted with the user or with the provider's data. A
   reprocess of a raw file applies the consent current at that time.
