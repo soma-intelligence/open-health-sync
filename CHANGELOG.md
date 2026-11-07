@@ -9,7 +9,7 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
-- Migration `0046` indexes `ohs_data.record_aliases` on `(tenant_id, user_id, start_time)`.
+- Migration `0044` indexes `ohs_data.record_aliases` on `(tenant_id, user_id, start_time)`.
   Retention prunes aliases by start time and, without it, read every alias of each user on every
   run (about one per stored HealthKit sample).
 - Strava is pulled every 12 hours with or without webhook events (it was every 3 hours without).
