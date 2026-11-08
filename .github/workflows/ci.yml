@@ -158,7 +158,7 @@ jobs:
           echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum --check -
           tar -xzf kubeconform.tar.gz kubeconform
           ./kubeconform -strict -summary -kubernetes-version 1.31.0 -skip ServiceMonitor default.yaml all-optional.yaml
-      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           cluster_name: ohs
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
