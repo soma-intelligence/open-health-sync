@@ -90,6 +90,9 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 
 ### Fixed
 
+- `make record` no longer fails on intervals.icu: an identifier whose value is a bare date (a
+  wellness day's `id`) is shifted like any other date instead of getting a stand-in, which broke
+  the mapping and tripped the leak check on the recording day.
 - A NaN or infinite value no longer passes validation. NaN failed no range check and +Inf passed
   every rule with no ceiling, so a connector that read `"NaN"` or `"Infinity"` stored it.
 - Connector fuzzing (new fuzz tests for Dexcom, Fitbit, Health Connect, intervals.icu, OMRON,

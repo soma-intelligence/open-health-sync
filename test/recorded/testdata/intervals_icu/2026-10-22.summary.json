@@ -1,0 +1,16 @@
+{
+  "activity": {
+    "lines": 2,
+    "records": {
+      "workout": 2
+    }
+  },
+  "wellness": {
+    "lines": 15,
+    "records": {
+      "quantity:body_fat_percentage": 5,
+      "quantity:body_mass": 7,
+      "quantity:step_count": 14
+    }
+  }
+}

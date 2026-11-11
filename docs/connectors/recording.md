@@ -70,7 +70,7 @@ The rules live in `internal/connector/cassette` (`AnonymizeHTTP`). In short:
 | Request headers, cookies, every response header but `Content-Type`, `Retry-After`, `Link` and rate limits | Dropped |
 | Credentials (`access_token`, `client_secret`, `code` and the like) | `REDACTED` |
 | Identifiers, names, free text, emails, device names, serial numbers, pagination tokens | A stand-in of the same shape, the same everywhere it appears |
-| Dates and times (ISO strings, Unix seconds and milliseconds) | Moved by one secret number of weeks, forgotten after the recording |
+| Dates and times (ISO strings, Unix seconds and milliseconds, and identifiers that are a date) | Moved by one secret number of weeks, forgotten after the recording |
 | Measured values | Scaled by a factor between 0.95 and 1.05, type and decimals kept |
 | Latitude, longitude, polylines, altitude, course | 0 or empty |
 | Time zone names (`Europe/Paris`) | `Etc/UTC` |
