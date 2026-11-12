@@ -45,7 +45,7 @@ const tAliases = "record_aliases"
 // clause of their aliased delete. The table name of an alias row is checked
 // against this list before it reaches SQL text.
 var aliasTables = map[string]string{
-	tQuantity:  "quantity_type, start_date, metadata->>'" + MetadataTimezone + "', NULL::bigint",
+	tQuantity:  "quantity_type, start_date, tz, NULL::bigint",
 	tCategory:  "NULL::text, start_date, NULL::text, NULL::bigint",
 	tNutrition: "NULL::text, start_date, NULL::text, NULL::bigint",
 	tWorkouts:  "NULL::text, start_date, NULL::text, id",
@@ -224,6 +224,9 @@ func applyAliasDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.
 		for _, r := range out {
 			if r.WorkoutID != nil {
 				workouts = append(workouts, *r.WorkoutID)
+			}
+			if table == tQuantity && r.QuantityType != nil {
+				sc.hours.add(*r.QuantityType, r.StartDate)
 			}
 			if r.QuantityType != nil && isAdditive(*r.QuantityType) {
 				md := map[string]any{}

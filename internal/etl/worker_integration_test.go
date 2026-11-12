@@ -32,7 +32,7 @@ func (e *env) enqueue(j queue.ETLJob) {
 
 func (e *env) jobStates() map[string]int {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(), `SELECT status, attempts FROM ohs_sync.etl_jobs`)
+	rows, err := e.read().Query(context.Background(), `SELECT status, attempts FROM ohs_sync.etl_jobs`)
 	require.NoError(e.t, err)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (struct {
 		s string

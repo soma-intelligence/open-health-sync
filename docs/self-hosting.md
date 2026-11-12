@@ -194,6 +194,18 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_ENCRYPTION_KEY` | none, required | 32 random bytes, base64. Seals stored OAuth tokens and webhook secrets. `openssl rand -base64 32` makes one, or `ohs doctor` prints one |
 | `OHS_ENCRYPTION_KEY_FILE` | none | Path of a file holding the key, used instead of `OHS_ENCRYPTION_KEY` (setting both is an error). If the file does not exist, `ohs` writes a random key into it on first start (mode 0600, parent folder created) and reads it back on every start after. For app store templates and Docker secrets. Back the file up with the database. 0.2.0 and later |
 | `OHS_PREVIOUS_ENCRYPTION_KEYS` | none | Comma separated keys `OHS_ENCRYPTION_KEY` replaced: they still open what they sealed, never seal. Set only while [rotating the key](key-rotation.md). 0.2.0 and later |
+| `OHS_VAULT_KEY_PROVIDER` | `local` | Which key guards the keys of the [health data vault](specs/vault.md): `local`, `hashicorp`, `azurekv` or `awskms`. The last two need a binary built with their provider |
+| `OHS_VAULT_ROOT_KEY` | derived | `local` provider: 32 random bytes, base64. Unset, the root key is derived from `OHS_ENCRYPTION_KEY` (HKDF-SHA-256), so an upgrade needs no new secret, and `ohs doctor` warns that one secret then guards both |
+| `OHS_VAULT_ROOT_KEY_FILE` | none | Path of a file holding the root key, used instead of `OHS_VAULT_ROOT_KEY` (not both). It is never created: a missing file is an error |
+| `OHS_VAULT_ROOT_KEY_PREVIOUS` | none | Comma separated root keys that were replaced: they still open, never wrap. Set only while rotating the root key |
+| `OHS_VAULT_HASHICORP_ADDR` | none | HashiCorp Vault address, for example `https://vault.example.org:8200`. Required with `hashicorp` |
+| `OHS_VAULT_HASHICORP_MOUNT` | `transit` | Mount of the transit engine |
+| `OHS_VAULT_HASHICORP_KEY` | none | Name of the transit key, created with `derived=true` (`ohs` refuses it otherwise). Required with `hashicorp` |
+| `OHS_VAULT_HASHICORP_TOKEN_FILE` | none | Path of a file holding the Vault token, read at each call so a renewed token is picked up. Unset, the token is `VAULT_TOKEN`. The file wins when both are set |
+| `OHS_VAULT_AZURE_KEY_ID` | none | Azure Key Vault or Managed HSM key URI. Required with `azurekv` |
+| `OHS_VAULT_AWS_KEY_ARN` | none | AWS KMS key ARN. Required with `awskms` |
+| `OHS_VAULT_CACHE_USERS` | `1024` | Users whose unwrapped keys are kept in memory |
+| `OHS_VAULT_CACHE_TTL` | `10m` | How long an unwrapped key stays in memory |
 | `OHS_PUBLIC_URL` | `http://localhost:8080` | Public base URL, used for OAuth callbacks, notification URLs and [share links](share-links.md). Use your https address |
 | `OHS_RAW_STORE` | `file:///var/lib/ohs/raw` | `file:///path` or `s3://bucket?endpoint=&region=&path_style=true&sse=` |
 | `OHS_ROLES` | `api,collect,etl` | Roles this process runs |

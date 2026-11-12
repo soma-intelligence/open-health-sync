@@ -67,7 +67,7 @@ type daySteps struct {
 
 func (e *env) dailySteps(provider string) []daySteps {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(), `
+	rows, err := e.read().Query(context.Background(), `
 		SELECT to_char(summary_date, 'YYYY-MM-DD'), step_count FROM ohs_data.daily_summaries
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 ORDER BY summary_date`,
 		e.tenant, e.user, provider)

@@ -113,6 +113,10 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 		if d := secretSources(cfg, get); d != "" {
 			report("secrets", nil, d)
 		}
+		if cfg.Vault.Provider == "local" && cfg.Vault.RootDerived {
+			fmt.Fprintln(out, "warn  vault: vault root key is derived from OHS_ENCRYPTION_KEY: one secret guards both "+
+				"(set OHS_VAULT_ROOT_KEY or OHS_VAULT_ROOT_KEY_FILE, or use a KMS provider)")
+		}
 	}
 
 	// Database and raw store use the raw variables so they are still checked

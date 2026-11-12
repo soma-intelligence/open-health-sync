@@ -8,10 +8,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"strings"
 	"testing"
 
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -360,4 +362,101 @@ func TestReaderFiveValidOneMalformed(t *testing.T) {
 	assert.Len(t, result.Records, 5, "should have 5 parsed records")
 	assert.Len(t, result.ParseErrors, 1, "should have 1 parse error")
 	assert.Equal(t, 6, result.ParseErrors[0].LineNum)
+}
+
+// sealedObject is a fresh key set and the sealed copy of body under it.
+func sealedObject(t *testing.T, body []byte) (*vault.UserKeys, []byte) {
+	t.Helper()
+	k, err := vault.GenerateUserKeys(2)
+	require.NoError(t, err)
+	pub, err := k.Public()
+	require.NoError(t, err)
+	var b bytes.Buffer
+	require.NoError(t, vault.SealObject(&b, pub, k.Version, vault.RawDigest(pub, body), bytes.NewReader(body)))
+	return k, b.Bytes()
+}
+
+func keysOf(k *vault.UserKeys) func(uint32) (*vault.UserKeys, error) {
+	return func(v uint32) (*vault.UserKeys, error) {
+		if v != k.Version {
+			return nil, fmt.Errorf("%w: no version %d", vault.ErrOpen, v)
+		}
+		return k, nil
+	}
+}
+
+func TestReaderOpensSealedObject(t *testing.T) {
+	body := gzipLines([]string{`{"a":1}`, `not json`, `{"b":2}`})
+	k, sealed := sealedObject(t, body)
+	g := &fakeGetter{data: map[string][]byte{"plain": body, "sealed": sealed}}
+
+	want, err := NewReader(g).ReadNDJSON(context.Background(), "plain")
+	require.NoError(t, err)
+	r := NewReader(g).WithKeys(keysOf(k))
+	got, err := r.ReadNDJSON(context.Background(), "sealed")
+	require.NoError(t, err)
+	assert.Equal(t, want.Records, got.Records)
+	assert.Equal(t, want.ParseErrors, got.ParseErrors)
+	assert.False(t, got.ScanTruncated)
+	assert.EqualValues(t, len(sealed), got.FileSize, "FileSize counts the stored, sealed bytes")
+
+	// The same reader still reads a legacy object.
+	legacy, err := r.ReadNDJSON(context.Background(), "plain")
+	require.NoError(t, err)
+	assert.Equal(t, want.Records, legacy.Records)
+}
+
+func TestReaderSealedObjectNeedsKeys(t *testing.T) {
+	body := gzipLines([]string{`{"a":1}`})
+	_, sealed := sealedObject(t, body)
+	other, _ := sealedObject(t, body)
+	g := &fakeGetter{data: map[string][]byte{"sealed": sealed}}
+
+	_, err := NewReader(g).ReadNDJSON(context.Background(), "sealed")
+	require.Error(t, err, "no keys: nothing is read, not an empty object")
+
+	_, err = NewReader(g).WithKeys(keysOf(other)).ReadNDJSON(context.Background(), "sealed")
+	require.ErrorIs(t, err, vault.ErrOpen, "another user's keys")
+}
+
+// A chunk that does not open ends the read like a corrupt gzip tail: a
+// stream truncation, nothing of the bad chunk returned.
+func TestReaderSealedBadChunkIsStreamTruncation(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	lines := make([]string, 0, 3000)
+	for i := range 3000 {
+		pad := make([]byte, 64)
+		for j := range pad {
+			pad[j] = byte(rng.Uint32())
+		}
+		lines = append(lines, fmt.Sprintf(`{"i":%d,"pad":"%x"}`, i, pad))
+	}
+	k, sealed := sealedObject(t, gzipLines(lines))
+	require.Greater(t, len(sealed), 2*64<<10, "more than one chunk")
+	sealed[len(sealed)-20] ^= 1
+	g := &fakeGetter{data: map[string][]byte{"sealed": sealed}}
+
+	rr, err := NewReader(g).WithKeys(keysOf(k)).ReadNDJSON(context.Background(), "sealed")
+	require.NoError(t, err)
+	assert.True(t, rr.ScanTruncated)
+	assert.Equal(t, TruncationStream, rr.Truncation)
+	assert.Less(t, rr.RecordCount, len(lines))
+}
+
+// A sealed object whose body opens but does not match its header's digest
+// fails the read: never records, never a partial.
+func TestReaderSealedWrongDigestFails(t *testing.T) {
+	body := gzipLines([]string{`{"a":1}`, `{"b":2}`})
+	k, err := vault.GenerateUserKeys(2)
+	require.NoError(t, err)
+	pub, err := k.Public()
+	require.NoError(t, err)
+	var b bytes.Buffer
+	require.NoError(t, vault.SealObject(&b, pub, k.Version, vault.RawDigest(pub, []byte("other")), bytes.NewReader(body)))
+	g := &fakeGetter{data: map[string][]byte{"sealed": b.Bytes()}}
+
+	rr, err := NewReader(g).WithKeys(keysOf(k)).ReadNDJSON(context.Background(), "sealed")
+	require.ErrorIs(t, err, vault.ErrOpen)
+	assert.Contains(t, err.Error(), "digest")
+	assert.Nil(t, rr)
 }

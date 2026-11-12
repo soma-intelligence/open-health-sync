@@ -22,6 +22,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // Lookup finds the connector registered under a provider slug.
@@ -37,6 +38,11 @@ type Options struct {
 	// ConsentRequired (OHS_CONSENT_REQUIRED) stores nothing from a source
 	// the user has recorded no consent for.
 	ConsentRequired bool
+	// Vault, when set, gives the job the user's keys before anything is
+	// read. A user being deleted whose keys are already shredded ends like
+	// any job of a user who is not active; an active user with no keys
+	// fails the job, which the queue retries and then parks.
+	Vault *vault.Vault
 }
 
 // Process normalizes the raw object of job into the canonical store and
@@ -70,12 +76,29 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	sc := scope{tenant: job.TenantID, user: job.UserID, provider: job.Provider}
 	log := slog.With("job_id", job.ID, "tenant_id", job.TenantID, "user_id", job.UserID, "provider", job.Provider)
 
+	// The keys first: from the shred of a deletion on, the user has none,
+	// and the status check below tells that case from a user never given
+	// keys.
+	var (
+		keys    *vault.UserVault
+		keysErr error
+	)
+	if opts.Vault != nil {
+		if keys, keysErr = opts.Vault.ForUser(ctx, job.TenantID, job.UserID); keysErr != nil && !errors.Is(keysErr, vault.ErrNoKeys) {
+			return nil, fmt.Errorf("user keys: %w", keysErr)
+		}
+	}
 	if active, err := userActive(ctx, pool, sc, false); err != nil {
 		return nil, err
 	} else if !active {
 		log.InfoContext(ctx, "etl job skipped, user not active")
 		return Counts{}, nil
 	}
+	if keysErr != nil {
+		return nil, fmt.Errorf("user keys: %w", keysErr)
+	}
+	// The same keys open the raw object and seal every row the job writes.
+	sc.uv = keys
 
 	// Consent choke point: categories the user has not granted for this
 	// source are dropped before validation, so nothing of them is stored.
@@ -113,6 +136,10 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	}
 
 	reader := NewReader(rs)
+	if keys != nil {
+		// The job's keys open its sealed raw object.
+		reader = reader.WithKeys(keys.Keys)
+	}
 	rr, err := reader.StreamNDJSON(ctx, job.Key, func(i int, record map[string]any) error {
 		mr, mapErr := mapRecord(conn, connector.RawRecord{
 			TenantID: job.TenantID.String(), UserID: job.UserID.String(), Provider: job.Provider,

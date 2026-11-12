@@ -224,6 +224,19 @@ func TestDeleteRemovesEverythingOfTheUserOnly(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	// The vault keys of a user are not in ohs_sync or ohs_data: the foreign key
+	// of ohs_core.vault_keys removes them with the user.
+	for _, u := range []user{a, b} {
+		_, err = e.pool.Exec(ctx, `INSERT INTO ohs_core.vault_keys (tenant_id, user_id, version, wrapped, parent_version, kem_public)
+			VALUES ($1, $2, 1, '\x01', '1', '\x02')`, e.tenant.ID, u.id)
+		require.NoError(t, err)
+	}
+	vaultKeys := func(u user) (n int) {
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.vault_keys WHERE tenant_id = $1 AND user_id = $2`,
+			e.tenant.ID, u.id).Scan(&n))
+		return n
+	}
+
 	beforeA, beforeB := e.rowsFor(t, a.id), e.rowsFor(t, b.id)
 	require.Equal(t, 1, beforeA["ohs_data.time_tags"], "time tags are user rows")
 	require.NotEmpty(t, beforeA["ohs_data.quantity_samples"])
@@ -263,6 +276,8 @@ func TestDeleteRemovesEverythingOfTheUserOnly(t *testing.T) {
 	assert.Empty(t, e.rawFiles(t, a.id))
 	_, err = e.store.GetUser(ctx, e.tenant.ID, a.id)
 	assert.ErrorIs(t, err, tenant.ErrNotFound)
+	assert.Zero(t, vaultKeys(a), "the keys of the user go with the user")
+	assert.Equal(t, 1, vaultKeys(b), "the other user keeps its keys")
 	var tokens int
 	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.user_tokens WHERE user_id = $1`, a.id).Scan(&tokens))
 	assert.Zero(t, tokens)

@@ -46,6 +46,7 @@ jobs:
           - { pkg: ./test/fuzz/, target: FuzzDeviceUpload }
           - { pkg: ./test/fuzz/, target: FuzzInbound }
           - { pkg: ./test/fuzz/, target: FuzzReader }
+          - { pkg: ./test/fuzz/, target: FuzzOpenObject }
           - { pkg: ./connectors/applehealth/export/, target: FuzzConvertXML }
           - { pkg: ./connectors/activityfiles/, target: FuzzInspect }
           - { pkg: ./internal/api/read/, target: FuzzDecodeCursor }

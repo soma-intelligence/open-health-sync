@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // The writer handles database writes with deduplication, batching, and COPY
@@ -89,7 +90,11 @@ func (c Counts) TotalSkipped() int {
 
 // scope is who owns every row of one write: the job's tenant, user and
 // provider. Rows take tenant_id and user_id from here, never from the record,
-// so a connector cannot write into another user's data.
+// so a connector cannot write into another user's data. uv is the user's keys
+// when a vault is configured: every row is then written sealed (see
+// vaultrows.go); nil writes clear rows. hours, set by WriteAccumulated when
+// the job holds keys, collects the hours of the samples the write touches
+// (hourly.go); nil collects nothing.
 type scope struct {
 	tenant   uuid.UUID
 	user     uuid.UUID
@@ -99,6 +104,8 @@ type scope struct {
 	// created_at). It orders the copies of a Replaceable row: see
 	// latestWins. Zero means unknown, and an unknown copy is never held back.
 	captured time.Time
+	uv       *vault.UserVault
+	hours    hourSet
 }
 
 // capturedAt is the captured_at value of every row of one write: the raw
@@ -170,16 +177,24 @@ func Accumulate(dst, src *model.MapResult) {
 // applied first, then every record of a tombstoned provider record is dropped
 // (see writer_deletions.go): acc is filtered in place. An aliased batch
 // (acc.AliasExternalIDs) applies its deletions through the record aliases and
-// writes the aliases of its records last (see writer_aliases.go).
+// writes the aliases of its records last (see writer_aliases.go). With keys,
+// the hourly buckets of every hour the batch touched are recomputed last
+// (hourly.go).
 func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) (Counts, error) {
 	c := Counts{}
 	if acc == nil {
 		return c, nil
 	}
+	if sc.uv != nil {
+		sc.hours = hourSet{}
+	}
 	if acc.AliasExternalIDs {
 		if err := lockAliases(ctx, tx, sc); err != nil {
 			return nil, err
 		}
+	}
+	if err := lockMerged(ctx, tx, sc, acc); err != nil {
+		return nil, err
 	}
 	var staleDays map[dayKey]*time.Location
 	if len(acc.Deletions) > 0 {
@@ -203,6 +218,13 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	if err := dropTombstoned(ctx, tx, sc, acc, c); err != nil {
 		return nil, err
 	}
+	// The clear rows the batch can meet are converted first (legacy.go);
+	// from here on every hash is the stored one: keyed when the job holds
+	// keys. touchedDays below reads only types, times and zones.
+	if err := convertBatchLegacy(ctx, tx, sc, acc); err != nil {
+		return nil, err
+	}
+	acc = sc.keyed(acc)
 	type step struct {
 		name string
 		run  func() error
@@ -268,6 +290,14 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 			return nil, err
 		}
 	}
+	// The hours of the batch's samples, written or met again, and of the
+	// samples its deletions and supersedes removed (collected in sc.hours).
+	for _, s := range acc.QuantitySamples {
+		sc.hours.add(s.QuantityType, s.StartDate)
+	}
+	if err := RecomputeHours(ctx, tx, sc.uv, sc.tenant, sc.user, sc.hours.keys()); err != nil {
+		return nil, err
+	}
 	// The days whose additive samples a deletion removed are summed again.
 	// The days the batch's own samples touch are left to the caller, which
 	// derives them after this write. Most batches delete nothing, so the
@@ -287,6 +317,47 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 		}
 	}
 	return c, nil
+}
+
+// lockMerged takes, with keys, the user lock of every table whose stored rows
+// this batch reads to merge in Go (latest wins, figure blanking): without it
+// two jobs of one user could both read the stored row and the second write
+// would drop the first one's figures. The locks are taken up front, in the
+// order of the write steps, so two jobs never wait for each other in a cycle.
+// The quantity lock is also taken for a batch with deletions only: removing a
+// sample recomputes its hourly bucket (RecomputeHours), which takes that lock,
+// and taking it there, after the daily lock of a figure clearing, would break
+// the order. Without keys the merge is one SQL statement and needs no lock.
+func lockMerged(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) error {
+	if sc.uv == nil {
+		return nil
+	}
+	replaceable := func(n int, f func(int) bool) bool {
+		for i := range n {
+			if f(i) {
+				return true
+			}
+		}
+		return false
+	}
+	clears := replaceable(len(acc.Deletions), func(i int) bool { return len(acc.Deletions[i].ClearSummaryFields) > 0 })
+	for _, l := range []struct {
+		table string
+		need  bool
+	}{
+		{tQuantity, len(acc.QuantitySamples) > 0 || len(acc.Deletions) > 0},
+		{tNutrition, replaceable(len(acc.NutritionLogs), func(i int) bool { return acc.NutritionLogs[i].Replaceable })},
+		{tSleep, replaceable(len(acc.SleepSessions), func(i int) bool { return acc.SleepSessions[i].Replaceable })},
+		{tWorkouts, replaceable(len(acc.Workouts), func(i int) bool { return acc.Workouts[i].Replaceable })},
+		{tDaily, clears || replaceable(len(acc.DailySummaries), func(i int) bool { return acc.DailySummaries[i].Replaceable })},
+	} {
+		if l.need {
+			if err := lockUserTable(ctx, tx, l.table, sc); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // --- Shared helpers ---
@@ -365,7 +436,13 @@ func insertParentWithFallback(ctx context.Context, tx TxLike, insertSQL string, 
 // rows is read once, so a caller can generate them as the COPY consumes them
 // (lazyRows) instead of holding a second copy of the batch.
 func stage(ctx context.Context, tx TxLike, table string, columns []string, rows pgx.CopyFromSource) (temp string, copied int64, err error) {
-	temp = pgx.Identifier{"_tmp_" + table}.Sanitize()
+	return stageAs(ctx, tx, table, "_tmp_"+table, columns, rows)
+}
+
+// stageAs is stage into the staging table name, for a second column set of
+// one table inside one transaction.
+func stageAs(ctx context.Context, tx TxLike, table, name string, columns []string, rows pgx.CopyFromSource) (temp string, copied int64, err error) {
+	temp = pgx.Identifier{name}.Sanitize()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(
 		`CREATE TEMPORARY TABLE IF NOT EXISTS %s ON COMMIT DROP AS SELECT %s FROM %s WITH NO DATA`,
 		temp, quoteCols(columns), pgx.Identifier{"ohs_data", table}.Sanitize())); err != nil {
@@ -374,7 +451,7 @@ func stage(ctx context.Context, tx TxLike, table string, columns []string, rows 
 	if _, err := tx.Exec(ctx, "TRUNCATE TABLE "+temp); err != nil {
 		return "", 0, fmt.Errorf("truncate staging for %s: %w", table, err)
 	}
-	copied, err = tx.CopyFrom(ctx, pgx.Identifier{"_tmp_" + table}, columns, rows)
+	copied, err = tx.CopyFrom(ctx, pgx.Identifier{name}, columns, rows)
 	if err != nil {
 		return "", 0, fmt.Errorf("copy to staging for %s: %w", table, err)
 	}
@@ -503,11 +580,12 @@ func insertMissing(ctx context.Context, tx TxLike, sc scope, table, timeCol, kin
 // updateStored applies latest wins (see latestWins) from the staged rows of
 // temp to the stored rows with the same (kindCol, timeCol, content_hash), and
 // returns how many stored rows changed. The kind is part of the join so each
-// staged row finds its stored copy through the type index.
-func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, kindCol, temp string, figures []string, wd window) (int, error) {
+// staged row finds its stored copy through the type index. extra are the
+// promoted columns that follow metadata.
+func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, kindCol, temp string, figures, extra []string, wd window) (int, error) {
 	at := pgx.Identifier{timeCol}.Sanitize()
 	kind := pgx.Identifier{kindCol}.Sanitize()
-	set := make([]string, 0, len(figures)+2)
+	set := make([]string, 0, len(figures)+2+len(extra))
 	stored := make([]string, 0, len(figures))
 	merged := make([]string, 0, len(figures))
 	for _, f := range figures {
@@ -517,6 +595,9 @@ func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, kind
 		merged = append(merged, m)
 	}
 	set = append(set, "metadata = s.metadata", "captured_at = s.captured_at")
+	for _, x := range extra {
+		set = append(set, x+" = s."+x)
+	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET %[2]s FROM %[3]s s
 		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[4]s BETWEEN $3 AND $4
 		  AND t.%[7]s = s.%[7]s AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash
@@ -549,6 +630,28 @@ func advanceStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, kin
 		return fmt.Errorf("advance capture time of %s: %w", table, err)
 	}
 	return nil
+}
+
+// updateStoredSealed is updateStored for rows staged sealed, each with the id
+// of the stored copy it was merged with: the merge already ran in Go
+// (mergeUpserts), which also left out the copies older than the stored row,
+// so the staged row replaces that copy when its content MAC or a clear figure
+// differs. The capture guard is repeated here (shape.notStale): a stale copy
+// never overwrites a newer one, whatever staged it.
+func updateStoredSealed(ctx context.Context, tx TxLike, sc scope, s *shape, timeCol, kindCol, temp string, figures []string, wd window) (int, error) {
+	at := pgx.Identifier{timeCol}.Sanitize()
+	kind := pgx.Identifier{kindCol}.Sanitize()
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET %[2]s FROM %[3]s s
+		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[4]s BETWEEN $3 AND $4
+		  AND t.%[6]s = s.%[6]s AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash AND t.id = s.id
+		  AND %[5]s%[7]s`,
+		qualified(s.t.Name), strings.Join(s.sealedSet("s", figures), ", "), temp, at, s.sealedDistinct("t", "s", figures),
+		kind, s.notStale("t", "s")),
+		sc.tenant, sc.user, wd.lo, wd.hi)
+	if err != nil {
+		return 0, fmt.Errorf("update stored %s: %w", s.t.Name, err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // copyDedupeKey is a staged row's identity within one job: the target's dedup
@@ -617,8 +720,9 @@ func replaceableSplit[T any](rows []T, replaceable func(T) bool, key func(T) cop
 // "Latest" is the capture time of the raw object a copy came from
 // (captured_at), not the order the jobs happen to run in: a retried, replayed
 // or requeued job for an older object does not overwrite what a newer object
-// stored (see notStale).
-func latestWins(table, conflictCols string, figures []string) string {
+// stored (see notStale). extra are the promoted columns read from metadata,
+// which follow it.
+func latestWins(table, conflictCols string, figures, extra []string) string {
 	// The existing row is referenced by the unqualified table name.
 	alias := table
 	set := make([]string, 0, len(figures)+2)
@@ -631,6 +735,9 @@ func latestWins(table, conflictCols string, figures []string) string {
 		merged = append(merged, m)
 	}
 	set = append(set, "metadata = EXCLUDED.metadata", "captured_at = EXCLUDED.captured_at")
+	for _, x := range extra {
+		set = append(set, x+" = EXCLUDED."+x)
+	}
 	return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s WHERE (%s) IS DISTINCT FROM (%s) AND %s",
 		conflictCols, strings.Join(set, ", "), strings.Join(stored, ", "), strings.Join(merged, ", "),
 		notStale(alias+".captured_at", "EXCLUDED.captured_at"))
@@ -689,11 +796,53 @@ func advanceParent(ctx context.Context, tx TxLike, sc scope, update, hash string
 	return err
 }
 
+// advanceCaptured moves the capture time of stored rows of table forward to
+// the scope's, by id: the rows a sealed upsert merged in Go and left as they
+// were (mergeUpserts). at is each row's timeCol (of SQL type timeType), which
+// with kinds (the rows' kindCol, when the table has one) lets the statement
+// reach each row through the user's time index instead of scanning for ids.
+func advanceCaptured(ctx context.Context, tx TxLike, sc scope, table, timeCol, timeType, kindCol string, adv advanceSet) error {
+	if len(adv.ids) == 0 || sc.captured.IsZero() {
+		return nil
+	}
+	at := pgx.Identifier{timeCol}.Sanitize()
+	args := []any{sc.tenant, sc.user, sc.captured, adv.ids, adv.times, adv.wd.lo, adv.wd.hi}
+	from, join := fmt.Sprintf("unnest($4::bigint[], $5::%s[]) AS a(id, at)", timeType), ""
+	if kindCol != "" {
+		args = append(args, adv.kinds)
+		from = fmt.Sprintf("unnest($4::bigint[], $5::%s[], $8::text[]) AS a(id, at, kind)", timeType)
+		join = " AND t." + pgx.Identifier{kindCol}.Sanitize() + " = a.kind"
+	}
+	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET captured_at = $3 FROM %[2]s
+		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[3]s BETWEEN $6 AND $7
+		  AND t.%[3]s = a.at AND t.id = a.id%[4]s AND %[5]s`,
+		qualified(table), from, at, join, newerCapture("t.captured_at", "$3::timestamptz")), args...)
+	if err != nil {
+		return fmt.Errorf("advance capture time of %s: %w", table, err)
+	}
+	return nil
+}
+
+// advanceSet names the stored rows whose capture time a sealed upsert moves
+// forward: their ids, their time column and, for a table with a kind column,
+// their kind.
+type advanceSet struct {
+	ids   []int64
+	times []time.Time
+	kinds []string
+	wd    window
+}
+
+func (a *advanceSet) add(id int64, at time.Time, kind string) {
+	a.ids, a.times, a.kinds = append(a.ids, id), append(a.times, at), append(a.kinds, kind)
+	a.wd.extend(at)
+}
+
 // lazyRows is a COPY source that builds the row of each record as the COPY
-// reads it, so the batch is never held a second time as [][]any. skip, when
-// set, drops a record (an in-batch duplicate); it is called once per record,
-// in order.
-func lazyRows[T any](recs []T, sc scope, row func(scope, T) []any, skip func(T) bool) pgx.CopyFromSource {
+// reads it, so the batch is never held a second time as [][]any. row returns
+// the finished row (sealed with keys); skip, when set, drops a record (an
+// in-batch duplicate) and is called once per record, in order.
+func lazyRows[T any](recs []T, row func(T) ([]any, error), skip func(T) bool) pgx.CopyFromSource {
 	i := 0
 	return pgx.CopyFromFunc(func() ([]any, error) {
 		for i < len(recs) {
@@ -702,7 +851,7 @@ func lazyRows[T any](recs []T, sc scope, row func(scope, T) []any, skip func(T) 
 			if skip != nil && skip(r) {
 				continue
 			}
-			return row(sc, r), nil
+			return row(r)
 		}
 		return nil, nil
 	})

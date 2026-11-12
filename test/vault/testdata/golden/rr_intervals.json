@@ -1,0 +1,725 @@
+{
+  "data": [
+    {
+      "provider": "apple_health",
+      "rr_ms": 755,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:00Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 792,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:00.755Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 829,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:01.547Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 776,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:02.376Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 813,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:03.152Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 760,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:03.965Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 797,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:04.725Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 834,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:05.522Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 781,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:06.356Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 818,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:07.137Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 765,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:07.955Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 802,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:08.72Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 839,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:09.522Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 786,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:10.361Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 823,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:11.147Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 770,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:11.97Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 807,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:12.74Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 844,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:13.547Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 791,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:14.391Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 828,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:15.182Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 775,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:16.01Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 812,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:16.785Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 759,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:17.597Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 796,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:18.356Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 833,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:19.152Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 780,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:19.985Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 817,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:20.765Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 764,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:21.582Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 801,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:22.346Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 838,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:23.147Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 785,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:23.985Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 822,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:24.77Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 769,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:25.592Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 806,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:26.361Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 843,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:27.167Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 790,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:28.01Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 827,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:28.8Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 774,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:29.627Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 811,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:30.401Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 758,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:31.212Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 795,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:31.97Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 832,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:32.765Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 779,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:33.597Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 816,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:34.376Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 763,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:35.192Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 800,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:35.955Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 837,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:36.755Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 784,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:37.592Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 821,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:38.376Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 768,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:39.197Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 805,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:39.965Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 842,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:40.77Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 789,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:41.612Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 826,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:42.401Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 773,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:43.227Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 810,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:44Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 757,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:44.81Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 794,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:45.567Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 831,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:46.361Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 778,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:47.192Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 815,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:47.97Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 762,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:48.785Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 799,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:49.547Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 836,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:50.346Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 783,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:51.182Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 820,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:51.965Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 767,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:52.785Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 804,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:53.552Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 841,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:54.356Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 788,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:55.197Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 825,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:55.985Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 772,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:56.81Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 809,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:57.582Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 756,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:58.391Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 793,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:59.147Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 830,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:00:59.94Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 777,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:00.77Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 814,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:01.547Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 761,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:02.361Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 798,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:03.122Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 835,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:03.92Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 782,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:04.755Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 819,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:05.537Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 766,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:06.356Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 803,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:07.122Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 840,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:07.925Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 787,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:08.765Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 824,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:09.552Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 771,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:10.376Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 808,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:11.147Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 755,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:11.955Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 792,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:12.71Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 829,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:13.502Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 776,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:14.331Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 813,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:15.107Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 760,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:15.92Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 797,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:16.68Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 834,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:17.477Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 781,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:18.311Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 818,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:19.092Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 765,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:19.91Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 802,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:20.675Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 839,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:21.477Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 786,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:22.316Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 823,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:23.102Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 770,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:23.925Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 807,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:24.695Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 844,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:25.502Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 791,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:26.346Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 828,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:27.137Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 775,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:27.965Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 812,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:28.74Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 759,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:29.552Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 796,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:30.311Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 833,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:31.107Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 780,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:31.94Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 817,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:32.72Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 764,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:33.537Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 801,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:34.301Z"
+    },
+    {
+      "provider": "apple_health",
+      "rr_ms": 838,
+      "series_id": "golden-series",
+      "timestamp": "2026-09-30T22:01:35.102Z"
+    }
+  ],
+  "next_cursor": null
+}

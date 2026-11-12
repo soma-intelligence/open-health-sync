@@ -110,7 +110,7 @@ func TestUpdateStoredJoinsOnTypeAndGuardsOnCapture(t *testing.T) {
 }
 
 func TestLatestWinsGuardsOnCapture(t *testing.T) {
-	clause := latestWins("daily_summaries", "tenant_id, user_id, content_hash, summary_date", []string{"step_count"})
+	clause := latestWins("daily_summaries", "tenant_id, user_id, content_hash, summary_date", []string{"step_count"}, nil)
 	assert.Contains(t, clause, "captured_at = EXCLUDED.captured_at")
 	assert.Contains(t, clause,
 		"AND (daily_summaries.captured_at IS NULL OR EXCLUDED.captured_at IS NULL OR EXCLUDED.captured_at >= daily_summaries.captured_at)")
@@ -129,7 +129,7 @@ func TestReplaceableSplitDoesNotCopyAnInsertOnlyBatch(t *testing.T) {
 
 func TestLazyRowsSkipsAndBuildsOnDemand(t *testing.T) {
 	built := 0
-	src := lazyRows([]int{1, 2, 3, 4}, scope{}, func(_ scope, v int) []any { built++; return []any{v} },
+	src := lazyRows([]int{1, 2, 3, 4}, func(v int) ([]any, error) { built++; return []any{v}, nil },
 		func(v int) bool { return v%2 == 0 })
 	require.True(t, src.Next())
 	assert.Equal(t, 1, built, "rows are built one at a time")

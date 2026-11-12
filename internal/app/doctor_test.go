@@ -195,3 +195,18 @@ func TestDoctorSaysWhereFileSecretsCameFrom(t *testing.T) {
 	require.Contains(t, out, "OHS_ENCRYPTION_KEY read from "+keyFile)
 	require.NotContains(t, out, "OHS_SETUP_TOKEN")
 }
+
+func TestDoctorWarnsWhenVaultRootKeyIsDerived(t *testing.T) {
+	base := map[string]string{
+		"OHS_DATABASE_URL":   "postgres://ohs@127.0.0.1:1/ohs",
+		"OHS_ENCRYPTION_KEY": goodKey(),
+		"OHS_RAW_STORE":      "file://" + t.TempDir(),
+	}
+	out, _ := runDoctorT(t, base, true, nil)
+	require.Contains(t, out, "warn  vault: vault root key is derived from OHS_ENCRYPTION_KEY: one secret guards both")
+	require.NotContains(t, out, goodKey())
+
+	base["OHS_VAULT_ROOT_KEY"] = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32))
+	out, _ = runDoctorT(t, base, true, nil)
+	require.NotContains(t, out, "vault root key is derived")
+}

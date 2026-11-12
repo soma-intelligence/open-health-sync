@@ -6,8 +6,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -114,11 +112,14 @@ func storeRaw(ctx context.Context, d Deps, t rawTarget, lines [][]byte) (bool, e
 	if err != nil {
 		return false, err
 	}
-	sum := sha256.Sum256(body)
-	hash := hex.EncodeToString(sum[:])
+	rb, err := newRawBody(ctx, d.Pool, d.Vault, t.tenant, t.user, body)
+	if err != nil {
+		return false, err
+	}
+	hash := rb.hash
 	key := rawstore.Key(t.tenant, t.user, t.provider, t.day, t.batch, t.part)
 
-	if _, found, err := findRaw(ctx, d.Pool, t.tenant, t.user, key, hash); err != nil {
+	if _, found, err := findRaw(ctx, d.Pool, t.tenant, t.user, key, rb); err != nil {
 		return false, err
 	} else if found {
 		return false, nil
@@ -126,14 +127,15 @@ func storeRaw(ctx context.Context, d Deps, t rawTarget, lines [][]byte) (bool, e
 	if err := userActive(ctx, d.Pool, t.tenant, t.user); err != nil {
 		return false, err
 	}
-	if err := putRaw(ctx, d.Raw, key, body); err != nil {
+	size, err := putRaw(ctx, d.Raw, key, rb)
+	if err != nil {
 		if errors.Is(err, errOtherBytes) {
 			return false, fmt.Errorf("collect: raw key %s already holds other bytes", key)
 		}
 		return false, err
 	}
 	inserted, err := registerRaw(ctx, d.Pool, rawObject{
-		tenant: t.tenant, user: t.user, provider: t.provider, key: key, hash: hash, size: len(body),
+		tenant: t.tenant, user: t.user, provider: t.provider, key: key, hash: hash, size: size,
 		batch: t.batch, part: t.part, dataType: t.dataType, tier: queue.TierStandard, captured: t.captured,
 	})
 	if errors.Is(err, errInactive) || errors.Is(err, errErasing) {

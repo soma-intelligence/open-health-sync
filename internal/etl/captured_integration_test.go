@@ -17,18 +17,39 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
-// writeAt is write for an object captured at the given time.
+// writeAt is write for an object captured at the given time: sealed under the
+// user's keys, as every job writes, or clear when the env is (eachMode).
 func (e *env) writeAt(captured time.Time, acc *model.MapResult) Counts {
 	e.t.Helper()
 	ctx := context.Background()
 	tx, err := e.pool.Begin(ctx)
 	require.NoError(e.t, err)
 	defer tx.Rollback(ctx) //nolint:errcheck
-	c, err := NewWriter(smallCopy).WriteAccumulated(ctx, tx,
-		scope{tenant: e.tenant, user: e.user, provider: "dev", captured: captured}, acc)
+	sc := scope{tenant: e.tenant, user: e.user, provider: "dev", captured: captured}
+	if !e.clear {
+		sc.uv = e.keys(e.tenant, e.user)
+	}
+	c, err := NewWriter(smallCopy).WriteAccumulated(ctx, tx, sc, acc)
 	require.NoError(e.t, err)
 	require.NoError(e.t, tx.Commit(ctx))
 	return c
+}
+
+// eachMode runs a writer test twice: with the rows sealed under the user's
+// keys, and with clear rows (no vault configured). The capture guard holds
+// either way: in the conflict clauses for clear rows, in the Go merge and the
+// sealed conflict clauses for sealed ones.
+func eachMode(t *testing.T, fn func(t *testing.T, e *env)) {
+	for _, m := range []struct {
+		name  string
+		clear bool
+	}{{"sealed", false}, {"clear", true}} {
+		t.Run(m.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.clear = m.clear
+			fn(t, e)
+		})
+	}
 }
 
 // uploadedAt is upload with the raw object's created_at set.
@@ -93,7 +114,10 @@ func TestProcess_StaleObjectDoesNotOverwriteNewerRevision(t *testing.T) {
 // The capture guard on every replaceable table: daily summaries, nutrition
 // logs, sleep sessions with their phases, workouts with their routes.
 func TestWriter_StaleCopyIsHeldBackOnEveryReplaceableTable(t *testing.T) {
-	e := newEnv(t)
+	eachMode(t, testWriterStaleCopyIsHeldBackOnEveryReplaceableTable)
+}
+
+func testWriterStaleCopyIsHeldBackOnEveryReplaceableTable(t *testing.T, e *env) {
 	day := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
 	at := day.Add(22 * time.Hour)
 	t1 := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
@@ -153,7 +177,10 @@ func TestWriter_StaleCopyIsHeldBackOnEveryReplaceableTable(t *testing.T) {
 // A stale copy of a record whose start moved neither deletes the newer copy
 // nor lands beside it.
 func TestWriter_StaleMovedCopyDoesNotSupersedeNewer(t *testing.T) {
-	e := newEnv(t)
+	eachMode(t, testWriterStaleMovedCopyDoesNotSupersedeNewer)
+}
+
+func testWriterStaleMovedCopyDoesNotSupersedeNewer(t *testing.T, e *env) {
 	start := time.Date(2026, 9, 1, 22, 0, 0, 0, time.UTC)
 	t1 := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
 	fp := func(v float64) *float64 { return &v }
@@ -214,7 +241,10 @@ func TestWriter_QuantityDedupPerTypeWindows(t *testing.T) {
 // was written again gets a new one.
 func (e *env) rowVersions(table string) string {
 	e.t.Helper()
-	v, _ := e.scalar(`SELECT coalesce(string_agg(xmin::text, ',' ORDER BY xmin::text), '') FROM ohs_data.`+table+` WHERE tenant_id = $1`, e.tenant).(string)
+	// Read from the table itself: e.scalar reads a copy, whose rows are new.
+	var v string
+	require.NoError(e.t, e.pool.QueryRow(context.Background(),
+		`SELECT coalesce(string_agg(xmin::text, ',' ORDER BY xmin::text), '') FROM ohs_data.`+table+` WHERE tenant_id = $1`, e.tenant).Scan(&v))
 	return v
 }
 
@@ -223,7 +253,10 @@ func (e *env) rowVersions(table string) string {
 // the newest object confirmed. The same object processed again, and an older
 // copy with the same figures, write nothing at all.
 func TestWriter_NewerIdenticalCopyAdvancesCaptureTime(t *testing.T) {
-	e := newEnv(t)
+	eachMode(t, testWriterNewerIdenticalCopyAdvancesCaptureTime)
+}
+
+func testWriterNewerIdenticalCopyAdvancesCaptureTime(t *testing.T, e *env) {
 	day := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
 	at := day.Add(22 * time.Hour)
 	t1 := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)

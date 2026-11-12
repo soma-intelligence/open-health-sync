@@ -1,0 +1,83 @@
+{
+  "data": [
+    {
+      "device": null,
+      "end_date": "2026-09-01T09:00:00Z",
+      "external_id": "golden-flow-0",
+      "metadata": {},
+      "provider": "apple_health",
+      "source": "apple_health",
+      "source_name": "Health",
+      "start_date": "2026-09-01T08:00:00Z",
+      "type": "menstrual_flow",
+      "value_int": 3,
+      "value_label": "medium"
+    },
+    {
+      "device": null,
+      "end_date": "2026-09-02T09:00:00Z",
+      "external_id": "golden-flow-1",
+      "metadata": {},
+      "provider": "apple_health",
+      "source": "apple_health",
+      "source_name": "Health",
+      "start_date": "2026-09-02T08:00:00Z",
+      "type": "menstrual_flow",
+      "value_int": 3,
+      "value_label": "medium"
+    },
+    {
+      "device": null,
+      "end_date": "2026-09-03T09:00:00Z",
+      "external_id": "golden-flow-2",
+      "metadata": {},
+      "provider": "apple_health",
+      "source": "apple_health",
+      "source_name": "Health",
+      "start_date": "2026-09-03T08:00:00Z",
+      "type": "menstrual_flow",
+      "value_int": 3,
+      "value_label": "medium"
+    },
+    {
+      "device": null,
+      "end_date": "2026-09-04T09:00:00Z",
+      "external_id": "golden-flow-3",
+      "metadata": {},
+      "provider": "apple_health",
+      "source": "apple_health",
+      "source_name": "Health",
+      "start_date": "2026-09-04T08:00:00Z",
+      "type": "menstrual_flow",
+      "value_int": 3,
+      "value_label": "medium"
+    },
+    {
+      "device": null,
+      "end_date": "2026-09-29T09:00:00Z",
+      "external_id": "golden-flow-4",
+      "metadata": {},
+      "provider": "apple_health",
+      "source": "apple_health",
+      "source_name": "Health",
+      "start_date": "2026-09-29T08:00:00Z",
+      "type": "menstrual_flow",
+      "value_int": 3,
+      "value_label": "medium"
+    },
+    {
+      "device": null,
+      "end_date": "2026-09-30T09:00:00Z",
+      "external_id": "golden-flow-5",
+      "metadata": {},
+      "provider": "apple_health",
+      "source": "apple_health",
+      "source_name": "Health",
+      "start_date": "2026-09-30T08:00:00Z",
+      "type": "menstrual_flow",
+      "value_int": 3,
+      "value_label": "medium"
+    }
+  ],
+  "next_cursor": null
+}

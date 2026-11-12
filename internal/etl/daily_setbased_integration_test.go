@@ -7,6 +7,8 @@ package etl
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"strconv"
 	"testing"
 	"time"
 
@@ -21,11 +23,17 @@ import (
 
 // perDayDerive is the derivation as it was before it became set based: an
 // EXISTS, a sum and an upsert (or a delete) per day. It is kept here as the
-// reference the set based statements are compared with.
+// reference the set based statements are compared with. Clear rows are summed
+// in SQL, as they were; sealed rows are opened and summed per day.
 func perDayDerive(ctx context.Context, tx TxLike, sc scope, days map[dayKey]*time.Location) (written, skipped int, err error) {
 	const drop = `DELETE FROM ohs_data.daily_summaries
 		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND summary_date = $4`
-	upsert := insertHead(tDaily, dailyColumns) + placeholders(1, len(dailyColumns)) + derivedUpsertTail
+	columns := dailyShape.columns(sc)
+	tail := derivedUpsertTail
+	if sc.uv != nil {
+		tail = derivedUpsertTailSealed
+	}
+	upsert := insertHead(tDaily, columns) + placeholders(1, len(columns)) + tail
 	for _, k := range sortedDays(days) {
 		hash := derivedHash(sc, k.provider, k.day)
 		var own bool
@@ -43,25 +51,8 @@ func perDayDerive(ctx context.Context, tx TxLike, sc scope, days map[dayKey]*tim
 		}
 		loc := days[k]
 		lo := time.Date(k.day.Year(), k.day.Month(), k.day.Day(), 0, 0, 0, 0, loc)
-		rows, err := tx.Query(ctx, `
-			SELECT quantity_type, max(total) FROM (
-				SELECT quantity_type,
-				       COALESCE(NULLIF(source_bundle_id, ''), NULLIF(source_name, ''), NULLIF(device_id, ''), '') AS source,
-				       sum(value::numeric)::double precision AS total
-				FROM ohs_data.quantity_samples
-				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND quantity_type = ANY($4)
-				  AND start_date >= $5 AND start_date < $6
-				GROUP BY 1, 2
-			) per_source
-			GROUP BY quantity_type`,
-			sc.tenant, sc.user, k.provider, additiveTypes, lo, lo.AddDate(0, 0, 1))
+		sums, err := perDaySums(ctx, tx, sc, k.provider, lo, lo.AddDate(0, 0, 1))
 		if err != nil {
-			return written, skipped, err
-		}
-		sums := map[string]float64{}
-		var qt string
-		var v float64
-		if _, err := pgx.ForEachRow(rows, []any{&qt, &v}, func() error { sums[qt] = v; return nil }); err != nil {
 			return written, skipped, err
 		}
 		if len(sums) == 0 {
@@ -70,7 +61,11 @@ func perDayDerive(ctx context.Context, tx TxLike, sc scope, days map[dayKey]*tim
 			}
 			continue
 		}
-		tag, err := tx.Exec(ctx, upsert, derivedRow(sc, k, loc, hash, sums)...)
+		row, err := dailyShape.finish(sc, derivedRow(sc, k, loc, hash, sums))
+		if err != nil {
+			return written, skipped, err
+		}
+		tag, err := tx.Exec(ctx, upsert, row...)
 		if err != nil {
 			return written, skipped, err
 		}
@@ -83,29 +78,109 @@ func perDayDerive(ctx context.Context, tx TxLike, sc scope, days map[dayKey]*tim
 	return written, skipped, nil
 }
 
+// perDaySums is the daily value of each additive type of one provider and
+// day: the per-source sum, then the largest.
+func perDaySums(ctx context.Context, tx TxLike, sc scope, provider string, lo, hi time.Time) (map[string]float64, error) {
+	sums := map[string]float64{}
+	if sc.uv == nil {
+		rows, err := tx.Query(ctx, `
+			SELECT quantity_type, max(total) FROM (
+				SELECT quantity_type,
+				       COALESCE(NULLIF(source_bundle_id, ''), NULLIF(source_name, ''), NULLIF(device_id, ''), '') AS source,
+				       sum(value::numeric)::double precision AS total
+				FROM ohs_data.quantity_samples
+				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND quantity_type = ANY($4)
+				  AND start_date >= $5 AND start_date < $6
+				GROUP BY 1, 2
+			) per_source
+			GROUP BY quantity_type`,
+			sc.tenant, sc.user, provider, additiveTypes, lo, hi)
+		if err != nil {
+			return nil, err
+		}
+		var qt string
+		var v float64
+		_, err = pgx.ForEachRow(rows, []any{&qt, &v}, func() error { sums[qt] = v; return nil })
+		return sums, err
+	}
+	type group struct{ qt, source string }
+	totals := map[group]*big.Rat{}
+	for r, err := range openRows(ctx, tx, sc.uv, tQuantity, `
+		SELECT quantity_type, content_hash, start_date, sealed, value, source_bundle_id, source_name, device_id
+		FROM ohs_data.quantity_samples
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND quantity_type = ANY($4)
+		  AND start_date >= $5 AND start_date < $6`,
+		[]any{sc.tenant, sc.user, provider, additiveTypes, lo, hi}) {
+		if err != nil {
+			return nil, err
+		}
+		v, _ := r.float("value")
+		d, _ := new(big.Rat).SetString(strconv.FormatFloat(v, 'g', 15, 64))
+		g := group{r.text("quantity_type"), firstNonEmpty(r["source_bundle_id"], r["source_name"], r["device_id"])}
+		if t := totals[g]; t != nil {
+			t.Add(t, d)
+		} else {
+			totals[g] = d
+		}
+	}
+	best := map[string]*big.Rat{}
+	for g, t := range totals {
+		if b := best[g.qt]; b == nil || t.Cmp(b) > 0 {
+			best[g.qt] = t
+		}
+	}
+	for qt, t := range best {
+		sums[qt], _ = t.Float64()
+	}
+	return sums, nil
+}
+
 type deriveFunc func(context.Context, TxLike, scope, map[dayKey]*time.Location) (int, int, error)
 
-func (e *env) derive(user uuid.UUID, fn deriveFunc, days map[dayKey]*time.Location) (int, int) {
+func (e *env) deriveWith(user uuid.UUID, fn deriveFunc, days map[dayKey]*time.Location) (int, int) {
 	e.t.Helper()
 	ctx := context.Background()
 	tx, err := e.pool.Begin(ctx)
 	require.NoError(e.t, err)
 	defer tx.Rollback(ctx) //nolint:errcheck
-	n, k, err := fn(ctx, tx, scope{tenant: e.tenant, user: user, provider: "dev"}, days)
+	n, k, err := fn(ctx, tx, e.modeScope(user), days)
 	require.NoError(e.t, err)
 	require.NoError(e.t, tx.Commit(ctx))
 	return n, k
 }
 
-// summaries dumps a user's daily summaries without the columns that name the
-// user (the derived hash covers the user id).
+// modeScope is the scope of a write for user: with the user's keys, or
+// without when the env writes clear rows (eachMode).
+func (e *env) modeScope(user uuid.UUID) scope {
+	sc := scope{tenant: e.tenant, user: user, provider: "dev"}
+	if !e.clear {
+		sc.uv = e.keys(e.tenant, user)
+	}
+	return sc
+}
+
+// writeMode is writeFor in the env's mode.
+func (e *env) writeMode(user uuid.UUID, acc *model.MapResult) Counts {
+	e.t.Helper()
+	ctx := context.Background()
+	tx, err := e.pool.Begin(ctx)
+	require.NoError(e.t, err)
+	defer tx.Rollback(ctx) //nolint:errcheck
+	c, err := NewWriter(smallCopy).WriteAccumulated(ctx, tx, e.modeScope(user), acc)
+	require.NoError(e.t, err)
+	require.NoError(e.t, tx.Commit(ctx))
+	return c
+}
+
+// summaries dumps a user's daily summaries, opened, without the columns that
+// name the user (the derived hash covers the user id).
 func (e *env) summaries(user uuid.UUID) []string {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(), `
+	rows, err := e.read().Query(context.Background(), `
 		SELECT concat_ws('|', provider, source_slug, summary_date, step_count, active_kcal, total_kcal, distance_m,
 		                 floors_climbed, readiness_score, resting_hr, metadata::text, captured_at)
 		FROM ohs_data.daily_summaries WHERE tenant_id = $1 AND user_id = $2
-		ORDER BY provider, summary_date, content_hash = 'own'`, e.tenant, user)
+		ORDER BY provider, summary_date, derived`, e.tenant, user)
 	require.NoError(e.t, err)
 	out, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	require.NoError(e.t, err)
@@ -116,7 +191,10 @@ func (e *env) summaries(user uuid.UUID) []string {
 // in several zones (a DST day among them), two providers, overlapping
 // sources, a day that has a provider summary and a day whose samples are gone.
 func TestDeriveDailySummariesMatchesPerDayReference(t *testing.T) {
-	e := newEnv(t)
+	eachMode(t, testDeriveDailySummariesMatchesPerDayReference)
+}
+
+func testDeriveDailySummariesMatchesPerDayReference(t *testing.T, e *env) {
 	ref, set := e.user, e.newUser(e.tenant)
 	la, err := time.LoadLocation("America/Los_Angeles")
 	require.NoError(t, err)
@@ -175,9 +253,9 @@ func TestDeriveDailySummariesMatchesPerDayReference(t *testing.T) {
 	}
 	gone := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
 	for _, user := range []uuid.UUID{ref, set} {
-		e.writeFor(e.tenant, user, smallCopy, acc)
+		e.writeMode(user, acc)
 		// A day whose only sample is deleted after its derived row was written.
-		e.writeFor(e.tenant, user, smallCopy, &model.MapResult{QuantitySamples: []model.QuantitySample{
+		e.writeMode(user, &model.MapResult{QuantitySamples: []model.QuantitySample{
 			sample("dev", model.QTStepCount, 10, gone, "", "")}})
 	}
 	days := touchedDays(scope{provider: "dev"}, acc)
@@ -188,7 +266,7 @@ func TestDeriveDailySummariesMatchesPerDayReference(t *testing.T) {
 		user uuid.UUID
 		fn   deriveFunc
 	}{{ref, perDayDerive}, {set, deriveDailySummaries}} {
-		e.derive(fn.user, fn.fn, goneDays)
+		e.deriveWith(fn.user, fn.fn, goneDays)
 	}
 	require.Equal(t, e.summaries(ref), e.summaries(set))
 	e.exec(`DELETE FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND start_date = $2`, e.tenant, gone)
@@ -200,11 +278,14 @@ func TestDeriveDailySummariesMatchesPerDayReference(t *testing.T) {
 	// sample changed: same counts and same rows each time.
 	for round := 0; round < 3; round++ {
 		if round == 2 {
-			e.exec(`UPDATE ohs_data.quantity_samples SET value = value + 5
-				WHERE tenant_id = $1 AND source_name = 'watch' AND quantity_type = 'step_count'`, e.tenant)
+			// More steps from the watch on the 23 hour day: its total changes.
+			more := sample("dev", model.QTStepCount, 5000, time.Date(2026, 3, 8, 12, 0, 0, 0, la), "America/Los_Angeles", "watch")
+			for _, user := range []uuid.UUID{ref, set} {
+				e.writeMode(user, &model.MapResult{QuantitySamples: []model.QuantitySample{more}})
+			}
 		}
-		wantN, wantK := e.derive(ref, perDayDerive, days)
-		gotN, gotK := e.derive(set, deriveDailySummaries, days)
+		wantN, wantK := e.deriveWith(ref, perDayDerive, days)
+		gotN, gotK := e.deriveWith(set, deriveDailySummaries, days)
 		assert.Equal(t, [2]int{wantN, wantK}, [2]int{gotN, gotK}, "round %d", round)
 		want := e.summaries(ref)
 		require.NotEmpty(t, want)
@@ -216,7 +297,10 @@ func TestDeriveDailySummariesMatchesPerDayReference(t *testing.T) {
 
 // The statements a derivation runs do not grow with the days it touches.
 func TestDeriveDailySummariesStatementCount(t *testing.T) {
-	e := newEnv(t)
+	eachMode(t, testDeriveDailySummariesStatementCount)
+}
+
+func testDeriveDailySummariesStatementCount(t *testing.T, e *env) {
 	days := map[dayKey]*time.Location{}
 	var samples []model.QuantitySample
 	for d := 0; d < 40; d++ {
@@ -225,18 +309,23 @@ func TestDeriveDailySummariesStatementCount(t *testing.T) {
 			StartDate: at, EndDate: at, ContentHash: fmt.Sprintf("s%d", d)})
 		days[dayKey{provider: "dev", day: dateOnly(at)}] = time.UTC
 	}
-	e.write(smallCopy, &model.MapResult{QuantitySamples: samples})
+	e.writeMode(e.user, &model.MapResult{QuantitySamples: samples})
 
 	ctx := context.Background()
 	tx, err := e.pool.Begin(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback(ctx) //nolint:errcheck
 	counting := &countingTx{Tx: tx}
-	n, k, err := deriveDailySummaries(ctx, counting, scope{tenant: e.tenant, user: e.user, provider: "dev"}, days)
+	n, k, err := deriveDailySummaries(ctx, counting, e.modeScope(e.user), days)
 	require.NoError(t, err)
 	assert.Equal(t, [2]int{40, 0}, [2]int{n, k})
-	// One lock, one summary lookup, one sum, one upsert.
-	assert.Equal(t, 4, counting.n)
+	// One lock, one summary lookup, one read of the samples, one upsert; with
+	// keys, one more lookup for derived rows still stored clear.
+	want := 4
+	if !e.clear {
+		want = 5
+	}
+	assert.Equal(t, want, counting.n)
 }
 
 // countingTx counts the statements sent through a transaction.

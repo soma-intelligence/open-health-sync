@@ -77,10 +77,10 @@ func TestPrepareSyntheticRefuses(t *testing.T) {
 }
 
 func TestWriteSyntheticArguments(t *testing.T) {
-	if _, err := WriteSynthetic(context.Background(), nil, uuid.New(), uuid.New(), "", &model.MapResult{}); err == nil {
+	if _, err := WriteSynthetic(context.Background(), nil, nil, uuid.New(), uuid.New(), "", &model.MapResult{}); err == nil {
 		t.Fatal("an empty provider must be refused")
 	}
-	c, err := WriteSynthetic(context.Background(), nil, uuid.New(), uuid.New(), "oura", &model.MapResult{})
+	c, err := WriteSynthetic(context.Background(), nil, nil, uuid.New(), uuid.New(), "oura", &model.MapResult{})
 	if err != nil || c.TotalWritten() != 0 {
 		t.Fatalf("empty records: %v %v", c, err)
 	}

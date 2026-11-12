@@ -41,6 +41,10 @@ var retentionTables = []struct {
 	// The HealthKit aliases of a row (migration 0043) name it by its start:
 	// they go with the rows they hold.
 	{table: "record_aliases", col: "start_time"},
+	// The sealed hourly buckets (migration 0050) go by their hour. The
+	// cutoff is a whole hour, so a bucket goes exactly when every sample it
+	// counts does.
+	{table: "quantity_hourly_sealed", col: "bucket"},
 }
 
 // retentionKept are the ohs_data tables with a user_id that retention leaves
@@ -109,7 +113,9 @@ func (r *Retention) Run(ctx context.Context) (RetentionResult, error) {
 	if r.Now != nil {
 		now = r.Now()
 	}
-	cutoff := now.UTC().Add(-time.Duration(r.Days) * 24 * time.Hour)
+	// On a whole hour: the hourly buckets and their samples are cut at the
+	// same instant.
+	cutoff := now.UTC().Add(-time.Duration(r.Days) * 24 * time.Hour).Truncate(time.Hour)
 
 	var errs []error
 	if err := r.pruneRaw(ctx, cutoff, &res); err != nil {

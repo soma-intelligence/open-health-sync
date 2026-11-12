@@ -98,7 +98,7 @@ func (s *server) createSelfReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := collect.StorePart(r.Context(), collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: s.d.SelfReport,
-		Allowed: s.providerAllowed}, part)
+		Allowed: s.providerAllowed, Vault: s.d.Vault}, part)
 	switch {
 	case errors.Is(err, collect.ErrProviderOff):
 		problem(w, http.StatusForbidden, collect.ProviderOffDetail)

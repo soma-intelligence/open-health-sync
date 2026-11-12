@@ -124,3 +124,47 @@ func equalCounts(a, b map[string]int) bool {
 	}
 	return true
 }
+
+// Without a key provider configured, an instance that already holds vault
+// keys refuses a demo seed: its rows would be written clear. Nothing is
+// written.
+func TestSeedDemoRefusesClearWritesOnceKeysExist(t *testing.T) {
+	url := db.TestDB(t)
+	t.Setenv("OHS_DATABASE_URL", url)
+	t.Setenv("OHS_ENCRYPTION_KEY", "")
+	t.Setenv("OHS_URL", "")
+	ctx := context.Background()
+	pool, err := db.Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	var tn uuid.UUID
+	if err := pool.QueryRow(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('other') RETURNING id`).Scan(&tn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO ohs_core.vault_keys (tenant_id, version, wrapped, parent_version)
+		VALUES ($1, 1, '\x00', 'v1')`, tn); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	err = run([]string{"seed", "--demo", "--days", "2"}, &buf)
+	if err == nil || !strings.Contains(err.Error(), "OHS_VAULT_") || !strings.Contains(err.Error(), "OHS_ENCRYPTION_KEY") {
+		t.Fatalf("seed = %v, want the key provider refusal", err)
+	}
+	for _, q := range []string{`SELECT count(*) FROM ohs_data.quantity_samples`, `SELECT count(*) FROM ohs_core.end_users`,
+		`SELECT count(*) FROM ohs_core.tenants WHERE id <> $1`} {
+		var n int
+		args := []any{}
+		if strings.Contains(q, "$1") {
+			args = append(args, tn)
+		}
+		if err := pool.QueryRow(ctx, q, args...).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("%s: %d, want nothing written", q, n)
+		}
+	}
+}

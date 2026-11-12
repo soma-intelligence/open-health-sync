@@ -94,6 +94,12 @@ const (
 	// whether keys are set after the change and how many connections were
 	// set needs_reauth, never a key.
 	TenantProviderKeys = "tenant.provider_keys"
+	// VaultKeyCreated is a tenant or user key of the vault created; detail
+	// has which (tenant or user) and its version, never key material.
+	VaultKeyCreated = "vault.key_created"
+	// VaultUserShredded is a user's keys deleted at the start of their
+	// erasure; detail has the deletion job id, never key material.
+	VaultUserShredded = "vault.user_shredded"
 )
 
 // Event is one entry to record.

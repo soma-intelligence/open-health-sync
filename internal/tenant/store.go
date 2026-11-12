@@ -22,6 +22,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 var (
@@ -85,11 +86,25 @@ type User struct {
 
 // Store is the Postgres backed tenant store.
 type Store struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	vault *vault.Vault
 }
 
 // New wraps an open pool.
 func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+
+// WithVault returns a copy of the store that gives every user it creates
+// keys, in the transaction that creates them. Without a vault a user is
+// created with none, and gets them at the next start of a process that can
+// open keys.
+func (s *Store) WithVault(v *vault.Vault) *Store {
+	c := *s
+	c.vault = v
+	return &c
+}
+
+// Vault is the vault of WithVault, nil without one.
+func (s *Store) Vault() *vault.Vault { return s.vault }
 
 // Pool exposes the pool for tests and sibling stores.
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
@@ -291,14 +306,20 @@ func insertTenant(ctx context.Context, tx pgx.Tx, name string) (Tenant, string, 
 	return t, full, k, nil
 }
 
-// CreateUser adds an end user. An empty externalRef is stored as NULL, so
-// unreferenced users never collide.
+// CreateUser adds an end user, with its keys when the store has a vault: a
+// user whose keys cannot be made is not created. An empty externalRef is
+// stored as NULL, so unreferenced users never collide.
 func (s *Store) CreateUser(ctx context.Context, tenantID uuid.UUID, externalRef string) (User, error) {
 	var ref *string
 	if externalRef != "" {
 		ref = &externalRef
 	}
-	row := s.pool.QueryRow(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return User{}, fmt.Errorf("tenant: begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	row := tx.QueryRow(ctx,
 		`INSERT INTO ohs_core.end_users (tenant_id, external_ref) VALUES ($1, $2)
 		 RETURNING id, tenant_id, coalesce(external_ref, ''), status, created_at`, tenantID, ref)
 	u, err := scanUser(row)
@@ -311,7 +332,18 @@ func (s *Store) CreateUser(ctx context.Context, tenantID uuid.UUID, externalRef 
 			return User{}, ErrNotFound
 		}
 	}
-	return u, err
+	if err != nil {
+		return User{}, err
+	}
+	if s.vault != nil {
+		if err := s.vault.EnsureUser(ctx, tx, tenantID, u.ID); err != nil {
+			return User{}, fmt.Errorf("tenant: user keys: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return User{}, fmt.Errorf("tenant: commit: %w", err)
+	}
+	return u, nil
 }
 
 // GetUser returns a user of the tenant. A user of another tenant is ErrNotFound.

@@ -15,6 +15,13 @@ import (
 // notSealed are the bytea columns that hold no sealed secret.
 var notSealed = map[string]bool{
 	"response_body": true, // idempotent replay of an API response
+	// The vault columns (migration 0050) are not under OHS_ENCRYPTION_KEY: the
+	// vault has its own key hierarchy and rotation (internal/vault).
+	"wrapped":     true, // a vault key, wrapped by its parent key
+	"kem_public":  true, // a user's public keys, in clear by design
+	"sealed":      true, // a row sealed under the user key
+	"content_mac": true, // keyed MAC of a sealed row's content
+	"source_key":  true, // keyed HMAC of a record's source
 }
 
 // Every bytea column a migration adds is either a sealed column Run walks or

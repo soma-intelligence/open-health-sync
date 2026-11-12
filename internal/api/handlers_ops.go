@@ -101,6 +101,13 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if s.d.Vault != nil {
+		if err := s.d.Vault.Ready(ctx); err != nil {
+			slog.WarnContext(r.Context(), "readyz: vault", "error", err)
+			problem(w, http.StatusServiceUnavailable, "the key provider does not open keys")
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
@@ -206,5 +213,8 @@ func (s *server) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	renderMetrics(w, s.metrics, etl)
 	if sync != nil {
 		collect.WriteSyncMetrics(w, sync)
+	}
+	if s.d.Vault != nil {
+		s.d.Vault.Metrics().Write(w)
 	}
 }
