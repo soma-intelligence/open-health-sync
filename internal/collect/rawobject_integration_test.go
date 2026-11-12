@@ -153,3 +153,44 @@ func TestLogSyncSkipsUserBeingDeleted(t *testing.T) {
 	assert.Equal(t, 1, a)
 	assert.Equal(t, 0, g)
 }
+
+// A pull's raw objects carry when the fetch started, not when each one was
+// registered: the ETL orders the copies of a replaceable row by it. An
+// upload keeps the time it was received (no captured_at).
+func TestPullSinkStampsFetchStart(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	st := tenant.New(pool)
+	ten, _, err := st.CreateTenant(ctx, "A")
+	require.NoError(t, err)
+	u, err := st.CreateUser(ctx, ten.ID, "u")
+	require.NoError(t, err)
+	fs, err := rawstore.Open("file://" + t.TempDir())
+	require.NoError(t, err)
+	d := Deps{Pool: pool, Raw: fs}
+
+	sink := newPullSink(d, queue.PullJob{ID: 1, TenantID: ten.ID, UserID: u.ID, Provider: "p", ClaimedAt: time.Now()})
+	require.NoError(t, sink.startFetch(ctx))
+	var started time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&started))
+	time.Sleep(50 * time.Millisecond) // the provider answers
+	day := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, sink.Emit(ctx, "steps", day, [][]byte{[]byte(`{"v":1}`)}))
+
+	var captured, created time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT captured_at, created_at FROM ohs_sync.raw_objects WHERE batch = $1`, sink.batch).
+		Scan(&captured, &created))
+	assert.False(t, captured.After(started), "captured_at %s is the fetch start, before %s", captured, started)
+	assert.True(t, created.After(started), "the row is registered after the fetch")
+
+	// Stored without a fetch (an upload, a notification body): no captured_at.
+	stored, err := storeRaw(ctx, d, rawTarget{tenant: ten.ID, user: u.ID, provider: "p", dataType: "steps", day: day, batch: "up1"},
+		[][]byte{[]byte(`{"v":2}`)})
+	require.NoError(t, err)
+	require.True(t, stored)
+	var none *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT captured_at FROM ohs_sync.raw_objects WHERE batch = 'up1'`).Scan(&none))
+	assert.Nil(t, none)
+}

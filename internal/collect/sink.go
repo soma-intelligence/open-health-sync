@@ -32,7 +32,10 @@ type pullSink struct {
 	job   queue.PullJob
 	batch string
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// fetched is when the fetch in progress started (startFetch): the
+	// capture time of every raw object it emits.
+	fetched time.Time
 	part    int
 	stored  int
 	skipped int
@@ -46,6 +49,22 @@ func newPullSink(d Deps, job queue.PullJob) *pullSink {
 	return &pullSink{d: d, job: job, batch: fmt.Sprintf("pull%d-%d", job.ID, job.ClaimedAt.UnixMicro())}
 }
 
+// startFetch notes that a fetch starts now. What the fetch emits was read
+// from the provider after this moment, however long the objects then take to
+// be stored and registered, so this is the time that orders them against the
+// objects of other pulls. It is the database's clock, as the receive time of
+// an upload is.
+func (s *pullSink) startFetch(ctx context.Context) error {
+	var at time.Time
+	if err := s.d.Pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
+		return fmt.Errorf("read fetch start time: %w", err)
+	}
+	s.mu.Lock()
+	s.fetched = at
+	s.mu.Unlock()
+	return nil
+}
+
 // Emit stores lines (NDJSON, one record each, verbatim) as one raw object.
 func (s *pullSink) Emit(ctx context.Context, dataType string, day time.Time, lines [][]byte) error {
 	if dataType == "" {
@@ -57,12 +76,13 @@ func (s *pullSink) Emit(ctx context.Context, dataType string, day time.Time, lin
 	s.mu.Lock()
 	part := s.part
 	s.part++
+	fetched := s.fetched
 	s.mu.Unlock()
 
 	j := s.job
 	stored, err := storeRaw(ctx, s.d, rawTarget{
 		tenant: j.TenantID, user: j.UserID, provider: j.Provider, dataType: dataType,
-		day: day, batch: s.batch, part: part,
+		day: day, batch: s.batch, part: part, captured: fetched,
 	}, lines)
 	if err != nil {
 		return err
@@ -79,6 +99,9 @@ type rawTarget struct {
 	day          time.Time
 	batch        string
 	part         int
+	// captured is when the data was fetched (rawObject.captured); zero when
+	// it was received rather than fetched.
+	captured time.Time
 }
 
 // storeRaw stores lines as one raw object of t and queues its standard tier
@@ -111,7 +134,7 @@ func storeRaw(ctx context.Context, d Deps, t rawTarget, lines [][]byte) (bool, e
 	}
 	inserted, err := registerRaw(ctx, d.Pool, rawObject{
 		tenant: t.tenant, user: t.user, provider: t.provider, key: key, hash: hash, size: len(body),
-		batch: t.batch, part: t.part, dataType: t.dataType, tier: queue.TierStandard,
+		batch: t.batch, part: t.part, dataType: t.dataType, tier: queue.TierStandard, captured: t.captured,
 	})
 	if errors.Is(err, errInactive) || errors.Is(err, errErasing) {
 		// The user, or their data from this provider, started being deleted

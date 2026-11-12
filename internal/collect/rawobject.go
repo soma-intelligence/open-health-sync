@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -28,6 +29,10 @@ type rawObject struct {
 	part         int
 	dataType     string
 	tier         string
+	// captured is when the data was fetched from the provider (the start of
+	// the pull's fetch). Zero for an upload or a notification body, which
+	// count from when the row is created.
+	captured time.Time
 }
 
 // rawMatch is a registered raw object found by key or by content hash.
@@ -117,14 +122,20 @@ func registerRaw(ctx context.Context, pool *pgxpool.Pool, o rawObject) (bool, er
 		return false, errErasing
 	}
 
+	// created_at is the start of this transaction, which can be long after
+	// the data was fetched: a pull says when its fetch started.
+	var captured *time.Time
+	if !o.captured.IsZero() {
+		captured = &o.captured
+	}
 	var id int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO ohs_sync.raw_objects
-			(tenant_id, user_id, provider, key, content_hash, size_bytes, batch, part, data_type)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			(tenant_id, user_id, provider, key, content_hash, size_bytes, batch, part, data_type, captured_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT DO NOTHING
 		RETURNING id`,
-		o.tenant, o.user, o.provider, o.key, o.hash, o.size, o.batch, o.part, o.dataType).Scan(&id)
+		o.tenant, o.user, o.provider, o.key, o.hash, o.size, o.batch, o.part, o.dataType, captured).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

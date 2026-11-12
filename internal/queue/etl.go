@@ -48,37 +48,122 @@ func EnqueueETL(ctx context.Context, tx pgx.Tx, j ETLJob) error {
 	return nil
 }
 
+// DefaultETLPerUser is how many ETL jobs of one user and tier run at once.
+const DefaultETLPerUser = 1
+
 // ETL claims and settles etl_jobs.
-type ETL struct{ pool *pgxpool.Pool }
+type ETL struct {
+	pool *pgxpool.Pool
+	// PerUser caps the jobs of one user and tier running at once, across
+	// every instance. Zero means DefaultETLPerUser; a negative value means
+	// no cap. The writers of one user take turns on a lock anyway, so more
+	// than one job per user holds worker slots without writing faster, and
+	// one user's large import would keep every other user waiting.
+	PerUser int
+}
 
 // NewETL returns the ETL queue over pool.
 func NewETL(pool *pgxpool.Pool) *ETL { return &ETL{pool: pool} }
 
-// Claim takes up to n jobs of one tier, oldest first. Pending jobs past their
-// not_before and running jobs past the visibility timeout are eligible; a
-// reclaimed job burns an attempt. Concurrent claimers get disjoint sets.
+func (q *ETL) perUser() int {
+	switch {
+	case q.PerUser == 0:
+		return DefaultETLPerUser
+	case q.PerUser < 0:
+		return 0
+	}
+	return q.PerUser
+}
+
+// etlClaimLock serializes the claims of one tier ($1) across instances, so
+// the per-user counts a claim reads are not raced by another claim.
+const etlClaimLock = `SELECT pg_advisory_xact_lock(hashtextextended('ohs_sync.etl_jobs:claim:' || $1, 0))`
+
+// etlClaimWindow is how many due jobs a claim of n looks at. Jobs of users
+// at their cap are skipped before the window, so a backlog of theirs never
+// fills it; a user below the cap can fill it alone, and then the claim
+// returns fewer than n jobs and the next one moves past that user.
+func etlClaimWindow(n int) int { return max(16*n, 256) }
+
+var reclaimETLSQL = reclaimSQL("etl_jobs", MaxAttempts, "tier = $2 AND ", "")
+
+// claimETLSQL picks up to $1 due jobs of tier $3, oldest first, at most $2
+// running per user (0 means no cap) counting the jobs already running, out
+// of a window of $4 due jobs, and marks them running.
+const claimETLSQL = `
+	WITH busy AS MATERIALIZED (
+		SELECT tenant_id, user_id, count(*) AS n
+		FROM ohs_sync.etl_jobs
+		WHERE status = 'running' AND tier = $3
+		GROUP BY tenant_id, user_id
+	), due AS (
+		SELECT j.id, j.tenant_id, j.user_id, j.not_before
+		FROM ohs_sync.etl_jobs j
+		WHERE j.tier = $3 AND j.status = 'pending' AND j.not_before <= now()
+		  AND (j.tenant_id, j.user_id) NOT IN (SELECT b.tenant_id, b.user_id FROM busy b WHERE $2 > 0 AND b.n >= $2)
+		ORDER BY j.not_before, j.id
+		LIMIT $4
+	), ranked AS (
+		SELECT d.id, d.not_before, coalesce(b.n, 0) + row_number() OVER (
+			PARTITION BY d.tenant_id, d.user_id ORDER BY d.not_before, d.id) AS slot
+		FROM due d LEFT JOIN busy b USING (tenant_id, user_id)
+	), picked AS (
+		SELECT t.id
+		FROM (
+			SELECT r.id FROM ranked r
+			WHERE $2 = 0 OR r.slot <= $2
+			ORDER BY r.not_before, r.id
+			LIMIT $1
+		) c CROSS JOIN LATERAL (
+			SELECT j.id FROM ohs_sync.etl_jobs j
+			WHERE j.id = c.id AND j.status = 'pending'
+			FOR UPDATE SKIP LOCKED
+		) t
+	), upd AS (
+		UPDATE ohs_sync.etl_jobs t SET status = 'running', claimed_at = now()
+		FROM picked p WHERE t.id = p.id AND t.status = 'pending'
+		RETURNING t.*
+	)
+	SELECT id, tenant_id, user_id, provider, key, tier, attempts, claimed_at FROM upd`
+
+// Claim takes up to n jobs of one tier, oldest first, at most PerUser of
+// one user at a time: a user's jobs run in queue order (not_before, then
+// id), and the jobs of a user at the cap are passed over, so one user's
+// backlog does not keep the others waiting. Pending jobs past their
+// not_before are eligible. A running job past the visibility timeout is put
+// back first, with an attempt burned, and is claimed again like any due job.
+// Concurrent claimers get disjoint sets; claims of one tier take turns (an
+// advisory lock), so the cap holds across instances. A claim can return
+// fewer than n jobs while more are due.
 func (q *ETL) Claim(ctx context.Context, tier string, n int) ([]ETLJob, error) {
 	if n <= 0 {
 		return nil, nil
 	}
-	rows, err := q.pool.Query(ctx,
-		claimSQL("etl_jobs", "tier = $3 AND ",
-			"id, tenant_id, user_id, provider, key, tier, attempts, claimed_at"),
-		n, VisibilityTimeout.Seconds(), tier)
+	tx, err := q.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("claim etl jobs: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if _, err := tx.Exec(ctx, etlClaimLock, tier); err != nil {
+		return nil, fmt.Errorf("claim etl jobs: lock: %w", err)
+	}
+	if _, err := tx.Exec(ctx, reclaimETLSQL, VisibilityTimeout.Seconds(), tier); err != nil {
+		return nil, fmt.Errorf("claim etl jobs: reclaim: %w", err)
+	}
+	rows, err := tx.Query(ctx, claimETLSQL, n, q.perUser(), tier, etlClaimWindow(n))
 	if err != nil {
 		return nil, fmt.Errorf("claim etl jobs: %w", err)
 	}
-	defer rows.Close()
-	var out []ETLJob
-	for rows.Next() {
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ETLJob, error) {
 		var j ETLJob
-		if err := rows.Scan(&j.ID, &j.TenantID, &j.UserID, &j.Provider, &j.Key, &j.Tier, &j.Attempts, &j.ClaimedAt); err != nil {
-			return nil, fmt.Errorf("scan etl job: %w", err)
-		}
-		out = append(out, j)
-	}
-	if err := rows.Err(); err != nil {
+		err := r.Scan(&j.ID, &j.TenantID, &j.UserID, &j.Provider, &j.Key, &j.Tier, &j.Attempts, &j.ClaimedAt)
+		return j, err
+	})
+	if err != nil {
 		return nil, fmt.Errorf("claim etl jobs: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("claim etl jobs: commit: %w", err)
 	}
 	return out, nil
 }
@@ -91,7 +176,7 @@ func (q *ETL) Complete(ctx context.Context, j ETLJob) error {
 // Fail records the error and retries the job after 30s*2^attempts, or parks
 // it once it has failed five times. It returns ErrNotRunning if the claim is gone.
 func (q *ETL) Fail(ctx context.Context, j ETLJob, cause error) error {
-	return fail(ctx, "etl_jobs", q.pool, j.ID, j.ClaimedAt, cause)
+	return fail(ctx, "etl_jobs", q.pool, j.ID, j.ClaimedAt, cause, standardBackoff)
 }
 
 // ErrNotParked is returned by RetryETL for a job that is not parked: it is
