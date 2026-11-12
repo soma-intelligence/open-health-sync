@@ -5,6 +5,10 @@ analyzer:
   language:
     strict-casts: true
     strict-raw-types: true
+  exclude:
+    # The Flutter plugin is a package of its own, with its own options: its imports only
+    # resolve with the Flutter SDK, which this package does not need.
+    - open_health_sync_health/**
 
 linter:
   rules:
