@@ -5,6 +5,13 @@ for every call, kotlinx.serialization for the models, `HttpURLConnection` undern
 Android API 26+ and any JVM 11+ with no HTTP library. It follows the shape every SDK shares
 ([overview](README.md)). AGPL-3.0-only, like the server ([LICENSE](../../LICENSE)).
 
+It comes in two modules:
+
+| Module | What it is | Runs on |
+|---|---|---|
+| `open-health-sync-kotlin` ([`sdks/kotlin`](../../sdks/kotlin)) | The REST client, the upload part builders and the Bluetooth recorder. Plain JVM, no Android class | Android API 26+, any JVM 11+ |
+| `open-health-sync-health-connect` ([`sdks/kotlin/health-connect`](../../sdks/kotlin/health-connect)) | An Android library that reads [Health Connect](#health-connect-sync) and uploads what changed, built on the client | Android API 26+ |
+
 ## Install
 
 Nothing is published yet. Build the jar from this repository and add it to your project, or
@@ -22,6 +29,19 @@ dependencies {
 
 The coordinates `org.openhealthsync:open-health-sync-kotlin` are placeholders until the first
 release. The library brings `kotlinx-coroutines-core` and `kotlinx-serialization-json`.
+
+An Android app that syncs Health Connect adds the second module, which brings the client with it:
+
+```kotlin
+dependencies {
+    implementation("org.openhealthsync:open-health-sync-health-connect:0.1.0")
+}
+```
+
+It brings `androidx.health.connect:connect-client` 1.1.0 and `androidx.work:work-runtime`, so
+your app needs `compileSdk` 36 and the Android Gradle plugin 8.9.1 or later. The module is part
+of the Gradle build only when an Android SDK is found (`ANDROID_HOME`, `ANDROID_SDK_ROOT` or
+`sdk.dir` in `local.properties`), so the client still builds on a machine without one.
 
 ## Create a client
 
@@ -103,11 +123,13 @@ HealthKit-shaped lines ([line formats](../connectors/apple-health.md#line-format
 Android they serve data you already hold in that shape, for example lines converted from a Health
 app export.
 
-The SDK does not read Health Connect, and has no method or part builder for the server's
-Health Connect route yet; both are planned. Until then your app reads Health Connect with the
-androidx client and posts the gzip NDJSON parts to `POST /v1/ingest/health-connect` itself, with
-the same upload token and the same four `X-OHS-` headers
-([contract and line format](../connectors/health-connect.md)).
+Health Connect data goes to its own route, `POST /v1/ingest/health-connect`. On Android,
+[`HealthConnectSync`](#health-connect-sync) reads the store and uploads for you. The pieces
+underneath are in the client, for data you hold in the
+[Health Connect line format](../connectors/health-connect.md#line-format) already:
+`HealthConnectPartBuilder` groups lines into parts (one record type and local day per part, at
+most 8 MiB of NDJSON, numbered across the batch) and `uploadHealthConnectPart` sends one, with
+the same retries as the Apple Health upload.
 
 ```kotlin
 import org.openhealthsync.sdk.AppleHealthPartBuilder
@@ -133,6 +155,204 @@ val results = uploads.uploadParts(builder.build())
 The builder makes one part per type and local day, at most 8 MiB of NDJSON each, gzip
 compressed and numbered across the batch. On your backend, poll `getCoverage(userId).pendingJobs` until
 it is 0 to know the server has processed everything.
+
+## Health Connect sync
+
+`HealthConnectSync`, in the `open-health-sync-health-connect` module, reads Android Health
+Connect and uploads what changed since the last run. It is the counterpart of the Swift SDK's
+[`HealthKitSync`](swift.md#healthkit-sync), with the same names where the platforms allow it.
+
+### Set up the app
+
+Declare in your manifest the read permission of each record type you sync (the
+[table below](#record-types) names them), and the screen that explains your use of the data,
+which Health Connect requires before it shows the permission dialog:
+
+```xml
+<uses-permission android:name="android.permission.health.READ_STEPS" />
+<uses-permission android:name="android.permission.health.READ_BLOOD_GLUCOSE" />
+<!-- Only for background sync, and for data older than 30 days before the first grant: -->
+<uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+<uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
+
+<application>
+    <activity android:name=".PrivacyPolicyActivity" android:exported="true">
+        <!-- Android 13 and lower -->
+        <intent-filter>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent-filter>
+    </activity>
+    <!-- Android 14 and higher -->
+    <activity-alias
+        android:name="ViewPermissionUsageActivity"
+        android:exported="true"
+        android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+        android:targetActivity=".PrivacyPolicyActivity">
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+            <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+        </intent-filter>
+    </activity-alias>
+</application>
+```
+
+The library declares no permission itself, so your app never asks for more than it uses.
+
+### Check, ask, sync
+
+```kotlin
+import org.openhealthsync.sdk.OhsClient
+import org.openhealthsync.sdk.healthconnect.HealthConnectAvailability
+import org.openhealthsync.sdk.healthconnect.HealthConnectRecordType
+import org.openhealthsync.sdk.healthconnect.HealthConnectSync
+
+// 1. Is Health Connect usable here?
+when (HealthConnectSync.availability(context)) {
+    HealthConnectAvailability.AVAILABLE -> Unit
+    HealthConnectAvailability.PROVIDER_UPDATE_REQUIRED -> return // send the user to the Play Store
+    HealthConnectAvailability.UNAVAILABLE -> return
+}
+
+// 2. Ask for read access (in an Activity or Fragment).
+val types = setOf(HealthConnectRecordType.STEPS, HealthConnectRecordType.BLOOD_GLUCOSE)
+// or HealthConnectSync.allSupportedTypes
+val ask = registerForActivityResult(HealthConnectSync.requestAuthorizationContract()) { granted -> /* ... */ }
+ask.launch(HealthConnectSync.authorizationPermissions(types, background = true))
+
+// 3. Sync. The client holds a user token with the upload scope.
+val uploads = OhsClient("https://ohs.example.org", tokenProvider = { myBackend.currentUploadToken() })
+val sync = HealthConnectSync.create(context, uploads)
+val report = sync.sync(types)
+println("${report.linesQueued} records, ${report.partsUploaded} parts sent, ${report.partsPending} waiting")
+```
+
+What a sync does, per record type:
+
+- **First run**: it reads a backfill window, 30 days by default
+  (`HealthConnectSyncOptions(initialBackfill = ...)`; `Duration.ZERO` reads nothing old, `null`
+  reads everything). Health Connect itself gives at most 30 days before the first permission
+  grant unless the app holds the history permission.
+- **Later runs**: it reads the changes since the stored changes token. Records added or edited
+  go up as lines; the ids of deleted records go up as `Deletion` lines, which the server applies.
+- **Expired token**: Health Connect keeps changes about 30 days. After a longer gap the token is
+  replaced and the type read again over `expiredTokenWindow` (30 days). Records deleted during
+  the gap are not known and stay on the server.
+- **A type without permission** is skipped and listed in `report.typesWithoutPermission`.
+
+Lines are grouped into parts by record type and local day (the record's own zone offset, else
+the device zone), at most 8 MiB of NDJSON each (`maxPartBytes`; the server takes 64 MiB), under
+one batch id per type and run.
+
+### Offline queue and retries
+
+Every part is written to a queue on disk, in the app's private files, before the changes token
+is saved; it leaves the queue when the server has it. So a sync with no network still reads
+Health Connect once, and nothing is lost if the app is killed.
+
+- A part that fails with a network error, 401, 403, 408, 429 or a 5xx stays queued. `sync` does
+  not throw for it: the report carries `partsPending` and `uploadError`. The next `sync` or
+  `flush()` sends it, once its wait is over: 30 seconds after the first failed round, doubled
+  each time, at most an hour. `flush(force = true)` skips the wait (the user tapped "sync now").
+  These rounds come on top of the client's own 5 attempts within one upload.
+- A part the server refuses for good (400, 409, 413 and the other 4xx) is dropped, counted in
+  `partsDropped`, and the parts behind it still go up.
+- A failed read does throw (`SecurityException` without the permission, `IOException` or
+  `RemoteException` when Health Connect is unreachable). What was read before is queued and
+  uploaded first, and the token of the type that failed is not moved.
+
+The queue holds gzip NDJSON of health data, protected by the app sandbox and the device's
+storage encryption, nothing more. `sync.pendingParts` and `sync.queue.sizeBytes` tell how much
+waits; `sync.queue.clear()` empties it, for example when the user signs out.
+
+### Background sync
+
+Health Connect has no push, so background delivery is a periodic WorkManager job that runs the
+same sync:
+
+```kotlin
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // A background run starts in a process where no activity has run: say how to build the sync.
+        HealthConnectSync.backgroundFactory = HealthConnectSyncFactory { context ->
+            val token = session.uploadTokenOrNull() ?: return@HealthConnectSyncFactory null
+            HealthConnectSync.create(context, OhsClient("https://ohs.example.org", token))
+        }
+    }
+}
+
+// Once the permissions are granted:
+HealthConnectSync.enableBackgroundDelivery(context, types, repeatInterval = Duration.ofHours(1))
+// When the user signs out:
+HealthConnectSync.stopObserving(context)
+```
+
+The job runs at most every 15 minutes (WorkManager's floor), only with a network, and survives
+restarts. It reads only when the user granted `READ_HEALTH_DATA_IN_BACKGROUND`
+(`HealthConnectSync.isBackgroundReadAvailable(context)` says whether the device can); without it
+a run still uploads the queue, and the reading happens when your app is open and calls `sync`.
+`HealthConnectSync.onBackgroundSync` receives each run's report or error.
+
+### Record types
+
+`HealthConnectSync.allSupportedTypes` is every record type the server stores, the same list as
+the [connector's table](../connectors/health-connect.md#line-format). A test compares it with
+the server's mapper, and compares each line the SDK writes with the server's own test fixture.
+
+| `HealthConnectRecordType` | Record class | Manifest permission (`android.permission.health.`) | Stored as |
+|---|---|---|---|
+| `STEPS` | `StepsRecord` | `READ_STEPS` | `step_count` |
+| `HEART_RATE` | `HeartRateRecord` | `READ_HEART_RATE` | `heart_rate`, one sample per point |
+| `RESTING_HEART_RATE` | `RestingHeartRateRecord` | `READ_RESTING_HEART_RATE` | `resting_heart_rate` |
+| `HEART_RATE_VARIABILITY_RMSSD` | `HeartRateVariabilityRmssdRecord` | `READ_HEART_RATE_VARIABILITY` | `hrv_rmssd` |
+| `OXYGEN_SATURATION` | `OxygenSaturationRecord` | `READ_OXYGEN_SATURATION` | `oxygen_saturation` |
+| `RESPIRATORY_RATE` | `RespiratoryRateRecord` | `READ_RESPIRATORY_RATE` | `respiratory_rate` |
+| `BODY_TEMPERATURE` | `BodyTemperatureRecord` | `READ_BODY_TEMPERATURE` | `body_temperature` |
+| `BLOOD_PRESSURE` | `BloodPressureRecord` | `READ_BLOOD_PRESSURE` | systolic and diastolic, paired |
+| `BLOOD_GLUCOSE` | `BloodGlucoseRecord` | `READ_BLOOD_GLUCOSE` | `blood_glucose` |
+| `WEIGHT` | `WeightRecord` | `READ_WEIGHT` | `body_mass` |
+| `HEIGHT` | `HeightRecord` | `READ_HEIGHT` | `height` |
+| `BODY_FAT` | `BodyFatRecord` | `READ_BODY_FAT` | `body_fat_percentage` |
+| `ACTIVE_CALORIES_BURNED` | `ActiveCaloriesBurnedRecord` | `READ_ACTIVE_CALORIES_BURNED` | `active_energy_burned` |
+| `TOTAL_CALORIES_BURNED` | `TotalCaloriesBurnedRecord` | `READ_TOTAL_CALORIES_BURNED` | `total_energy_burned` |
+| `BASAL_METABOLIC_RATE` | `BasalMetabolicRateRecord` | `READ_BASAL_METABOLIC_RATE` | `basal_metabolic_rate` |
+| `DISTANCE` | `DistanceRecord` | `READ_DISTANCE` | `distance_walking_running` |
+| `SLEEP_SESSION` | `SleepSessionRecord` | `READ_SLEEP` | a sleep session with its phases |
+| `EXERCISE_SESSION` | `ExerciseSessionRecord` | `READ_EXERCISE` | a workout |
+| `MENSTRUATION_FLOW` | `MenstruationFlowRecord` | `READ_MENSTRUATION` | a `menstrual_flow` category sample |
+| `INTERMENSTRUAL_BLEEDING` | `IntermenstrualBleedingRecord` | `READ_INTERMENSTRUAL_BLEEDING` | an `intermenstrual_bleeding` category sample |
+| `NUTRITION` | `NutritionRecord` | `READ_NUTRITION` | a nutrition log |
+| `HYDRATION` | `HydrationRecord` | `READ_HYDRATION` | a nutrition log with water |
+
+Not read, because the server does not store them: exercise routes, laps and segments, and the
+other Health Connect record types (`Vo2Max`, `Speed`, `Power`, `MenstruationPeriod`, body
+composition beyond weight, height and body fat, and so on).
+
+### Reference
+
+| Call | What it does |
+|---|---|
+| `HealthConnectSync.availability(context)` | `AVAILABLE`, `PROVIDER_UPDATE_REQUIRED` or `UNAVAILABLE` |
+| `HealthConnectSync.authorizationPermissions(types, background, history)` | The permission strings to ask for |
+| `HealthConnectSync.requestAuthorizationContract()` | The `ActivityResultContract` of the permission screen |
+| `HealthConnectSync.create(context, client, options)` | A sync on this device, with its tokens and queue in the app's files |
+| `sync.grantedPermissions()`, `sync.hasPermissions(types)` | What the user granted |
+| `sync.sync(types)` | Reads the changes, queues and uploads them; returns a `SyncReport` |
+| `sync.flush(force)` | Uploads the queue without reading |
+| `sync.resetAnchor(type)` | Forgets a type's token: the next sync reads its window again |
+| `sync.pendingParts`, `sync.queue` | The queue on disk |
+| `HealthConnectSync.enableBackgroundDelivery(context, types, repeatInterval, requireUnmeteredNetwork)` | Schedules the periodic job |
+| `HealthConnectSync.stopObserving(context)` | Cancels it |
+| `HealthConnectSync.backgroundFactory`, `HealthConnectSync.onBackgroundSync` | How a background run builds its sync, and where its result goes |
+| `HealthConnectLines.line(record)`, `HealthConnectLines.day(record, zone)` | One record as its upload line, and the local day of its part |
+
+To test your own code without a device, build `HealthConnectSync` from its parts: a
+`HealthConnectReader` (the four Health Connect calls it makes), a `HealthConnectPartUploader`,
+an `InMemoryChangesTokenStore` and an `UploadQueue` on a temporary directory.
+
+Not verified on a device yet: the library is built and unit tested on the JVM against a fake
+reader and the server's fixture. The permission screen, the reads through the real
+`HealthConnectClient` and the WorkManager job have not been run on a phone or an emulator.
 
 ## Bluetooth devices
 
@@ -191,10 +411,13 @@ Other calls are not retried. Neither the token nor a health value appears in an 
 
 ```sh
 cd sdks/kotlin
-./gradlew test
+./gradlew build   # both modules: compile, unit tests, Android lint
+./gradlew test    # unit tests only
 ```
 
-The tests use a fake transport, no server.
+The tests use a fake transport and a fake Health Connect reader, no server and no device. The
+Health Connect module needs JDK 17 and an Android SDK with platform 36; without an SDK
+(or with `-Pohs.android=false`) only the client is built and tested.
 
 ## Run the example
 
