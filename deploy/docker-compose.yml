@@ -1,14 +1,29 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
-# Run from the repository root after `cp .env.example .env`:
-#   docker compose -f deploy/docker-compose.yml up -d
+# Run from the repository root after `cp .env.example .env` and setting
+# OHS_ENCRYPTION_KEY and POSTGRES_PASSWORD in it (the README quickstart
+# generates both):
+#   docker compose --env-file .env -f deploy/docker-compose.yml up -d
 # It pulls the published image (OHS_VERSION picks the tag, default 0.3.0). To
 # build from source instead, add the overlay deploy/docker-compose.build.yml.
 # Needs Docker Compose v2.24 or later (env_file path/required syntax).
-# POSTGRES_PASSWORD is optional (default "ohs"); the database is not published
-# outside the compose network. To set one, add `--env-file .env` to every
-# compose command (compose reads variables for interpolation from deploy/.env,
-# not from the repository root).
+# POSTGRES_PASSWORD is required and has no default: compose refuses to run
+# without it. Generate one with `openssl rand -hex 24`. It goes into
+# OHS_DATABASE_URL below as it is, not percent-encoded, so use hex or
+# URL-safe characters only (letters, digits, - . _ ~): an @ / ? # & : or %
+# would break the URL or change what it means, and compose reads a $ as the
+# start of a variable. Keep `--env-file .env` on every compose
+# command: compose reads variables for interpolation from the shell, from
+# --env-file or from deploy/.env, not from the .env at the repository root.
+# The password only applies when the database volume is first created: an
+# install made with the old default sets POSTGRES_PASSWORD=ohs to keep
+# running, then changes it (docs/self-hosting.md, "Rotating secrets").
+# The database is not published outside the compose network, which is why the
+# connection below uses sslmode=disable: the bundled Postgres has no
+# certificate and the traffic never leaves this host. A database on another
+# host needs TLS (sslmode=verify-full), see docs/hardening.md.
+# The ohs image is pulled by tag; to check its signature and pin its digest,
+# see docs/hardening.md ("Updates and image signatures").
 # OHS_HTTP_PORT picks the host port (default 8080); set OHS_PUBLIC_URL to match.
 # The port listens on 127.0.0.1 only: put a reverse proxy with TLS in front, or
 # set OHS_HTTP_BIND=0.0.0.0 to publish plain http on every interface.
@@ -23,7 +38,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ohs
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ohs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 24) and pass --env-file .env to docker compose}
       POSTGRES_DB: ohs
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -45,8 +60,9 @@ services:
         required: true
     environment:
       # pool_max_conns: the size docs/self-hosting.md recommends for all roles
-      # in one process (pgx would otherwise size it to the CPU count).
-      OHS_DATABASE_URL: postgres://ohs:${POSTGRES_PASSWORD:-ohs}@postgres:5432/ohs?sslmode=disable&pool_max_conns=20
+      # in one process (also the default of ohs when the URL names none).
+      # sslmode=disable: see the note at the top of this file.
+      OHS_DATABASE_URL: postgres://ohs:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 24) and pass --env-file .env to docker compose}@postgres:5432/ohs?sslmode=disable&pool_max_conns=20
       # Empty (the default) lets ohs set the Go runtime's soft limit to three
       # quarters of mem_limit, whatever OHS_MEM_LIMIT is; set OHS_GOMEMLIMIT
       # (768MiB...) only to override it. See docs/self-hosting.md#memory.

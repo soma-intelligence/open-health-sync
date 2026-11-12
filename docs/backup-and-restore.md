@@ -121,8 +121,8 @@ scripts/restore.sh --verify backups/ohs-backup-20261011T031500Z.tar
 OHS_COMPOSE_PROJECT=ohs-restore-test OHS_HTTP_PORT=8090 \
   scripts/restore.sh --yes backups/ohs-backup-20261011T031500Z.tar
 curl -s http://localhost:8090/readyz
-docker compose -p ohs-restore-test -f deploy/docker-compose.yml exec ohs /ohs admin tenant list
-docker compose -p ohs-restore-test -f deploy/docker-compose.yml down -v
+docker compose --env-file .env -p ohs-restore-test -f deploy/docker-compose.yml exec ohs /ohs admin tenant list
+docker compose --env-file .env -p ohs-restore-test -f deploy/docker-compose.yml down -v
 ```
 
 The second install uses its own project, so its volumes are separate from the live ones. Run the

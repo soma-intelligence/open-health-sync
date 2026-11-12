@@ -6,10 +6,27 @@
 #   caddy run --config deploy/Caddyfile
 # See docs/self-hosting.md#reverse-proxy.
 
+# Security headers for every response. Strict-Transport-Security tells
+# browsers to use https only for a year: includeSubDomains is left out on
+# purpose (add it, and preload, only when every subdomain serves https). The
+# lines starting with "?" set a header only when ohs did not: its pages
+# (connect, console, share viewer) send their own stricter values.
+(ohs_security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		?X-Content-Type-Options "nosniff"
+		?X-Frame-Options "DENY"
+		?Referrer-Policy "no-referrer"
+		?Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Server
+	}
+}
+
 # The whole host is Open Health Sync: every path goes to ohs, /healthz and
 # /readyz included, so an outside uptime check and a load balancer see their
 # 200 (or 503), never a redirect.
 health.example.org {
+	import ohs_security_headers
 	reverse_proxy 127.0.0.1:8080
 }
 
@@ -19,6 +36,7 @@ health.example.org {
 # /healthz and /readyz into a 302, which monitors read as down.
 #
 # health.example.org {
+# 	import ohs_security_headers
 # 	@ohs path /healthz /readyz /openapi.yaml /metrics /v1/* /mcp /oauth/* /inbound/* /connect /connect/* /shl/* /console /console/*
 # 	handle @ohs {
 # 		reverse_proxy 127.0.0.1:8080

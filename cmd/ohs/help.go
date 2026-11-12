@@ -31,7 +31,7 @@ Usage: ohs <command> [flags]
 Commands:
   up        apply database migrations, then serve (the container entrypoint)
   serve     run the roles listed in OHS_ROLES (api, collect, etl)
-  migrate   apply or inspect the database schema: up, version, latest, down --all
+  migrate   apply or inspect the database schema: up, version, latest, force, down --all
   doctor    check the configuration, database, raw store and connectors
   admin     create tenants, create, list and revoke their API keys, personal setup,
             re-seal stored secrets after an encryption key rotation
@@ -56,18 +56,38 @@ var commandHelp = map[string]string{
 Applies the pending database migrations (ohs migrate up), then runs ohs serve.
 This is the container entrypoint. Needs OHS_DATABASE_URL and OHS_ENCRYPTION_KEY.
 `,
-	"serve": `usage: ohs serve
+	"serve": `usage: ohs serve [--allow-newer-schema]
 
 Runs the roles listed in OHS_ROLES (default api,collect,etl) until SIGINT or
 SIGTERM. Needs OHS_DATABASE_URL and OHS_ENCRYPTION_KEY, and a database already
 migrated (ohs migrate up, or use ohs up). Logs are JSON on stderr at
 OHS_LOG_LEVEL (default info).
+
+serve refuses to start, whatever the roles, when the schema version of the
+database is not the one this binary migrates to (ohs migrate version against
+ohs migrate latest): behind, run ohs migrate up; ahead, run the newer release;
+dirty, see ohs migrate force.
+
+  --allow-newer-schema   start on a database a newer release migrated, for a
+                         rollback of the binary alone; only safe while the
+                         newer migrations added things and removed nothing
 `,
-	"migrate": `usage: ohs migrate <up|version|latest|down --all>
+	"migrate": `usage: ohs migrate <up|version|latest|force <version> --yes|down --all>
 
   up          apply every pending migration (safe to run on each start)
-  version     print the schema version of the database
+  version     print the schema version of the database, "(dirty)" after it
+              when a migration stopped half way
   latest      print the schema version this binary migrates to (no database)
+  force <version> --yes
+              record <version> as the schema version and clear the dirty
+              mark, running no migration: the way out of a killed migration,
+              once the schema is known to be at <version>. Refused when the
+              schema is not dirty. With "N (dirty)", <version> is N, the
+              migration before N or the one after N (0 means no migration
+              applied): after a failed up, the one before N (nothing of N
+              is applied) or N (finished by hand); after a failed down --all,
+              N (the revert was finished by hand) or the one after N (it
+              was undone). Recovery steps: docs/self-hosting.md
   down --all  revert every migration: drops all Open Health Sync data
 
 Needs OHS_DATABASE_URL only (latest needs nothing).
@@ -95,8 +115,13 @@ paste into .env.
                                  make a tenant an instance admin (its keys may
                                  turn providers on from the console), or with
                                  --off stop it being one
-  key create --tenant <id>       add an API key to a tenant (rotation)
+  key create --tenant <id> [--expires-at <time>]
+                                 add an API key to a tenant (rotation); with
+                                 --expires-at it stops working at that time,
+                                 an RFC 3339 time (2027-01-01T00:00:00Z) or a
+                                 day (2027-01-01, midnight UTC)
   key list --tenant <id>         list a tenant's keys by prefix, with last use
+                                 and expiry
   key revoke --tenant <id> --key <key or prefix>
                                  revoke one key, named by the prefix key list
                                  shows or by the whole key (a whole user

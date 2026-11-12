@@ -29,6 +29,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/connectors/selfreport"
 	"github.com/soma-intelligence/open-health-sync/connectors/xiaomi"
 	"github.com/soma-intelligence/open-health-sync/internal/api"
+	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -52,7 +53,8 @@ import (
 
 // Process tuning.
 const (
-	// ETLConcurrency is how many jobs each ETL tier runs at once.
+	// ETLConcurrency is how many jobs each ETL tier runs at once, unless
+	// OHS_ETL_CONCURRENCY says otherwise.
 	ETLConcurrency = 4
 	// ShutdownGrace bounds shutdown: the HTTP server waits this long for
 	// requests in flight and the ETL, deletion and pull workers for their
@@ -63,7 +65,10 @@ const (
 	// ShutdownGrace before it gives up on them (a call ignoring its context).
 	shutdownMargin = 3 * time.Second
 	// tracingFlush bounds the export of the last spans at exit.
-	tracingFlush      = 5 * time.Second
+	tracingFlush = 5 * time.Second
+	// auditFlush bounds the write of the audit events still queued once the
+	// HTTP server has stopped.
+	auditFlush        = 10 * time.Second
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 2 * time.Minute
 )
@@ -204,6 +209,8 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		Allowed:    tenantProviders.Allowed,
 		TenantKeys: tenantKeys,
 		PublicURL:  cfg.PublicURL,
+		// Zero leaves each provider its own backfill window.
+		BackfillWindow: backfillWindow(cfg),
 	}
 
 	if cfg.BootstrapTenant != "" {
@@ -242,8 +249,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	etlMetrics := &automation.Metrics{}
 	if cfg.Roles["etl"] {
 		q := queue.NewETL(pool)
+		// Zero (a Config not built by Load) means the queue's default.
+		q.PerUser = cfg.ETLJobsPerUser
 		for _, tier := range []string{queue.TierStandard, queue.TierHighFreq} {
-			w := etl.NewWorkerWith(pool, raw, q, tier, ETLConcurrency, etl.WithShutdownGrace(opts.grace),
+			w := etl.NewWorkerWith(pool, raw, q, tier, etlConcurrency(cfg), etl.WithShutdownGrace(opts.grace),
 				etl.WithConsentRequired(cfg.ConsentRequired))
 			goRole("etl "+tier, func() error { return w.Run(ctx) })
 		}
@@ -256,25 +265,38 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		goRole("consent purge", func() error { return cp.Run(ctx) })
 		// Outgoing webhooks: deliveries are written with the change they
 		// announce, posted from here.
-		ww := webhook.NewWorker(pool, box, webhook.WorkerConfig{AllowPrivate: cfg.WebhookAllowPrivate})
+		ww := webhook.NewWorker(pool, box, webhookWorkerConfig(cfg))
 		goRole("webhooks", func() error { return ww.Run(ctx) })
 		goRole("automation", func() error {
 			return automation.Start(ctx, automation.Deps{
 				Pool: pool, Store: raw, RetentionDays: cfg.RetentionDays, Metrics: etlMetrics,
 				AuditRetentionDays: cfg.AuditRetentionDays,
+				// Zero means the default, negative keeps the rows for ever.
+				TrackingRetentionDays: cfg.TrackingRetentionDays,
 			})
 		})
 	}
 
 	if cfg.Roles["collect"] {
-		sch := collect.NewScheduler(collectDeps, collect.SchedulerConfig{
-			ShutdownGrace: opts.grace,
-			PerProvider:   cfg.PullsPerProvider, BackfillPerProvider: cfg.BackfillsPerProvider,
-		})
+		sch := collect.NewScheduler(collectDeps, schedulerConfig(cfg, opts.grace))
 		goRole("collect", func() error { return sch.Run(ctx) })
 	}
 
 	if cfg.Roles["api"] {
+		// The audit events of the high volume actions are written in batches.
+		// Closed once every role has stopped, the HTTP server included, and
+		// before the pool (deferred earlier) closes: that writes what is
+		// still queued.
+		auditWriter := audit.NewWriter(pool, audit.WriterOptions{OnError: func(err error, lost int) {
+			slog.Warn("audit: batch not written", "error", err, "lost_events", lost)
+		}})
+		defer func() {
+			actx, acancel := context.WithTimeout(context.WithoutCancel(ctx), auditFlush)
+			defer acancel()
+			if err := auditWriter.Close(actx); err != nil {
+				slog.Warn("audit: flush at shutdown", "error", err)
+			}
+		}()
 		deps := api.Deps{
 			Pool:      pool,
 			Store:     store,
@@ -290,7 +312,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			// Provider keys of one tenant, and their admin routes.
 			TenantKeys: tenantKeys,
 			PublicURL:  cfg.PublicURL,
-			Webhooks:   webhook.NewStore(pool, box),
+			Webhooks:   webhook.NewStore(pool, box, webhookStoreOptions(cfg)...),
 			// WebhookAllowPrivate relaxes the endpoint URL checks.
 			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.
@@ -305,7 +327,9 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			RateLimitInboundProvider: api.RateLimit(cfg.RateLimitInboundProvider),
 			RateLimitOAuth:           api.RateLimit(cfg.RateLimitOAuth),
 			TrustedProxies:           cfg.TrustedProxies,
+			Audit:                    auditWriter,
 		}
+		apiTuning(cfg, &deps)
 		if cfg.Roles["etl"] {
 			deps.ETLMetrics = etlMetrics
 		}
@@ -333,6 +357,9 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		deps.MetricsToken = cfg.MetricsToken
 		if cfg.Metrics && cfg.MetricsListen == "" && cfg.MetricsToken == "" {
 			slog.Info("metrics: /metrics refuses scrapes until OHS_METRICS_TOKEN or OHS_METRICS_LISTEN is set")
+		}
+		if warn := untrustedProxyWarning(cfg.Listen, cfg.TrustedProxies); warn != "" {
+			slog.Warn("api: " + warn)
 		}
 		srv := newHTTPServer(cfg.Listen, api.NewRouter(deps), logger)
 		// Started first: its shutdown goroutine stops it if the API listener fails.

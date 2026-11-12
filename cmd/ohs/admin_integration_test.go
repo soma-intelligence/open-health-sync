@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
@@ -94,6 +95,50 @@ func TestAdminKeyRotation(t *testing.T) {
 	}
 	if err := run([]string{"admin", "key", "create", "--tenant", "not-a-uuid"}, &buf); err == nil {
 		t.Fatal("a bad tenant id must fail")
+	}
+
+	// A key with an expiry: printed with it, listed with it, stored with it.
+	buf.Reset()
+	if err := run([]string{"admin", "key", "create", "--tenant", id, "--expires-at", "2099-01-01"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	third := regexp.MustCompile(`ohs_sk_[0-9A-Za-z]{43}`).FindString(buf.String())
+	if third == "" || !strings.Contains(buf.String(), "expires 2099-01-01T00:00:00Z") {
+		t.Fatalf("key create --expires-at: %q", buf.String())
+	}
+	if _, err := tenant.New(pool).LookupKey(context.Background(), auth.Hash(third)); err != nil {
+		t.Fatalf("the expiring key: %v", err)
+	}
+	var expires time.Time
+	if err := pool.QueryRow(context.Background(),
+		`SELECT expires_at FROM ohs_core.api_keys WHERE key_prefix = $1`, third[:12]).Scan(&expires); err != nil {
+		t.Fatal(err)
+	}
+	if !expires.Equal(time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("expires_at = %s", expires)
+	}
+	var detail string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT detail::text FROM ohs_core.audit_events WHERE action = 'key.create' ORDER BY id DESC LIMIT 1`).Scan(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(detail, "2099-01-01T00:00:00Z") {
+		t.Fatalf("the audit event names the expiry: %s", detail)
+	}
+	buf.Reset()
+	if err := run([]string{"admin", "key", "list", "--tenant", id}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "EXPIRES") {
+		t.Fatalf("key list has no EXPIRES column: %q", buf.String())
+	}
+	for _, line := range strings.Split(buf.String(), "\n") {
+		switch {
+		case strings.HasPrefix(line, third[:12]) && !strings.Contains(line, "2099-01-01T00:00:00Z"):
+			t.Fatalf("key list does not show the expiry: %q", line)
+		case strings.HasPrefix(line, second[:12]) && strings.Contains(line, "2099"):
+			t.Fatalf("a key without expiry shows one: %q", line)
+		}
 	}
 }
 

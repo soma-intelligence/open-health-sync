@@ -14,7 +14,11 @@ repository yet: install it from a checkout of this repository.
 - A **Job** that runs `ohs migrate up` before every install and upgrade (a Helm `pre-install` and
   `pre-upgrade` hook), so the pods start on an up to date schema and never migrate themselves.
 - A **Service** on port 8080. Pods that serve HTTP are probed on `/healthz` (startup and liveness)
-  and `/readyz` (readiness: the database and the raw store answer).
+  and `/readyz` (readiness: the database and the raw store answer). The `-collect` and `-etl`
+  pods of `splitRoles` serve no HTTP: their liveness probe runs `ohs doctor --quick` in the
+  container every 30 seconds (`workerLivenessProbe`), and five minutes of failures restart the
+  pod. It tells that the pod still reaches the database and the raw store, not that its worker
+  loop makes progress: watch the queue metrics for that ([observability.md](observability.md)).
 - A **ConfigMap** with the non-secret `OHS_*` settings, and a **Secret** with
   `OHS_DATABASE_URL` and `OHS_ENCRYPTION_KEY` (or your own Secret, see `existingSecret`).
 - A **PersistentVolumeClaim** for the raw store at `/var/lib/ohs/raw`, unless the raw store is S3.
@@ -151,7 +155,9 @@ rawStore:
 ```
 
 For another S3 compatible service add `endpoint=` and `path_style=true` to the URL, as in
-[the compose setup](self-hosting.md#s3-compatible-raw-store). No volume is created.
+[the compose setup](self-hosting.md#s3-compatible-raw-store). No volume is created. To have each
+object encrypted by the service as it is written, add `sse=AES256`, or `sse=aws:kms` and
+`sse_kms_key_id=<key>`, to the URL (same section).
 
 ## Values
 
@@ -190,9 +196,11 @@ For another S3 compatible service add `endpoint=` and `path_style=true` to the U
 | `splitRoles.<role>.resources` | `{}` | Empty uses `resources` |
 | `migrations.enabled` | `true` | The `ohs migrate up` Job; disabled, run it yourself before each upgrade |
 | `migrations.backoffLimit`, `activeDeadlineSeconds` | `2`, `600` | |
+| `allowNewerSchema` | `false` | Start the pods with `ohs serve --allow-newer-schema`, see [Upgrading](#upgrading) |
 | `env`, `extraEnvFrom` | `[]` | Extra environment, as Kubernetes `env` and `envFrom` entries |
 | `service.type`, `service.port` | `ClusterIP`, `8080` | |
 | `startupProbe`, `livenessProbe`, `readinessProbe` | `/healthz`, `/healthz`, `/readyz` | Probes of the pods that serve HTTP |
+| `workerLivenessProbe` | `ohs doctor --quick` every 30 s, 10 failures | Liveness probe of the `-collect` and `-etl` pods; `null` removes it |
 | `terminationGracePeriodSeconds` | `35` | `ohs` gives work in flight 25 s on SIGTERM |
 | `serviceAccountName` | empty | An existing ServiceAccount |
 | `podSecurityContext`, `securityContext` | non-root 65532, read-only root | |
@@ -232,6 +240,51 @@ kubectl -n ohs exec deploy/ohs -- /ohs version
 The migration Job runs before the new pods start. To run another release than the chart's
 `appVersion`, set `image.tag`. There is no step by step downgrade: to go back, run the old
 version on a restored backup.
+
+### What happens during an upgrade
+
+1. The `pre-upgrade` Job runs `ohs migrate up` with the new image **while the old pods still
+   serve**. They keep serving on the new schema until they are replaced.
+2. The Deployments roll: with the default single pod (`Recreate`), the old pod stops and the
+   new one starts; with several pods, they are replaced a few at a time.
+
+Two things follow from step 1.
+
+**Migrations must be additive for the old pods** (expand, then contract: see
+[self-hosting.md](self-hosting.md#schema-version-check)). The project writes them that way from
+0.3.0 on and says so in the release notes when a release cannot. For such a release, scale the
+Deployments to zero before `helm upgrade` (`kubectl -n ohs scale deploy -l app.kubernetes.io/instance=ohs --replicas=0`):
+the upgrade then starts the new pods on the migrated schema and nothing old ever reads it.
+
+**An old pod cannot start again after the Job.** Since 0.3.0 `ohs serve` refuses a database
+that is not at its own schema version, at start only. Old pods that are running stay ready and
+keep serving. But one that restarts between the Job and its replacement (a crash, an eviction,
+a scale up of the old ReplicaSet) exits with `database schema is ahead of this binary` and goes
+into `CrashLoopBackOff` until the rollout removes it. That is expected and ends with the
+rollout; the new pods are not affected. The same message after `helm rollback` means the old
+image is back on the migrated database: `helm rollback` does not undo migrations.
+
+The chart keeps that strict default. `allowNewerSchema: true` starts the pods with
+`ohs serve --allow-newer-schema`, which accepts a newer schema (never an older or a half
+migrated one): old pods then restart normally during a rollout, and `helm rollback` to the
+previous release works without a restore. Turn it on only while the releases you move between
+have additive migrations.
+
+If the Job fails or is killed (`activeDeadlineSeconds`, 600 by default: raise it for a large
+database), `helm upgrade` stops, the old pods keep serving, and the schema may be left dirty.
+New pods would refuse to start on it. Follow
+[Recover from a failed migration](self-hosting.md#recover-from-a-failed-migration); the commands
+run in a one-off pod with the release's Secret:
+
+```sh
+kubectl -n ohs logs job/ohs-migrate
+kubectl -n ohs run ohs-migrate-fix --rm -it --restart=Never \
+  --image=ghcr.io/soma-intelligence/open-health-sync:<new version> \
+  --overrides='{"spec":{"containers":[{"name":"ohs-migrate-fix","image":"ghcr.io/soma-intelligence/open-health-sync:<new version>","args":["migrate","version"],"envFrom":[{"secretRef":{"name":"ohs-secret"}}]}]}}'
+```
+
+Replace `"migrate","version"` with `"migrate","force","<version>","--yes"` once you know the
+version, then run `helm upgrade` again.
 
 ## Uninstalling
 

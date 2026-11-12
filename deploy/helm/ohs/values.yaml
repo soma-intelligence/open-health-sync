@@ -133,6 +133,15 @@ migrations:
   activeDeadlineSeconds: 600
   resources: {}
 
+# `ohs serve` refuses to start when the database schema is not the version
+# its binary migrates to. During a rolling upgrade the Job has already
+# migrated: an old pod that restarts in that window fails until the rollout
+# replaces it, and `helm rollback` to an older image fails the same way.
+# true starts the pods with `--allow-newer-schema`, which accepts a newer
+# schema (never an older or a half migrated one). Only safe while the newer
+# migrations add things and remove nothing: see docs/helm.md, "Upgrade".
+allowNewerSchema: false
+
 # Extra environment for the ohs containers, as Kubernetes EnvVar entries.
 env: []
 # Extra sources of environment, as Kubernetes EnvFromSource entries.
@@ -158,6 +167,20 @@ readinessProbe:
   periodSeconds: 5
   timeoutSeconds: 4
   failureThreshold: 3
+
+# The liveness probe of the pods that serve no HTTP (the collect and etl
+# Deployments of splitRoles). `ohs doctor --quick` checks, from inside the
+# pod, that the database and the raw store answer; it starts a short process
+# each time, hence the long period. Ten failures in a row (5 minutes) restart
+# the pod, so a database restart does not. It does not see a worker loop that
+# is stuck while both still answer. Set it to null to remove the probe.
+workerLivenessProbe:
+  exec:
+    command: ["/ohs", "doctor", "--quick"]
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 15
+  failureThreshold: 10
 
 # On SIGTERM ohs gives work in flight 25 s, plus a 3 s margin.
 terminationGracePeriodSeconds: 35

@@ -27,7 +27,7 @@ import (
 
 const adminUsage = "usage: ohs admin tenant create --name <name> [--admin] | tenant list | " +
 	"tenant admin --tenant <id> [--off] | " +
-	"key create --tenant <id> | key list --tenant <id> | key revoke --tenant <id> --key <key or prefix> | " +
+	"key create --tenant <id> [--expires-at <time>] | key list --tenant <id> | key revoke --tenant <id> --key <key or prefix> | " +
 	"personal setup [--person <name>] [--url <url>] | rekey [--batch <rows>]"
 
 // personalTenant is the tenant `ohs admin personal setup` keeps a person's
@@ -48,7 +48,7 @@ func runAdmin(rest []string, out io.Writer) error {
 	// Each command has its own flags: a flag another command takes is refused.
 	fs := flag.NewFlagSet("admin "+rest[0]+" "+rest[1], flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	var name, tenantFlag, key, person, publicURL *string
+	var name, tenantFlag, key, person, publicURL, expiresAt *string
 	var admin, off *bool
 	cmd := rest[0] + " " + rest[1]
 	switch cmd {
@@ -62,7 +62,10 @@ func runAdmin(rest []string, out io.Writer) error {
 		tenantFlag = fs.String("tenant", "", "tenant id")
 		off = fs.Bool("off", false, "clear the admin mark instead")
 	case "tenant list":
-	case "key create", "key list":
+	case "key create":
+		tenantFlag = fs.String("tenant", "", "tenant id")
+		expiresAt = fs.String("expires-at", "", "when the key stops working (RFC 3339 time or YYYY-MM-DD, UTC)")
+	case "key list":
 		tenantFlag = fs.String("tenant", "", "tenant id")
 	case "key revoke":
 		tenantFlag = fs.String("tenant", "", "tenant id")
@@ -162,7 +165,13 @@ func runAdmin(rest []string, out io.Writer) error {
 		if key != nil {
 			k = *key
 		}
-		do = keyCommand(rest[1], id, k, out, record)
+		var expires *time.Time
+		if expiresAt != nil {
+			if expires, err = parseExpiry(*expiresAt, time.Now()); err != nil {
+				return err
+			}
+		}
+		do = keyCommand(rest[1], id, k, expires, out, record)
 	}
 	url, err := databaseURL()
 	if err != nil {
@@ -226,22 +235,51 @@ OHS_USER=%s
 	return err
 }
 
-func keyCommand(action string, id uuid.UUID, key string, out io.Writer,
+// parseExpiry reads --expires-at: an RFC 3339 time, or a day (YYYY-MM-DD,
+// midnight UTC), after now. Empty means no expiry.
+func parseExpiry(v string, now time.Time) (*time.Time, error) {
+	if v == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		if t, err = time.Parse(time.DateOnly, v); err != nil {
+			return nil, fmt.Errorf("--expires-at %q is not an RFC 3339 time (2027-01-01T00:00:00Z) or a day (2027-01-01)", v)
+		}
+	}
+	t = t.UTC()
+	if !t.After(now) {
+		return nil, fmt.Errorf("--expires-at %s must be a time in the future", t.Format(time.RFC3339))
+	}
+	return &t, nil
+}
+
+// keyCommand runs key create, list or revoke for tenant id. expires is the
+// expiry of a created key, nil for one that lives until it is revoked.
+func keyCommand(action string, id uuid.UUID, key string, expires *time.Time, out io.Writer,
 	record func(context.Context, uuid.UUID, string, map[string]any) error) func(context.Context, *tenant.Store) error {
 	return func(ctx context.Context, s *tenant.Store) error {
 		switch action {
 		case "create":
-			k, err := s.CreateKey(ctx, id)
-			if errors.Is(err, tenant.ErrNotFound) {
+			k, info, err := s.CreateKeyWith(ctx, id, tenant.KeyOptions{ExpiresAt: expires})
+			switch {
+			case errors.Is(err, tenant.ErrNotFound):
 				return fmt.Errorf("no tenant with id %s", id)
-			}
-			if err != nil {
+			case errors.Is(err, tenant.ErrExpiryPast):
+				return errors.New("--expires-at must be a time in the future")
+			case err != nil:
 				return err
 			}
-			if err := record(ctx, id, audit.KeyCreate, map[string]any{"key_prefix": shortKey(k)}); err != nil {
+			detail, life := map[string]any{"key_prefix": shortKey(k)}, ""
+			if info.ExpiresAt != nil {
+				at := info.ExpiresAt.UTC().Format(time.RFC3339)
+				detail["expires_at"] = at
+				life = ", expires " + at
+			}
+			if err := record(ctx, id, audit.KeyCreate, detail); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(out, "API key for tenant %s, shown only this once, store it now:\n%s\n", id, k)
+			_, err = fmt.Fprintf(out, "API key for tenant %s%s, shown only this once, store it now:\n%s\n", id, life, k)
 			return err
 		case "list":
 			keys, err := s.ListKeys(ctx, id)
@@ -316,9 +354,10 @@ func printKeys(out io.Writer, keys []tenant.APIKey) error {
 		return t.UTC().Format(time.RFC3339)
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "PREFIX\tCREATED\tLAST USED\tREVOKED")
+	fmt.Fprintln(w, "PREFIX\tCREATED\tLAST USED\tREVOKED\tEXPIRES")
 	for _, k := range keys {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", k.Prefix, k.CreatedAt.UTC().Format(time.RFC3339), when(k.LastUsedAt), when(k.RevokedAt))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", k.Prefix, k.CreatedAt.UTC().Format(time.RFC3339),
+			when(k.LastUsedAt), when(k.RevokedAt), when(k.ExpiresAt))
 	}
 	return w.Flush()
 }

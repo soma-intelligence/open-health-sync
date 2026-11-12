@@ -22,8 +22,13 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
   already does (`127.0.0.1:8080:8080`): leave `OHS_HTTP_BIND` unset, and set `OHS_HTTP_PORT` to
   a port number only.
 - **Never expose Postgres.** The bundled compose file publishes no database port; keep it
-  that way. A database elsewhere belongs on a private network, reached with `sslmode=verify-full`
-  in `OHS_DATABASE_URL`.
+  that way. It connects with `sslmode=disable`, which is only acceptable there: the two
+  containers share one host and one private network. A database elsewhere belongs on a private
+  network, reached with `sslmode=verify-full` in `OHS_DATABASE_URL`.
+- **Send the security headers at the proxy.** `deploy/Caddyfile` sets
+  `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`
+  and `Permissions-Policy`; do the same with another proxy. Add `includeSubDomains` to HSTS only
+  when every subdomain serves https.
 - **Keep the rate limits on, and rate limit at the proxy too.** Since 0.2.0, the
   application limits only
   the provider-facing routes, per instance (`OHS_RATE_LIMIT_*`, see
@@ -41,9 +46,11 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
   manager and with your backups, not in the repository. Losing it makes stored OAuth tokens and
   webhook secrets unreadable. To replace it, follow [key-rotation.md](key-rotation.md) (next
   release): the old key goes to `OHS_PREVIOUS_ENCRYPTION_KEYS` until `ohs admin rekey` has run.
-- **Set a strong `POSTGRES_PASSWORD`** before the first `up` (it only applies when the volume
-  is created; afterwards use `ALTER USER ohs PASSWORD '...'`, see
-  [self-hosting.md](self-hosting.md#rotating-secrets)).
+- **Set a strong `POSTGRES_PASSWORD`** before the first `up`: `openssl rand -hex 24`, as the
+  quickstart does. Since 0.3.0 the compose file has no default and refuses to run without one.
+  It only applies when the volume is created; afterwards, and to leave the old default `ohs` of
+  an earlier install, use `ALTER USER ohs PASSWORD '...'`, see
+  [self-hosting.md](self-hosting.md#rotating-secrets).
 - **Restrict who can read `.env`**: `chmod 600 .env`. Anyone who can run `docker inspect` on
   the container can read the key too.
 - **Prefer `ohs admin tenant create`** over `OHS_BOOTSTRAP_TENANT`, which logs the new API key
@@ -69,7 +76,9 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 - **On S3, turn on default server-side encryption** and block public access on the bucket,
   for example
   `aws s3api put-bucket-encryption --bucket <bucket> --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"aws:kms"}}]}'`.
-  Give `ohs` credentials limited to that bucket.
+  Give `ohs` credentials limited to that bucket. `ohs` can also ask for it on every write,
+  whatever the bucket's default: add `sse=AES256`, or `sse=aws:kms` with `sse_kms_key_id=`, to
+  `OHS_RAW_STORE` ([self-hosting.md](self-hosting.md#s3-compatible-raw-store)).
 - **If bucket versioning is on, expire noncurrent versions** with a lifecycle rule, or a
   deleted user's raw files survive as old versions.
 - **Set a retention period** if you do not need everything forever:
@@ -132,6 +141,9 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
   ```
 
   Then deploy that digest: `OHS_VERSION=<version>@<digest>` in `.env` pins the tag and the digest.
+  The compose file pulls `ohs` by version tag (Postgres is pinned by digest in the file itself),
+  so without this step you run whatever the tag points to at pull time. With the Helm chart, set
+  `image.digest` to the verified digest.
 - **Verify release binaries** with the signed checksums (download `checksums.txt` and
   `checksums.txt.sigstore.json` from the release):
 

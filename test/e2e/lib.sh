@@ -18,6 +18,8 @@ export OHS_E2E_IMAGE="${OHS_E2E_IMAGE:-ohs-e2e}"
 E2E_URL="http://127.0.0.1:${OHS_E2E_PORT}"
 E2E_WORK="$(mktemp -d "${TMPDIR:-/tmp}/ohs-e2e.XXXXXX")"
 export OHS_E2E_ENV_FILE="$E2E_WORK/ohs.env"
+# The compose file has no default database password: each run gets its own.
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 E2E_T0=$(date +%s)
 E2E_FAILS=0
 

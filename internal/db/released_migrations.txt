@@ -1,0 +1,53 @@
+# The migration versions shipped in the latest release, one per line.
+#
+# golang-migrate applies only the versions above the one a database is at: a
+# migration added later with a number below the highest one listed here would
+# be skipped, silently, on every database that already ran that release.
+# TestMigrationFiles refuses such a file, and refuses a listed migration that
+# disappears or is renumbered. The numbering has gaps (0016, 0017, 0019,
+# 0022 to 0024, 0028 to 0030): they stay empty for the same reason.
+#
+# The release pull request regenerates this file with `make released-migrations`;
+# scripts/check-release-version.sh refuses a tag whose list is out of date.
+#
+# release v0.3.0
+0001
+0002
+0003
+0004
+0005
+0006
+0007
+0008
+0009
+0010
+0011
+0012
+0013
+0014
+0015
+0018
+0020
+0021
+0025
+0026
+0027
+0031
+0032
+0033
+0034
+0035
+0036
+0037
+0038
+0039
+0040
+0041
+0042
+0043
+0044
+0045
+0046
+0047
+0048
+0049

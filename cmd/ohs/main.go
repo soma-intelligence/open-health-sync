@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
@@ -64,7 +65,11 @@ func run(args []string, out io.Writer) error {
 	}
 }
 
-const migrateUsage = "usage: ohs migrate <up|down --all|version|latest>"
+const migrateUsage = "usage: ohs migrate <up|down --all|version|latest|force <version> --yes>"
+
+var errForceNeedsYes = usageErr("migrate force rewrites the recorded schema version without running any migration; " +
+	"check that the schema really is at that version (docs/self-hosting.md, \"Recover from a failed migration\"), " +
+	"then run `ohs migrate force <version> --yes` to confirm")
 
 var errDownNeedsAll = usageErr("migrate down reverts every migration and drops all Open Health Sync data " +
 	"(schemas ohs_core, ohs_sync, ohs_data); run `ohs migrate down --all` to confirm")
@@ -75,6 +80,7 @@ func runMigrate(rest []string, out io.Writer) error {
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	all := fs.Bool("all", false, "confirm that down reverts every migration")
+	yes := fs.Bool("yes", false, "confirm that force rewrites the recorded schema version")
 	var args []string
 	for {
 		if err := fs.Parse(rest); err != nil {
@@ -86,10 +92,16 @@ func runMigrate(rest []string, out io.Writer) error {
 		args = append(args, fs.Arg(0))
 		rest = fs.Args()[1:]
 	}
-	if len(args) != 1 {
+	if len(args) == 0 {
 		return usageErr(migrateUsage)
 	}
 	action := args[0]
+	if action == "force" {
+		return runMigrateForce(args[1:], *yes, out)
+	}
+	if len(args) != 1 {
+		return usageErr(migrateUsage)
+	}
 	if action != "up" && action != "down" && action != "version" && action != "latest" {
 		return usageErr(migrateUsage)
 	}
@@ -125,6 +137,41 @@ func runMigrate(rest []string, out io.Writer) error {
 		return err
 	}
 	_, err = fmt.Fprintf(out, "migrate %s: ok\n", action)
+	return err
+}
+
+// runMigrateForce implements `ohs migrate force <version> --yes`: it records
+// version as the schema version and clears the dirty mark a killed migration
+// leaves, running no migration. db.Force refuses a schema that is not dirty
+// and a version that is neither the dirty one nor next to it.
+func runMigrateForce(args []string, yes bool, out io.Writer) error {
+	if len(args) != 1 {
+		return usageErr(migrateUsage)
+	}
+	target, err := strconv.ParseUint(args[0], 10, 31)
+	if err != nil {
+		return usageErr(fmt.Sprintf("migrate force: %q is not a schema version (%s)", args[0], migrateUsage))
+	}
+	if !yes {
+		return errForceNeedsYes
+	}
+	url, err := databaseURL()
+	if err != nil {
+		return err
+	}
+	before, dirty, err := db.Version(url)
+	if err != nil {
+		return err
+	}
+	if err := db.Force(url, uint(target)); err != nil {
+		return err
+	}
+	was := ""
+	if dirty {
+		was = ", dirty"
+	}
+	_, err = fmt.Fprintf(out, "migrate force: schema version set to %d, clean (was %d%s); run `ohs migrate up` next\n",
+		target, before, was)
 	return err
 }
 

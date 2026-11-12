@@ -174,7 +174,12 @@ spec:
           image: {{ include "ohs.image" $root }}
           imagePullPolicy: {{ $v.image.pullPolicy }}
           # Migrations run in their own Job (or by hand): the pods only serve.
+          # serve refuses a database that is not at its own schema version.
+          {{- if $v.allowNewerSchema }}
+          args: ["serve", "--allow-newer-schema"]
+          {{- else }}
           args: ["serve"]
+          {{- end }}
           envFrom:
             {{- include "ohs.envFrom" $root | nindent 12 }}
           env:
@@ -198,6 +203,11 @@ spec:
           {{- end }}
           {{- with $v.readinessProbe }}
           readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- else }}
+          {{- with $v.workerLivenessProbe }}
+          livenessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- end }}

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -125,6 +126,9 @@ func TestAdminUsage(t *testing.T) {
 		{"admin", "tenant", "list", "--name", "x"}, {"admin", "tenant", "create", "--name", "a", "--tenant", "x"},
 		{"admin", "key", "create", "--tenant", "x", "--key", "y"}, {"admin", "key", "list", "--tenant", "x", "--name", "n"},
 		{"admin", "rekey", "extra"}, {"admin", "rekey", "--batch", "0"}, {"admin", "rekey", "--tenant", "x"},
+		{"admin", "key", "list", "--tenant", "x", "--expires-at", "2099-01-01"},
+		{"admin", "key", "revoke", "--tenant", "x", "--key", "y", "--expires-at", "2099-01-01"},
+		{"admin", "key", "create", "--expires-at", "2099-01-01"},
 	} {
 		err := run(args, &buf)
 		if err == nil || !strings.Contains(err.Error(), "usage: ohs admin") {
@@ -133,6 +137,44 @@ func TestAdminUsage(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("usage errors print nothing: %q", buf.String())
+	}
+}
+
+// key create --expires-at takes a time or a day in the future; anything else
+// is refused before the database is reached.
+func TestAdminKeyCreateExpiry(t *testing.T) {
+	t.Setenv("OHS_DATABASE_URL", "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")
+	const id = "00000000-0000-0000-0000-000000000001"
+	var buf bytes.Buffer
+	for _, v := range []string{"tomorrow", "90d", "2027-13-01", "01/02/2027", "2027-01-01 10:00"} {
+		err := run([]string{"admin", "key", "create", "--tenant", id, "--expires-at", v}, &buf)
+		if err == nil || !strings.Contains(err.Error(), "--expires-at") || !strings.Contains(err.Error(), "RFC 3339") {
+			t.Errorf("--expires-at %q = %v, want an error naming the flag and the format", v, err)
+		}
+	}
+	for _, v := range []string{"2020-01-01", "2020-01-01T00:00:00Z", time.Now().Add(-time.Minute).Format(time.RFC3339)} {
+		err := run([]string{"admin", "key", "create", "--tenant", id, "--expires-at", v}, &buf)
+		if err == nil || !strings.Contains(err.Error(), "--expires-at") || !strings.Contains(err.Error(), "future") {
+			t.Errorf("--expires-at %q = %v, want an error about the past", v, err)
+		}
+	}
+	if buf.Len() != 0 {
+		t.Errorf("a refused expiry prints nothing: %q", buf.String())
+	}
+
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	for v, want := range map[string]time.Time{
+		"2027-01-01":                time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+		"2027-01-01T08:30:00Z":      time.Date(2027, 1, 1, 8, 30, 0, 0, time.UTC),
+		"2027-01-01T08:30:00+02:00": time.Date(2027, 1, 1, 6, 30, 0, 0, time.UTC),
+	} {
+		got, err := parseExpiry(v, now)
+		if err != nil || got == nil || !got.Equal(want) || got.Location() != time.UTC {
+			t.Errorf("parseExpiry(%q) = %v, %v, want %v", v, got, err, want)
+		}
+	}
+	if got, err := parseExpiry("", now); got != nil || err != nil {
+		t.Errorf("no expiry = %v, %v", got, err)
 	}
 }
 
