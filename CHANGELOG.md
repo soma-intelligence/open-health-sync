@@ -7,33 +7,7 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
-### Changed
-
-- Migration `0044` indexes `ohs_data.record_aliases` on `(tenant_id, user_id, start_time)`.
-  Retention prunes aliases by start time and, without it, read every alias of each user on every
-  run (about one per stored HealthKit sample).
-- Strava is pulled every 12 hours with or without webhook events (it was every 3 hours without).
-  Push counts as healthy per athlete, so every athlete who had not posted in the last 24 hours was
-  pulled 8 times a day, and about 125 such connections spent the application's default 1,000 reads
-  a day. At 2 reads a day per connection, about 400 connections fit, with room for the pulls webhook
-  events start. See [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
-
-### Fixed
-
-- The ETL no longer collects the days an upload touches twice per batch: the second pass, which
-  only matters when the batch deleted samples, now runs only then. The time zone a sample names is
-  loaded once per process instead of once per sample, which read and parsed tzdata again for every
-  Apple Health, Polar and Dexcom sample.
-- An upload whose deletions reach old, compressed `quantity_samples` chunks no longer fails past
-  TimescaleDB's default limit of 100,000 decompressed tuples. A HealthKit round that removed months
-  of an app's samples rolled back the whole job, new samples included, and was parked after its
-  retries. The ETL now lifts the limit for the job's transaction when the batch has deletions, as
-  user deletion, retention and the consent purge already did.
-- A consent purge now deletes the record aliases (`ohs_data.record_aliases`) of the HealthKit
-  samples, workouts and nutrition logs it removes. They were left behind, and an alias keeps the
-  row's unkeyed content hash and start time, from which the purged value could be worked out.
-
-## [0.3.0] - 2026-10-29
+## [0.3.0] - 2026-11-11
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
 samples leave the server, a stress and fuzz pass fixed how `ohs` behaves under load, outages and
@@ -78,6 +52,38 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
   version; the nightly `synthetic-data` workflow runs every scenario, and every provider
   through a running server and database (`test/synthflow`). See
   [docs/specs/synthetic-data.md](docs/specs/synthetic-data.md).
+- Authenticated routes are rate limited per credential (an API key by itself, a user's tokens
+  together): 200 requests a second with a burst of 2,000 by default, answered with `429` and
+  `Retry-After`. `OHS_RATE_LIMIT_API` changes or turns it off. The limit is kept per process.
+- Refused credentials are recorded in the audit log as `auth.failed`, with the client address and
+  the key prefix, never the secret, and an address that keeps failing is throttled with `429`
+  (`OHS_RATE_LIMIT_AUTH_FAILURES`). A valid credential is never refused by that throttle. Behind a
+  reverse proxy it needs `OHS_TRUSTED_PROXIES`, or every client shares the proxy's address.
+- User tokens can be revoked: `DELETE /v1/users/{id}/tokens` and
+  `DELETE /v1/users/{id}/tokens/{token_id}`. Revoking an API key revokes the user tokens it minted.
+- API keys can expire: an optional `expires_at` when a key is created, shown in key listings, and
+  `ohs admin key create --expires-at`. The user tokens a key minted expire with it.
+- Failed sync runs can be retried: `POST /v1/users/{id}/sync-runs/{run_id}/retry` and
+  `POST /v1/users/{id}/connections/{provider}/sync-runs/retry`, also under
+  `/v1/admin/tenants/{tenant_id}`.
+- Responses are gzip compressed for clients that accept it (`OHS_COMPRESSION`).
+- `ohs migrate force <version> --yes` clears a schema left dirty by a stopped migration. It
+  refuses a clean schema and any version that is not the dirty one or its neighbour.
+- The S3 raw store can ask for server-side encryption: `sse=AES256`, or `sse=aws:kms` with
+  `sse_kms_key_id=`, in the `OHS_RAW_STORE` URL.
+- Webhook endpoints show `consecutive_failures`, `paused_until` and `previous_secret_expires_at`;
+  `rotate-secret` takes `expire_previous`.
+- Settings: `OHS_ETL_CONCURRENCY`, `OHS_ETL_JOBS_PER_USER`, `OHS_PULL_CONCURRENCY`,
+  `OHS_SCHEDULE_BATCH`, `OHS_BACKFILL_DAYS` (up to 5 years, newest data first),
+  `OHS_TRACKING_RETENTION_DAYS`, `OHS_WEBHOOK_CONCURRENCY`, `OHS_WEBHOOK_PER_ENDPOINT`,
+  `OHS_WEBHOOK_PAUSE_AFTER`, `OHS_WEBHOOK_ROTATION_GRACE_HOURS`.
+- Swift SDK: syncs workout routes, ECG recordings, heartbeat series, audiograms and states of
+  mind; `HealthKitSync.allSupportedTypes` and grouped subsets; client methods for connect
+  sessions, stats, RR intervals, HRV, ECG, time tags and self reports; installs by repository URL
+  from this release (root `Package.swift`).
+- Helm: worker pods of a split-role release get a liveness probe; `allowNewerSchema`.
+- A daily check that the image the compose file runs by default exists on the registry.
+- [What the hosted beta does with data](docs/hosted-beta.md).
 
 ### Changed
 
@@ -113,6 +119,47 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
   every request until it comes back (300 s and more in a stress run with Postgres paused): the
   credential lookup gives up after 10 s with the same 503, and a new pool connection gives up
   after 10 s (`connect_timeout` in `OHS_DATABASE_URL` overrides it).
+- `ohs serve` refuses to start on a database whose schema version differs from the binary's, and
+  names the `ohs migrate` command to run. `/readyz` answers not ready while the database is
+  behind the binary or its schema is dirty, without naming versions.
+- The compose file requires `POSTGRES_PASSWORD` and has no default. The quickstart generates one.
+  An install made with the old default sets `POSTGRES_PASSWORD=ohs` in `.env` to keep running,
+  then rotates it ([self-hosting](docs/self-hosting.md)).
+- The ETL runs one job per user at a time, so one large import no longer delays other users.
+- A provider's backlog of pulls no longer delays other providers. Provider outages (5xx, network
+  errors, timeouts) are retried for about three days before a pull gives up; it was about 7
+  minutes. A deploy during an outage no longer parks those pulls, and sync now or a provider
+  notification runs a pull that was waiting to retry. A pull that always times out is given up at
+  the fifth failure.
+- Webhooks: a slow endpoint no longer delays the others, with at most 2 requests in flight per
+  endpoint and, per tenant, half of `OHS_WEBHOOK_CONCURRENCY` (4 by default: an instance with one
+  tenant that wants the former 8 sets `OHS_WEBHOOK_PER_TENANT=8`). An endpoint is paused after 5
+  consecutive failures and resumes on the first success.
+  After `rotate-secret`, the previous secret also signs for 24 hours.
+- Read and upload audit events are written in batches and flushed at shutdown. Events for
+  changes (keys, deletions, exports, consent) are still written before the response.
+- Every authenticated response carries `Cache-Control: no-store`.
+- The database pool defaults to 20 connections when the URL sets no `pool_max_conns`.
+- Migration `0049`: new chunks of `sleep_sessions`, `workouts`, `nutrition_logs`,
+  `ecg_recordings` and `daily_summaries` cover 30 days instead of 7.
+- Migrations `0045` to `0048`: `captured_at` on replaceable records, queue and scheduling indexes
+  with `connections.schedule_after`, webhook pause and previous secret columns, key expiry and
+  token revocation columns.
+- Retention drops whole chunks and reads `ohs_sync.raw_objects` instead of listing the raw store;
+  raw files with no `raw_objects` row are left in place. `sync_log` rows and finished ETL jobs
+  are pruned after 90 days. Retention deletes in batches, one transaction per chunk.
+- Share link passcodes use 600,000 PBKDF2 iterations; stored ones still verify.
+- The Caddyfile sends HSTS and the usual security headers.
+- The Swift SDK skips category samples of types the server does not store and counts them in
+  `skippedSamples`.
+- Migration `0044` indexes `ohs_data.record_aliases` on `(tenant_id, user_id, start_time)`.
+  Retention prunes aliases by start time and, without it, read every alias of each user on every
+  run (about one per stored HealthKit sample).
+- Strava is pulled every 12 hours with or without webhook events (it was every 3 hours without).
+  Push counts as healthy per athlete, so every athlete who had not posted in the last 24 hours was
+  pulled 8 times a day, and about 125 such connections spent the application's default 1,000 reads
+  a day. At 2 reads a day per connection, about 400 connections fit, with room for the pulls webhook
+  events start. See [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
 
 ### Fixed
 
@@ -239,6 +286,31 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 - Withings: a sleep session's resting heart rate is the night's lowest heart rate (`hr_min`),
   as for Oura, instead of the mean heart rate asleep (`hr_average`), which now stays in
   metadata. Sessions stored earlier keep the mean.
+- A retried or replayed job for an older raw object no longer overwrites a provider's newer
+  revision of a sleep session, workout, nutrition log or daily summary.
+- The duplicate check of an upload reads only the stored samples of the types the upload carries.
+  A sparse part spanning years (weight, VO2 max) read every stored sample of every type in that
+  span.
+- Daily summaries are recomputed in a fixed number of statements per upload instead of three per
+  touched day.
+- Multi-page exports look up the user, the types and the source policy once, not once per page.
+- Retention counted no row of a dropped chunk and missed `daily_summaries` chunks by one day when
+  the session time zone was not UTC.
+- Swift SDK: `requestAuthorization` no longer crashes on a correlation type.
+- The docs no longer say the mobile SDKs cover every API route, or that the Kotlin, React Native
+  and Flutter SDKs read Health Connect.
+- The ETL no longer collects the days an upload touches twice per batch: the second pass, which
+  only matters when the batch deleted samples, now runs only then. The time zone a sample names is
+  loaded once per process instead of once per sample, which read and parsed tzdata again for every
+  Apple Health, Polar and Dexcom sample.
+- An upload whose deletions reach old, compressed `quantity_samples` chunks no longer fails past
+  TimescaleDB's default limit of 100,000 decompressed tuples. A HealthKit round that removed months
+  of an app's samples rolled back the whole job, new samples included, and was parked after its
+  retries. The ETL now lifts the limit for the job's transaction when the batch has deletions, as
+  user deletion, retention and the consent purge already did.
+- A consent purge now deletes the record aliases (`ohs_data.record_aliases`) of the HealthKit
+  samples, workouts and nutrition logs it removes. They were left behind, and an alias keeps the
+  row's unkeyed content hash and start time, from which the purged value could be worked out.
 
 ### Security
 
