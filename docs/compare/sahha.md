@@ -26,7 +26,7 @@ its own site, pricing page and documentation, checked on 2026-10-18. They change
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Not stated |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | REST API and webhooks |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Live context through MCP |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, installed from the repository for now ([SDKs](../sdks/README.md)) | iOS, Android, React Native and Flutter |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | iOS, Android, React Native and Flutter |
 | Personal data | You hold it, so you decide what you store | No PII required, per Sahha |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | SOC 2 Type II, HIPAA and GDPR, per Sahha. A BAA from Pro |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Sahha's cloud |
@@ -68,7 +68,8 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 The two products answer different questions, so there is no route by route mapping. In Open
 Health Sync, each person is a user (`POST /v1/users` with your own `external_ref`), phone data
-comes from the [Swift and Kotlin SDKs](../sdks/README.md), cloud providers connect through a
+comes from the [Swift SDK](../sdks/swift.md#healthkit-sync) on iOS and from your own Health
+Connect reader on Android ([upload contract](../connectors/health-connect.md)), cloud providers connect through a
 hosted page (`POST /v1/users/{id}/connect-sessions`), and the records are read from `samples`,
 `sleep`, `workouts` and `daily` ([API](../api.md)). Scores you compute yourself from those
 records, or keep from the providers that send them.

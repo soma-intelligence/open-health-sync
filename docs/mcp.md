@@ -23,6 +23,11 @@ Every request carries `Authorization: Bearer <secret>`, one of:
 A user token without the `read` scope gets 403 on `/mcp`. A user of another tenant, or a user
 being deleted, reads as `user not found`, with no data.
 
+A bearer secret is the only way in. The server implements no MCP OAuth flow: there is no
+authorization or token endpoint and no dynamic client registration, and a request without a
+valid secret gets a plain 401 with `WWW-Authenticate: Bearer`. A client that can only sign in
+through OAuth cannot connect; use one that lets you set a header, or `ohs mcp` over stdio.
+
 ### A personal token
 
 For your own agent, mint a user token whose only scope is `read`. Such a token may live up to 30

@@ -17,6 +17,7 @@ later and `openssl`. Run every command from the repository root.
 git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-health-sync
 cp .env.example .env
 sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
 ```
 
 `OHS_ENCRYPTION_KEY` must hold 32 random bytes in base64. It encrypts the OAuth tokens stored in

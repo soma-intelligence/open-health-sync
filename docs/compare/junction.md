@@ -27,7 +27,7 @@ as well.
 | FHIR and Open mHealth | FHIR R4 checked with the official HL7 validator, Open mHealth checked against the official schemas ([FHIR R4](../fhir.md), [Open mHealth](../open-mhealth.md)) | Not in its documentation index |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | REST requests, webhooks such as `daily.data.workouts.created`, and ETL pipelines to your warehouse on Enterprise |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Not in its documentation index |
-| SDKs | Swift, Kotlin, React Native and Flutter for apps; TypeScript and Python for your backend. Installed from the repository for now ([SDKs](../sdks/README.md)) | iOS, Android and Flutter for apps; Python, TypeScript, Java and Go for your backend |
+| SDKs | Swift, Kotlin, React Native and Flutter for apps; TypeScript and Python for your backend. Installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the other app SDKs are HTTP clients ([SDKs](../sdks/README.md)) | iOS, Android and Flutter for apps; Python, TypeScript, Java and Go for your backend |
 | Vendor developer apps | You register your own app with each vendor | Junction's by default. Custom OAuth credentials on Enterprise |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | HIPAA compliant and GDPR ready on every plan; a BAA, SOC 2 Type 2 and ISO 27001 on Enterprise, per Junction |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Junction's cloud |
@@ -77,7 +77,7 @@ The main concepts have a direct counterpart:
 | Summary resources (`/summary/sleep` and the others) | `sleep`, `workouts`, `daily` and `samples` under `GET /v1/users/{id}/...` |
 | Raw provider data (`.../raw`) | The raw store keeps every payload; the [user archive](../exports.md#complete-user-archive-data-portability) hands it over |
 | Warehouse ETL | The data already sits in your Postgres. Exports as CSV or Parquet ([exports](../exports.md)) |
-| Mobile SDK for HealthKit and Health Connect | The [Swift and Kotlin SDKs](../sdks/README.md), or the upload contract |
+| Mobile SDK for HealthKit and Health Connect | The [Swift SDK](../sdks/swift.md#healthkit-sync) for HealthKit. No SDK reads Health Connect yet: your Android app reads it and follows the [upload contract](../connectors/health-connect.md) |
 
 For each cloud provider, register your own developer app and set its keys: every connector guide
 starts with that step ([connectors](../connectors/README.md)).

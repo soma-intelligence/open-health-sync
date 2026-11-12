@@ -28,7 +28,7 @@ own site and pricing page, checked on 2026-10-18. They change, so check
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Not stated |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Not found on its site |
 | Health scores | None: it keeps the scores providers send (readiness, recovery, strain) and computes none | ROOK Score (physical, sleep and body health), as an add-on or from Business |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, installed from the repository for now ([SDKs](../sdks/README.md)) | The ROOK SDK, and the ROOK App when you cannot embed an SDK |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | The ROOK SDK, and the ROOK App when you cannot embed an SDK |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | A HIPAA-aligned security program with BAAs, and GDPR as a data processor, per ROOK |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | ROOK's cloud |
 

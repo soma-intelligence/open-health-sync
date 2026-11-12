@@ -58,6 +58,28 @@ linked tracking issue or the vendor's developer site before you start):
 | Health records (EHR): Epic, Oracle Health and other certified EHRs | Planned, after the SDKs | SMART on FHIR patient access (OAuth 2.0), FHIR R4 | Lab results, vital signs, conditions, medications, allergies, immunizations | US first, where certified EHRs must offer patient access APIs. Each operator registers its own app with each EHR vendor, and each health system activates it. The health records found in Apple Health exports are planned too | |
 | Eight Sleep | Available | The account sign-in and API the Eight Sleep app uses (no public API), scheduled pulls | Sleep sessions with stages, sleep score, heart rate, HRV, breathing rate; bed and room temperature in session metadata | Eight Sleep publishes no developer API: the connector follows the open source pyEight library, is unsupported by Eight Sleep and can break when the app changes. Users enter their Eight Sleep password on your instance's sign-in page; it is stored encrypted so the server can sign in again. On by default with the app's client id and secret as pyEight publishes them ([guide](eight-sleep.md)) | |
 
+## How far back a connection reaches
+
+When a user connects a cloud provider, the server pulls a fixed window of past data once (the
+backfill), then keeps the connection current. The window is **30 days by default**. Some
+connectors set their own: 90 days for Oura, WHOOP, Withings and Dexcom, 28 days for Polar and
+Suunto ([the table](../background-sync.md#sync-policy-per-provider) lists every provider). A manual sync (`POST /v1/users/{id}/connections/{provider}/sync` with `from`)
+reaches back 30 days at most, so neither path fetches a user's whole history from a provider's
+cloud. A Garmin Starter app gets no history at all.
+
+Older history comes from files the user downloads, loaded with `ohs import` or the matching
+upload route:
+
+| History of | Load it with |
+|---|---|
+| Apple Health, and every app or device that writes to it | `ohs import apple-health export.zip`: the Health app export, whole history ([guide](apple-health.md)) |
+| Garmin, Strava, COROS, Wahoo, Zwift, Suunto, Polar workouts | `ohs import files`: FIT, GPX and TCX files or an account export ([guide](activity-files.md)) |
+| Xiaomi (Mi Fitness) | `ohs import mi-fitness`: the data copy from the Xiaomi account ([guide](xiaomi.md)) |
+| Health Connect | Your Android app uploads what it can read: 30 days before its first permission grant, or more with the history permission ([guide](health-connect.md)) |
+
+There is no import for the account exports of Oura, WHOOP, Withings, Fitbit or Dexcom: for
+those sources, what the server holds starts at the backfill window.
+
 ## What each connector delivers
 
 `GET /v1/providers` lists, for each provider it serves, `data_types`: the record kinds the

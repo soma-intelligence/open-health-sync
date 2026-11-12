@@ -172,10 +172,16 @@ builder.add(
 );
 ```
 
-The upload route currently takes HealthKit-shaped lines only
-([line formats](../connectors/apple-health.md#line-formats)), whatever the device: a Health
-Connect reading must be written with the matching HealthKit identifier and unit, and it is stored
-under the `apple_health` provider.
+The SDK uploads to one route, `POST /v1/ingest/apple-health`, which takes HealthKit-shaped lines
+only ([line formats](../connectors/apple-health.md#line-formats)). A Health Connect reading sent
+through the builder must be written with the matching HealthKit identifier and unit, and it is
+stored under the `apple_health` provider.
+
+The server also has `POST /v1/ingest/health-connect`, which takes Health Connect records in
+their own shape and stores them under the `health_connect` provider
+([contract and line format](../connectors/health-connect.md)). This SDK has no method or part
+builder for it yet: post the gzip NDJSON part yourself with the `http` package, the same upload
+token and the same four `X-OHS-` headers.
 
 ## Errors and retries
 

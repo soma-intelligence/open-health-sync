@@ -56,8 +56,8 @@ On your backend, give `token: process.env.OHS_KEY` (the tenant key) instead. Opt
 | `sleep` | `setTimeout` | Wait between upload retries; tests pass a fake |
 | `maxUploadAttempts` | 5 | Attempts per upload part, retries included |
 
-**Which credential.** On the REST API a user token (`ohs_ut_`) can call one route only:
-`POST /v1/ingest/apple-health`, with the `upload` scope. Every other route (users, tokens,
+**Which credential.** Of the routes this SDK calls, a user token (`ohs_ut_`) can call one only:
+`POST /v1/ingest/apple-health`, with the `upload` scope. Every other one (users, tokens,
 reads, coverage, freshness, FHIR, connections and `startConnection`) needs the tenant key and
 answers 403 to a user token. So the work splits in two:
 
@@ -181,10 +181,19 @@ then `rejectedRecords` above 0 means some lines were not stored.
 
 The SDK does not read the device's health store. A community module does that (for example
 `react-native-health` for HealthKit, or a Health Connect module on Android), and you turn each
-sample into a line in the [line format](../connectors/apple-health.md#line-formats). The
-upload route currently takes HealthKit-shaped lines only: a Health Connect reading has to be
-written with the matching HealthKit identifier and unit, and is stored under the `apple_health`
-provider.
+sample into a line in the [line format](../connectors/apple-health.md#line-formats).
+
+The SDK uploads to one route, `POST /v1/ingest/apple-health`, which takes HealthKit-shaped lines
+only. For Health Connect readings on Android you have two ways:
+
+- **The Health Connect route.** The server has `POST /v1/ingest/health-connect`, which takes
+  Health Connect records in their own shape and stores them under the `health_connect` provider
+  ([contract and line format](../connectors/health-connect.md)). This SDK has no method or part
+  builder for it yet: post the gzip NDJSON part yourself with `fetch`, the same upload token and
+  the same four `X-OHS-` headers.
+- **The SDK's builder.** Write each reading with the matching HealthKit identifier and unit and
+  upload it with `uploadParts`. It is then stored under the `apple_health` provider, not
+  `health_connect`.
 
 A sketch with `react-native-health`, inside a component (documentation only; the SDK does not
 depend on that module):

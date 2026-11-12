@@ -7,8 +7,8 @@ Two clients of the API for your backend, the code that holds a tenant API key (`
 | TypeScript | [`sdks/server/typescript`](../sdks/server/typescript) | Node.js 18 or later, no runtime dependency (global `fetch`) |
 | Python | [`sdks/server/python`](../sdks/server/python) | Python 3.9 or later, standard library only |
 
-Both are AGPL-3.0-only, like the server, and neither is published to a package registry:
-install them from a clone of this repository.
+Both are at version 1.0.0 and AGPL-3.0-only, like the server, and neither is published to a
+package registry (npm, PyPI): install them from a clone of this repository.
 
 They are generated from [`api/openapi.yaml`](../api/openapi.yaml) by `internal/sdkgen`, so
 they cover the API exactly: one method per operation, named after its `operationId`

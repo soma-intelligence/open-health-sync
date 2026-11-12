@@ -25,7 +25,7 @@ on 2026-10-17. They change, so check [tryterra.co](https://tryterra.co) as well.
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Recent payloads in the dashboard |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | Pushed to a destination (webhooks, Postgres, MySQL, S3, GCS, Azure Blob, SQS, Kafka), REST requests for history |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Read-only MCP server ("AI Interface") |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, installed from the repository for now ([SDKs](../sdks/README.md)) | iOS, Android, React Native and Flutter |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | iOS, Android, React Native and Flutter |
 | Vendor developer apps | You register your own app with each vendor | Terra's own for providers such as Fitbit, Oura, Polar and Withings. Yours for others, such as Strava, WHOOP and Dexcom |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | HIPAA, GDPR and SOC 2 Type II, per Terra |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Terra's cloud |
@@ -45,8 +45,10 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 ## Pick Terra when
 
-- **You need Garmin today.** Garmin has not taken new developer applications since spring 2026,
-  and Terra has held a Garmin integration for years.
+- **You need Garmin without a Garmin app of your own.** Garmin reopened its developer program on
+  2026-10-21, so you can apply for your own business app, but the Enterprise tier this connector
+  was written for is paid and a Starter app is push only with no history
+  ([Garmin connector](../connectors/garmin.md)). Terra has held a Garmin integration for years.
 - **You need devices beyond the 18 sources here**, such as Peloton, Zwift, Wahoo or COROS through
   their APIs, under one contract.
 - **You do not want to run a server**, or to register a developer app with each vendor.
@@ -89,8 +91,9 @@ Most of Terra's concepts have a direct counterpart. The data types map like this
 
 For each cloud provider, register your own developer app and set its keys: every connector guide
 starts with that step ([connectors](../connectors/README.md)). Apple Health and Health Connect
-data comes from your mobile app, through the [Swift and Kotlin SDKs](../sdks/README.md) or the
-upload contract.
+data comes from your mobile app. On iOS the [Swift SDK](../sdks/swift.md#healthkit-sync) reads
+HealthKit and uploads it. On Android no SDK reads Health Connect yet: your app reads it and
+follows the [upload contract](../connectors/health-connect.md).
 
 ## Try it
 

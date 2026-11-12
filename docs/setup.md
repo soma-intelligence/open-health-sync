@@ -39,6 +39,32 @@ the setup page. `OHS_ENCRYPTION_KEY_FILE` works the same way for the encryption 
 file up with the database, since the stored OAuth tokens cannot be read without it. `ohs doctor`
 says which file each secret came from, without printing it.
 
+## The console without the setup page
+
+The [console](console.md) is the web page of an instance: it turns providers on and saves their
+keys, creates users and sends them a connection link, starts a sync, retries what is stuck,
+manages webhook endpoints and API keys, and shows the audit log. It is off by default
+(`OHS_CONSOLE=false`: `/console` answers 404), and the quickstart in the
+[README](../README.md#quickstart) leaves it off.
+
+An instance that already has a tenant, such as one filled by `ohs seed --demo`, needs no setup
+token. Turn the console on and sign in with the key you have:
+
+```sh
+# .env
+OHS_CONSOLE=true
+```
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml up -d
+```
+
+Then open `http://localhost:8080/console` and paste a tenant API key (`ohs_sk_...`): the one
+`ohs seed --demo` printed, or one from `ohs admin tenant create` or `ohs admin key create`.
+`OHS_CONSOLE=read-only` serves the same pages without any action. The console sees the one
+tenant of the key, and changing provider keys takes the key of an
+[instance admin](console.md#the-instance-admin) tenant.
+
 ## The routes
 
 The page calls two routes, which a script can call too:

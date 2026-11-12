@@ -48,6 +48,15 @@ Yes. Open Health Sync connects to Oura, WHOOP and Garmin (with your own Garmin d
 along with Apple Health, Health Connect, Withings, Fitbit, Polar, Strava, Dexcom and others, and
 returns all of them in the same data model. See the [connectors](connectors/README.md).
 
+## How far back does the data go when a user connects a wearable?
+
+30 days by default. Connecting a cloud provider pulls one window of past data, then the
+connection stays current: 30 days for most providers, 90 for Oura, WHOOP, Withings and Dexcom,
+28 for Polar and Suunto. Older history is loaded from files: the Apple Health export with
+`ohs import apple-health`, FIT, GPX and TCX files or a Garmin or Strava account export with
+`ohs import files`, the Mi Fitness data copy with `ohs import mi-fitness`. See
+[how far back a connection reaches](connectors/README.md#how-far-back-a-connection-reaches).
+
 ## What are the open source alternatives for wearable data?
 
 Open Health Sync is one: open source, self-hosted, one Go binary plus Postgres, with FHIR R4 and
@@ -68,3 +77,10 @@ gives you is control: the data stays on infrastructure you choose, deletion and 
 calls, consent is enforced per source and category, and provider tokens are encrypted. Whether a
 deployment meets HIPAA or GDPR depends on how you run it. See the
 [security model](security-model.md).
+
+## Can I put real user data on the hosted beta?
+
+Not yet: test data only for now. Real user data opens once data processing terms and the
+providers' production approvals are in place. The hosted beta at app.openhealthsync.com is not
+HIPAA compliant, offers no BAA, claims no certification, runs as a single instance and has no
+published legal terms yet. What you send is kept until you delete it. See [what the hosted beta does with data](hosted-beta.md).

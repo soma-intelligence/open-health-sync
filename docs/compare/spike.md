@@ -26,7 +26,7 @@ its own site, pricing page and documentation, checked on 2026-10-18. They change
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | REST requests and webhooks |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | An MCP server, with guides for desktop chat clients. "MCP-compatible" data is listed on Enterprise |
 | Health scores | None: it keeps the scores providers send (readiness, recovery, strain) and computes none | Sleep, stress and activity scores (Spike Analytics), on Enterprise |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, installed from the repository for now ([SDKs](../sdks/README.md)) | iOS, Android (with Samsung Health), React Native and Flutter |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | iOS, Android (with Samsung Health), React Native and Flutter |
 | Other products | None | Nutrition Scanner AI (calories and nutrients from a photo) and Lab Reports |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | GDPR, HIPAA and CCPA, per Spike |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Spike's cloud |

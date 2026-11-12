@@ -27,7 +27,7 @@ as well.
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Not stated |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | Data push webhooks that carry the data, notification webhooks, and API requests |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Not found on its site |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, installed from the repository for now ([SDKs](../sdks/README.md)) | Swift, Kotlin, React Native and Flutter |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | Swift, Kotlin, React Native and Flutter |
 | Vendor developer apps | You register your own app with each vendor | Thryve's shared OAuth clients by default. Your own from Scale Up |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | GDPR and HIPAA, ISO 27001 and ISO 9001 certified, per Thryve |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Thryve's cloud in Germany |
@@ -78,7 +78,7 @@ The main concepts have a direct counterpart:
 | Epoch data, by numbered data type (`1000` steps, `3000` heart rate) | `samples`, by named type (`step_count`, `heart_rate`), in one unit per type |
 | Daily data | `daily`: one summary per local calendar day |
 | Sleep data types (`2000` sleep duration and the others) | `sleep`, and each session's `phases` |
-| Native sources through the SDK (Apple Health, Health Connect) | The [Swift and Kotlin SDKs](../sdks/README.md), or the upload contract |
+| Native sources through the SDK (Apple Health, Health Connect) | The [Swift SDK](../sdks/swift.md#healthkit-sync) for HealthKit. No SDK reads Health Connect yet: your Android app reads it and follows the [upload contract](../connectors/health-connect.md) |
 
 For each cloud provider, register your own developer app and set its keys: every connector guide
 starts with that step ([connectors](../connectors/README.md)).

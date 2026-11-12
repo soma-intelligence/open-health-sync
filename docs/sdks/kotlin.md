@@ -98,10 +98,16 @@ CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
 
 ## Upload
 
-The upload route takes HealthKit-shaped lines
-([line formats](../connectors/apple-health.md#line-formats)), so on Android it serves data you
-already hold in that shape, for example lines converted from a Health app export. Reading Health
-Connect is planned for this SDK.
+`uploadAppleHealthPart` and `uploadParts` send to `POST /v1/ingest/apple-health`, which takes
+HealthKit-shaped lines ([line formats](../connectors/apple-health.md#line-formats)), so on
+Android they serve data you already hold in that shape, for example lines converted from a Health
+app export.
+
+The SDK does not read Health Connect, and has no method or part builder for the server's
+Health Connect route yet; both are planned. Until then your app reads Health Connect with the
+androidx client and posts the gzip NDJSON parts to `POST /v1/ingest/health-connect` itself, with
+the same upload token and the same four `X-OHS-` headers
+([contract and line format](../connectors/health-connect.md)).
 
 ```kotlin
 import org.openhealthsync.sdk.AppleHealthPartBuilder
