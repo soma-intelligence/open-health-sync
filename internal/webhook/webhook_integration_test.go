@@ -49,11 +49,16 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
-// worker has no delay between attempts, so retries run on the next pass.
+// worker has no delay between attempts, so retries run on the next pass,
+// and never pauses an endpoint, so a test may fail as often as it likes.
 func (e *env) worker() *webhook.Worker {
-	return webhook.NewWorker(e.pool, e.box, webhook.WorkerConfig{
-		AllowPrivate: true, Delays: make([]time.Duration, webhook.MaxAttempts-1),
-	})
+	return e.workerWith(webhook.WorkerConfig{PauseAfter: -1})
+}
+
+// workerWith is worker with cfg's concurrency and pause settings.
+func (e *env) workerWith(cfg webhook.WorkerConfig) *webhook.Worker {
+	cfg.AllowPrivate, cfg.Delays = true, make([]time.Duration, webhook.MaxAttempts-1)
+	return webhook.NewWorker(e.pool, e.box, cfg)
 }
 
 func (e *env) enqueue(typ string) {
@@ -147,15 +152,397 @@ func TestDeliverySignedAndFiltered(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, got.LastSuccessAt)
 
-	// Rotation: the next delivery verifies with the new secret only.
+}
+
+// verifies checks the receiver's i-th request against secret.
+func (r *receiver) verifies(i int, secret string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	h := r.got[i].Header
+	return webhook.Verify(secret, h.Get(webhook.HeaderID), h.Get(webhook.HeaderTimestamp),
+		h.Get(webhook.HeaderSignature), r.bodies[i], time.Now())
+}
+
+// A rotation keeps the replaced secret signing for a grace period, so a
+// receiver that still holds it drops nothing, retries included.
+func TestSecretRotationOverlap(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	rcv := newReceiver(t, 500)
+	ep, secret, err := e.store.Create(ctx, e.tenant, rcv.srv.URL, "app", []string{})
+	require.NoError(t, err)
+	assert.Nil(t, ep.PreviousSecretExpiresAt)
+	w := e.worker()
+
+	// An event fails once before the rotation; its retry comes after.
+	e.enqueue(webhook.DataWritten)
+	pass(t, w)
 	secret2, err := e.store.RotateSecret(ctx, e.tenant, ep.ID)
 	require.NoError(t, err)
+	assert.NotEqual(t, secret, secret2)
+	got, err := e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.PreviousSecretExpiresAt)
+	assert.WithinDuration(t, time.Now().Add(webhook.RotationGrace), *got.PreviousSecretExpiresAt, time.Minute)
 	e.enqueue(webhook.DataWritten)
-	pass(t, e.worker())
-	req, body = rcv.got[1], rcv.bodies[1]
-	ts, sig := req.Header.Get(webhook.HeaderTimestamp), req.Header.Get(webhook.HeaderSignature)
-	assert.NoError(t, webhook.Verify(secret2, req.Header.Get(webhook.HeaderID), ts, sig, body, time.Now()))
-	assert.ErrorIs(t, webhook.Verify(secret, req.Header.Get(webhook.HeaderID), ts, sig, body, time.Now()), webhook.ErrVerify)
+	drain(t, w)
+	require.Equal(t, 3, rcv.count())
+	for i := 1; i <= 2; i++ {
+		assert.NoError(t, rcv.verifies(i, secret2), "request %d, new secret", i)
+		assert.NoError(t, rcv.verifies(i, secret), "request %d, replaced secret during the grace period", i)
+	}
+
+	// Both are sealed at rest, with the same key and associated data.
+	var cur, prev []byte
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT secret_sealed, secret_previous_sealed
+		FROM ohs_core.webhook_endpoints WHERE id = $1`, ep.ID).Scan(&cur, &prev))
+	for _, plain := range []string{secret, secret2} {
+		assert.NotContains(t, string(cur), plain[len(webhook.SecretPrefix):])
+		assert.NotContains(t, string(prev), plain[len(webhook.SecretPrefix):])
+	}
+	opened, err := e.box.OpenFor(prev, webhook.SecretAAD(ep.ID))
+	require.NoError(t, err)
+	assert.Equal(t, secret, string(opened))
+
+	// Once the grace period is over only the new secret signs, and the
+	// prune forgets the replaced one.
+	_, err = e.pool.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET secret_previous_expires_at = now() - interval '1 second'
+		WHERE id = $1`, ep.ID)
+	require.NoError(t, err)
+	e.enqueue(webhook.DataWritten)
+	drain(t, w)
+	require.Equal(t, 4, rcv.count())
+	assert.NoError(t, rcv.verifies(3, secret2))
+	assert.ErrorIs(t, rcv.verifies(3, secret), webhook.ErrVerify)
+	got, err = e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.PreviousSecretExpiresAt)
+	require.NoError(t, w.Prune(ctx))
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT secret_previous_sealed FROM ohs_core.webhook_endpoints WHERE id = $1`,
+		ep.ID).Scan(&prev))
+	assert.Nil(t, prev)
+
+	// A rotation without grace (after a leak) stops the old secret at once.
+	secret3, until, err := e.store.RotateSecretWithGrace(ctx, e.tenant, ep.ID, 0)
+	require.NoError(t, err)
+	assert.Nil(t, until)
+	e.enqueue(webhook.DataWritten)
+	drain(t, w)
+	require.Equal(t, 5, rcv.count())
+	assert.NoError(t, rcv.verifies(4, secret3))
+	assert.ErrorIs(t, rcv.verifies(4, secret2), webhook.ErrVerify)
+
+	// A second rotation inside the grace period keeps the latest replaced
+	// secret only, and the grace period can be ended by hand.
+	short := webhook.NewStore(e.pool, e.box, webhook.WithRotationGrace(time.Hour))
+	secret4, err := short.RotateSecret(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	secret5, until, err := short.RotateSecretWithGrace(ctx, e.tenant, ep.ID, time.Hour)
+	require.NoError(t, err)
+	require.NotNil(t, until)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), *until, time.Minute)
+	e.enqueue(webhook.DataWritten)
+	drain(t, w)
+	require.Equal(t, 6, rcv.count())
+	assert.NoError(t, rcv.verifies(5, secret5))
+	assert.NoError(t, rcv.verifies(5, secret4))
+	assert.ErrorIs(t, rcv.verifies(5, secret3), webhook.ErrVerify)
+	require.NoError(t, e.store.ExpirePreviousSecret(ctx, e.tenant, ep.ID))
+	e.enqueue(webhook.DataWritten)
+	drain(t, w)
+	assert.NoError(t, rcv.verifies(6, secret5))
+	assert.ErrorIs(t, rcv.verifies(6, secret4), webhook.ErrVerify)
+
+	var other uuid.UUID
+	require.NoError(t, e.pool.QueryRow(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('o') RETURNING id`).Scan(&other))
+	_, err = e.store.RotateSecret(ctx, other, ep.ID)
+	assert.ErrorIs(t, err, webhook.ErrNotFound)
+	assert.ErrorIs(t, e.store.ExpirePreviousSecret(ctx, other, ep.ID), webhook.ErrNotFound)
+}
+
+// gate is a receiver that holds every request until release is closed.
+type gate struct {
+	mu       sync.Mutex
+	inFlight int
+	peak     int
+	total    int
+	release  chan struct{}
+	srv      *httptest.Server
+}
+
+func newGate(t *testing.T) *gate {
+	g := &gate{release: make(chan struct{})}
+	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, _ = io.Copy(io.Discard, req.Body)
+		g.mu.Lock()
+		g.inFlight++
+		g.total++
+		g.peak = max(g.peak, g.inFlight)
+		g.mu.Unlock()
+		<-g.release
+		g.mu.Lock()
+		g.inFlight--
+		g.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(g.srv.Close)
+	return g
+}
+
+func (g *gate) counts() (inFlight, peak, total int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.inFlight, g.peak, g.total
+}
+
+// One endpoint that hangs with a backlog holds PerEndpoint slots, whatever
+// the number of workers, and the other endpoints keep being served.
+func TestSlowEndpointDoesNotStallOthers(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	slow := newGate(t)
+	slowEP, _, err := e.store.Create(ctx, e.tenant, slow.srv.URL, "slow", []string{webhook.DataWritten})
+	require.NoError(t, err)
+	for range 12 {
+		e.enqueue(webhook.DataWritten) // the backlog, older than anything below
+	}
+	fast := newReceiver(t)
+	_, _, err = e.store.Create(ctx, e.tenant, fast.srv.URL, "fast", []string{webhook.UserDeleted})
+	require.NoError(t, err)
+
+	// Two replicas, each with fewer slots than the backlog. Both endpoints
+	// are one tenant's: its own cap is left out of the way.
+	cfg := webhook.WorkerConfig{Concurrency: 4, PerEndpoint: 2, PerTenant: 4, Idle: 10 * time.Millisecond}
+	runCtx, stop := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	for range 2 {
+		w := e.workerWith(cfg)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, w.Run(runCtx))
+		}()
+	}
+	require.Eventually(t, func() bool {
+		in, _, _ := slow.counts()
+		return in == 2
+	}, 10*time.Second, 10*time.Millisecond, "the slow endpoint fills its cap")
+
+	// While the slow endpoint hangs, events for the other one go out.
+	for range 20 {
+		e.enqueue(webhook.UserDeleted)
+	}
+	require.Eventually(t, func() bool { return fast.count() == 20 }, 10*time.Second, 10*time.Millisecond,
+		"the fast endpoint is served while the slow one hangs")
+	in, peak, total := slow.counts()
+	assert.Equal(t, 2, in)
+	assert.Equal(t, 2, peak, "never more than PerEndpoint in flight, over both workers")
+	assert.Equal(t, 2, total)
+	var running int
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.webhook_deliveries
+		WHERE endpoint_id = $1 AND status = 'running'`, slowEP.ID).Scan(&running))
+	assert.Equal(t, 2, running)
+
+	// Once it answers, its backlog drains, still two at a time.
+	close(slow.release)
+	require.Eventually(t, func() bool {
+		_, _, total := slow.counts()
+		return total == 12
+	}, 10*time.Second, 10*time.Millisecond)
+	stop()
+	wg.Wait()
+	_, peak, _ = slow.counts()
+	assert.Equal(t, 2, peak)
+	ds, _, err := e.store.ListDeliveries(ctx, e.tenant, slowEP.ID, webhook.DeliveryQuery{Status: "done"})
+	require.NoError(t, err)
+	assert.Len(t, ds, 12)
+}
+
+// The claim itself holds the cap: a pass takes PerEndpoint deliveries of an
+// endpoint however many are due, and none while that many are in flight.
+func TestClaimCapsInFlightPerEndpoint(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	rcv := newReceiver(t)
+	ep, _, err := e.store.Create(ctx, e.tenant, rcv.srv.URL, "", []string{})
+	require.NoError(t, err)
+	for range 5 {
+		e.enqueue(webhook.DataWritten)
+	}
+	w := e.workerWith(webhook.WorkerConfig{PerEndpoint: 2, PauseAfter: -1})
+	assert.Equal(t, 2, pass(t, w))
+	assert.Equal(t, 2, pass(t, w))
+
+	// Another worker has one in flight: one more may go.
+	_, err = e.pool.Exec(ctx, `UPDATE ohs_core.webhook_deliveries SET status = 'running', claimed_at = now()
+		WHERE id = (SELECT min(id) FROM ohs_core.webhook_deliveries WHERE endpoint_id = $1 AND status = 'pending')`, ep.ID)
+	require.NoError(t, err)
+	e.enqueue(webhook.DataWritten)
+	e.enqueue(webhook.DataWritten)
+	assert.Equal(t, 1, pass(t, w))
+	// A delivery whose worker died does not count, and is taken again.
+	_, err = e.pool.Exec(ctx, `UPDATE ohs_core.webhook_deliveries SET claimed_at = now() - interval '1 hour'
+		WHERE endpoint_id = $1 AND status = 'running'`, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, pass(t, w))
+	assert.Equal(t, 0, pass(t, w))
+	assert.Equal(t, 7, rcv.count())
+}
+
+// One tenant with many endpoints holds PerTenant slots at most, whatever
+// each endpoint may hold, so its backlog leaves slots to the other tenants.
+func TestClaimCapsInFlightPerTenant(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	busy := newReceiver(t)
+	for range 4 {
+		_, _, err := e.store.Create(ctx, e.tenant, busy.srv.URL, "", []string{})
+		require.NoError(t, err)
+	}
+	for range 3 {
+		e.enqueue(webhook.DataWritten) // 12 deliveries, older than the other tenant's
+	}
+	var other, otherUser uuid.UUID
+	require.NoError(t, e.pool.QueryRow(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('o') RETURNING id`).Scan(&other))
+	require.NoError(t, e.pool.QueryRow(ctx,
+		`INSERT INTO ohs_core.end_users (tenant_id, external_ref) VALUES ($1, 'u-1') RETURNING id`, other).Scan(&otherUser))
+	quiet := newReceiver(t)
+	_, _, err := e.store.Create(ctx, other, quiet.srv.URL, "", []string{})
+	require.NoError(t, err)
+	for range 2 {
+		_, err := webhook.Enqueue(ctx, e.pool, webhook.Event{Tenant: other, User: &otherUser, Type: webhook.DataWritten})
+		require.NoError(t, err)
+	}
+
+	w := e.workerWith(webhook.WorkerConfig{Concurrency: 8, PerEndpoint: 2, PerTenant: 3, PauseAfter: -1})
+	assert.Equal(t, 5, pass(t, w), "three of the busy tenant, both of the other")
+	assert.Equal(t, 3, busy.count())
+	assert.Equal(t, 2, quiet.count())
+
+	// Another worker has two of the busy tenant in flight, on two
+	// endpoints: one more may go.
+	_, err = e.pool.Exec(ctx, `UPDATE ohs_core.webhook_deliveries SET status = 'running', claimed_at = now()
+		WHERE id IN (SELECT DISTINCT ON (endpoint_id) id FROM ohs_core.webhook_deliveries
+			WHERE tenant_id = $1 AND status = 'pending' ORDER BY endpoint_id, id LIMIT 2)`, e.tenant)
+	require.NoError(t, err)
+	assert.Equal(t, 1, pass(t, w))
+	// Deliveries whose worker died do not count, and are taken again.
+	_, err = e.pool.Exec(ctx, `UPDATE ohs_core.webhook_deliveries SET claimed_at = now() - interval '1 hour'
+		WHERE tenant_id = $1 AND status = 'running'`, e.tenant)
+	require.NoError(t, err)
+	assert.Equal(t, 3, pass(t, w))
+	assert.Equal(t, 3, pass(t, w))
+	assert.Equal(t, 2, pass(t, w))
+	assert.Equal(t, 0, pass(t, w))
+	assert.Equal(t, 12, busy.count())
+}
+
+// After PauseAfter failures in a row an endpoint is paused; when the pause
+// ends one delivery probes it, and the first success resumes it.
+func TestEndpointPausedAfterConsecutiveFailures(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	rcv := newReceiver(t, 500, 500, 500, 500)
+	ep, _, err := e.store.Create(ctx, e.tenant, rcv.srv.URL, "", []string{})
+	require.NoError(t, err)
+	for range 6 {
+		e.enqueue(webhook.DataWritten)
+	}
+	w := e.workerWith(webhook.WorkerConfig{PerEndpoint: 1, PauseAfter: 3, PauseBase: time.Hour, PauseMax: 4 * time.Hour})
+	pass(t, w)
+	pass(t, w)
+	got, err := e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.ConsecutiveFailures)
+	assert.Nil(t, got.PausedUntil, "two failures: not paused yet")
+	pass(t, w)
+	got, err = e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "active", got.Status, "paused, not disabled")
+	require.NotNil(t, got.PausedUntil)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), *got.PausedUntil, time.Minute)
+	assert.Equal(t, 0, pass(t, w), "nothing is sent to a paused endpoint")
+	assert.Equal(t, 3, rcv.count())
+	ds, _, err := e.store.ListDeliveries(ctx, e.tenant, ep.ID, webhook.DeliveryQuery{Status: "pending"})
+	require.NoError(t, err)
+	assert.Len(t, ds, 6, "its deliveries wait, none is parked")
+
+	// The pause ends: one probe goes out however many are due; it fails and
+	// the pause doubles.
+	endPause := func() {
+		_, err := e.pool.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET paused_until = now() - interval '1 second'
+			WHERE id = $1`, ep.ID)
+		require.NoError(t, err)
+	}
+	endPause()
+	probe := e.workerWith(webhook.WorkerConfig{PerEndpoint: 4, PauseAfter: 3, PauseBase: time.Hour, PauseMax: 4 * time.Hour})
+	assert.Equal(t, 1, pass(t, probe), "one probe, whatever the in-flight cap")
+	got, err = e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 4, got.ConsecutiveFailures)
+	require.NotNil(t, got.PausedUntil)
+	assert.WithinDuration(t, time.Now().Add(2*time.Hour), *got.PausedUntil, time.Minute)
+
+	// The next probe succeeds: the endpoint resumes with its full share.
+	endPause()
+	assert.Equal(t, 1, pass(t, probe))
+	got, err = e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Zero(t, got.ConsecutiveFailures)
+	assert.Nil(t, got.PausedUntil)
+	assert.Nil(t, got.FailingSince)
+	assert.Equal(t, 4, pass(t, probe), "resumed: up to PerEndpoint at once")
+	drain(t, probe)
+	ds, _, err = e.store.ListDeliveries(ctx, e.tenant, ep.ID, webhook.DeliveryQuery{Status: "done"})
+	require.NoError(t, err)
+	assert.Len(t, ds, 6)
+
+	// Enabling an endpoint, or giving it another URL, ends its pause.
+	for _, patch := range []webhook.Patch{{Enabled: new(true)}, {URL: new(rcv.srv.URL + "/moved")}} {
+		_, err = e.pool.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET consecutive_failures = 9,
+			paused_until = now() + interval '1 hour' WHERE id = $1`, ep.ID)
+		require.NoError(t, err)
+		same := rcv.srv.URL
+		if patch.URL != nil {
+			got, err = e.store.Update(ctx, e.tenant, ep.ID, webhook.Patch{URL: &same, Description: new("d")})
+			require.NoError(t, err)
+			assert.NotNil(t, got.PausedUntil, "the same URL again changes nothing")
+		}
+		got, err = e.store.Update(ctx, e.tenant, ep.ID, patch)
+		require.NoError(t, err)
+		assert.Nil(t, got.PausedUntil)
+		assert.Zero(t, got.ConsecutiveFailures)
+		_, err = e.store.Update(ctx, e.tenant, ep.ID, webhook.Patch{URL: &same})
+		require.NoError(t, err)
+	}
+}
+
+// A paused endpoint with a backlog is still disabled after DisableAfter: a
+// failed probe is enough, no delivery has to run out of attempts.
+func TestPausedEndpointIsDisabledAfterDisableAfter(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	rcv := newReceiver(t, 500, 500, 500)
+	ep, _, err := e.store.Create(ctx, e.tenant, rcv.srv.URL, "", []string{})
+	require.NoError(t, err)
+	e.enqueue(webhook.DataWritten)
+	e.enqueue(webhook.DataWritten)
+	w := e.workerWith(webhook.WorkerConfig{PerEndpoint: 1, PauseAfter: 2, PauseBase: time.Hour})
+	pass(t, w)
+	_, err = e.pool.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET failing_since = now() - interval '6 days' WHERE id = $1`, ep.ID)
+	require.NoError(t, err)
+	got, err := e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "active", got.Status, "one failure does not disable, however old failing_since is")
+	pass(t, w)
+	got, err = e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "disabled", got.Status)
+	require.NotNil(t, got.DisabledReason)
+	assert.Contains(t, *got.DisabledReason, "5 days")
+	ds, _, err := e.store.ListDeliveries(ctx, e.tenant, ep.ID, webhook.DeliveryQuery{Status: "parked"})
+	require.NoError(t, err)
+	assert.Len(t, ds, 2)
 }
 
 func TestRetriesThenParks(t *testing.T) {

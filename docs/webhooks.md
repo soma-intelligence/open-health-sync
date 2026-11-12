@@ -38,7 +38,7 @@ to a receiver on the same machine or network (`http://localhost:3000/hooks`,
 | `GET /v1/webhooks/{webhook_id}` | One endpoint, with `failing_since` and `last_success_at` |
 | `PATCH /v1/webhooks/{webhook_id}` | Change `url`, `description`, `event_types`; `enabled` false or true |
 | `DELETE /v1/webhooks/{webhook_id}` | Delete it and its deliveries |
-| `POST /v1/webhooks/{webhook_id}/rotate-secret` | New secret, used from the next request on |
+| `POST /v1/webhooks/{webhook_id}/rotate-secret` | New secret, used from the next request on; the old one also signs for 24 hours ([rotation](#rotate-the-secret)) |
 | `POST /v1/webhooks/{webhook_id}/test` | Send a `webhook.test` event, or a sample of any event type, to this endpoint |
 | `GET /v1/webhooks/{webhook_id}/deliveries` | Deliveries, newest first; `status`, `cursor`, `limit` |
 | `GET /v1/webhooks/{webhook_id}/deliveries/{delivery_id}` | One delivery with its payload and attempt history |
@@ -105,7 +105,7 @@ Each request carries three headers:
 |---|---|
 | `webhook-id` | The event id, the same on every retry: deduplicate on it |
 | `webhook-timestamp` | Unix seconds when this attempt was signed |
-| `webhook-signature` | `v1,` + base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}` |
+| `webhook-signature` | `v1,` + base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`; during a secret rotation, two of them separated by a space |
 
 The HMAC key is the secret after `whsec_`, base64-decoded. Compute it over the raw body bytes, as
 received, compare in constant time, and refuse a timestamp more than 5 minutes from your clock.
@@ -139,6 +139,22 @@ func verify(secret string, h http.Header, body []byte) bool {
 In other languages, the `standardwebhooks` packages verify the same headers:
 `Webhook(secret).verify(body, headers)`.
 
+### Rotate the secret
+
+`POST /v1/webhooks/{webhook_id}/rotate-secret` returns a new secret, shown only in that response.
+For the next 24 hours (the default; `OHS_WEBHOOK_ROTATION_GRACE_HOURS` changes it, and
+`{"expire_previous": true}` in the request ends the old secret at once) every request, retries and replays of earlier events included, carries two
+signatures in `webhook-signature`, separated by a space: the first made with the new secret, the
+second with the one it replaced. A receiver accepts a request when any one of the signatures
+matches, as the code above and the `standardwebhooks` packages do, so it keeps verifying with the
+old secret until you deploy the new one and drops nothing in between. A receiver that compares
+the whole header to one expected value refuses these requests: split the header on spaces first.
+
+After 24 hours only the new secret signs. Only one replaced secret is kept: rotating again
+inside the 24 hours ends the first rotation's overlap at once, and the secret before it stops
+verifying. The replaced secret is stored sealed, exactly as the current one, and is erased once
+its 24 hours are over.
+
 ## Delivery and retries
 
 Answer with any 2xx within 15 seconds; do the work after answering. Anything else (another
@@ -147,18 +163,40 @@ status, a timeout, a refused connection, a redirect) is a failed attempt, retrie
 Delivery is at least once and not ordered, so a receiver must accept an event twice and must not
 rely on order; re-reading the window an event names is always safe.
 
+At most 2 requests are in flight to one endpoint at a time, counted over every `etl` process of
+the instance, so a receiver that answers slowly delays its own events and nobody else's. The
+next request starts as soon as one finishes.
+
+The endpoints of one tenant share a second cap: at most half of the delivery slots of an `etl`
+process (4 of the default 8) are in flight to all of them together, counted over every `etl`
+process too. A tenant with many slow endpoints, each inside its own cap and answering 2xx so
+that none is ever paused, therefore cannot hold every slot: the other tenants keep the rest. The
+operator sets both caps with `OHS_WEBHOOK_PER_ENDPOINT` and `OHS_WEBHOOK_PER_TENANT`
+([self-hosting.md](self-hosting.md)); an instance with a single tenant can raise the second to
+`OHS_WEBHOOK_CONCURRENCY`.
+
+An endpoint that fails 5 attempts in a row, whatever the deliveries, is paused: nothing is sent
+to it for 30 seconds. Then one request probes it. If the probe fails, the pause doubles (1
+minute, 2, 4, 8, then 10 minutes at most) and the next probe follows it; the first request that
+succeeds ends the pause and the waiting deliveries go out. A pause sends nothing, so it uses
+none of a delivery's 8 attempts: deliveries stay `pending` and may go out later than the
+schedule above says. `PATCH` with `{"enabled": true}`, or with another `url`, ends a pause at
+once, which is the way to try a fixed receiver without waiting.
+
 A delivery that fails all 8 attempts is `parked`. `GET /v1/webhooks/{id}/deliveries?status=parked`
 lists them with the last status code and error, and the retry route sends one again with its
 original id. An endpoint that has accepted nothing for 5 days is disabled when one more delivery
-runs out of attempts; its pending deliveries are parked and `disabled_reason` says why. Fix the
-receiver, then `PATCH` it with `{"enabled": true}` and retry what you need.
+runs out of attempts, or when one more probe of a paused endpoint fails; its pending deliveries
+are parked and `disabled_reason` says why. Fix the receiver, then `PATCH` it with
+`{"enabled": true}` and retry what you need.
 
 Finished deliveries are kept 30 days. When a user is deleted, every delivery about them, sent or
 not, is deleted and `user.deleted` is queued.
 
 Deliveries are posted by the `etl` role, so an instance split into roles needs outbound network
-access from its `etl` processes. The signing secrets are sealed with `OHS_ENCRYPTION_KEY`;
-[rotating the key](key-rotation.md) keeps them. If the key changes without the old one kept in
+access from its `etl` processes. The signing secrets, the one a rotation replaced included, are
+sealed with `OHS_ENCRYPTION_KEY`; [rotating the key](key-rotation.md) keeps them. If the key
+changes without the old one kept in
 `OHS_PREVIOUS_ENCRYPTION_KEYS`, the stored secrets no longer open: deliveries fail with a
 message saying so, and each endpoint needs a `rotate-secret`.
 
@@ -192,7 +230,8 @@ days, when the endpoint is deleted, or when the user the event is about is delet
 Both routes take a `done` or `parked` delivery and answer 409 for one still `pending` or
 `running`. Both send the same event id (the `webhook-id` header) and the same payload, so a
 receiver that deduplicates on `webhook-id` treats them as the same event; the request is signed
-again with the current secret and timestamp.
+again with the current secret (and the replaced one during a [rotation](#rotate-the-secret)) and
+the current timestamp.
 
 - `retry` puts the same delivery back in the queue from its first attempt. Its status, last
   error and attempt count start over; its attempt history continues.

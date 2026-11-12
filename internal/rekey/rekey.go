@@ -67,7 +67,7 @@ var tables = []table{
 		name:   "ohs_core.webhook_endpoints",
 		key:    []string{"id"},
 		types:  []string{"uuid"},
-		sealed: []string{"secret_sealed"},
+		sealed: []string{"secret_sealed", "secret_previous_sealed"},
 		aad: func(k []string) ([]byte, error) {
 			id, err := uuid.Parse(k[0])
 			if err != nil {

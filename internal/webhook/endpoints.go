@@ -22,6 +22,9 @@ const (
 	MaxEndpoints = 20
 	// MaxDescription bounds an endpoint's description.
 	MaxDescription = 255
+	// RotationGrace is how long the secret a rotation replaced keeps signing
+	// next to the new one, unless WithRotationGrace says otherwise.
+	RotationGrace = 24 * time.Hour
 )
 
 // Errors of the endpoint store.
@@ -46,6 +49,15 @@ type Endpoint struct {
 	LastSuccessAt  *time.Time `json:"last_success_at"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+	// ConsecutiveFailures counts the failed attempts since the last success.
+	// It is not part of the JSON form yet: the API decides how to show it.
+	ConsecutiveFailures int `json:"-"`
+	// PausedUntil is when a paused endpoint is tried again, nil when it is
+	// not paused (see WorkerConfig.PauseAfter).
+	PausedUntil *time.Time `json:"-"`
+	// PreviousSecretExpiresAt is until when the secret the last rotation
+	// replaced also signs deliveries, nil outside a rotation's grace period.
+	PreviousSecretExpiresAt *time.Time `json:"-"`
 }
 
 // Delivery is one event for one endpoint, as the API lists it.
@@ -67,23 +79,43 @@ type Delivery struct {
 
 // Store manages a tenant's endpoints and deliveries.
 type Store struct {
-	pool *pgxpool.Pool
-	box  *crypto.Box
+	pool  *pgxpool.Pool
+	box   *crypto.Box
+	grace time.Duration
+}
+
+// StoreOption tunes a Store.
+type StoreOption func(*Store)
+
+// WithRotationGrace sets how long RotateSecret keeps the replaced secret
+// signing next to the new one (default RotationGrace). Zero or less: the
+// replaced secret stops at once.
+func WithRotationGrace(d time.Duration) StoreOption {
+	return func(s *Store) { s.grace = max(d, 0) }
 }
 
 // NewStore returns a Store. box seals the signing secrets.
-func NewStore(pool *pgxpool.Pool, box *crypto.Box) *Store { return &Store{pool: pool, box: box} }
+func NewStore(pool *pgxpool.Pool, box *crypto.Box, opts ...StoreOption) *Store {
+	s := &Store{pool: pool, box: box, grace: RotationGrace}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
 
 // SecretAAD binds a sealed secret to its endpoint row.
 func SecretAAD(id uuid.UUID) []byte { return []byte("webhook-secret:" + id.String()) }
 
 const endpointCols = `id, url, description, event_types, status, disabled_reason, failing_since,
-	last_success_at, created_at, updated_at`
+	last_success_at, created_at, updated_at, consecutive_failures,
+	CASE WHEN paused_until > now() THEN paused_until END,
+	CASE WHEN secret_previous_expires_at > now() THEN secret_previous_expires_at END`
 
 func scanEndpoint(row pgx.Row) (Endpoint, error) {
 	var e Endpoint
 	err := row.Scan(&e.ID, &e.URL, &e.Description, &e.EventTypes, &e.Status, &e.DisabledReason,
-		&e.FailingSince, &e.LastSuccessAt, &e.CreatedAt, &e.UpdatedAt)
+		&e.FailingSince, &e.LastSuccessAt, &e.CreatedAt, &e.UpdatedAt,
+		&e.ConsecutiveFailures, &e.PausedUntil, &e.PreviousSecretExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Endpoint{}, ErrNotFound
 	}
@@ -96,6 +128,8 @@ func scanEndpoint(row pgx.Row) (Endpoint, error) {
 	e.CreatedAt, e.UpdatedAt = e.CreatedAt.UTC(), e.UpdatedAt.UTC()
 	utcPtr(e.FailingSince)
 	utcPtr(e.LastSuccessAt)
+	utcPtr(e.PausedUntil)
+	utcPtr(e.PreviousSecretExpiresAt)
 	return e, nil
 }
 
@@ -196,7 +230,8 @@ type Patch struct {
 	Description *string
 	EventTypes  *[]string
 	// Enabled true re-activates a disabled endpoint and clears its failure
-	// state; false disables it and parks its pending deliveries.
+	// state, a pause included; false disables it and parks its pending
+	// deliveries.
 	Enabled *bool
 }
 
@@ -224,6 +259,8 @@ func (s *Store) Update(ctx context.Context, tenant, id uuid.UUID, p Patch) (Endp
 			disabled_reason = CASE WHEN $7 THEN NULL WHEN $8 AND status = 'active' THEN 'disabled by the API'
 				ELSE disabled_reason END,
 			failing_since   = CASE WHEN $7 THEN NULL ELSE failing_since END,
+			consecutive_failures = CASE WHEN $7 OR $3::text <> url THEN 0 ELSE consecutive_failures END,
+			paused_until    = CASE WHEN $7 OR $3::text <> url THEN NULL ELSE paused_until END,
 			updated_at      = now()
 		WHERE tenant_id = $1 AND id = $2
 		RETURNING `+endpointCols,
@@ -262,26 +299,63 @@ func (s *Store) Delete(ctx context.Context, tenant, id uuid.UUID) error {
 	return nil
 }
 
-// RotateSecret replaces the signing secret and returns the new one. The old
-// secret stops signing at once, including retries of earlier events.
+// RotateSecret replaces the signing secret and returns the new one. The
+// replaced secret keeps signing next to the new one for the store's grace
+// period (RotationGrace unless WithRotationGrace), so every delivery in that
+// time, retries of earlier events included, verifies with either secret and
+// the receiver can switch without dropping an event.
 func (s *Store) RotateSecret(ctx context.Context, tenant, id uuid.UUID) (string, error) {
+	secret, _, err := s.RotateSecretWithGrace(ctx, tenant, id, s.grace)
+	return secret, err
+}
+
+// RotateSecretWithGrace is RotateSecret with its own grace period. It also
+// returns when the replaced secret stops signing, nil when it stopped at
+// once (grace zero or less: the rotation after a leak).
+//
+// The replaced secret stays sealed exactly as it was: its ciphertext moves
+// to secret_previous_sealed. Only one replaced secret is kept, so a second
+// rotation inside the grace period ends the first one's.
+func (s *Store) RotateSecretWithGrace(ctx context.Context, tenant, id uuid.UUID, grace time.Duration) (string, *time.Time, error) {
 	secret, err := NewSecret()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	sealed, err := s.box.SealFor([]byte(secret), SecretAAD(id))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET secret_sealed = $3, updated_at = now()
-		WHERE tenant_id = $1 AND id = $2`, tenant, id, sealed)
+	var until *time.Time
+	err = s.pool.QueryRow(ctx, `UPDATE ohs_core.webhook_endpoints SET
+			secret_previous_sealed     = CASE WHEN $4::double precision > 0 THEN secret_sealed END,
+			secret_previous_expires_at = CASE WHEN $4::double precision > 0
+				THEN now() + make_interval(secs => $4::double precision) END,
+			secret_sealed = $3, updated_at = now()
+		WHERE tenant_id = $1 AND id = $2
+		RETURNING secret_previous_expires_at`, tenant, id, sealed, grace.Seconds()).Scan(&until)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil, ErrNotFound
+	}
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+	utcPtr(until)
+	return secret, until, nil
+}
+
+// ExpirePreviousSecret ends a rotation's grace period now: from the next
+// request on, deliveries are signed with the current secret only.
+func (s *Store) ExpirePreviousSecret(ctx context.Context, tenant, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE ohs_core.webhook_endpoints
+		SET secret_previous_sealed = NULL, secret_previous_expires_at = NULL, updated_at = now()
+		WHERE tenant_id = $1 AND id = $2`, tenant, id)
+	if err != nil {
+		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return "", ErrNotFound
+		return ErrNotFound
 	}
-	return secret, nil
+	return nil
 }
 
 // SendTest queues a webhook.test event for the endpoint alone, whatever its
