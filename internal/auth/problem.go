@@ -4,8 +4,10 @@ package auth
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
@@ -36,4 +38,11 @@ func WriteProblem(w http.ResponseWriter, status int, title, detail string) {
 func WriteUnavailable(w http.ResponseWriter, detail string) {
 	w.Header().Set("Retry-After", strconv.Itoa(db.RetryAfterSeconds))
 	WriteProblem(w, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), detail)
+}
+
+// WriteTooManyRequests answers 429 with Retry-After (whole seconds, rounded
+// up, at least 1) for a request over a rate limit: nothing was done.
+func WriteTooManyRequests(w http.ResponseWriter, wait time.Duration) {
+	w.Header().Set("Retry-After", strconv.FormatInt(max(int64(math.Ceil(wait.Seconds())), 1), 10))
+	WriteProblem(w, http.StatusTooManyRequests, http.StatusText(http.StatusTooManyRequests), "too many requests, retry later")
 }

@@ -24,6 +24,10 @@ wide and refuses every scrape until you open it with `OHS_METRICS_TOKEN` (a bear
 | `ohs_http_requests_total{route,code}` | counter | API requests by route pattern and status code |
 | `ohs_ingest_in_flight` | gauge | Device uploads being processed now |
 | `ohs_ingest_rejected_total` | counter | Device uploads refused with 503 because `OHS_INGEST_CONCURRENCY` or, for a tenant past its share (`OHS_INGEST_TENANT_CONCURRENCY`), the reserve kept for other tenants was reached |
+| `ohs_rate_limited_total{route_group}` | counter | Requests refused with 429 by a [rate limiter](self-hosting.md#rate-limits). `route_group` is `inbound`, `oauth_callback`, `setup` or `share` for the routes without a credential, `api` for a credential over `OHS_RATE_LIMIT_API`, `auth_failure` for an address past `OHS_RATE_LIMIT_AUTH_FAILURES` |
+| `ohs_auth_failures_total` | counter | Well formed API keys and user tokens refused with 401. A steady rise is a client with a stale key, or someone guessing |
+| `ohs_audit_write_failures_total` | counter | [Audit events](audit-log.md) that could not be written; alert when it rises |
+| `ohs_audit_dropped_total` | counter | Audit events of reads and uploads lost after a batch failed three times (a full queue falls back to a synchronous write and loses nothing); alert when it rises |
 | `ohs_etl_pending_failed_records` | gauge | Records that failed and wait for a replay; alert when above 0 |
 | `ohs_etl_parked_jobs` | gauge | ETL jobs that ran out of attempts |
 | `ohs_etl_unprocessed_objects` | gauge | Raw objects past the grace period with no finished job |
@@ -31,6 +35,8 @@ wide and refuses every scrape until you open it with `OHS_METRICS_TOKEN` (a bear
 | `ohs_etl_orphans_enqueued_total` | counter | Jobs created for raw objects that had none |
 | `ohs_etl_drainer_replays_total` | counter | Raw objects queued again by the drainer |
 | `ohs_etl_retention_rows_total`, `ohs_etl_retention_prefixes_total` | counter | Rows and raw day prefixes deleted by `OHS_RETENTION_DAYS` |
+| `ohs_etl_retention_chunks_total` | counter | Whole hypertable chunks dropped by `OHS_RETENTION_DAYS`, in place of deleting their rows one by one |
+| `ohs_etl_tracking_rows_pruned_total` | counter | Sync log rows and finished processing jobs deleted by age (`OHS_TRACKING_RETENTION_DAYS`) |
 | `ohs_etl_run_failures_total` | counter | Background job runs that returned an error |
 | `ohs_etl_last_reconcile_unix_seconds` | gauge | When the last reconcile pass finished |
 

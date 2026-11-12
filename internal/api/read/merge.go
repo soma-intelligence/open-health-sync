@@ -150,14 +150,25 @@ func (mp *mergeParams) list(metrics []string) string {
 	return ref
 }
 
-// policy returns the user's policy: q.Policy, or the stored one.
+// policy returns the user's policy: q.Policy, or the stored one (loaded once
+// under HoistLookups).
 func policy(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query) (fusion.Policy, error) {
 	if q.Policy != nil {
 		return *q.Policy, nil
 	}
+	h := hoist(ctx, tenantID, userID)
+	if h != nil {
+		defer h.mu.Unlock()
+		if h.policy != nil {
+			return *h.policy, nil
+		}
+	}
 	p, err := fusion.Load(ctx, db, tenantID, userID, nil)
 	if err != nil {
 		return fusion.Policy{}, fmt.Errorf("read: %w", err)
+	}
+	if h != nil {
+		h.policy = &p
 	}
 	return p, nil
 }

@@ -46,13 +46,20 @@ func EachSample(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Q
 		return err
 	}
 	if !n.merged() {
+		// The user and the type are checked once, not once per page, and
+		// the user once more at the end: one deleted meanwhile is an error,
+		// never a stream that looks whole.
+		hctx := HoistLookups(ctx)
 		for {
-			pg, err := AllSamples(ctx, db, tenantID, userID, q)
+			pg, err := AllSamples(hctx, db, tenantID, userID, q)
 			if err != nil {
 				return err
 			}
-			if err := fn(pg.Records); err != nil || pg.NextCursor == "" {
+			if err := fn(pg.Records); err != nil {
 				return err
+			}
+			if pg.NextCursor == "" {
+				return CheckUser(ctx, db, tenantID, userID)
 			}
 			q.Cursor = pg.NextCursor
 		}

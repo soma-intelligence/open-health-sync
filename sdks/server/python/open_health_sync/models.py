@@ -140,8 +140,16 @@ class APIKey(TypedDict):
     created_at: str
     last_used_at: Optional[str]
     revoked_at: Optional[str]
+    # When the key stops working by itself. Null for a key that does not expire.
+    expires_at: Optional[str]
     # True for the key making the call.
     current: bool
+
+
+class CreateKeyRequest(TypedDict, total=False):
+    # When the key stops working by itself (RFC 3339, in the future). Absent or null: the
+    # key lives until it is revoked.
+    expires_at: Optional[str]
 
 
 class CreatedAPIKey(TypedDict):
@@ -151,6 +159,8 @@ class CreatedAPIKey(TypedDict):
     created_at: str
     last_used_at: Optional[str]
     revoked_at: Optional[str]
+    # When the key stops working by itself. Null for a key that does not expire.
+    expires_at: Optional[str]
     # True for the key making the call.
     current: bool
     # The whole key, returned this once.
@@ -163,7 +173,7 @@ class AdminTenant(TypedDict):
     # True for an instance admin tenant, whose keys reach the /v1/admin routes.
     admin: bool
     created_at: str
-    # The tenant's keys that are not revoked.
+    # The tenant's keys that are neither revoked nor expired.
     active_keys: int
 
 
@@ -173,7 +183,7 @@ class CreatedAdminTenant(TypedDict):
     # True for an instance admin tenant, whose keys reach the /v1/admin routes.
     admin: bool
     created_at: str
-    # The tenant's keys that are not revoked.
+    # The tenant's keys that are neither revoked nor expired.
     active_keys: int
     # The tenant's first key, with its secret, returned this once.
     key: CreatedAPIKey
@@ -544,6 +554,9 @@ class MintTokenRequest(_MintTokenRequestRequired, total=False):
 
 
 class UserToken(TypedDict):
+    # Names the token without revealing it (the first 16 hex characters of its SHA-256
+    # hash): the audit log's `actor.id`, and what revoking this one token takes.
+    id: str
     # ohs_ut_ token. Shown only once.
     token: str
     expires_at: str
@@ -581,6 +594,15 @@ class Webhook(TypedDict):
     last_success_at: Optional[str]
     created_at: str
     updated_at: str
+    # Failed attempts since the last success, whatever the deliveries.
+    consecutive_failures: int
+    # Set while the endpoint is paused after failures in a row: nothing is sent to it before
+    # this time, then one request probes it. Null when it is not paused. Enabling the
+    # endpoint or changing its `url` ends a pause.
+    paused_until: Optional[str]
+    # Until when the secret the last rotation replaced also signs requests; null outside a
+    # rotation's grace period.
+    previous_secret_expires_at: Optional[str]
 
 
 class WebhookWithSecret(TypedDict):
@@ -597,6 +619,15 @@ class WebhookWithSecret(TypedDict):
     last_success_at: Optional[str]
     created_at: str
     updated_at: str
+    # Failed attempts since the last success, whatever the deliveries.
+    consecutive_failures: int
+    # Set while the endpoint is paused after failures in a row: nothing is sent to it before
+    # this time, then one request probes it. Null when it is not paused. Enabling the
+    # endpoint or changing its `url` ends a pause.
+    paused_until: Optional[str]
+    # Until when the secret the last rotation replaced also signs requests; null outside a
+    # rotation's grace period.
+    previous_secret_expires_at: Optional[str]
     # whsec_ signing secret. Shown only once.
     secret: str
 
@@ -2011,14 +2042,26 @@ class ListWebhooksResponse(TypedDict):
     next_cursor: Optional[str]
 
 
+class RotateWebhookSecretRequest(TypedDict, total=False):
+    # End the replaced secret at once instead of after the grace period.
+    expire_previous: bool
+
+
 class RotateWebhookSecretResponse(TypedDict):
     secret: str
+    # Until when the replaced secret also signs; null when it stopped at once.
+    previous_secret_expires_at: Optional[str]
 
 
 class ListWebhookDeliveriesResponse(TypedDict):
     data: List[WebhookDelivery]
     # Null on the last page.
     next_cursor: Optional[str]
+
+
+class RevokeUserTokensResponse(TypedDict):
+    # How many tokens were still valid.
+    revoked: int
 
 
 class ListConnectionsResponse(TypedDict):
@@ -2078,6 +2121,10 @@ _SyncConnectionRequestOptional = TypedDict(
 
 class SyncConnectionRequest(_SyncConnectionRequestOptional):
     pass
+
+
+class RetryFailedSyncRunsResponse(TypedDict):
+    retried: int
 
 
 class ListSyncRunsResponse(TypedDict):
@@ -2154,6 +2201,10 @@ class RetryParkedETLJobsResponse(TypedDict):
     retried: int
 
 
+class RetryAdminTenantFailedSyncRunsResponse(TypedDict):
+    retried: int
+
+
 class ListAuditEventsResponse(TypedDict):
     data: List[AuditEvent]
     # Null on the last page.
@@ -2197,6 +2248,7 @@ __all__ = [
     "Coverage",
     "CoverageDay",
     "CreateAdminTenantRequest",
+    "CreateKeyRequest",
     "CreateSelfReportsRequest",
     "CreateShareRequest",
     "CreateTimeTagRequest",
@@ -2307,8 +2359,12 @@ __all__ = [
     "RRInterval",
     "RRIntervalPage",
     "ReadyzResponse",
+    "RetryAdminTenantFailedSyncRunsResponse",
+    "RetryFailedSyncRunsResponse",
     "RetryParkedETLJobsRequest",
     "RetryParkedETLJobsResponse",
+    "RevokeUserTokensResponse",
+    "RotateWebhookSecretRequest",
     "RotateWebhookSecretResponse",
     "RoutePoint",
     "RoutePointPage",

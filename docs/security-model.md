@@ -60,8 +60,28 @@ checklist see [hardening.md](hardening.md); to report a problem see
 - **Stolen or guessed credentials.** Keys and tokens are 32 random bytes; only their SHA-256
   hash is stored, so a database read does not yield a usable credential
   (`internal/auth/keys.go`). A fast hash is adequate for secrets of that entropy. Revoked keys,
-  expired tokens and tokens of a user being deleted are refused
-  (`internal/tenant/store.go`, `LookupKey`).
+  keys past their optional expiry, revoked or expired tokens, tokens minted by a key that was
+  revoked or has expired since and tokens of a user being deleted are refused
+  (`internal/tenant/store.go`, `LookupKey`). A token is revoked with
+  `DELETE /v1/users/{id}/tokens/{token_id}`, all of a user's with `DELETE /v1/users/{id}/tokens`.
+- **Guessing and replaying refused credentials.** A well formed key or token that is refused
+  (401) is recorded in the audit log as `auth.failed` with the client address and the key
+  prefix, never the secret: on the tenant of a revoked or expired credential, on the nil tenant
+  id for an unknown one. At most one event per client address and minute for unknown
+  credentials, one per credential and minute for a revoked or expired one, and 600 a minute per
+  process are written, 150 of them kept for revoked and expired credentials, so a guessing run
+  can neither fill the table nor hide a retired key that is still used; the rest is counted
+  (`ohs_auth_failures_total`). After 60 failures (then one a second) the refused credentials of
+  a client address answer 429 instead of 401 and leave no event. The throttle only ever answers
+  a request whose credential was refused: a valid key or token is served whatever else its
+  address presented (`internal/api/guard.go`). A refused credential still costs its lookup, two
+  indexed reads by hash at most.
+- **A runaway or abusive client.** Each credential has a token bucket on every authenticated
+  route (200 requests a second, bursts of 2,000 by default; an API key by itself, the tokens of
+  one user together). Over it the answer is 429 with `Retry-After`, counted in
+  `ohs_rate_limited_total{route_group="api"}`.
+- **Cached health data.** Every response to a request that takes a credential carries
+  `Cache-Control: no-store` (`internal/auth/middleware.go`).
 - **A credential used beyond its purpose.** Each route declares what it takes: a tenant key, or
   a user token holding a given scope; anything else is 401 or 403 (`internal/auth/middleware.go`,
   routes in `internal/api/`). User tokens live one hour by default, at most 24 hours, or 30 days
@@ -236,12 +256,26 @@ A share link is a way out of the instance for one user's data, readable by whoev
   `OHS_PREVIOUS_ENCRYPTION_KEYS` until `ohs admin rekey` has run. Without it, the stored OAuth
   tokens and webhook secrets do not open: users must reconnect and webhook secrets must be
   rotated. A leaked key exposes the tokens of a stolen database until they are re-sealed.
-- **Rate limits are per instance and in memory.** Each replica counts on its own and a restart
+- **Rate limits are per process and in memory.** Each replica counts on its own and a restart
   empties the buckets, though the 10 passcode attempts of a share link are counted in the
-  database. Only the provider-facing routes, the share link routes and the first-run setup are
-  limited:
-  authenticated API routes are not, and floods larger than one instance can absorb belong at
-  the proxy.
+  database. With several replicas the ceiling of a credential or an address is the limit times
+  the replicas it reaches, and floods larger than one instance can absorb belong at the proxy.
+  The throttle on refused credentials is per client address: clients behind one address (a
+  NAT, a proxy not listed in `OHS_TRUSTED_PROXIES`) share it, so while one of them loops on
+  refused credentials, another one presenting a revoked or expired credential gets 429 where it
+  would get 401. Valid credentials are not affected. Behind a reverse proxy the throttle
+  needs `OHS_TRUSTED_PROXIES`: without it every client has the proxy's address, the throttle
+  counts them as one and a guesser is slowed down no more than everyone else; the server logs
+  a warning at start when it listens beyond loopback with no trusted proxy. Past 100,000
+  tracked addresses a new address is counted and not throttled.
+- **Buffered audit events can be lost in a crash.** When the instance runs the buffered audit
+  writer, the events of reads, uploads and refused credentials wait up to a second in memory.
+  A process that is killed, not stopped, loses the ones still queued: about a second of them.
+  With its queue of 4,096 full, an event is written before the request ends instead, and a
+  batch the database does not take is tried three times before its events are dropped and
+  counted (`ohs_audit_dropped_total`); see [audit-log.md](audit-log.md). Key and token changes,
+  deletions, exports, consent, share and settings changes are written before the response ends
+  and are not affected.
 - **OAuth state is not bound to a browser session.** Whoever completes a consent link connects
   the account they sign in with to the user it was minted for. Tenants must hand an authorize
   URL only to its user.
@@ -251,9 +285,9 @@ A share link is a way out of the instance for one user's data, readable by whoev
   Strava deletion events are acted on only with the subscription id set, and that id is a
   shared value, not a signature: someone who learns it can forge the deletion of a connected
   athlete's activity.
-- **User tokens cannot be revoked through the API.** They expire, stop working when the user is
-  deleted, or the instance operator revokes one with `ohs admin key revoke --key ohs_ut_...`.
-  A user token minted with a key stays valid after that key is revoked, until it expires.
+- **Tokens minted before version 0.3.0 are tied to no key.** Revoking the key that minted one
+  does not revoke it: it lives until it expires (30 days at most) or is revoked through the
+  token routes. API key scopes do not exist: a tenant key reaches every tenant route.
 - **Provider revocation on deletion is best effort.** If a provider is unreachable, or the
   process carrying out the deletion lacks that provider's keys, the data is still deleted but the
   grant may stay valid at the provider.

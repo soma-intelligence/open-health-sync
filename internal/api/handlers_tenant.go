@@ -33,6 +33,8 @@ type apiKeyJSON struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	RevokedAt  *time.Time `json:"revoked_at"`
+	// ExpiresAt is when the key stops working by itself; null means never.
+	ExpiresAt *time.Time `json:"expires_at"`
 	// Current is true for the key making the call.
 	Current bool `json:"current"`
 }
@@ -43,9 +45,18 @@ type createdKeyJSON struct {
 	Key string `json:"key"`
 }
 
+// createKeyRequest is the optional body of the routes that create a key.
+type createKeyRequest struct {
+	// ExpiresAt is when the key stops working. Absent or null means it
+	// lives until it is revoked.
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
+const errExpiryPast = "expires_at must be a time in the future"
+
 func toAPIKeyJSON(k tenant.APIKey, current string) apiKeyJSON {
 	return apiKeyJSON{ID: k.ID, Prefix: k.Prefix, CreatedAt: k.CreatedAt.UTC(), LastUsedAt: utcPtr(k.LastUsedAt),
-		RevokedAt: utcPtr(k.RevokedAt), Current: k.ID.String() == current}
+		RevokedAt: utcPtr(k.RevokedAt), ExpiresAt: utcPtr(k.ExpiresAt), Current: k.ID.String() == current}
 }
 
 func utcPtr(t *time.Time) *time.Time {
@@ -102,12 +113,16 @@ func (s *server) listKeys(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) createKey(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.From(r.Context())
-	var req struct{}
+	var req createKeyRequest
 	if !decodeJSON(w, r, &req, true) {
 		return
 	}
-	full, k, err := s.d.Store.CreateKeyInfo(r.Context(), p.TenantID)
-	if err != nil {
+	full, k, err := s.d.Store.CreateKeyWith(r.Context(), p.TenantID, tenant.KeyOptions{ExpiresAt: req.ExpiresAt})
+	switch {
+	case errors.Is(err, tenant.ErrExpiryPast):
+		badRequest(w, errExpiryPast)
+		return
+	case err != nil:
 		internalError(w, r, "api: create key", err)
 		return
 	}

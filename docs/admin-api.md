@@ -56,10 +56,15 @@ A tenant is:
 }
 ```
 
-`active_keys` counts the keys that are not revoked. A key is the object of `GET /v1/keys`: `id`,
-`prefix` (the first 12 characters, kept to tell keys apart), `created_at`, `last_used_at`,
-`revoked_at` and `current`, true only for the key making the call (so only when you list your
-own tenant's keys). A key just created also has `key`, the whole secret, in that answer only.
+`active_keys` counts the keys that are neither revoked nor expired. A key is the object of
+`GET /v1/keys`: `id`, `prefix` (the first 12 characters, kept to tell keys apart), `created_at`,
+`last_used_at`, `revoked_at`, `expires_at` (null for a key that does not expire) and `current`,
+true only for the key making the call (so only when you list your own tenant's keys). A key
+just created also has `key`, the whole secret, in that answer only.
+
+`POST /v1/admin/tenants/{tenant_id}/keys` takes an optional body `{"expires_at": "<RFC 3339
+time>"}`: the key is refused from that time on. A time that is not in the future is a 400.
+Revoking a key also revokes the user tokens it minted.
 
 An unknown `tenant_id` or `key_id`, a malformed one, or a key of another tenant is a 404. Errors
 are [problem details](api.md#conventions):
@@ -322,7 +327,7 @@ any tenant: it spares minting one, and the tenant's log names the admin.
 |---|---|
 | `GET /users`, `POST /users`, `GET /users/{id}`, `DELETE /users/{id}`, `GET /deletions/{job_id}` | [Users](api.md#users) |
 | `GET /users/{id}/daily`, `/samples`, `/samples/stats`, `/sleep`, `/workouts`, `/nutrition`, `/coverage` | [Reading data](api.md#reading-data) |
-| `GET /users/{id}/connections`, `/freshness`, `/sync-runs`, `/sync-runs/{run}`; `POST /users/{id}/connect-sessions`, `/connections/{provider}/sync`; `DELETE /users/{id}/connections/{provider}` | [Connecting a provider](api.md#connecting-a-provider), [the connection page](connect-page.md), [sync history](sync-health.md) |
+| `GET /users/{id}/connections`, `/freshness`, `/sync-runs`, `/sync-runs/{run}`; `POST /users/{id}/connect-sessions`, `/connections/{provider}/sync`, `/sync-runs/{run_id}/retry`, `/connections/{provider}/sync-runs/retry`; `DELETE /users/{id}/connections/{provider}` | [Connecting a provider](api.md#connecting-a-provider), [the connection page](connect-page.md), [sync history](sync-health.md) |
 | `/webhooks` and every route under it: create, list, read, change, delete, `rotate-secret`, `test`, deliveries, `retry`, `replay` | [Webhooks](webhooks.md) |
 | `GET /pipeline/sync-runs`, `/pipeline/etl-jobs`; `POST /pipeline/etl-jobs/retry`, `/pipeline/etl-jobs/{job_id}/retry` | [Running the instance](api.md#running-the-instance) |
 | `GET /audit` | The tenant's [audit log](audit-log.md) |

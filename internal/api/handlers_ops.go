@@ -6,13 +6,20 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	apispec "github.com/soma-intelligence/open-health-sync/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
+	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
 
@@ -74,6 +81,19 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusServiceUnavailable, "the database is not reachable")
 		return
 	}
+	// /readyz takes no credential: the versions and the dirty mark go to
+	// the log, once per change, and the caller gets a reason without them.
+	detail, changed := s.schema.check(ctx, time.Now(), db.LatestVersion, s.schemaVersion)
+	switch {
+	case changed && detail != "":
+		slog.WarnContext(r.Context(), "readyz: schema", "detail", detail)
+	case changed:
+		slog.InfoContext(r.Context(), "readyz: schema is at the version this binary needs again")
+	}
+	if detail != "" {
+		problem(w, http.StatusServiceUnavailable, schemaNotReady)
+		return
+	}
 	if s.d.Raw != nil {
 		if err := rawstore.Ping(ctx, s.d.Raw); err != nil {
 			slog.WarnContext(r.Context(), "readyz: raw store", "error", err)
@@ -82,6 +102,86 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+// schemaCheckTTL is how long /readyz trusts its last schema version check:
+// probes come every few seconds, the version changes with a migration.
+const schemaCheckTTL = 10 * time.Second
+
+// schemaNotReady is what /readyz answers when the schema check fails,
+// whatever the reason: the route is public, so no version and no word on a
+// half done migration.
+const schemaNotReady = "database schema is not at the version this binary needs"
+
+// schemaCheck caches whether the database schema is the one this binary was
+// built for, and remembers the last answer it reported as new.
+type schemaCheck struct {
+	mu     sync.Mutex
+	at     time.Time
+	detail string
+	done   bool
+	// told is the detail of the last check that returned changed.
+	told string
+}
+
+// check returns "" when the database is clean and at the binary's schema
+// version or a later one, else why the instance is not ready, for the log.
+// The answer is kept for schemaCheckTTL, so a probe costs no query most of
+// the time. changed is true the first time a detail is returned and when it
+// becomes another one or "" again, so the caller logs a state once, not on
+// every probe. binary is the version this build migrates to, database reads
+// the applied one.
+func (c *schemaCheck) check(ctx context.Context, now time.Time, binary func() (uint, error),
+	database func(context.Context) (uint, bool, error)) (detail string, changed bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	defer func() {
+		changed = detail != c.told
+		c.told = detail
+	}()
+	if c.done && now.Sub(c.at) < schemaCheckTTL {
+		return c.detail, false
+	}
+	want, err := binary()
+	if err != nil {
+		return "the schema version of this binary could not be read", false
+	}
+	got, dirty, err := database(ctx)
+	switch {
+	case err != nil:
+		// Not kept: the next probe asks again.
+		return "the database schema version could not be read: " + err.Error(), false
+	case dirty:
+		c.detail = fmt.Sprintf("the database schema is dirty: a migration to version %d stopped half way", got)
+	case got < want:
+		// A database ahead of the binary stays ready: during a rolling
+		// upgrade the migration lands first and the old replicas must keep
+		// serving until the new ones take over.
+		c.detail = fmt.Sprintf("the database is at schema version %d, this binary needs version %d", got, want)
+	default:
+		c.detail = ""
+	}
+	c.at, c.done = now, true
+	return c.detail, false
+}
+
+// schemaVersion reads the applied migration version with one plain query,
+// as db.ReadSchemaState does: no lock, nothing created. A database that was
+// never migrated is version 0.
+func (s *server) schemaVersion(ctx context.Context) (version uint, dirty bool, err error) {
+	var v int64
+	err = s.d.Pool.QueryRow(ctx, "SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&v, &dirty)
+	var pgErr *pgconn.PgError
+	switch {
+	case errors.Is(err, pgx.ErrNoRows), errors.As(err, &pgErr) && pgErr.Code == "42P01":
+		return 0, false, nil
+	case err != nil:
+		return 0, false, err
+	}
+	if v > 0 {
+		version = uint(v)
+	}
+	return version, dirty, nil
 }
 
 func (s *server) metricsHandler(w http.ResponseWriter, r *http.Request) {

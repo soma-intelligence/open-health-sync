@@ -104,7 +104,7 @@ func TestAdminTenantsCreateListGet(t *testing.T) {
 	var raw map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(r.body, &raw))
 	assert.ElementsMatch(t, []string{"id", "name", "admin", "created_at", "active_keys", "key"}, keysOfAny(r.body))
-	assert.ElementsMatch(t, []string{"id", "prefix", "created_at", "last_used_at", "revoked_at", "current", "key"},
+	assert.ElementsMatch(t, []string{"id", "prefix", "created_at", "last_used_at", "revoked_at", "expires_at", "current", "key"},
 		keysOfAny(raw["key"]), "the key object of POST /v1/keys")
 
 	// The new key works, for its own tenant only.

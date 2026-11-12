@@ -29,6 +29,9 @@ func (s *server) mountCollect(mux *http.ServeMux) {
 	mux.Handle("POST /v1/users/{id}/connections/{provider}/sync", tenantKey(h.SyncNow()))
 	mux.Handle("GET /v1/users/{id}/sync-runs", tenantKey(h.ListSyncRuns()))
 	mux.Handle("GET /v1/users/{id}/sync-runs/{run}", tenantKey(h.GetSyncRun()))
+	// A failed run queued again, and every failed run of one connection.
+	mux.Handle("POST /v1/users/{id}/sync-runs/{run}/retry", tenantKey(h.RetrySyncRun()))
+	mux.Handle("POST /v1/users/{id}/connections/{provider}/sync-runs/retry", tenantKey(h.RetryFailedSyncRuns()))
 	mux.Handle("POST /v1/users/{id}/connect-sessions", tenantKey(h.CreateConnectSession()))
 	// The hosted connection page: the session token in the link (query or
 	// form field) is its credential, so no bearer.

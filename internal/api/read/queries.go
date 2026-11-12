@@ -141,6 +141,13 @@ func DecodeCursor(c string) (time.Time, int64, error) {
 // that this user does have samples of (a connector may emit a metric the
 // catalog does not declare yet) is still served.
 func knownQuantityType(ctx context.Context, db Querier, tenantID, userID uuid.UUID, qt string) error {
+	h := hoist(ctx, tenantID, userID)
+	if h != nil {
+		defer h.mu.Unlock()
+		if h.types[qt] {
+			return nil
+		}
+	}
 	var ok bool
 	if err := db.QueryRow(ctx, `SELECT
 			EXISTS (SELECT 1 FROM ohs_data.quantity_codes WHERE canonical_code = $3)
@@ -152,12 +159,31 @@ func knownQuantityType(ctx context.Context, db Querier, tenantID, userID uuid.UU
 	if !ok {
 		return &QueryError{Msg: fmt.Sprintf("unknown type %q: not a quantity type of the catalog (snake_case names such as heart_rate or step_count; listed in docs/data-model.md and by the MCP tool list_quantity_types)", qt)}
 	}
+	if h != nil {
+		h.types[qt] = true
+	}
 	return nil
 }
 
 // userExists reports whether user is an active user of tenant. A user being
-// deleted reads as absent.
+// deleted reads as absent. Under HoistLookups the answer is asked once.
 func userExists(ctx context.Context, db Querier, tenantID, userID uuid.UUID) error {
+	h := hoist(ctx, tenantID, userID)
+	if h == nil {
+		return userActive(ctx, db, tenantID, userID)
+	}
+	defer h.mu.Unlock()
+	if h.user {
+		return nil
+	}
+	if err := userActive(ctx, db, tenantID, userID); err != nil {
+		return err
+	}
+	h.user = true
+	return nil
+}
+
+func userActive(ctx context.Context, db Querier, tenantID, userID uuid.UUID) error {
 	var ok bool
 	if err := db.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2 AND status = 'active')`,

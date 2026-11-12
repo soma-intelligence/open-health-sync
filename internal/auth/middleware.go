@@ -57,9 +57,54 @@ type slotKey struct{}
 // Slot receives the Principal a middleware further in authenticates, so a
 // wrapper outside it (the audit log) learns who called.
 type Slot struct {
-	p  Principal
-	ok bool
+	p      Principal
+	ok     bool
+	failed *Failure
+	// onFailure is asked about each refused credential (OnFailure).
+	onFailure func(Failure) (retryAfter time.Duration, limited bool)
 }
+
+// Failure describes a well formed credential the lookup refused (401), for
+// the audit log. It never holds the secret.
+type Failure struct {
+	// Hash is the SHA-256 hex hash of the presented secret.
+	Hash string
+	// Prefix is the start of a presented API key, the part kept in clear to
+	// tell keys apart (KeyPrefixLen characters). Empty for a user token.
+	Prefix string
+	// UserToken is true for a user token, false for an API key.
+	UserToken bool
+}
+
+// KeyPrefixLen is how many characters of an API key are kept in clear: the
+// prefix of listings and of the audit log.
+const KeyPrefixLen = 12
+
+// Failure returns the refused credential of the request, if there was one.
+func (s *Slot) Failure() (Failure, bool) {
+	if s.failed == nil {
+		return Failure{}, false
+	}
+	return *s.failed, true
+}
+
+// OnFailure sets fn, which the middleware asks about a credential the
+// lookup refused, after the lookup and before it answers: when fn reports
+// limited, the answer is 429 with Retry-After instead of 401 (a caller that
+// presented too many refused credentials). A credential the lookup accepts
+// never reaches fn, so it is never refused by it.
+func (s *Slot) OnFailure(fn func(Failure) (retryAfter time.Duration, limited bool)) {
+	s.onFailure = fn
+}
+
+// LimitedError is what a Lookup returns for a credential that is valid but
+// over its rate limit: the middleware answers 429 with Retry-After.
+type LimitedError struct {
+	// RetryAfter is how long until a request can pass.
+	RetryAfter time.Duration
+}
+
+func (e *LimitedError) Error() string { return "auth: rate limited" }
 
 // WithSlot returns ctx carrying a new, empty Slot.
 func WithSlot(ctx context.Context) (context.Context, *Slot) {
@@ -105,6 +150,10 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 	forbidden := forbiddenDetail(wants)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Whatever a route behind a credential answers is for that
+			// caller alone: no cache on the way may keep it. A handler that
+			// knows better sets its own value.
+			w.Header().Set("Cache-Control", "no-store")
 			raw, ok := bearer(r)
 			if !ok || (!strings.HasPrefix(raw, PrefixSecretKey) && !strings.HasPrefix(raw, PrefixUserToken)) {
 				unauthorized(w)
@@ -125,7 +174,25 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 				return
 			}
 			if errors.Is(err, ErrUnauthenticated) {
+				if s, ok := r.Context().Value(slotKey{}).(*Slot); ok {
+					f := &Failure{Hash: Hash(raw), UserToken: strings.HasPrefix(raw, PrefixUserToken)}
+					if !f.UserToken && len(raw) > KeyPrefixLen {
+						f.Prefix = raw[:KeyPrefixLen]
+					}
+					s.failed = f
+					if s.onFailure != nil {
+						if wait, limited := s.onFailure(*f); limited {
+							WriteTooManyRequests(w, wait)
+							return
+						}
+					}
+				}
 				unauthorized(w)
+				return
+			}
+			var limited *LimitedError
+			if errors.As(err, &limited) {
+				WriteTooManyRequests(w, limited.RetryAfter)
 				return
 			}
 			if err != nil {

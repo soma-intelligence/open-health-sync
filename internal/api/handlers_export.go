@@ -30,17 +30,25 @@ var exportDatasets = map[string]func(s *server, w http.ResponseWriter, r *http.R
 // batch.
 type eachFunc[T any] func(ctx context.Context, db read.Querier, tenantID, userID uuid.UUID, q read.Query, fn func([]T) error) error
 
-// pages reads a list page by page at the largest page size.
+// pages reads a list page by page at the largest page size. The lookups
+// every page would repeat (the user, the type, the merge policy) are made
+// once for the whole read (read.HoistLookups); the user is checked once more
+// after the last page, so one deleted meanwhile is an error, never a file
+// that looks whole.
 func pages[T any](list listFunc[T]) eachFunc[T] {
 	return func(ctx context.Context, db read.Querier, tenantID, userID uuid.UUID, q read.Query, fn func([]T) error) error {
 		q.Limit = read.MaxLimit
+		hctx := read.HoistLookups(ctx)
 		for {
-			pg, err := list(ctx, db, tenantID, userID, q)
+			pg, err := list(hctx, db, tenantID, userID, q)
 			if err != nil {
 				return err
 			}
-			if err := fn(pg.Records); err != nil || pg.NextCursor == "" {
+			if err := fn(pg.Records); err != nil {
 				return err
+			}
+			if pg.NextCursor == "" {
+				return read.CheckUser(ctx, db, tenantID, userID)
 			}
 			q.Cursor = pg.NextCursor
 		}

@@ -56,6 +56,7 @@ const (
 	UserDelete       = "user.delete"
 	UserErased       = "user.erased"
 	TokenCreate      = "token.create"
+	TokenRevoke      = "token.revoke"
 	ConnectionRead   = "connection.read"
 	ConnectionCreate = "connection.create"
 	ConnectionDelete = "connection.delete"
@@ -77,6 +78,14 @@ const (
 	// ShareAccess is a manifest request on a known share link, or a file
 	// download; detail has the share id and the outcome.
 	ShareAccess = "share.access"
+	// AuthFailed is a request refused with 401 because its API key or user
+	// token is unknown, revoked or expired. Detail has the client address,
+	// the reason and, for a key, its non-secret prefix, never the secret. It
+	// is recorded on the tenant of a revoked or expired credential, and on
+	// the nil tenant id when the credential is unknown. At most a few events
+	// per client address and minute are written; "suppressed" counts the
+	// failures that were not.
+	AuthFailed = "auth.failed"
 	// TenantProvider is a provider turned off or back on for one tenant by
 	// an instance admin; detail has the provider and enabled.
 	TenantProvider = "tenant.provider"
@@ -101,6 +110,25 @@ type Event struct {
 	// Detail holds identifiers only (a job id, a provider slug), never a
 	// value read or written.
 	Detail map[string]any
+	// At is when the event happened. Zero means the time of the write; the
+	// buffered Writer sets it when an event is queued.
+	At time.Time
+}
+
+// Buffered reports whether an event of this action may wait in the buffered
+// Writer: reads, device uploads, immediate pulls and failed authentication,
+// the high volume events. Every other action (keys, tokens, deletion,
+// exports, consent, shares, tenants, connections made or removed, webhooks
+// and settings changed) is written before the response is over, so it is
+// never lost with the queue. An action added later is synchronous until it
+// is listed here.
+func Buffered(action string) bool {
+	switch action {
+	case DataRead, DataWrite, UserRead, ConnectionRead, ConnectionSync, ConsentRead,
+		WebhookRead, AuditRead, ConfigRead, ShareRead, AuthFailed:
+		return true
+	}
+	return false
 }
 
 // TokenID names a user token in the log without revealing it: the first 16
@@ -130,20 +158,32 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 			return fmt.Errorf("audit: detail: %w", err)
 		}
 	}
-	var status *int
-	if ev.Status != 0 {
-		status = &ev.Status
-	}
 	_, err := db.Exec(ctx, `
 		INSERT INTO ohs_core.audit_events
-		    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		ev.Tenant, ev.User, string(ev.ActorType), pgtext.Clean(ev.ActorID), ev.Action, ev.Method,
-		pgtext.Clean(ev.Route), status, pgtext.Clean(ev.RequestID), detail)
+		    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail, at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, coalesce($11::timestamptz, now()))`,
+		eventArgs(ev, detail)...)
 	if err != nil {
 		return fmt.Errorf("audit: record: %w", err)
 	}
 	return nil
+}
+
+// eventColumns is how many columns eventArgs fills.
+const eventColumns = 11
+
+// eventArgs are the values of one row, in the column order of Record.
+func eventArgs(ev Event, detail []byte) []any {
+	var status *int
+	if ev.Status != 0 {
+		status = &ev.Status
+	}
+	var at *time.Time
+	if !ev.At.IsZero() {
+		at = &ev.At
+	}
+	return []any{ev.Tenant, ev.User, string(ev.ActorType), pgtext.Clean(ev.ActorID), ev.Action, ev.Method,
+		pgtext.Clean(ev.Route), status, pgtext.Clean(ev.RequestID), detail, at}
 }
 
 // detailJSON encodes d with every string, member names included, as Postgres
@@ -252,13 +292,20 @@ func Classify(method, pattern string) string {
 	case strings.HasPrefix(path, "/v1/deletions/"):
 		return UserRead
 	case strings.HasPrefix(path, userPrefix+"/tokens"):
+		if method == "DELETE" {
+			return TokenRevoke
+		}
 		return TokenCreate
 	case path == userPrefix+"/connect-sessions":
 		return ConnectionCreate // a hosted connection page link
 	case strings.HasPrefix(path, userPrefix+"/sync-runs"):
+		if method == "POST" {
+			return ConnectionSync // a failed run queued again
+		}
 		return ConnectionRead
-	case strings.HasPrefix(path, userPrefix+"/connections") && strings.HasSuffix(path, "/sync"):
-		return ConnectionSync // an immediate pull
+	case strings.HasPrefix(path, userPrefix+"/connections") &&
+		(strings.HasSuffix(path, "/sync") || strings.HasSuffix(path, "/sync-runs/retry")):
+		return ConnectionSync // an immediate pull, or the failed runs queued again
 	case strings.HasPrefix(path, userPrefix+"/connections"):
 		switch method {
 		case "POST":

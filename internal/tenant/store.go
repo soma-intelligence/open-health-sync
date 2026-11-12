@@ -58,7 +58,7 @@ const (
 	pendingTakeover   = 5 * time.Minute
 	maxIdempotencyKey = 255
 	touchEvery        = time.Minute
-	keyPrefixLen      = 12
+	keyPrefixLen      = auth.KeyPrefixLen
 	maxListLimit      = 1000
 	defaultListLimit  = 100
 )
@@ -452,6 +452,13 @@ func scanUser(r scanner) (User, error) {
 // ttl <= 0 means one hour. Scopes must be a non-empty subset of upload, connect,
 // read. The lifetime is capped at 24 hours, or 30 days when read is the only scope.
 func (s *Store) MintUserToken(ctx context.Context, tenantID, userID uuid.UUID, scopes []string, ttl time.Duration) (string, time.Time, error) {
+	return s.MintUserTokenBy(ctx, tenantID, userID, scopes, ttl, nil)
+}
+
+// MintUserTokenBy is MintUserToken that remembers the API key that minted
+// the token (mintedBy, its id): revoking that key revokes the token. Nil
+// ties the token to no key.
+func (s *Store) MintUserTokenBy(ctx context.Context, tenantID, userID uuid.UUID, scopes []string, ttl time.Duration, mintedBy *uuid.UUID) (string, time.Time, error) {
 	scopes, err := normalizeScopes(scopes)
 	if err != nil {
 		return "", time.Time{}, err
@@ -476,12 +483,12 @@ func (s *Store) MintUserToken(ctx context.Context, tenantID, userID uuid.UUID, s
 	}
 	var exp time.Time
 	err = s.pool.QueryRow(ctx,
-		`INSERT INTO ohs_core.user_tokens (hash, tenant_id, user_id, scopes, expires_at)
-		 SELECT $1, u.tenant_id, u.id, $4, now() + $5::interval
+		`INSERT INTO ohs_core.user_tokens (hash, tenant_id, user_id, scopes, expires_at, minted_by_key)
+		 SELECT $1, u.tenant_id, u.id, $4, now() + $5::interval, $6::uuid
 		 FROM ohs_core.end_users u
 		 WHERE u.tenant_id = $2 AND u.id = $3 AND u.status = 'active'
 		 RETURNING expires_at`,
-		hash, tenantID, userID, scopes, fmt.Sprintf("%d microseconds", ttl.Microseconds()),
+		hash, tenantID, userID, scopes, fmt.Sprintf("%d microseconds", ttl.Microseconds()), mintedBy,
 	).Scan(&exp)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", time.Time{}, ErrNotFound
@@ -511,8 +518,8 @@ func normalizeScopes(in []string) ([]string, error) {
 }
 
 // LookupKey resolves the hash of an API key or user token. It satisfies auth.Lookup.
-// Unknown, revoked and expired secrets, and tokens of users being deleted, return
-// auth.ErrUnauthenticated.
+// Unknown, revoked and expired secrets, tokens minted by a key that is revoked or
+// expired, and tokens of users being deleted, return auth.ErrUnauthenticated.
 func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, error) {
 	var (
 		tenantID uuid.UUID
@@ -524,7 +531,8 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 		`SELECT k.tenant_id, k.id,
 		        k.last_used_at IS NULL OR k.last_used_at < now() - $2::interval, t.admin
 		 FROM ohs_core.api_keys k JOIN ohs_core.tenants t ON t.id = k.tenant_id
-		 WHERE k.key_hash = $1 AND k.revoked_at IS NULL`,
+		 WHERE k.key_hash = $1 AND k.revoked_at IS NULL
+		   AND (k.expires_at IS NULL OR k.expires_at > now())`,
 		hash, fmt.Sprintf("%d microseconds", touchEvery.Microseconds()),
 	).Scan(&tenantID, &keyID, &stale, &admin)
 	if err == nil {
@@ -548,7 +556,10 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 		`SELECT t.tenant_id, t.user_id, t.scopes
 		 FROM ohs_core.user_tokens t
 		 JOIN ohs_core.end_users u ON u.tenant_id = t.tenant_id AND u.id = t.user_id
-		 WHERE t.hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now() AND u.status = 'active'`,
+		 WHERE t.hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now() AND u.status = 'active'
+		   AND NOT EXISTS (SELECT 1 FROM ohs_core.api_keys k
+		                   WHERE k.id = t.minted_by_key
+		                     AND (k.revoked_at IS NOT NULL OR k.expires_at <= now()))`,
 		hash,
 	).Scan(&tenantID, &userID, &scopes)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -562,20 +573,148 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 
 // RevokeKey revokes an API key or user token of the tenant by hash. Revoking an
 // already revoked secret succeeds; an unknown one, or another tenant's, is ErrNotFound.
+// The user tokens a revoked key minted are revoked with it.
 func (s *Store) RevokeKey(ctx context.Context, tenantID uuid.UUID, hash string) error {
-	for _, q := range []string{
-		`UPDATE ohs_core.api_keys SET revoked_at = coalesce(revoked_at, now()) WHERE tenant_id = $1 AND key_hash = $2`,
-		`UPDATE ohs_core.user_tokens SET revoked_at = coalesce(revoked_at, now()) WHERE tenant_id = $1 AND hash = $2`,
-	} {
-		tag, err := s.pool.Exec(ctx, q, tenantID, hash)
-		if err != nil {
-			return fmt.Errorf("tenant: revoke: %w", err)
+	var id uuid.UUID
+	err := s.pool.QueryRow(ctx,
+		`UPDATE ohs_core.api_keys SET revoked_at = coalesce(revoked_at, now()) WHERE tenant_id = $1 AND key_hash = $2
+		 RETURNING id`, tenantID, hash).Scan(&id)
+	if err == nil {
+		if _, err := s.pool.Exec(ctx, revokeTokensOfKey, id); err != nil {
+			return fmt.Errorf("tenant: revoke tokens of key: %w", err)
 		}
-		if tag.RowsAffected() > 0 {
-			return nil
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("tenant: revoke: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE ohs_core.user_tokens SET revoked_at = coalesce(revoked_at, now()) WHERE tenant_id = $1 AND hash = $2`,
+		tenantID, hash)
+	if err != nil {
+		return fmt.Errorf("tenant: revoke: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// tokenIDLen is the length of a token id (audit.TokenID).
+const tokenIDLen = 16
+
+// ValidTokenID reports whether id has the form of a token id: the first 16
+// hex characters of the token's hash, as the mint response and the audit log
+// give it.
+func ValidTokenID(id string) bool {
+	if len(id) != tokenIDLen {
+		return false
+	}
+	for _, c := range id {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
 		}
 	}
-	return ErrNotFound
+	return true
+}
+
+// RevokeUserToken revokes one token of the user, named by its token id. An
+// id of no token of the user, or a user of another tenant, is ErrNotFound;
+// revoking a revoked or expired token succeeds.
+func (s *Store) RevokeUserToken(ctx context.Context, tenantID, userID uuid.UUID, tokenID string) error {
+	if !ValidTokenID(tokenID) {
+		return ErrNotFound
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE ohs_core.user_tokens SET revoked_at = coalesce(revoked_at, now())
+		 WHERE tenant_id = $1 AND user_id = $2 AND left(hash, 16) = $3`,
+		tenantID, userID, tokenID)
+	if err != nil {
+		return fmt.Errorf("tenant: revoke token: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RevokeUserTokens revokes every token of the user that is still valid and
+// returns how many. A user of another tenant, or none, is ErrNotFound.
+func (s *Store) RevokeUserTokens(ctx context.Context, tenantID, userID uuid.UUID) (int64, error) {
+	var n int64
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`WITH revoked AS (
+		     UPDATE ohs_core.user_tokens SET revoked_at = now()
+		     WHERE tenant_id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > now()
+		     RETURNING 1)
+		 SELECT (SELECT count(*) FROM revoked),
+		        EXISTS (SELECT 1 FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2)`,
+		tenantID, userID).Scan(&n, &exists)
+	if err != nil {
+		return 0, fmt.Errorf("tenant: revoke tokens: %w", err)
+	}
+	if !exists {
+		return 0, ErrNotFound
+	}
+	return n, nil
+}
+
+// Refused is why LookupKey refuses a credential, for the audit log.
+type Refused struct {
+	// Tenant owns the credential. The nil id when the credential is unknown.
+	Tenant uuid.UUID
+	// Reason is "unknown", "revoked", "expired" or, for a token that is
+	// neither but whose user is being deleted, "user_inactive".
+	Reason string
+	// KeyID is the id of a known API key, empty otherwise.
+	KeyID string
+}
+
+// WhyRefused tells why the credential of this hash is refused: an API key
+// or user token that is revoked or expired (itself, or the key that minted
+// the token), or a token of a user who is no longer active, names its
+// tenant; anything else is unknown. It is one read for the audit log, never
+// part of a decision.
+func (s *Store) WhyRefused(ctx context.Context, hash string) (Refused, error) {
+	var (
+		r                      Refused
+		keyID                  *uuid.UUID
+		revoked, expired, user bool
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT tenant_id, id, revoked_at IS NOT NULL, coalesce(expires_at <= now(), false), true
+		 FROM ohs_core.api_keys WHERE key_hash = $1
+		 UNION ALL
+		 SELECT t.tenant_id, NULL::uuid,
+		        t.revoked_at IS NOT NULL OR EXISTS (
+		            SELECT 1 FROM ohs_core.api_keys k WHERE k.id = t.minted_by_key AND k.revoked_at IS NOT NULL),
+		        t.expires_at <= now() OR EXISTS (
+		            SELECT 1 FROM ohs_core.api_keys k WHERE k.id = t.minted_by_key AND k.expires_at <= now()),
+		        EXISTS (SELECT 1 FROM ohs_core.end_users u
+		                WHERE u.tenant_id = t.tenant_id AND u.id = t.user_id AND u.status = 'active')
+		 FROM ohs_core.user_tokens t WHERE t.hash = $1
+		 LIMIT 1`, hash).Scan(&r.Tenant, &keyID, &revoked, &expired, &user)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Refused{Reason: "unknown"}, nil
+	}
+	if err != nil {
+		return Refused{}, fmt.Errorf("tenant: refused credential: %w", err)
+	}
+	switch {
+	case revoked:
+		r.Reason = "revoked"
+	case expired || user:
+		// Also a credential that became valid again since the lookup
+		// refused it: there is no better word for it.
+		r.Reason = "expired"
+	default:
+		r.Reason = "user_inactive"
+	}
+	if keyID != nil {
+		r.KeyID = keyID.String()
+	}
+	return r, nil
 }
 
 // Idempotent runs do once per (tenant, key) within 24 hours and replays the stored

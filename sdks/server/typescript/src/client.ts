@@ -14,6 +14,7 @@ import type {
   ConsentEvent,
   ConsentSource,
   Coverage,
+  CreateKeyRequest,
   CreateSelfReportsRequest,
   CreateShareRequest,
   CreateTimeTagRequest,
@@ -74,8 +75,12 @@ import type {
   RRInterval,
   RRIntervalPage,
   ReadyzResponse,
+  RetryAdminTenantFailedSyncRunsResponse,
+  RetryFailedSyncRunsResponse,
   RetryParkedETLJobsRequest,
   RetryParkedETLJobsResponse,
+  RevokeUserTokensResponse,
+  RotateWebhookSecretRequest,
   RotateWebhookSecretResponse,
   RoutePoint,
   RoutePointPage,
@@ -985,15 +990,20 @@ export class OpenHealthSync {
    * `POST /v1/webhooks/{webhook_id}/rotate-secret`
    *
    * The new secret signs every request from now on, retries of earlier events included.
-   * Shown only in this response.
+   * Shown only in this response. The secret it replaces also signs for the instance's grace
+   * period (24 hours unless `OHS_WEBHOOK_ROTATION_GRACE_HOURS` says otherwise), so a receiver
+   * can switch without refusing a request; `previous_secret_expires_at` says until when.
+   * With `expire_previous` true the replaced secret stops at once: the rotation after a leak.
    */
   rotateWebhookSecret(
     webhookId: string,
+    body?: RotateWebhookSecretRequest,
     options?: RequestOptions,
   ): Promise<RotateWebhookSecretResponse> {
     return this.#request<RotateWebhookSecretResponse>({
       method: "POST",
       path: `/v1/webhooks/${encode(webhookId)}/rotate-secret`,
+      json: body,
       expect: "json",
       options,
     });
@@ -1131,7 +1141,9 @@ export class OpenHealthSync {
    * Returns an opaque `ohs_ut_` token for one active user, shown only in this response
    * (`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token
    * whose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI
-   * agent configuration (MCP). `Idempotency-Key` is ignored here.
+   * agent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working
+   * when it expires, when it is revoked (`id` names it), when its user is deleted, or when
+   * the API key that minted it is revoked or expires.
    */
   mintUserToken(
     userId: string,
@@ -1143,6 +1155,41 @@ export class OpenHealthSync {
       path: `/v1/users/${encode(userId)}/tokens`,
       json: body,
       expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Revoke every token of a user.
+   *
+   * `DELETE /v1/users/{id}/tokens`
+   *
+   * Every token of the user that is still valid is refused from now on. Recorded in the audit
+   * log as `token.revoke`.
+   */
+  revokeUserTokens(userId: string, options?: RequestOptions): Promise<RevokeUserTokensResponse> {
+    return this.#request<RevokeUserTokensResponse>({
+      method: "DELETE",
+      path: `/v1/users/${encode(userId)}/tokens`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Revoke one token of a user.
+   *
+   * `DELETE /v1/users/{id}/tokens/{token_id}`
+   *
+   * The token is refused from now on. Revoking a revoked or expired token changes nothing. An
+   * id of no token of this user is a 404. Recorded in the audit log as `token.revoke`, with
+   * `token_id` in `detail`.
+   */
+  revokeUserToken(userId: string, tokenId: string, options?: RequestOptions): Promise<void> {
+    return this.#request<void>({
+      method: "DELETE",
+      path: `/v1/users/${encode(userId)}/tokens/${encode(tokenId)}`,
+      expect: "none",
       options,
     });
   }
@@ -1434,6 +1481,29 @@ export class OpenHealthSync {
   }
 
   /**
+   * Retry the failed sync runs of a connection.
+   *
+   * `POST /v1/users/{id}/connections/{provider}/sync-runs/retry`
+   *
+   * Queues again every `failed` run of the user's connection to the provider, with fresh
+   * attempts, and answers with how many. Runs cancelled because the connection stopped are
+   * left alone, and so is a run whose window another queued or running run already covers.
+   * Of several failed runs for one window only the latest is queued. 0 when nothing failed.
+   */
+  retryFailedSyncRuns(
+    userId: string,
+    provider: string,
+    options?: RequestOptions,
+  ): Promise<RetryFailedSyncRunsResponse> {
+    return this.#request<RetryFailedSyncRunsResponse>({
+      method: "POST",
+      path: `/v1/users/${encode(userId)}/connections/${encode(provider)}/sync-runs/retry`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
    * The user's sync history.
    *
    * `GET /v1/users/{id}/sync-runs`
@@ -1478,6 +1548,26 @@ export class OpenHealthSync {
     return this.#request<SyncRun>({
       method: "GET",
       path: `/v1/users/${encode(userId)}/sync-runs/${encode(runId)}`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Retry a failed sync run.
+   *
+   * `POST /v1/users/{id}/sync-runs/{run_id}/retry`
+   *
+   * Queues a `failed` or `cancelled` run again with fresh attempts and answers with it; follow
+   * it at the `Location` header. A pull gives up after 5 attempts, or after about three days
+   * of a provider that is down. 409 when the run is queued, running or succeeded, or when
+   * another queued or running run already covers its window. A run whose connection no longer
+   * syncs is cancelled again.
+   */
+  retrySyncRun(userId: string, runId: number, options?: RequestOptions): Promise<SyncRun> {
+    return this.#request<SyncRun>({
+      method: "POST",
+      path: `/v1/users/${encode(userId)}/sync-runs/${encode(runId)}/retry`,
       expect: "json",
       options,
     });
@@ -2900,10 +2990,11 @@ export class OpenHealthSync {
    * `POST /v1/keys`
    *
    * A new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in
-   * this answer only. To rotate: deploy the new key, then revoke the old one. Recorded in the
-   * audit log as `key.create`.
+   * this answer only. To rotate: deploy the new key, then revoke the old one. With
+   * `expires_at` the key stops working by itself at that time; without, it lives until it is
+   * revoked. Recorded in the audit log as `key.create`.
    */
-  createKey(body?: Record<string, unknown>, options?: RequestOptions): Promise<CreatedAPIKey> {
+  createKey(body?: CreateKeyRequest, options?: RequestOptions): Promise<CreatedAPIKey> {
     return this.#request<CreatedAPIKey>({
       method: "POST",
       path: "/v1/keys",
@@ -2918,9 +3009,9 @@ export class OpenHealthSync {
    *
    * `DELETE /v1/keys/{key_id}`
    *
-   * Every call with the key is refused from now on. A key cannot revoke itself (409): revoke it
-   * with another key of the tenant. Revoking a revoked key changes nothing. Recorded in the
-   * audit log as `key.revoke`.
+   * Every call with the key is refused from now on, and so is every user token the key minted.
+   * A key cannot revoke itself (409): revoke it with another key of the tenant. Revoking a
+   * revoked key changes nothing. Recorded in the audit log as `key.revoke`.
    */
   revokeKey(keyId: string, options?: RequestOptions): Promise<void> {
     return this.#request<void>({
@@ -3057,6 +3148,56 @@ export class OpenHealthSync {
   }
 
   /**
+   * Retry a failed sync run (instance admin, one tenant).
+   *
+   * `POST /v1/admin/tenants/{tenant_id}/users/{id}/sync-runs/{run_id}/retry`
+   *
+   * `POST /v1/users/{id}/sync-runs/{run_id}/retry` (`retrySyncRun`) for the tenant of `tenant_id`, run with an
+   * instance admin key: the same body, parameters and answer as the tenant's own key
+   * gets; a `Location` points at the admin route. Recorded in the caller's audit log
+   * and, actor `admin`, in the tenant's.
+   * See docs/admin-api.md.
+   */
+  retryAdminTenantSyncRun(
+    tenantId: string,
+    userId: string,
+    runId: number,
+    options?: RequestOptions,
+  ): Promise<SyncRun> {
+    return this.#request<SyncRun>({
+      method: "POST",
+      path: `/v1/admin/tenants/${encode(tenantId)}/users/${encode(userId)}/sync-runs/${encode(runId)}/retry`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Retry the failed sync runs of a connection (instance admin, one tenant).
+   *
+   * `POST /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}/sync-runs/retry`
+   *
+   * `POST /v1/users/{id}/connections/{provider}/sync-runs/retry` (`retryFailedSyncRuns`) for the tenant of `tenant_id`, run with an
+   * instance admin key: the same body, parameters and answer as the tenant's own key
+   * gets; a `Location` points at the admin route. Recorded in the caller's audit log
+   * and, actor `admin`, in the tenant's.
+   * See docs/admin-api.md.
+   */
+  retryAdminTenantFailedSyncRuns(
+    tenantId: string,
+    userId: string,
+    provider: string,
+    options?: RequestOptions,
+  ): Promise<RetryAdminTenantFailedSyncRunsResponse> {
+    return this.#request<RetryAdminTenantFailedSyncRunsResponse>({
+      method: "POST",
+      path: `/v1/admin/tenants/${encode(tenantId)}/users/${encode(userId)}/connections/${encode(provider)}/sync-runs/retry`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
    * The tenant's audit log, newest first.
    *
    * `GET /v1/audit`
@@ -3151,7 +3292,7 @@ export class OpenHealthSync {
   }
 
   /**
-   * Readiness (database ping and raw store check).
+   * Readiness (database ping, schema version and raw store check).
    *
    * `GET /readyz`
    */

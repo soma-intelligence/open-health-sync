@@ -39,7 +39,17 @@ info:
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
     of another tenant is a 404, never a 403. Any operation answers 503 with `Retry-After`
     (seconds) while the instance cannot reach its database; the same request can be sent
-    again then.
+    again then. Any operation that takes a credential answers 429 with `Retry-After` (seconds)
+    when the credential is over its rate limit (200 requests a second by default, counted per
+    API key and per user for user tokens, by each server process on its own); nothing was
+    done, send the request again after the delay. A refused credential answers 429 in place of
+    401 once its client address presented too many of them; a valid one is never refused for
+    that.
+
+    **Caching and compression.** Every response to a request that takes a credential carries
+    `Cache-Control: no-store`. JSON, NDJSON, FHIR, CSV and YAML responses of 1 KiB and more are
+    gzipped for a client that sends `Accept-Encoding: gzip`; every response carries
+    `Vary: Accept-Encoding`. Parquet files and zip archives are sent as they are.
 
     **Request ids.** Every response carries `X-Request-Id` (the caller's own when it is 1
     to 128 letters, digits, `-`, `_` or `.`, else a fresh one); a problem body repeats it as
@@ -362,7 +372,22 @@ paths:
       summary: Replace the signing secret
       description: |
         The new secret signs every request from now on, retries of earlier events included.
-        Shown only in this response.
+        Shown only in this response. The secret it replaces also signs for the instance's grace
+        period (24 hours unless `OHS_WEBHOOK_ROTATION_GRACE_HOURS` says otherwise), so a receiver
+        can switch without refusing a request; `previous_secret_expires_at` says until when.
+        With `expire_previous` true the replaced secret stops at once: the rotation after a leak.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expire_previous:
+                  type: boolean
+                  default: false
+                  description: End the replaced secret at once instead of after the grace period.
       responses:
         "200":
           description: The new secret.
@@ -373,9 +398,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [secret]
+                required: [secret, previous_secret_expires_at]
                 properties:
                   secret: { type: string, examples: ["whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"] }
+                  previous_secret_expires_at:
+                    type: [string, "null"]
+                    format: date-time
+                    description: Until when the replaced secret also signs; null when it stopped at once.
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -524,7 +554,9 @@ paths:
         Returns an opaque `ohs_ut_` token for one active user, shown only in this response
         (`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token
         whose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI
-        agent configuration (MCP). `Idempotency-Key` is ignored here.
+        agent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working
+        when it expires, when it is revoked (`id` names it), when its user is deleted, or when
+        the API key that minted it is revoked or expires.
       requestBody:
         required: true
         content:
@@ -544,6 +576,50 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "413": { $ref: "#/components/responses/TooLarge" }
+    delete:
+      tags: [tokens]
+      operationId: revokeUserTokens
+      summary: Revoke every token of a user
+      description: |
+        Every token of the user that is still valid is refused from now on. Recorded in the audit
+        log as `token.revoke`.
+      responses:
+        "200":
+          description: Revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked: { type: integer, minimum: 0, description: How many tokens were still valid. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/tokens/{token_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: token_id
+        in: path
+        required: true
+        description: |
+          The `id` the mint response gave: the first 16 hex characters of the token's SHA-256
+          hash, which is also how the audit log names the token (`actor.id`).
+        schema: { type: string, pattern: "^[0-9a-f]{16}$" }
+    delete:
+      tags: [tokens]
+      operationId: revokeUserToken
+      summary: Revoke one token of a user
+      description: |
+        The token is refused from now on. Revoking a revoked or expired token changes nothing. An
+        id of no token of this user is a 404. Recorded in the audit log as `token.revoke`, with
+        `token_id` in `detail`.
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/users/{id}/connections:
     parameters:
@@ -914,6 +990,33 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/users/{id}/connections/{provider}/sync-runs/retry:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    post:
+      tags: [connections]
+      operationId: retryFailedSyncRuns
+      summary: Retry the failed sync runs of a connection
+      description: |
+        Queues again every `failed` run of the user's connection to the provider, with fresh
+        attempts, and answers with how many. Runs cancelled because the connection stopped are
+        left alone, and so is a run whose window another queued or running run already covers.
+        Of several failed runs for one window only the latest is queued. 0 when nothing failed.
+      responses:
+        "202":
+          description: How many runs were queued again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [retried]
+                properties:
+                  retried: { type: integer, format: int64 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/sync-runs:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -972,6 +1075,36 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/sync-runs/{run_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [connections]
+      operationId: retrySyncRun
+      summary: Retry a failed sync run
+      description: |
+        Queues a `failed` or `cancelled` run again with fresh attempts and answers with it; follow
+        it at the `Location` header. A pull gives up after 5 attempts, or after about three days
+        of a provider that is down. 409 when the run is queued, running or succeeded, or when
+        another queued or running run already covers its window. A run whose connection no longer
+        syncs is cancelled again.
+      responses:
+        "202":
+          description: The run, queued again.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/users/{id}/samples:
     parameters:
@@ -3022,14 +3155,15 @@ paths:
       summary: Create an API key for the tenant
       description: |
         A new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in
-        this answer only. To rotate: deploy the new key, then revoke the old one. Recorded in the
-        audit log as `key.create`.
+        this answer only. To rotate: deploy the new key, then revoke the old one. With
+        `expires_at` the key stops working by itself at that time; without, it lives until it is
+        revoked. Recorded in the audit log as `key.create`.
       requestBody:
         required: false
-        description: Empty, or an empty object.
+        description: Empty, or the options of the key.
         content:
           application/json:
-            schema: { type: object, additionalProperties: false }
+            schema: { $ref: "#/components/schemas/CreateKeyRequest" }
       responses:
         "201":
           description: "The key, with its secret. Sent with `Cache-Control: no-store`."
@@ -3053,9 +3187,9 @@ paths:
       operationId: revokeKey
       summary: Revoke an API key
       description: |
-        Every call with the key is refused from now on. A key cannot revoke itself (409): revoke it
-        with another key of the tenant. Revoking a revoked key changes nothing. Recorded in the
-        audit log as `key.revoke`.
+        Every call with the key is refused from now on, and so is every user token the key minted.
+        A key cannot revoke itself (409): revoke it with another key of the tenant. Revoking a
+        revoked key changes nothing. Recorded in the audit log as `key.revoke`.
       responses:
         "204": { description: Revoked. }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -3427,14 +3561,15 @@ paths:
       summary: Create an API key for a tenant (instance admin)
       description: |
         As `ohs admin key create --tenant` makes. The whole key is in this answer only;
-        `Idempotency-Key` is not honoured. Recorded as `key.create` in the caller's audit log and in
+        `Idempotency-Key` is not honoured. With `expires_at` the key stops working by itself at
+        that time. Recorded as `key.create` in the caller's audit log and in
         the tenant's.
       requestBody:
         required: false
-        description: Empty, or an empty object.
+        description: Empty, or the options of the key.
         content:
           application/json:
-            schema: { type: object, additionalProperties: false }
+            schema: { $ref: "#/components/schemas/CreateKeyRequest" }
       responses:
         "201":
           description: "The key, with its secret. Sent with `Cache-Control: no-store`."
@@ -3460,7 +3595,8 @@ paths:
       operationId: revokeAdminTenantKey
       summary: Revoke a tenant's API key (instance admin)
       description: |
-        Every call with the key is refused from now on. Revoking a revoked key changes nothing. The
+        Every call with the key is refused from now on, and so is every user token the key minted.
+        Revoking a revoked key changes nothing. The
         key making the call cannot be revoked (409). A key of another tenant is a 404. Recorded as
         `key.revoke` in the caller's audit log and in the tenant's.
       responses:
@@ -4172,6 +4308,37 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/admin/tenants/{tenant_id}/users/{id}/sync-runs/{run_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [admin]
+      operationId: retryAdminTenantSyncRun
+      summary: Retry a failed sync run (instance admin, one tenant)
+      description: |
+        `POST /v1/users/{id}/sync-runs/{run_id}/retry` (`retrySyncRun`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "202":
+          description: The run, queued again.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /v1/admin/tenants/{tenant_id}/users/{id}/connect-sessions:
     parameters:
       - $ref: "#/components/parameters/TenantID"
@@ -4246,6 +4413,35 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}/sync-runs/retry:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    post:
+      tags: [admin]
+      operationId: retryAdminTenantFailedSyncRuns
+      summary: Retry the failed sync runs of a connection (instance admin, one tenant)
+      description: |
+        `POST /v1/users/{id}/connections/{provider}/sync-runs/retry` (`retryFailedSyncRuns`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "202":
+          description: How many runs were queued again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [retried]
+                properties:
+                  retried: { type: integer, format: int64 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}:
     parameters:
@@ -4420,6 +4616,18 @@ paths:
         gets; a `Location` points at the admin route. Recorded in the caller's audit log
         and, actor `admin`, in the tenant's.
         See docs/admin-api.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expire_previous:
+                  type: boolean
+                  default: false
+                  description: End the replaced secret at once instead of after the grace period.
       responses:
         "200":
           description: The new secret.
@@ -4430,9 +4638,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [secret]
+                required: [secret, previous_secret_expires_at]
                 properties:
                   secret: { type: string, examples: ["whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"] }
+                  previous_secret_expires_at:
+                    type: [string, "null"]
+                    format: date-time
+                    description: Until when the replaced secret also signs; null when it stopped at once.
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -4922,7 +5135,7 @@ paths:
     get:
       tags: [ops]
       operationId: readyz
-      summary: Readiness (database ping and raw store check)
+      summary: Readiness (database ping, schema version and raw store check)
       security: []
       responses:
         "200":
@@ -4934,7 +5147,10 @@ paths:
                 properties:
                   status: { type: string, const: ready }
         "503":
-          description: The database or the raw store does not answer.
+          description: |
+            The database or the raw store does not answer, or the database schema is not at the
+            version this build was made for (a migration is pending, half done, or a newer release
+            migrated it).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -5144,7 +5360,8 @@ components:
     RateLimited:
       description: |
         Over the rate limit of this provider-facing route (per client address, and per provider
-        for notifications); nothing was done. Limits are set per instance, see the
+        for notifications); nothing was done. The limit of a credential on the authenticated
+        routes is described at the top of this document. Limits are set per instance, see the
         self-hosting guide.
       headers:
         Retry-After:
@@ -5276,14 +5493,29 @@ components:
 
     APIKey:
       type: object
-      required: [id, prefix, created_at, last_used_at, revoked_at, current]
+      required: [id, prefix, created_at, last_used_at, revoked_at, expires_at, current]
       properties:
         id: { type: string, format: uuid }
         prefix: { type: string, description: "The start of the key, kept in clear to tell keys apart." }
         created_at: { type: string, format: date-time }
         last_used_at: { type: [string, "null"], format: date-time }
         revoked_at: { type: [string, "null"], format: date-time }
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the key stops working by itself. Null for a key that does not expire.
         current: { type: boolean, description: True for the key making the call. }
+
+    CreateKeyRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            When the key stops working by itself (RFC 3339, in the future). Absent or null: the
+            key lives until it is revoked.
 
     CreatedAPIKey:
       allOf:
@@ -5303,7 +5535,7 @@ components:
           type: boolean
           description: True for an instance admin tenant, whose keys reach the /v1/admin routes.
         created_at: { type: string, format: date-time }
-        active_keys: { type: integer, description: "The tenant's keys that are not revoked." }
+        active_keys: { type: integer, description: "The tenant's keys that are neither revoked nor expired." }
 
     CreatedAdminTenant:
       allOf:
@@ -5757,8 +5989,14 @@ components:
 
     UserToken:
       type: object
-      required: [token, expires_at, scopes]
+      required: [id, token, expires_at, scopes]
       properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{16}$"
+          description: |
+            Names the token without revealing it (the first 16 hex characters of its SHA-256
+            hash): the audit log's `actor.id`, and what revoking this one token takes.
         token: { type: string, description: "ohs_ut_ token. Shown only once." }
         expires_at: { type: string, format: date-time }
         scopes:
@@ -5808,7 +6046,7 @@ components:
 
     Webhook:
       type: object
-      required: [id, url, description, event_types, status, disabled_reason, failing_since, last_success_at, created_at, updated_at]
+      required: [id, url, description, event_types, status, disabled_reason, failing_since, last_success_at, created_at, updated_at, consecutive_failures, paused_until, previous_secret_expires_at]
       properties:
         id: { type: string, format: uuid }
         url: { type: string }
@@ -5830,6 +6068,25 @@ components:
         last_success_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        consecutive_failures:
+          type: integer
+          readOnly: true
+          description: Failed attempts since the last success, whatever the deliveries.
+        paused_until:
+          type: [string, "null"]
+          format: date-time
+          readOnly: true
+          description: |
+            Set while the endpoint is paused after failures in a row: nothing is sent to it before
+            this time, then one request probes it. Null when it is not paused. Enabling the
+            endpoint or changing its `url` ends a pause.
+        previous_secret_expires_at:
+          type: [string, "null"]
+          format: date-time
+          readOnly: true
+          description: |
+            Until when the secret the last rotation replaced also signs requests; null outside a
+            rotation's grace period.
 
     WebhookWithSecret:
       allOf:

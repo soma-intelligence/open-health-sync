@@ -30,12 +30,53 @@ A user token is minted for one active user with `POST /v1/users/{id}/tokens`:
 ```sh
 curl -s -X POST $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' -d '{"scopes":["upload","connect"],"ttl_seconds":3600}'
-# {"token":"ohs_ut_...","expires_at":"...","scopes":["upload","connect"]}
+# {"id":"3fa1c0d29b7e4a15","token":"ohs_ut_...","expires_at":"...","scopes":["upload","connect"]}
 ```
 
 The lifetime is one hour by default and at most 24 hours. A token whose only scope is `read`
 may live up to 30 days (2592000 seconds) so a person can put it in their own agent
 configuration. The response is `Cache-Control: no-store`; the token is shown once.
+
+A token stops working before its expiry when it is revoked, when its user is deleted, or when
+the API key that minted it is revoked or reaches its own expiry. `id` names the token without revealing it (the first 16
+hex characters of its SHA-256 hash, also the `actor.id` of the audit log):
+
+```sh
+# One token, by the id its mint response gave: 204.
+curl -s -X DELETE $OHS/v1/users/$USER_ID/tokens/3fa1c0d29b7e4a15 -H "Authorization: Bearer $KEY"
+# Every token of the user (a lost phone, a sign out everywhere): {"revoked": 2}
+curl -s -X DELETE $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY"
+```
+
+Tokens minted before version 0.3.0 are tied to no key: they are revoked by these routes or by
+their expiry, not by revoking a key.
+
+An API key lives until it is revoked, unless it was created with an expiry:
+`POST /v1/keys` with `{"expires_at": "2027-01-01T00:00:00Z"}` makes a key that is refused from
+that time on, with the user tokens it minted. Key listings show `expires_at` (null for a key that does not expire).
+
+### Rate limit
+
+Every route that takes a credential is rate limited per credential: an API key by itself, the
+user tokens of one user together. The default is 200 requests a second with bursts of 2,000,
+far above what a backend or a device sends; over it the answer is 429 with a problem body and
+`Retry-After` in seconds, and nothing was done. An operator changes or turns off the two
+limits with `OHS_RATE_LIMIT_API` and `OHS_RATE_LIMIT_AUTH_FAILURES`
+([self-hosting.md](self-hosting.md#rate-limits)). The buckets are in memory and per process:
+with several replicas each counts on its own, so the ceiling of a credential is the limit
+times the replicas it reaches. A client address that presents 60 refused keys or tokens in a
+row (then one a second) gets 429 instead of 401 for its next refused ones, until the delay in
+`Retry-After` has passed. A request with a valid key or token is never refused for that,
+whatever else came from its address.
+
+### Caching and compression
+
+Every response to a request that takes a credential carries `Cache-Control: no-store`: health
+data must not sit in a shared cache or a browser cache. JSON, NDJSON, FHIR, CSV and YAML
+responses of 1 KiB and more are gzipped when the request says `Accept-Encoding: gzip`; exports
+keep streaming while compressed. Parquet files and zip archives are sent as they are. Every
+response carries `Vary: Accept-Encoding`. `OHS_COMPRESSION=false` turns compression off, for an
+instance behind a reverse proxy that compresses.
 
 ## Conventions
 
@@ -165,7 +206,12 @@ with the user's status and starts the same consent flow. See
 and whether the user must `reconnect` or you only `wait`). A connection in `needs_reauth` needs
 the user to go through consent again. `GET /v1/users/{id}/sync-runs` is the history of its pulls,
 with the provider's error when one failed, and `POST /v1/users/{id}/connections/{provider}/sync`
-pulls it now. See [sync history and connection health](sync-health.md). `DELETE /v1/users/{id}/connections/{provider}` revokes the
+pulls it now. A run that gave up is `failed`: `POST /v1/users/{id}/sync-runs/{run_id}/retry`
+queues it again with fresh attempts (202 with the run; 409 when it did not fail or another run
+already covers its window), and `POST /v1/users/{id}/connections/{provider}/sync-runs/retry`
+queues every failed run of the connection (202 with `{"retried": n}`). See
+[background sync](background-sync.md#cloud-providers) and
+[sync history and connection health](sync-health.md). `DELETE /v1/users/{id}/connections/{provider}` revokes the
 grant (best effort) and stops pulling; data already collected is kept, unless you add
 `?delete_data=true`, which also erases it (see [erasing one provider's data](#erasing-one-providers-data)).
 
@@ -562,6 +608,14 @@ sync writes or deletes records, a user is erased, a connection needs the user to
 again, a time tag changes or a share link is made, stopped or opened. Requests are signed per Standard Webhooks and retried for about 28 hours. Events,
 signature verification and the routes: [webhooks.md](webhooks.md).
 
+An endpoint also shows three read only fields that say why nothing arrives:
+`consecutive_failures` (failed attempts since the last success), `paused_until` (set while the
+endpoint is paused after failures in a row, null otherwise) and `previous_secret_expires_at`
+(until when the secret the last rotation replaced also signs, null outside a rotation).
+`POST /v1/webhooks/{webhook_id}/rotate-secret` answers with the new `secret` and that same
+`previous_secret_expires_at`; send `{"expire_previous": true}` to end the old secret at once
+after a leak (the answer then has `previous_secret_expires_at` null).
+
 ## Audit log
 
 Every request authenticated with a tenant key or a user token, every key command of
@@ -587,8 +641,9 @@ API key and are recorded in the audit log.
 | Route | Purpose |
 |---|---|
 | `GET /v1/tenant` | The tenant of the key: `id`, `name`, `admin`, and the `id` and `prefix` of the key in use |
-| `GET /v1/keys`, `POST /v1/keys` | The tenant's API keys (revoked ones included, `current` marks the one in use); create one, its full `key` is in the 201 answer only (`Cache-Control: no-store`) |
-| `DELETE /v1/keys/{key_id}` | Revoke a key; 409 for the key making the call |
+| `GET /v1/keys`, `POST /v1/keys` | The tenant's API keys (revoked ones included, `current` marks the one in use, `expires_at` its expiry or null); create one, optionally with `{"expires_at": "..."}`, its full `key` is in the 201 answer only (`Cache-Control: no-store`) |
+| `DELETE /v1/keys/{key_id}` | Revoke a key and the user tokens it minted; 409 for the key making the call |
+| `DELETE /v1/users/{id}/tokens`, `DELETE /v1/users/{id}/tokens/{token_id}` | Revoke every token of a user (`{"revoked": n}`), or one by the `id` of its mint response (204) |
 | `GET /v1/pipeline` | The tenant's pipeline in one answer: users, sources (connections per provider and status, rate limit pauses), sync runs, processing jobs, rejected records, raw data stored in the last 24 hours, webhook endpoints and deliveries |
 | `GET /v1/pipeline/sync-runs` | Sync runs across the tenant's users, newest first; filters `status` and `provider`, paged with `cursor` and `limit` |
 | `GET /v1/pipeline/etl-jobs` | Processing jobs; `status` is `parked` (default), `pending` or `running`; filter `provider`, paged with `cursor` and `limit` |
@@ -640,7 +695,7 @@ An instance that serves several teams manages their tenants with the same admin 
 | `POST /inbound/{provider}` | Provider push notifications, verified with the provider's own scheme |
 | `GET /inbound/{provider}` | Notification URL check and subscription challenge |
 | `GET /healthz` | Liveness |
-| `GET /readyz` | Readiness: database ping and raw store check, 503 when either fails |
+| `GET /readyz` | Readiness: database ping, schema version and raw store check. 503 when one fails, including a database whose schema is not at the version this build migrates to (a pending or half done migration, or a newer release's schema); the version check is kept for 10 seconds. The body then says "database schema is not at the version this binary needs", without versions: those are in the server log |
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
 | `GET /v1/setup`, `POST /v1/setup` | The browser [first-run setup](setup.md): creates the first tenant and its key with `OHS_SETUP_TOKEN`, once; only when that is set |
 | `GET /console` | The [admin console](console.md) (HTML), only when `OHS_CONSOLE` is `true` or `read-only` |

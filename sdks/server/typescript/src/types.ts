@@ -90,8 +90,18 @@ export interface APIKey {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  /** When the key stops working by itself. Null for a key that does not expire. */
+  expires_at: string | null;
   /** True for the key making the call. */
   current: boolean;
+}
+
+export interface CreateKeyRequest {
+  /**
+   * When the key stops working by itself (RFC 3339, in the future). Absent or null: the
+   * key lives until it is revoked.
+   */
+  expires_at?: string | null;
 }
 
 export interface CreatedAPIKey {
@@ -101,6 +111,8 @@ export interface CreatedAPIKey {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  /** When the key stops working by itself. Null for a key that does not expire. */
+  expires_at: string | null;
   /** True for the key making the call. */
   current: boolean;
   /** The whole key, returned this once. */
@@ -113,7 +125,7 @@ export interface AdminTenant {
   /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
   admin: boolean;
   created_at: string;
-  /** The tenant's keys that are not revoked. */
+  /** The tenant's keys that are neither revoked nor expired. */
   active_keys: number;
 }
 
@@ -123,7 +135,7 @@ export interface CreatedAdminTenant {
   /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
   admin: boolean;
   created_at: string;
-  /** The tenant's keys that are not revoked. */
+  /** The tenant's keys that are neither revoked nor expired. */
   active_keys: number;
   /** The tenant's first key, with its secret, returned this once. */
   key: CreatedAPIKey;
@@ -505,6 +517,11 @@ export interface MintTokenRequest {
 }
 
 export interface UserToken {
+  /**
+   * Names the token without revealing it (the first 16 hex characters of its SHA-256
+   * hash): the audit log's `actor.id`, and what revoking this one token takes.
+   */
+  id: string;
   /** ohs_ut_ token. Shown only once. */
   token: string;
   expires_at: string;
@@ -558,6 +575,19 @@ export interface Webhook {
   last_success_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Failed attempts since the last success, whatever the deliveries. */
+  consecutive_failures: number;
+  /**
+   * Set while the endpoint is paused after failures in a row: nothing is sent to it before
+   * this time, then one request probes it. Null when it is not paused. Enabling the
+   * endpoint or changing its `url` ends a pause.
+   */
+  paused_until: string | null;
+  /**
+   * Until when the secret the last rotation replaced also signs requests; null outside a
+   * rotation's grace period.
+   */
+  previous_secret_expires_at: string | null;
 }
 
 export interface WebhookWithSecret {
@@ -576,6 +606,19 @@ export interface WebhookWithSecret {
   last_success_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Failed attempts since the last success, whatever the deliveries. */
+  consecutive_failures: number;
+  /**
+   * Set while the endpoint is paused after failures in a row: nothing is sent to it before
+   * this time, then one request probes it. Null when it is not paused. Enabling the
+   * endpoint or changing its `url` ends a pause.
+   */
+  paused_until: string | null;
+  /**
+   * Until when the secret the last rotation replaced also signs requests; null outside a
+   * rotation's grace period.
+   */
+  previous_secret_expires_at: string | null;
   /** whsec_ signing secret. Shown only once. */
   secret: string;
 }
@@ -1946,14 +1989,26 @@ export interface ListWebhooksResponse {
   next_cursor: string | null;
 }
 
+export interface RotateWebhookSecretRequest {
+  /** End the replaced secret at once instead of after the grace period. */
+  expire_previous?: boolean;
+}
+
 export interface RotateWebhookSecretResponse {
   secret: string;
+  /** Until when the replaced secret also signs; null when it stopped at once. */
+  previous_secret_expires_at: string | null;
 }
 
 export interface ListWebhookDeliveriesResponse {
   data: WebhookDelivery[];
   /** Null on the last page. */
   next_cursor: string | null;
+}
+
+export interface RevokeUserTokensResponse {
+  /** How many tokens were still valid. */
+  revoked: number;
 }
 
 export interface ListConnectionsResponse {
@@ -2001,6 +2056,10 @@ export interface DeleteProviderDataResponse {
 
 export interface SyncConnectionRequest {
   from?: string;
+}
+
+export interface RetryFailedSyncRunsResponse {
+  retried: number;
 }
 
 export interface ListSyncRunsResponse {
@@ -2073,6 +2132,10 @@ export interface RetryParkedETLJobsRequest {
 }
 
 export interface RetryParkedETLJobsResponse {
+  retried: number;
+}
+
+export interface RetryAdminTenantFailedSyncRunsResponse {
   retried: number;
 }
 

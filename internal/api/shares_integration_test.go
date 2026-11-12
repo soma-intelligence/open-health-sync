@@ -412,7 +412,7 @@ func TestSharePasscode(t *testing.T) {
 	var stored string
 	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT passcode_hash FROM ohs_sync.shares
 		WHERE tenant_id = $1 AND user_id = $2 AND id = $3`, e.tenantA, u, c.ID).Scan(&stored))
-	assert.True(t, strings.HasPrefix(stored, "pbkdf2-sha256$100000$"))
+	assert.True(t, strings.HasPrefix(stored, "pbkdf2-sha256$600000$"))
 	assert.NotContains(t, stored, "invented-passcode")
 
 	remaining := func(r resp) int {

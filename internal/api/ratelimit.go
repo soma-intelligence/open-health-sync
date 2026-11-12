@@ -29,6 +29,11 @@ const (
 	groupOAuthCallback = "oauth_callback"
 	groupSetup         = "setup"
 	groupShare         = "share"
+	// groupAPI is an authenticated request over the limit of its
+	// credential, groupAuthFailure a refused credential from an address
+	// that presented too many of them.
+	groupAPI         = "api"
+	groupAuthFailure = "auth_failure"
 )
 
 // Limiter bookkeeping: buckets full and idle for idleEvict go at the next
