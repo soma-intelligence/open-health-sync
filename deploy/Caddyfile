@@ -10,16 +10,19 @@
 # browsers to use https only for a year: includeSubDomains is left out on
 # purpose (add it, and preload, only when every subdomain serves https). The
 # lines starting with "?" set a header only when ohs did not: its pages
-# (connect, console, share viewer) send their own stricter values.
+# (connect, console, share viewer) send their own stricter values. Each "?"
+# header keeps its own `header` line: grouped in one block, Caddy sets them
+# only when all of them are missing, so a page that sends one of its own
+# would lose the others.
 (ohs_security_headers) {
 	header {
 		Strict-Transport-Security "max-age=31536000"
-		?X-Content-Type-Options "nosniff"
-		?X-Frame-Options "DENY"
-		?Referrer-Policy "no-referrer"
-		?Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 		-Server
 	}
+	header ?X-Content-Type-Options "nosniff"
+	header ?X-Frame-Options "DENY"
+	header ?Referrer-Policy "no-referrer"
+	header ?Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 }
 
 # The whole host is Open Health Sync: every path goes to ohs, /healthz and

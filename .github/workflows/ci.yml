@@ -253,3 +253,12 @@ jobs:
           tar -xzf "$tarball" gitleaks
           sudo mv gitleaks /usr/local/bin/
       - run: gitleaks detect --redact --config .gitleaks.toml
+
+  deploy-render:
+    # deploy/: chart, Caddyfile and compose files rendered and validated.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Render and validate deploy/
+        run: scripts/check-deploy-render.sh

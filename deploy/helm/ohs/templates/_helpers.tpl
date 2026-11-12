@@ -19,8 +19,8 @@
 {{- end -}}
 
 {{- define "ohs.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "ohs.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/name: {{ include "ohs.name" . | quote }}
+app.kubernetes.io/instance: {{ .Release.Name | quote }}
 {{- end -}}
 
 {{- define "ohs.labels" -}}
@@ -160,11 +160,11 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with $v.serviceAccountName }}
-      serviceAccountName: {{ . }}
+      serviceAccountName: {{ . | quote }}
       {{- end }}
       automountServiceAccountToken: false
       {{- with $v.priorityClassName }}
-      priorityClassName: {{ . }}
+      priorityClassName: {{ . | quote }}
       {{- end }}
       securityContext:
         {{- toYaml $v.podSecurityContext | nindent 8 }}
@@ -175,7 +175,7 @@ spec:
           imagePullPolicy: {{ $v.image.pullPolicy }}
           # Migrations run in their own Job (or by hand): the pods only serve.
           # serve refuses a database that is not at its own schema version.
-          {{- if $v.allowNewerSchema }}
+          {{- if eq (toString $v.allowNewerSchema) "true" }}
           args: ["serve", "--allow-newer-schema"]
           {{- else }}
           args: ["serve"]

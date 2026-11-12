@@ -138,7 +138,8 @@ migrations:
 # migrated: an old pod that restarts in that window fails until the rollout
 # replaces it, and `helm rollback` to an older image fails the same way.
 # true starts the pods with `--allow-newer-schema`, which accepts a newer
-# schema (never an older or a half migrated one). Only safe while the newer
+# schema (never an older or a half migrated one). The flag exists from 0.3.0:
+# an older image.tag exits on it. Only safe while the newer
 # migrations add things and remove nothing: see docs/helm.md, "Upgrade".
 allowNewerSchema: false
 
