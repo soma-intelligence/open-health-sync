@@ -116,3 +116,6 @@ func (e *env) failed(key, reason string, age time.Duration) {
 func (e *env) failedStatus(key, status string) int {
 	return e.scalar(`SELECT count(*) FROM ohs_data.failed_records WHERE raw_key = $1 AND status = $2`, key, status)
 }
+
+// bytesReader is the body of a raw file whose content does not matter.
+func bytesReader() *bytes.Reader { return bytes.NewReader([]byte("x")) }

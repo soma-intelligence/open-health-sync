@@ -124,13 +124,52 @@ func derivedHash(sc scope, provider string, day time.Time) string {
 	})
 }
 
-// derivedDrop deletes the derived row of one day.
-const derivedDrop = `DELETE FROM ohs_data.daily_summaries
-	WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND summary_date = $4`
+// derivedOwn returns the positions ($3) of the days ($4, $5: provider, day)
+// that have a provider summary of their own: a daily_summaries row of that
+// provider and day under another content hash than the derived row's ($6).
+const derivedOwn = `SELECT d.i
+	FROM unnest($3::int[], $4::text[], $5::date[], $6::text[]) AS d(i, provider, day, hash)
+	WHERE EXISTS (SELECT 1 FROM ohs_data.daily_summaries s
+		WHERE s.tenant_id = $1 AND s.user_id = $2 AND s.provider = d.provider
+		  AND s.summary_date = d.day AND s.content_hash <> d.hash)`
 
-var derivedUpsert = insertHead(tDaily, dailyColumns) + placeholders(1, len(dailyColumns)) + `
+// derivedDrop deletes the derived rows of the days in $3 (content hash) and
+// $4 (day).
+const derivedDrop = `DELETE FROM ohs_data.daily_summaries s
+	USING unnest($3::text[], $4::date[]) AS d(hash, day)
+	WHERE s.tenant_id = $1 AND s.user_id = $2 AND s.content_hash = d.hash AND s.summary_date = d.day`
+
+// derivedSums computes, for each day in $3 to $6 (position, provider, start
+// and end of the local day), the daily value of each additive type ($7) of
+// that provider over samples whose start falls in [lo, hi): the per-source
+// sum, then the largest of those. Sources inside one provider overlap (a phone
+// and a watch both count the same steps), so adding them would double count.
+// The sum is exact (numeric): a float sum depends on the order Postgres reads
+// the rows, so a recompute of unchanged samples could differ in the last bit
+// and rewrite the row. $8 and $9 bound every day of the statement, so chunks
+// outside them are excluded when it is planned.
+const derivedSums = `SELECT i, quantity_type, max(total) FROM (
+		SELECT d.i, q.quantity_type,
+		       COALESCE(NULLIF(q.source_bundle_id, ''), NULLIF(q.source_name, ''), NULLIF(q.device_id, ''), '') AS source,
+		       sum(q.value::numeric)::double precision AS total
+		FROM unnest($3::int[], $4::text[], $5::timestamptz[], $6::timestamptz[]) AS d(i, provider, lo, hi)
+		JOIN ohs_data.quantity_samples q
+		  ON q.provider = d.provider AND q.start_date >= d.lo AND q.start_date < d.hi
+		WHERE q.tenant_id = $1 AND q.user_id = $2 AND q.quantity_type = ANY($7)
+		  AND q.start_date >= $8 AND q.start_date < $9
+		GROUP BY 1, 2, 3
+	) per_source
+	GROUP BY i, quantity_type`
+
+// derivedUpsertTail is the conflict clause of the derived rows: the row of a
+// day is replaced when any figure or its metadata changed.
+var derivedUpsertTail = `
 	ON CONFLICT (tenant_id, user_id, content_hash, summary_date) DO UPDATE SET ` + derivedSet() + `
 	WHERE (` + derivedCols("daily_summaries.") + `) IS DISTINCT FROM (` + derivedCols("EXCLUDED.") + `)`
+
+// derivedBatch bounds the rows of one derived upsert, far under the 65535
+// parameter ceiling.
+const derivedBatch = 500
 
 func derivedSet() string {
 	set := make([]string, 0, len(dailyFigures)+1)
@@ -148,12 +187,8 @@ func derivedCols(prefix string) string {
 	return strings.Join(cols, ", ")
 }
 
-// deriveDailySummaries recomputes the derived row of every touched day from
-// the stored samples, inside the job's transaction (so it sees what the job
-// just wrote). A day with a provider summary of its own gets no derived row,
-// and loses one written earlier, as does a day left without any additive
-// sample (every one of them deleted).
-func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[dayKey]*time.Location) (written, skipped int, err error) {
+// sortedDays returns the keys of days by provider, then day.
+func sortedDays(days map[dayKey]*time.Location) []dayKey {
 	keys := make([]dayKey, 0, len(days))
 	for k := range days {
 		keys = append(keys, k)
@@ -164,94 +199,135 @@ func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[day
 		}
 		return keys[i].day.Before(keys[j].day)
 	})
+	return keys
+}
 
+// deriveDailySummaries recomputes the derived row of every touched day from
+// the stored samples, inside the job's transaction (so it sees what the job
+// just wrote). A day with a provider summary of its own gets no derived row,
+// and loses one written earlier, as does a day left without any additive
+// sample (every one of them deleted).
+//
+// The work is done per set of days, not per day: one lookup of the days that
+// have a provider summary, one sum over the others, one delete and one upsert
+// per derivedBatch rows, whatever the number of days an object touches.
+func deriveDailySummaries(ctx context.Context, tx TxLike, sc scope, days map[dayKey]*time.Location) (written, skipped int, err error) {
+	keys := sortedDays(days)
+	if len(keys) == 0 {
+		return 0, 0, nil
+	}
+
+	// Serialize derivations of one (tenant, user, provider): a concurrent job
+	// writing samples for the same day either commits before this sum (and is
+	// seen) or sums after this commit (and sees these rows). Without it two
+	// jobs each sum without the other's rows and the last upsert loses data.
+	// Keys are sorted, so locks are taken in a stable order.
 	locked := map[string]bool{}
 	for _, k := range keys {
-		// Serialize derivations of one (tenant, user, provider): a concurrent job
-		// writing samples for the same day either commits before this sum (and is
-		// seen) or sums after this commit (and sees these rows). Without it two
-		// jobs each sum without the other's rows and the last upsert loses data.
-		// Keys are sorted, so locks are taken in a stable order.
-		if !locked[k.provider] {
-			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-				"ohs_daily|"+sc.tenant.String()+"|"+sc.user.String()+"|"+k.provider); err != nil {
-				return written, skipped, fmt.Errorf("lock daily derivation: %w", err)
-			}
-			locked[k.provider] = true
-		}
-		hash := derivedHash(sc, k.provider, k.day)
-		var own bool
-		if err := tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM ohs_data.daily_summaries
-				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND summary_date = $4 AND content_hash <> $5)`,
-			sc.tenant, sc.user, k.provider, k.day, hash).Scan(&own); err != nil {
-			return written, skipped, fmt.Errorf("look up provider summary: %w", err)
-		}
-		if own {
-			if _, err := tx.Exec(ctx, derivedDrop, sc.tenant, sc.user, hash, k.day); err != nil {
-				return written, skipped, fmt.Errorf("drop derived summary: %w", err)
-			}
+		if locked[k.provider] {
 			continue
 		}
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+			"ohs_daily|"+sc.tenant.String()+"|"+sc.user.String()+"|"+k.provider); err != nil {
+			return 0, 0, fmt.Errorf("lock daily derivation: %w", err)
+		}
+		locked[k.provider] = true
+	}
 
+	idx := make([]int32, len(keys))
+	providers := make([]string, len(keys))
+	dates := make([]time.Time, len(keys))
+	hashes := make([]string, len(keys))
+	for i, k := range keys {
+		idx[i], providers[i], dates[i], hashes[i] = int32(i), k.provider, k.day, derivedHash(sc, k.provider, k.day)
+	}
+	own, err := queryPositions(ctx, tx, derivedOwn, sc.tenant, sc.user, idx, providers, dates, hashes)
+	if err != nil {
+		return 0, 0, fmt.Errorf("look up provider summary: %w", err)
+	}
+
+	// The days left to sum, with the bounds of each local day.
+	var sumIdx []int32
+	var sumProviders []string
+	var los, his []time.Time
+	var all window
+	for i, k := range keys {
+		if own[i] {
+			continue
+		}
 		loc := days[k]
 		lo := time.Date(k.day.Year(), k.day.Month(), k.day.Day(), 0, 0, 0, 0, loc)
 		hi := lo.AddDate(0, 0, 1)
-		sums, err := sumAdditive(ctx, tx, sc, k.provider, lo, hi)
-		if err != nil {
-			return written, skipped, err
+		sumIdx, sumProviders, los, his = append(sumIdx, int32(i)), append(sumProviders, k.provider), append(los, lo), append(his, hi)
+		all.extend(lo)
+		all.extend(hi)
+	}
+	sums := map[int]map[string]float64{}
+	if len(sumIdx) > 0 {
+		if sums, err = sumAdditive(ctx, tx, sc, sumIdx, sumProviders, los, his, all); err != nil {
+			return 0, 0, err
 		}
-		if len(sums) == 0 {
-			if _, err := tx.Exec(ctx, derivedDrop, sc.tenant, sc.user, hash, k.day); err != nil {
-				return written, skipped, fmt.Errorf("drop derived summary: %w", err)
-			}
+	}
+
+	// A day with a provider summary, or without any additive sample left,
+	// loses its derived row; every other day gets one.
+	var dropHashes []string
+	var dropDays []time.Time
+	rows := make([][]any, 0, len(sumIdx))
+	for i, k := range keys {
+		if own[i] || len(sums[i]) == 0 {
+			dropHashes, dropDays = append(dropHashes, hashes[i]), append(dropDays, k.day)
 			continue
 		}
-		tag, err := tx.Exec(ctx, derivedUpsert, derivedRow(sc, k, loc, hash, sums)...)
+		rows = append(rows, derivedRow(sc, k, days[k], hashes[i], sums[i]))
+	}
+	if len(dropHashes) > 0 {
+		if _, err := tx.Exec(ctx, derivedDrop, sc.tenant, sc.user, dropHashes, dropDays); err != nil {
+			return 0, 0, fmt.Errorf("drop derived summary: %w", err)
+		}
+	}
+	head := insertHead(tDaily, dailyColumns)
+	for i := 0; i < len(rows); i += derivedBatch {
+		batch := rows[i:min(i+derivedBatch, len(rows))]
+		args := make([]any, 0, len(batch)*len(dailyColumns))
+		phs := make([]string, 0, len(batch))
+		for j, r := range batch {
+			phs = append(phs, placeholders(j*len(dailyColumns)+1, len(dailyColumns)))
+			args = append(args, r...)
+		}
+		tag, err := tx.Exec(ctx, head+strings.Join(phs, ", ")+derivedUpsertTail, args...)
 		if err != nil {
 			return written, skipped, fmt.Errorf("upsert derived summary: %w", err)
 		}
-		if tag.RowsAffected() > 0 {
-			written++
-		} else {
-			skipped++
-		}
+		n := int(tag.RowsAffected())
+		written, skipped = written+n, skipped+len(batch)-n
 	}
 	return written, skipped, nil
 }
 
-// sumAdditive computes the daily value of each additive type of one provider
-// over samples whose start falls in [lo, hi): the per-source sum, then the
-// largest of those. Sources inside one provider overlap (a phone and a watch
-// both count the same steps), so adding them would double count. The sum is
-// exact (numeric): a float sum depends on the order Postgres reads the rows,
-// so a recompute of unchanged samples could differ in the last bit and
-// rewrite the row.
-func sumAdditive(ctx context.Context, tx TxLike, sc scope, provider string, lo, hi time.Time) (map[string]float64, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT quantity_type, max(total) FROM (
-			SELECT quantity_type,
-			       COALESCE(NULLIF(source_bundle_id, ''), NULLIF(source_name, ''), NULLIF(device_id, ''), '') AS source,
-			       sum(value::numeric)::double precision AS total
-			FROM ohs_data.quantity_samples
-			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND quantity_type = ANY($4)
-			  AND start_date >= $5 AND start_date < $6
-			GROUP BY 1, 2
-		) per_source
-		GROUP BY quantity_type`,
-		sc.tenant, sc.user, provider, additiveTypes, lo, hi)
+// sumAdditive runs derivedSums for the days at positions idx and returns the
+// daily value of each additive type, by position. A day without any additive
+// sample has no entry.
+func sumAdditive(ctx context.Context, tx TxLike, sc scope, idx []int32, providers []string, los, his []time.Time, all window) (map[int]map[string]float64, error) {
+	rows, err := tx.Query(ctx, derivedSums, sc.tenant, sc.user, idx, providers, los, his, additiveTypes, all.lo, all.hi)
 	if err != nil {
 		return nil, fmt.Errorf("sum daily samples: %w", err)
 	}
 	defer rows.Close()
-	sums := map[string]float64{}
+	sums := map[int]map[string]float64{}
 	for rows.Next() {
+		var i int32
 		var qt string
 		var v float64
-		if err := rows.Scan(&qt, &v); err != nil {
+		if err := rows.Scan(&i, &qt, &v); err != nil {
 			return nil, fmt.Errorf("scan daily sum: %w", err)
 		}
-		sums[qt] = v
+		day, ok := sums[int(i)]
+		if !ok {
+			day = map[string]float64{}
+			sums[int(i)] = day
+		}
+		day[qt] = v
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sum daily samples: %w", err)
@@ -299,5 +375,6 @@ func derivedRow(sc scope, k dayKey, loc *time.Location, hash string, sums map[st
 		i(model.QTStepCount), active, total, f(model.QTDistanceWalkingRunning), i(model.QTFlightsClimbed),
 		nil, nil, // resting_hr, hrv_avg_ms
 		hash, md,
+		nil, // captured_at: a derived row comes from no one object
 	}
 }

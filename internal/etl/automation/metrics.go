@@ -17,12 +17,16 @@ type Metrics struct {
 	UnregisteredFiles    atomic.Int64 // raw files in the store with no raw_objects row
 
 	// Counters.
-	OrphansEnqueued   atomic.Int64 // jobs created for raw_objects rows that had none
-	DrainerReplays    atomic.Int64 // raw objects re-enqueued by the drainer
-	RetentionRows     atomic.Int64 // ohs_data rows deleted by retention
-	RetentionObjects  atomic.Int64 // raw day prefixes deleted by retention
-	RunFailures       atomic.Int64 // job runs that returned an error
-	LastReconcileUnix atomic.Int64 // when the last reconcile pass finished
+	OrphansEnqueued  atomic.Int64 // jobs created for raw_objects rows that had none
+	DrainerReplays   atomic.Int64 // raw objects re-enqueued by the drainer
+	RetentionRows    atomic.Int64 // ohs_data rows removed by retention, rows of dropped chunks included
+	RetentionObjects atomic.Int64 // raw day prefixes deleted by retention
+	RetentionChunks  atomic.Int64 // whole hypertable chunks dropped by retention
+	// TrackingRowsPruned counts the sync_log rows and finished etl_jobs
+	// deleted by age.
+	TrackingRowsPruned atomic.Int64
+	RunFailures        atomic.Int64 // job runs that returned an error
+	LastReconcileUnix  atomic.Int64 // when the last reconcile pass finished
 }
 
 // Snapshot returns the current values keyed by metric name.
@@ -36,6 +40,8 @@ func (m *Metrics) Snapshot() map[string]int64 {
 		"drainer_replays_total":       m.DrainerReplays.Load(),
 		"retention_rows_total":        m.RetentionRows.Load(),
 		"retention_prefixes_total":    m.RetentionObjects.Load(),
+		"retention_chunks_total":      m.RetentionChunks.Load(),
+		"tracking_rows_pruned_total":  m.TrackingRowsPruned.Load(),
 		"run_failures_total":          m.RunFailures.Load(),
 		"last_reconcile_unix_seconds": m.LastReconcileUnix.Load(),
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -22,8 +23,8 @@ import (
 // every conflict target is the table's dedup unique: (tenant_id, user_id,
 // content_hash, <time column>) on hypertables, (tenant_id, user_id,
 // content_hash) on plain tables. quantity_samples, which is compressed, has no
-// such unique and dedups by time window instead (see insertMissing). Record families live in writer_samples.go
-// (flat tables) and writer_parents.go (parents with child rows).
+// such unique and dedups by time window instead (see insertMissing). Record
+// families live in writer_samples.go (flat tables) and writer_parents.go (parents with child rows).
 
 // Unqualified table names, the keys of Counts.
 const (
@@ -93,7 +94,16 @@ type scope struct {
 	tenant   uuid.UUID
 	user     uuid.UUID
 	provider string
+	// captured is when the raw object being written was captured (its
+	// raw_objects.captured_at, the start of the pull's fetch, or else its
+	// created_at). It orders the copies of a Replaceable row: see
+	// latestWins. Zero means unknown, and an unknown copy is never held back.
+	captured time.Time
 }
+
+// capturedAt is the captured_at value of every row of one write: the raw
+// object's capture time, or NULL when it is unknown.
+func (s scope) capturedAt() any { return nullTime(s.captured) }
 
 // providerOr returns p, or the scope's provider when p is empty.
 func (s scope) providerOr(p string) string {
@@ -352,7 +362,9 @@ func insertParentWithFallback(ctx context.Context, tx TxLike, insertSQL string, 
 // second COPY into the same target inside one transaction (two workouts with
 // GPS routes in one upload) would otherwise fail. Duplicate rows inside one
 // batch must be filtered by the caller (copyDedupe): staging has no unique.
-func stage(ctx context.Context, tx TxLike, table string, columns []string, rows [][]any) (temp string, copied int64, err error) {
+// rows is read once, so a caller can generate them as the COPY consumes them
+// (lazyRows) instead of holding a second copy of the batch.
+func stage(ctx context.Context, tx TxLike, table string, columns []string, rows pgx.CopyFromSource) (temp string, copied int64, err error) {
 	temp = pgx.Identifier{"_tmp_" + table}.Sanitize()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(
 		`CREATE TEMPORARY TABLE IF NOT EXISTS %s ON COMMIT DROP AS SELECT %s FROM %s WITH NO DATA`,
@@ -362,7 +374,7 @@ func stage(ctx context.Context, tx TxLike, table string, columns []string, rows 
 	if _, err := tx.Exec(ctx, "TRUNCATE TABLE "+temp); err != nil {
 		return "", 0, fmt.Errorf("truncate staging for %s: %w", table, err)
 	}
-	copied, err = tx.CopyFrom(ctx, pgx.Identifier{"_tmp_" + table}, columns, pgx.CopyFromRows(rows))
+	copied, err = tx.CopyFrom(ctx, pgx.Identifier{"_tmp_" + table}, columns, rows)
 	if err != nil {
 		return "", 0, fmt.Errorf("copy to staging for %s: %w", table, err)
 	}
@@ -371,7 +383,7 @@ func stage(ctx context.Context, tx TxLike, table string, columns []string, rows 
 
 // writeHighFrequencyCopy stages rows with COPY into a temporary table and moves
 // them into the target with INSERT ... SELECT ... ON CONFLICT DO NOTHING.
-func (w *Writer) writeHighFrequencyCopy(ctx context.Context, tx TxLike, table string, columns []string, rows [][]any, conflictCols string) (written, skipped int, err error) {
+func (w *Writer) writeHighFrequencyCopy(ctx context.Context, tx TxLike, table string, columns []string, rows pgx.CopyFromSource, conflictCols string) (written, skipped int, err error) {
 	temp, copied, err := stage(ctx, tx, table, columns, rows)
 	if err != nil {
 		return 0, 0, err
@@ -422,18 +434,66 @@ func (wd *window) extend(at time.Time) {
 	}
 }
 
+// kindWindows is the time range a batch covers for each kind of row it
+// carries (the quantity type of a sample), plus the range of the whole batch.
+// A part that holds five years of weights and one day of steps then reads the
+// stored weights of five years and the stored steps of one day, not every
+// stored row of every type over five years.
+type kindWindows struct {
+	all    window
+	byKind map[string]*window
+}
+
+// extend widens the window of kind, and the whole batch's, to include at.
+func (kw *kindWindows) extend(kind string, at time.Time) {
+	kw.all.extend(at)
+	if kw.byKind == nil {
+		kw.byKind = map[string]*window{}
+	}
+	wd, ok := kw.byKind[kind]
+	if !ok {
+		wd = &window{}
+		kw.byKind[kind] = wd
+	}
+	wd.extend(at)
+}
+
+// arrays returns the kinds and their bounds as parallel arrays, sorted by
+// kind so the statement arguments are stable.
+func (kw *kindWindows) arrays() (kinds []string, lo, hi []time.Time) {
+	kinds = make([]string, 0, len(kw.byKind))
+	for k := range kw.byKind {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	lo, hi = make([]time.Time, len(kinds)), make([]time.Time, len(kinds))
+	for i, k := range kinds {
+		lo[i], hi[i] = kw.byKind[k].lo, kw.byKind[k].hi
+	}
+	return kinds, lo, hi
+}
+
 // insertMissing inserts the staged rows of temp whose (timeCol, content_hash)
 // is not stored yet for the scope's user, and returns how many it inserted.
-func insertMissing(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp string, columns []string, wd window) (int, error) {
+//
+// The stored set is read per kind (kindCol, the table's type column) over that
+// kind's own window, which the (tenant_id, user_id, <kind>, <time>) index
+// serves. The whole batch's window is repeated as a plain bound so chunks
+// outside it are excluded when the statement is planned.
+func insertMissing(ctx context.Context, tx TxLike, sc scope, table, timeCol, kindCol, temp string, columns []string, kw kindWindows) (int, error) {
 	cols := quoteCols(columns)
 	at := pgx.Identifier{timeCol}.Sanitize()
+	kind := pgx.Identifier{kindCol}.Sanitize()
+	kinds, lo, hi := kw.arrays()
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`WITH stored AS MATERIALIZED (
-			SELECT %[1]s AS at, content_hash FROM %[2]s
-			WHERE tenant_id = $1 AND user_id = $2 AND %[1]s BETWEEN $3 AND $4)
+			SELECT t.%[1]s AS at, t.content_hash
+			FROM unnest($3::text[], $4::timestamptz[], $5::timestamptz[]) AS k(kind, lo, hi)
+			JOIN %[2]s t ON t.%[5]s = k.kind AND t.%[1]s BETWEEN k.lo AND k.hi
+			WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[1]s BETWEEN $6 AND $7)
 		INSERT INTO %[2]s (%[3]s)
 		SELECT %[3]s FROM %[4]s s
 		WHERE NOT EXISTS (SELECT 1 FROM stored WHERE stored.at = s.%[1]s AND stored.content_hash = s.content_hash)`,
-		at, qualified(table), cols, temp), sc.tenant, sc.user, wd.lo, wd.hi)
+		at, qualified(table), cols, temp, kind), sc.tenant, sc.user, kinds, lo, hi, kw.all.lo, kw.all.hi)
 	if err != nil {
 		return 0, fmt.Errorf("insert missing into %s: %w", table, err)
 	}
@@ -441,11 +501,13 @@ func insertMissing(ctx context.Context, tx TxLike, sc scope, table, timeCol, tem
 }
 
 // updateStored applies latest wins (see latestWins) from the staged rows of
-// temp to the stored rows with the same (timeCol, content_hash), and returns
-// how many stored rows changed.
-func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp string, figures []string, wd window) (int, error) {
+// temp to the stored rows with the same (kindCol, timeCol, content_hash), and
+// returns how many stored rows changed. The kind is part of the join so each
+// staged row finds its stored copy through the type index.
+func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, kindCol, temp string, figures []string, wd window) (int, error) {
 	at := pgx.Identifier{timeCol}.Sanitize()
-	set := make([]string, 0, len(figures)+1)
+	kind := pgx.Identifier{kindCol}.Sanitize()
+	set := make([]string, 0, len(figures)+2)
 	stored := make([]string, 0, len(figures))
 	merged := make([]string, 0, len(figures))
 	for _, f := range figures {
@@ -454,17 +516,39 @@ func updateStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, temp
 		stored = append(stored, "t."+f)
 		merged = append(merged, m)
 	}
-	set = append(set, "metadata = s.metadata")
+	set = append(set, "metadata = s.metadata", "captured_at = s.captured_at")
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET %[2]s FROM %[3]s s
 		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[4]s BETWEEN $3 AND $4
-		  AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash
-		  AND (%[5]s) IS DISTINCT FROM (%[6]s)`,
-		qualified(table), strings.Join(set, ", "), temp, at, strings.Join(stored, ", "), strings.Join(merged, ", ")),
+		  AND t.%[7]s = s.%[7]s AND t.%[4]s = s.%[4]s AND t.content_hash = s.content_hash
+		  AND (%[5]s) IS DISTINCT FROM (%[6]s)
+		  AND %[8]s`,
+		qualified(table), strings.Join(set, ", "), temp, at, strings.Join(stored, ", "), strings.Join(merged, ", "),
+		kind, notStale("t.captured_at", "s.captured_at")),
 		sc.tenant, sc.user, wd.lo, wd.hi)
 	if err != nil {
 		return 0, fmt.Errorf("update stored %s: %w", table, err)
 	}
 	return int(tag.RowsAffected()), nil
+}
+
+// advanceStored moves the capture time of the stored rows forward to that of
+// the staged rows of temp with the same (kindCol, timeCol, content_hash),
+// where the staged copy is newer (see newerCapture). It runs after
+// updateStored, so the rows it reaches are the ones the new copy left as they
+// were. They are not counted as written.
+func advanceStored(ctx context.Context, tx TxLike, sc scope, table, timeCol, kindCol, temp string, wd window) error {
+	at := pgx.Identifier{timeCol}.Sanitize()
+	kind := pgx.Identifier{kindCol}.Sanitize()
+	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s t SET captured_at = s.captured_at FROM %[2]s s
+		WHERE t.tenant_id = $1 AND t.user_id = $2 AND t.%[3]s BETWEEN $3 AND $4
+		  AND t.%[4]s = s.%[4]s AND t.%[3]s = s.%[3]s AND t.content_hash = s.content_hash
+		  AND %[5]s`,
+		qualified(table), temp, at, kind, newerCapture("t.captured_at", "s.captured_at")),
+		sc.tenant, sc.user, wd.lo, wd.hi)
+	if err != nil {
+		return fmt.Errorf("advance capture time of %s: %w", table, err)
+	}
+	return nil
 }
 
 // copyDedupeKey is a staged row's identity within one job: the target's dedup
@@ -504,6 +588,10 @@ func replaceableSplit[T any](rows []T, replaceable func(T) bool, key func(T) cop
 			last[key(r)] = i
 		}
 	}
+	if len(last) == 0 {
+		// Nothing to upsert: the batch is returned as it is, not copied.
+		return rows, nil, 0
+	}
 	for i, r := range rows {
 		switch {
 		case !replaceable(r):
@@ -522,11 +610,18 @@ func replaceableSplit[T any](rows []T, replaceable func(T) bool, key func(T) cop
 // Every figure the new copy carries replaces the stored one. A figure it omits
 // keeps the stored value, because a vendor that stops reporting a field has not
 // measured it as NULL. A copy that changes nothing writes nothing, and metadata
-// follows the figures it describes.
+// follows the figures it describes. The one thing such a copy can still move is
+// the stored capture time, when it is the newer of the two: that is a second
+// statement (advanceCapture, advanceStored), so it is never counted as a write.
+//
+// "Latest" is the capture time of the raw object a copy came from
+// (captured_at), not the order the jobs happen to run in: a retried, replayed
+// or requeued job for an older object does not overwrite what a newer object
+// stored (see notStale).
 func latestWins(table, conflictCols string, figures []string) string {
 	// The existing row is referenced by the unqualified table name.
 	alias := table
-	set := make([]string, 0, len(figures)+1)
+	set := make([]string, 0, len(figures)+2)
 	stored := make([]string, 0, len(figures))
 	merged := make([]string, 0, len(figures))
 	for _, f := range figures {
@@ -535,9 +630,82 @@ func latestWins(table, conflictCols string, figures []string) string {
 		stored = append(stored, alias+"."+f)
 		merged = append(merged, m)
 	}
-	set = append(set, "metadata = EXCLUDED.metadata")
-	return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s WHERE (%s) IS DISTINCT FROM (%s)",
-		conflictCols, strings.Join(set, ", "), strings.Join(stored, ", "), strings.Join(merged, ", "))
+	set = append(set, "metadata = EXCLUDED.metadata", "captured_at = EXCLUDED.captured_at")
+	return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s WHERE (%s) IS DISTINCT FROM (%s) AND %s",
+		conflictCols, strings.Join(set, ", "), strings.Join(stored, ", "), strings.Join(merged, ", "),
+		notStale(alias+".captured_at", "EXCLUDED.captured_at"))
+}
+
+// notStale is the condition under which a new copy may replace a stored row:
+// it was captured at or after the stored one. Equal times replace, so
+// processing one object again after a mapper fix still corrects its rows. A
+// row stored before captured_at existed, and a copy whose capture time is
+// unknown, carry no order and replace as before.
+func notStale(stored, incoming string) string {
+	return fmt.Sprintf("(%[1]s IS NULL OR %[2]s IS NULL OR %[2]s >= %[1]s)", stored, incoming)
+}
+
+// newerCapture is the condition under which a copy that changed nothing still
+// moves the stored capture time forward: it was captured after the stored row,
+// or the stored row has no capture time yet. Without it the row keeps the time
+// of the object that last changed its figures, and an object captured between
+// that one and the newest could overwrite what the newest confirmed. An equal
+// time is not newer: processing one object again writes no row.
+func newerCapture(stored, incoming string) string {
+	return fmt.Sprintf("(%[2]s > %[1]s OR (%[1]s IS NULL AND %[2]s IS NOT NULL))", stored, incoming)
+}
+
+// advanceCapture is the conflict action that only moves the capture time of
+// the stored row forward (see newerCapture). It follows a latestWins insert
+// of the same rows, which left the rows it reaches as they were.
+func advanceCapture(table, conflictCols string) string {
+	return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET captured_at = EXCLUDED.captured_at WHERE %s",
+		conflictCols, newerCapture(table+".captured_at", "EXCLUDED.captured_at"))
+}
+
+// upsertBatches inserts Replaceable rows with latest wins (replace, the
+// table's latestWins clause), then moves the capture time of the rows the
+// insert left as they were forward (advance, its advanceCapture clause). The
+// second pass only runs when a row was skipped and the capture time is known.
+func (w *Writer) upsertBatches(ctx context.Context, tx TxLike, sc scope, table, head, replace, advance string, colCount int, rows [][]any) (written, skipped int, err error) {
+	written, skipped, err = w.insertBatches(ctx, tx, table, head, replace, colCount, rows)
+	if err != nil || skipped == 0 || sc.captured.IsZero() {
+		return written, skipped, err
+	}
+	if _, _, err := w.insertBatches(ctx, tx, table, head, advance, colCount, rows); err != nil {
+		return written, skipped, fmt.Errorf("advance capture time: %w", err)
+	}
+	return written, skipped, nil
+}
+
+// advanceParent moves the capture time of one stored Replaceable parent row
+// forward (see newerCapture). update is the table's statement: tenant, user,
+// content hash, start, capture time.
+func advanceParent(ctx context.Context, tx TxLike, sc scope, update, hash string, start time.Time) error {
+	if sc.captured.IsZero() {
+		return nil
+	}
+	_, err := tx.Exec(ctx, update, sc.tenant, sc.user, hash, start, sc.captured)
+	return err
+}
+
+// lazyRows is a COPY source that builds the row of each record as the COPY
+// reads it, so the batch is never held a second time as [][]any. skip, when
+// set, drops a record (an in-batch duplicate); it is called once per record,
+// in order.
+func lazyRows[T any](recs []T, sc scope, row func(scope, T) []any, skip func(T) bool) pgx.CopyFromSource {
+	i := 0
+	return pgx.CopyFromFunc(func() ([]any, error) {
+		for i < len(recs) {
+			r := recs[i]
+			i++
+			if skip != nil && skip(r) {
+				continue
+			}
+			return row(sc, r), nil
+		}
+		return nil, nil
+	})
 }
 
 // placeholders generates a SQL placeholder group like "($1,$2,$3)" starting at

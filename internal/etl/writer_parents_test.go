@@ -40,7 +40,7 @@ func TestSleepSessionInsertStatements(t *testing.T) {
 	// and attribution columns.
 	notFigures := map[string]bool{
 		"tenant_id": true, "user_id": true, "provider": true, "source_slug": true, "external_id": true,
-		"bedtime_start": true, "content_hash": true, "metadata": true,
+		"bedtime_start": true, "content_hash": true, "metadata": true, "captured_at": true,
 	}
 	var want []string
 	for _, c := range sleepSessionColumns {
@@ -61,6 +61,8 @@ func TestReplaceStatementsScopedToTenantAndUser(t *testing.T) {
 		"workoutRoutesAdopt":    workoutRoutesAdopt,
 		"workoutRoutesDrop":     workoutRoutesDrop,
 		"workoutTracksDrop":     workoutTracksDrop,
+		"sleepSessionNewer":     sleepSessionNewer,
+		"workoutNewer":          workoutNewer,
 	} {
 		assert.Contains(t, q, "tenant_id = $1 AND user_id = $2", name)
 	}

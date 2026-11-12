@@ -95,7 +95,7 @@ integrations keep working.
 }
 ```
 
-- `trigger`: `backfill` (the first 30 days of a new connection), `scheduled` (the regular backstop
+- `trigger`: `backfill` (the history loaded for a new connection, 30 days by default), `scheduled` (the regular backstop
   pull), `notification` (the provider said something changed) or `manual` (sync now, below).
 - `status`: `queued`, `running`, `retrying` (the last attempt failed, the next is at
   `next_attempt_at`), `rate_limited` (the provider asked to wait until `next_attempt_at`),
@@ -126,7 +126,9 @@ data), or a day back for a connection that has not synced yet. Pass `{"from": "2
 to reach further back, up to 30 days.
 
 - A "sync" button can be pressed many times: while a manual run of the connection is still queued
-  or running, the call answers `200` with that run and queues nothing.
+  or running, the call answers `200` with that run and queues nothing. If that run is waiting to
+  retry after a failure, the call makes it run now; the extra attempt is not counted against its
+  retries.
 - `409` when the connection cannot sync: it needs the user to connect again (`needs_reauth`), it is
   disconnected, its provider is not enabled on this instance, or an instance admin turned the
   provider off for this tenant.

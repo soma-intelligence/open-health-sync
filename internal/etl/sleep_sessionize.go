@@ -309,7 +309,7 @@ func (w *Writer) buildNight(ctx context.Context, tx TxLike, sc scope, n sleepNig
 		id, isNew, err := insertParentWithFallback(ctx, tx, sleepSessionInsert, []any{
 			sc.tenant, sc.user, sc.provider, sourceSlugOrProvider("", sc.provider), "", s.start, s.end,
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			s.hash, map[string]any{"synthesized": true},
+			s.hash, map[string]any{"synthesized": true}, sc.capturedAt(),
 		}, sleepSessionSelect, sc.tenant, sc.user, s.hash, s.start)
 		if err != nil {
 			return nil, fmt.Errorf("insert sleep session: %w", err)

@@ -30,7 +30,7 @@ var sleepSessionColumns = []string{
 	"total_sleep_seconds", "deep_sleep_seconds", "rem_sleep_seconds",
 	"light_sleep_seconds", "awake_seconds", "sleep_score",
 	"hrv_avg_ms", "resting_hr", "respiratory_rate", "spo2_avg",
-	"content_hash", "metadata",
+	"content_hash", "metadata", "captured_at",
 }
 
 var (
@@ -43,6 +43,18 @@ var (
 		latestWins(tSleep, hyperConflict("bedtime_start"), sleepFigures) + " RETURNING id"
 	sleepSessionSelect = `SELECT id FROM ohs_data.sleep_sessions
 		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND bedtime_start = $4`
+	// sleepSessionAdvance moves the capture time of a Replaceable session
+	// its new copy left as it was forward (see newerCapture).
+	sleepSessionAdvance = `UPDATE ohs_data.sleep_sessions SET captured_at = $5
+		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND bedtime_start = $4
+		  AND ` + newerCapture("captured_at", "$5::timestamptz")
+	// sleepSessionNewer finds a stored copy of a Replaceable session that came
+	// from an object captured after this one ($7): the row under the same key
+	// ($3, $4), or the same provider record ($5, $6) under any key.
+	sleepSessionNewer = `SELECT id FROM ohs_data.sleep_sessions
+		WHERE tenant_id = $1 AND user_id = $2 AND captured_at > $7
+		  AND ((content_hash = $3 AND bedtime_start = $4) OR ($6 <> '' AND provider = $5 AND external_id = $6))
+		ORDER BY captured_at DESC LIMIT 1`
 	// sleepSessionSupersede removes the other stored copies of a Replaceable
 	// session: same provider record, another (content_hash, bedtime_start)
 	// key, which is what a night whose start moved leaves behind. The dedup
@@ -92,13 +104,33 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 		insert := sleepSessionInsert
 		if s.Replaceable {
 			insert = sleepSessionReplace
+			// A copy older than the stored one changes nothing: neither the
+			// session nor its phases. The phases it carries are counted with it.
+			_, stale, err := newerParent(ctx, tx, sc, sleepSessionNewer, s.ContentHash, s.BedtimeStart, p, s.ExternalID)
+			if err != nil {
+				return fmt.Errorf("look up newer sleep session: %w", err)
+			}
+			if stale {
+				c.add(tSleep, 0, 1)
+				dropped := 0
+				for _, i := range byParent[s.ContentHash] {
+					if !attached[i] {
+						attached[i] = true
+						dropped++
+					}
+				}
+				if dropped > 0 {
+					c.add(tPhases, 0, dropped)
+				}
+				continue
+			}
 		}
 		parentID, isNew, err := insertParentWithFallback(ctx, tx, insert, []any{
 			sc.tenant, sc.user, p, sourceSlugOrProvider("", p), s.ExternalID, s.BedtimeStart, nullTime(s.BedtimeEnd),
 			s.TotalSleepSeconds, s.DeepSleepSeconds, s.REMSleepSeconds,
 			s.LightSleepSeconds, s.AwakeSeconds, s.SleepScore,
 			s.HRVAvgMs, s.RestingHR, s.RespiratoryRate, s.SpO2Avg,
-			s.ContentHash, normalizeMetadata(s.Metadata),
+			s.ContentHash, normalizeMetadata(s.Metadata), sc.capturedAt(),
 		}, sleepSessionSelect, sc.tenant, sc.user, s.ContentHash, s.BedtimeStart)
 		if err != nil {
 			return fmt.Errorf("insert sleep session: %w", err)
@@ -107,6 +139,11 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 			c.add(tSleep, 1, 0)
 		} else {
 			c.add(tSleep, 0, 1)
+			if s.Replaceable {
+				if err := advanceParent(ctx, tx, sc, sleepSessionAdvance, s.ContentHash, s.BedtimeStart); err != nil {
+					return fmt.Errorf("advance capture time of sleep session: %w", err)
+				}
+			}
 		}
 		windows = append(windows, sleepWindow{id: parentID, hash: s.ContentHash, start: s.BedtimeStart, end: s.BedtimeEnd})
 		if s.TotalSleepSeconds == nil && p == sc.provider {
@@ -156,6 +193,26 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 		return w.writeOrphanSleepPhases(ctx, tx, sc, orphans, windows, c)
 	}
 	return nil
+}
+
+// newerParent reports whether a Replaceable parent is stale: a copy of it is
+// stored from a raw object captured after the one being written, under the
+// same key or, with an external id, as the same provider record under any
+// key. It returns that stored row's id. A write whose capture time is unknown
+// is never stale.
+func newerParent(ctx context.Context, tx TxLike, sc scope, lookup, hash string, start time.Time, provider, externalID string) (int64, bool, error) {
+	if sc.captured.IsZero() {
+		return 0, false, nil
+	}
+	var id int64
+	err := tx.QueryRow(ctx, lookup, sc.tenant, sc.user, hash, start, provider, externalID, sc.captured).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
 }
 
 // replaceSleepChildren runs after a Replaceable session is upserted to
@@ -282,7 +339,7 @@ var workoutColumns = []string{
 	"start_date", "end_date", "duration_s",
 	"active_energy_kcal", "distance_m", "avg_heart_rate",
 	"max_heart_rate", "avg_speed_mps", "elevation_gain_m",
-	"vo2_max", "content_hash", "metadata",
+	"vo2_max", "content_hash", "metadata", "captured_at",
 }
 
 var (
@@ -295,6 +352,15 @@ var (
 		latestWins(tWorkouts, hyperConflict("start_date"), workoutFigures) + " RETURNING id"
 	workoutSelect = `SELECT id FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND start_date = $4`
+	// workoutAdvance is sleepSessionAdvance for workouts.
+	workoutAdvance = `UPDATE ohs_data.workouts SET captured_at = $5
+		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND start_date = $4
+		  AND ` + newerCapture("captured_at", "$5::timestamptz")
+	// workoutNewer is sleepSessionNewer for workouts.
+	workoutNewer = `SELECT id FROM ohs_data.workouts
+		WHERE tenant_id = $1 AND user_id = $2 AND captured_at > $7
+		  AND ((content_hash = $3 AND start_date = $4) OR ($6 <> '' AND provider = $5 AND external_id = $6))
+		ORDER BY captured_at DESC LIMIT 1`
 	// workoutSupersede removes the other stored copies of a Replaceable
 	// workout (same provider record, another key: its start moved).
 	workoutSupersede = `DELETE FROM ohs_data.workouts
@@ -336,13 +402,37 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 		insert := workoutInsert
 		if wk.Replaceable {
 			insert = workoutReplace
+			// A copy older than the stored one changes nothing: neither the
+			// workout nor its route. The points it carries are counted with it.
+			_, stale, err := newerParent(ctx, tx, sc, workoutNewer, wk.ContentHash, wk.StartDate, p, wk.ExternalID)
+			if err != nil {
+				return fmt.Errorf("look up newer workout: %w", err)
+			}
+			if stale {
+				c.add(tWorkouts, 0, 1)
+				dropped := 0
+				drop := byParent[wk.ContentHash]
+				if len(workouts) == 1 {
+					drop = append(drop[:len(drop):len(drop)], byParent[""]...)
+				}
+				for _, i := range drop {
+					if !attached[i] {
+						attached[i] = true
+						dropped++
+					}
+				}
+				if dropped > 0 {
+					c.add(tRoutes, 0, dropped)
+				}
+				continue
+			}
 		}
 		parentID, isNew, err := insertParentWithFallback(ctx, tx, insert, []any{
 			sc.tenant, sc.user, p, sourceSlugOrProvider(model.Slug(wk.SourceSlug), p), nullString(wk.DeviceID), wk.ExternalID, wk.ActivityType,
 			wk.StartDate, nullTime(wk.EndDate), wk.DurationS,
 			wk.ActiveEnergyKcal, wk.DistanceM, wk.AvgHeartRate,
 			wk.MaxHeartRate, wk.AvgSpeedMps, wk.ElevationGainM,
-			wk.VO2Max, wk.ContentHash, normalizeMetadata(wk.Metadata),
+			wk.VO2Max, wk.ContentHash, normalizeMetadata(wk.Metadata), sc.capturedAt(),
 		}, workoutSelect, sc.tenant, sc.user, wk.ContentHash, wk.StartDate)
 		if err != nil {
 			return fmt.Errorf("insert workout: %w", err)
@@ -351,6 +441,11 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 			c.add(tWorkouts, 1, 0)
 		} else {
 			c.add(tWorkouts, 0, 1)
+			if wk.Replaceable {
+				if err := advanceParent(ctx, tx, sc, workoutAdvance, wk.ContentHash, wk.StartDate); err != nil {
+					return fmt.Errorf("advance capture time of workout: %w", err)
+				}
+			}
 		}
 
 		var own []model.RoutePoint

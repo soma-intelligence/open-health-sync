@@ -5,8 +5,9 @@
 // raw objects nobody queued, the drainer that replays raw objects whose records
 // failed, the retention job that prunes old data when the operator sets
 // OHS_RETENTION_DAYS, the audit job that prunes audit events older than
-// OHS_AUDIT_RETENTION_DAYS, and the shares job that removes the encrypted
-// file of every expired share link.
+// OHS_AUDIT_RETENTION_DAYS, the tracking job that prunes old sync_log rows and
+// finished etl_jobs, and the shares job that removes the encrypted file of
+// every expired share link.
 //
 // Sleep phase canonicalisation is not ported. In the source it was a one-off
 // boot-time rewrite of rows written before the mappers normalised labels. Here
@@ -38,6 +39,7 @@ const (
 	DefaultIdempotencyEvery = time.Hour
 	DefaultAuditPruneEvery  = 24 * time.Hour
 	DefaultSharesEvery      = time.Hour
+	DefaultTrackingEvery    = 24 * time.Hour
 
 	defaultRunTimeout  = 5 * time.Minute
 	defaultLongTimeout = time.Hour
@@ -46,7 +48,7 @@ const (
 
 // Intervals sets how often each job runs. A zero value means the default.
 type Intervals struct {
-	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune, Shares time.Duration
+	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune, Shares, Tracking time.Duration
 }
 
 // Deps is everything Start needs.
@@ -59,7 +61,12 @@ type Deps struct {
 	// AuditRetentionDays is OHS_AUDIT_RETENTION_DAYS. Zero or less keeps
 	// every audit event and the audit job is not scheduled.
 	AuditRetentionDays int
-	Intervals          Intervals
+	// TrackingRetentionDays is how long sync_log rows and finished etl_jobs
+	// are kept. Zero means DefaultTrackingRetentionDays, a negative value
+	// keeps them for ever (the tracking job is not scheduled), and a value
+	// under MinTrackingRetentionDays is raised to it.
+	TrackingRetentionDays int
+	Intervals             Intervals
 	// RunTimeout bounds one run of any job except files and retention (default 5 minutes;
 	// retention gets an hour unless this is set).
 	RunTimeout time.Duration
@@ -167,6 +174,16 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 			if n > 0 {
 				slog.InfoContext(ctx, "audit events pruned", "rows", n, "retention_days", days)
 			}
+			return err
+		}))
+	}
+	if days := deps.TrackingRetentionDays; days >= 0 {
+		if days == 0 {
+			days = DefaultTrackingRetentionDays
+		}
+		track := &TrackingPruner{Pool: deps.Pool, Days: days, Metrics: m, Now: deps.now}
+		s.Add("tracking", or(deps.Intervals.Tracking, DefaultTrackingEvery), longTimeout, counted(func(ctx context.Context) error {
+			_, err := track.Run(ctx)
 			return err
 		}))
 	}

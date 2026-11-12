@@ -85,10 +85,14 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	}
 	withheld := 0
 
-	dataType, err := rawDataType(ctx, pool, sc, job.Key)
+	// The object's capture time orders the copies of a replaceable row, so a
+	// retried or replayed job for an older object cannot overwrite what a
+	// newer object stored (see latestWins).
+	dataType, captured, err := rawObjectInfo(ctx, pool, sc, job.Key)
 	if err != nil {
 		return nil, err
 	}
+	sc.captured = captured
 	conn, ok := lookup(job.Provider)
 	if !ok {
 		return nil, fmt.Errorf("unknown provider %q", job.Provider)
@@ -382,19 +386,20 @@ func userActive(ctx context.Context, db queryRower, sc scope, forShare bool) (bo
 	return status == "active", nil
 }
 
-// rawDataType loads the data type registered for the raw object. One raw
-// object holds one data type.
-func rawDataType(ctx context.Context, db queryRower, sc scope, key string) (string, error) {
-	var dt string
-	err := db.QueryRow(ctx, `SELECT data_type FROM ohs_sync.raw_objects
-		WHERE tenant_id = $1 AND user_id = $2 AND key = $3`, sc.tenant, sc.user, key).Scan(&dt)
+// rawObjectInfo loads the data type registered for the raw object and when
+// the object was captured: when the pull that stored it started fetching, or,
+// for an upload or a notification body, when it was received. One raw object
+// holds one data type.
+func rawObjectInfo(ctx context.Context, db queryRower, sc scope, key string) (dataType string, captured time.Time, err error) {
+	err = db.QueryRow(ctx, `SELECT data_type, coalesce(captured_at, created_at) FROM ohs_sync.raw_objects
+		WHERE tenant_id = $1 AND user_id = $2 AND key = $3`, sc.tenant, sc.user, key).Scan(&dataType, &captured)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("raw object %s is not registered", key)
+		return "", time.Time{}, fmt.Errorf("raw object %s is not registered", key)
 	}
 	if err != nil {
-		return "", fmt.Errorf("look up raw object: %w", err)
+		return "", time.Time{}, fmt.Errorf("look up raw object: %w", err)
 	}
-	return dt, nil
+	return dataType, captured, nil
 }
 
 // rawRegistered reports whether the raw object is still registered.

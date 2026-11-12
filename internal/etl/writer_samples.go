@@ -60,7 +60,7 @@ var quantitySampleColumns = []string{
 	"tenant_id", "user_id", "provider", "source_slug", "source_name", "source_bundle_id", "device_id",
 	"product_type", "device_model", "was_user_entered",
 	"external_id", "quantity_type", "value", "unit", "is_primary_source",
-	"start_date", "end_date", "content_hash", "metadata",
+	"start_date", "end_date", "content_hash", "metadata", "captured_at",
 }
 
 // quantitySampleRow is the single source of truth for the values of one
@@ -72,7 +72,7 @@ func quantitySampleRow(sc scope, s model.QuantitySample) []any {
 		s.DeviceID, s.ProductType, s.DeviceModel, s.WasUserEntered,
 		s.ExternalID, s.QuantityType, s.Value,
 		s.Unit, s.IsPrimarySource, s.StartDate, nullTime(s.EndDate),
-		s.ContentHash, normalizeMetadata(s.Metadata),
+		s.ContentHash, normalizeMetadata(s.Metadata), sc.capturedAt(),
 	}
 }
 
@@ -81,9 +81,10 @@ var quantityFigures = []string{"value", "unit"}
 
 // writeQuantitySamples writes quantity samples. quantity_samples has no dedup
 // unique, because it is compressed after a while: duplicates are found in the
-// stored rows of the batch's time window (see insertMissing). Inside the batch,
-// the first copy of an insert-only row wins and the last copy of a Replaceable
-// row wins.
+// stored rows of the batch's time window, per quantity type (see
+// insertMissing). Inside the batch, the first copy of an insert-only row wins
+// and the last copy of a Replaceable row wins. Rows are built as the COPY
+// reads them (lazyRows), so the batch is not held twice.
 func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, samples []model.QuantitySample) (written, skipped int, err error) {
 	insertOnly, upsert, superseded := replaceableSplit(samples,
 		func(s model.QuantitySample) bool { return s.Replaceable },
@@ -95,20 +96,19 @@ func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, 
 	}
 	if len(insertOnly) > 0 {
 		seen := make(copyDedupe, len(insertOnly))
-		rows := make([][]any, 0, len(insertOnly))
-		var wd window
-		for _, s := range insertOnly {
-			if seen.staged(s.ContentHash, s.StartDate) {
-				continue
-			}
-			wd.extend(s.StartDate)
-			rows = append(rows, quantitySampleRow(sc, s))
-		}
-		temp, _, err := stage(ctx, tx, tQuantity, quantitySampleColumns, rows)
+		var kw kindWindows
+		temp, _, err := stage(ctx, tx, tQuantity, quantitySampleColumns, lazyRows(insertOnly, sc, quantitySampleRow,
+			func(s model.QuantitySample) bool {
+				if seen.staged(s.ContentHash, s.StartDate) {
+					return true
+				}
+				kw.extend(s.QuantityType, s.StartDate)
+				return false
+			}))
 		if err != nil {
 			return 0, 0, err
 		}
-		n, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, quantitySampleColumns, wd)
+		n, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", "quantity_type", temp, quantitySampleColumns, kw)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -116,31 +116,112 @@ func (w *Writer) writeQuantitySamples(ctx context.Context, tx TxLike, sc scope, 
 	}
 	upsert, moved := supersedeMovedSplit(sc, upsert)
 	superseded += moved
+	upsert, stale, err := dropStaleMovedSamples(ctx, tx, sc, upsert)
+	if err != nil {
+		return written, skipped, err
+	}
+	superseded += stale
 	if err := supersedeMovedSamples(ctx, tx, sc, upsert); err != nil {
 		return written, skipped, err
 	}
 	if len(upsert) > 0 {
-		rows := make([][]any, 0, len(upsert))
-		var wd window
+		var kw kindWindows
 		for _, s := range upsert {
-			wd.extend(s.StartDate)
-			rows = append(rows, quantitySampleRow(sc, s))
+			kw.extend(s.QuantityType, s.StartDate)
 		}
-		temp, _, err := stage(ctx, tx, tQuantity, quantitySampleColumns, rows)
+		temp, _, err := stage(ctx, tx, tQuantity, quantitySampleColumns, lazyRows(upsert, sc, quantitySampleRow, nil))
 		if err != nil {
 			return written, skipped, err
 		}
-		changed, err := updateStored(ctx, tx, sc, tQuantity, "start_date", temp, quantityFigures, wd)
+		changed, err := updateStored(ctx, tx, sc, tQuantity, "start_date", "quantity_type", temp, quantityFigures, kw.all)
 		if err != nil {
 			return written, skipped, err
 		}
-		added, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", temp, quantitySampleColumns, wd)
+		added, err := insertMissing(ctx, tx, sc, tQuantity, "start_date", "quantity_type", temp, quantitySampleColumns, kw)
 		if err != nil {
 			return written, skipped, err
+		}
+		// The copies that changed nothing still confirm the row at their
+		// capture time. Only then is there anything to move.
+		if changed+added < len(upsert) && !sc.captured.IsZero() {
+			if err := advanceStored(ctx, tx, sc, tQuantity, "start_date", "quantity_type", temp, kw.all); err != nil {
+				return written, skipped, err
+			}
 		}
 		written, skipped = written+changed+added, skipped+len(upsert)-changed-added
 	}
 	return written, skipped + superseded, nil
+}
+
+// quantityNewerCopy returns the positions ($3) of the SupersedeMoved samples
+// ($4 to $6: provider, external id, quantity type) whose provider record is
+// stored from an object captured after this one ($7), under any start.
+const quantityNewerCopy = `SELECT n.i
+	FROM unnest($3::int[], $4::text[], $5::text[], $6::text[]) AS n(i, provider, external_id, quantity_type)
+	WHERE EXISTS (SELECT 1 FROM ohs_data.quantity_samples q
+		WHERE q.tenant_id = $1 AND q.user_id = $2
+		  AND q.provider = n.provider AND q.external_id IS NOT NULL AND q.external_id COLLATE "C" = n.external_id
+		  AND q.quantity_type = n.quantity_type AND q.captured_at > $7)`
+
+// dropStaleMovedSamples drops the SupersedeMoved samples whose provider
+// record a newer object already stored, and counts them. Without it a stale
+// copy under another start would delete the newer copy and take its place:
+// the capture guard of updateStored only sees copies under the same start.
+func dropStaleMovedSamples(ctx context.Context, tx TxLike, sc scope, samples []model.QuantitySample) ([]model.QuantitySample, int, error) {
+	if sc.captured.IsZero() {
+		return samples, 0, nil
+	}
+	var idx []int32
+	var providers, ids, types []string
+	for i, s := range samples {
+		if supersedes(s) {
+			idx = append(idx, int32(i))
+			providers = append(providers, sc.providerOr(s.Provider))
+			ids = append(ids, s.ExternalID)
+			types = append(types, s.QuantityType)
+		}
+	}
+	if len(idx) == 0 {
+		return samples, 0, nil
+	}
+	stale, err := queryPositions(ctx, tx, quantityNewerCopy, sc.tenant, sc.user, idx, providers, ids, types, sc.captured)
+	if err != nil {
+		return nil, 0, fmt.Errorf("look up newer samples: %w", err)
+	}
+	return dropPositions(samples, stale), len(stale), nil
+}
+
+// queryPositions runs a lookup over a batch passed as parallel arrays and
+// returns the positions (the int column the statement selects) it names.
+func queryPositions(ctx context.Context, tx TxLike, sql string, args ...any) (map[int]bool, error) {
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int]bool{}
+	for rows.Next() {
+		var i int32
+		if err := rows.Scan(&i); err != nil {
+			return nil, err
+		}
+		out[int(i)] = true
+	}
+	return out, rows.Err()
+}
+
+// dropPositions returns in without the elements at the positions in drop.
+func dropPositions[T any](in []T, drop map[int]bool) []T {
+	if len(drop) == 0 {
+		return in
+	}
+	out := make([]T, 0, len(in)-len(drop))
+	for i, r := range in {
+		if !drop[i] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // quantitySupersede deletes the stored copies of SupersedeMoved samples under
@@ -220,21 +301,21 @@ func rowsOf[T any](in []T, sc scope, fn func(scope, T) []any) [][]any {
 }
 
 // copyOrInsert writes rows of a first-write-wins table: COPY above the
-// threshold (after dropping in-batch duplicates by key), batched INSERTs below.
+// threshold (dropping in-batch duplicates by key, and building each row as the
+// COPY reads it), batched INSERTs below.
 func copyOrInsert[T any](ctx context.Context, w *Writer, tx TxLike, sc scope, table string, columns []string, conflict string,
 	recs []T, row func(scope, T) []any, key func(T) (string, time.Time)) (written, skipped int, err error) {
 	if len(recs) > w.cfg.CopyThreshold {
 		seen := make(copyDedupe, len(recs))
-		rows := make([][]any, 0, len(recs))
 		dupes := 0
-		for _, r := range recs {
+		rows := lazyRows(recs, sc, row, func(r T) bool {
 			h, at := key(r)
 			if seen.staged(h, at) {
 				dupes++
-				continue
+				return true
 			}
-			rows = append(rows, row(sc, r))
-		}
+			return false
+		})
 		written, skipped, err = w.writeHighFrequencyCopy(ctx, tx, table, columns, rows, conflict)
 		if err != nil {
 			return 0, 0, err
@@ -271,7 +352,7 @@ func (w *Writer) writeCategorySamples(ctx context.Context, tx TxLike, sc scope, 
 var nutritionColumns = []string{
 	"tenant_id", "user_id", "provider", "source_slug", "external_id", "start_date", "end_date",
 	"meal_type", "energy_kcal", "protein_g", "carbs_g", "fat_g",
-	"fiber_g", "sugar_g", "sodium_mg", "nutrients_json", "content_hash", "metadata",
+	"fiber_g", "sugar_g", "sodium_mg", "nutrients_json", "content_hash", "metadata", "captured_at",
 }
 
 func nutritionRow(sc scope, s model.NutritionLog) []any {
@@ -283,12 +364,14 @@ func nutritionRow(sc scope, s model.NutritionLog) []any {
 	return []any{
 		sc.tenant, sc.user, p, sourceSlugOrProvider("", p), s.ExternalID, s.StartDate, s.EndDate,
 		s.MealType, s.EnergyKcal, s.ProteinG, s.CarbsG, s.FatG,
-		s.FiberG, s.SugarG, s.SodiumMg, nj, s.ContentHash, normalizeMetadata(s.Metadata),
+		s.FiberG, s.SugarG, s.SodiumMg, nj, s.ContentHash, normalizeMetadata(s.Metadata), sc.capturedAt(),
 	}
 }
 
 var nutritionLatestWins = latestWins(tNutrition, hyperConflict("start_date"),
 	[]string{"energy_kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", "sugar_g", "sodium_mg", "nutrients_json"})
+
+var nutritionAdvance = advanceCapture(tNutrition, hyperConflict("start_date"))
 
 // writeNutritionLogs batch-inserts nutrition logs. A duplicate is skipped,
 // except a Replaceable log, whose stored figures the new copy replaces.
@@ -300,24 +383,26 @@ func (w *Writer) writeNutritionLogs(ctx context.Context, tx TxLike, sc scope, lo
 		})
 	upsert, moved := supersedeMovedLogs(sc, upsert)
 	superseded += moved
+	upsert, stale, err := dropStaleMovedLogs(ctx, tx, sc, upsert)
+	if err != nil {
+		return written, skipped, err
+	}
+	superseded += stale
 	if err := deleteMovedLogs(ctx, tx, sc, upsert); err != nil {
 		return written, skipped, err
 	}
-	for _, g := range []struct {
-		logs       []model.NutritionLog
-		onConflict string
-	}{
-		{insertOnly, doNothing(hyperConflict("start_date"))},
-		{upsert, nutritionLatestWins},
-	} {
-		n, k, err := w.insertBatches(ctx, tx, tNutrition, insertHead(tNutrition, nutritionColumns), g.onConflict,
-			len(nutritionColumns), rowsOf(g.logs, sc, nutritionRow))
-		if err != nil {
-			return written, skipped, err
-		}
-		written, skipped = written+n, skipped+k
+	head := insertHead(tNutrition, nutritionColumns)
+	written, skipped, err = w.insertBatches(ctx, tx, tNutrition, head, doNothing(hyperConflict("start_date")),
+		len(nutritionColumns), rowsOf(insertOnly, sc, nutritionRow))
+	if err != nil {
+		return written, skipped, err
 	}
-	return written, skipped + superseded, nil
+	n, k, err := w.upsertBatches(ctx, tx, sc, tNutrition, head, nutritionLatestWins, nutritionAdvance,
+		len(nutritionColumns), rowsOf(upsert, sc, nutritionRow))
+	if err != nil {
+		return written, skipped, err
+	}
+	return written + n, skipped + k + superseded, nil
 }
 
 // nutritionSupersede deletes the stored copies of SupersedeMoved logs under
@@ -328,6 +413,40 @@ const nutritionSupersede = `DELETE FROM ohs_data.nutrition_logs n
 	USING unnest($3::text[], $4::text[], $5::timestamptz[]) AS m(provider, external_id, start_date)
 	WHERE n.tenant_id = $1 AND n.user_id = $2
 	  AND n.provider = m.provider AND n.external_id = m.external_id AND n.start_date <> m.start_date`
+
+// nutritionNewerCopy returns the positions ($3) of the SupersedeMoved logs
+// ($4, $5: provider, external id) whose provider record is stored from an
+// object captured after this one ($6), under any start.
+const nutritionNewerCopy = `SELECT m.i
+	FROM unnest($3::int[], $4::text[], $5::text[]) AS m(i, provider, external_id)
+	WHERE EXISTS (SELECT 1 FROM ohs_data.nutrition_logs n
+		WHERE n.tenant_id = $1 AND n.user_id = $2
+		  AND n.provider = m.provider AND n.external_id = m.external_id AND n.captured_at > $6)`
+
+// dropStaleMovedLogs drops the SupersedeMoved logs whose provider record a
+// newer object already stored, and counts them (see dropStaleMovedSamples).
+func dropStaleMovedLogs(ctx context.Context, tx TxLike, sc scope, logs []model.NutritionLog) ([]model.NutritionLog, int, error) {
+	if sc.captured.IsZero() {
+		return logs, 0, nil
+	}
+	var idx []int32
+	var providers, ids []string
+	for i, l := range logs {
+		if supersedesLog(l) {
+			idx = append(idx, int32(i))
+			providers = append(providers, sc.providerOr(l.Provider))
+			ids = append(ids, l.ExternalID)
+		}
+	}
+	if len(idx) == 0 {
+		return logs, 0, nil
+	}
+	stale, err := queryPositions(ctx, tx, nutritionNewerCopy, sc.tenant, sc.user, idx, providers, ids, sc.captured)
+	if err != nil {
+		return nil, 0, fmt.Errorf("look up newer nutrition logs: %w", err)
+	}
+	return dropPositions(logs, stale), len(stale), nil
+}
 
 func supersedesLog(l model.NutritionLog) bool {
 	return l.SupersedeMoved && l.Replaceable && l.ExternalID != ""
@@ -432,7 +551,7 @@ var dailyColumns = []string{
 	"tenant_id", "user_id", "provider", "source_slug", "summary_date",
 	"readiness_score", "activity_score", "sleep_score", "recovery_score", "strain_score",
 	"step_count", "active_kcal", "total_kcal", "distance_m", "floors_climbed",
-	"resting_hr", "hrv_avg_ms", "content_hash", "metadata",
+	"resting_hr", "hrv_avg_ms", "content_hash", "metadata", "captured_at",
 }
 
 var dailyFigures = []string{"readiness_score", "activity_score", "sleep_score", "recovery_score", "strain_score",
@@ -444,11 +563,13 @@ func dailyRow(sc scope, s model.DailySummary) []any {
 		sc.tenant, sc.user, p, sourceSlugOrProvider("", p), dateOnly(s.SummaryDate),
 		s.ReadinessScore, s.ActivityScore, s.SleepScore, s.RecoveryScore, s.StrainScore,
 		s.StepCount, s.ActiveKcal, s.TotalKcal, s.DistanceM, s.FloorsClimbed,
-		s.RestingHR, s.HRVAvgMs, s.ContentHash, normalizeMetadata(s.Metadata),
+		s.RestingHR, s.HRVAvgMs, s.ContentHash, normalizeMetadata(s.Metadata), sc.capturedAt(),
 	}
 }
 
 var summaryLatestWins = latestWins(tDaily, hyperConflict("summary_date"), dailyFigures)
+
+var summaryAdvance = advanceCapture(tDaily, hyperConflict("summary_date"))
 
 // writeDailySummaries batch-inserts provider daily summaries. A duplicate is
 // skipped, except a Replaceable summary, whose stored figures the new copy
@@ -459,19 +580,16 @@ func (w *Writer) writeDailySummaries(ctx context.Context, tx TxLike, sc scope, s
 		func(s model.DailySummary) copyDedupeKey {
 			return copyDedupeKey{hash: s.ContentHash, stamp: dateOnly(s.SummaryDate).UnixNano()}
 		})
-	for _, g := range []struct {
-		rows       []model.DailySummary
-		onConflict string
-	}{
-		{insertOnly, doNothing(hyperConflict("summary_date"))},
-		{upsert, summaryLatestWins},
-	} {
-		n, k, err := w.insertBatches(ctx, tx, tDaily, insertHead(tDaily, dailyColumns), g.onConflict,
-			len(dailyColumns), rowsOf(g.rows, sc, dailyRow))
-		if err != nil {
-			return written, skipped, err
-		}
-		written, skipped = written+n, skipped+k
+	head := insertHead(tDaily, dailyColumns)
+	written, skipped, err = w.insertBatches(ctx, tx, tDaily, head, doNothing(hyperConflict("summary_date")),
+		len(dailyColumns), rowsOf(insertOnly, sc, dailyRow))
+	if err != nil {
+		return written, skipped, err
 	}
-	return written, skipped + superseded, nil
+	n, k, err := w.upsertBatches(ctx, tx, sc, tDaily, head, summaryLatestWins, summaryAdvance,
+		len(dailyColumns), rowsOf(upsert, sc, dailyRow))
+	if err != nil {
+		return written, skipped, err
+	}
+	return written + n, skipped + k + superseded, nil
 }
