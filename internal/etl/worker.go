@@ -32,8 +32,12 @@ type Worker struct {
 	opts        Options
 	idleMin     time.Duration
 	idleMax     time.Duration
-	jobTimeout  time.Duration
-	grace       time.Duration
+	// done is signalled when a job settles, so an idle claim loop claims
+	// again at once: with one job per user, the next job of that user
+	// becomes claimable only when the previous one ends.
+	done       chan struct{}
+	jobTimeout time.Duration
+	grace      time.Duration
 	// rowsWritten, when set, is told the rows each job wrote, per table
 	// (WithRowsWritten).
 	rowsWritten func(table string, rows int)
@@ -86,7 +90,7 @@ func NewWorkerWith(pool *pgxpool.Pool, rs rawstore.Store, q *queue.ETL, tier str
 	}
 	w := &Worker{
 		pool: pool, rs: rs, q: q, tier: tier, concurrency: concurrency,
-		idleMin: time.Second, idleMax: 2 * time.Second,
+		idleMin: time.Second, idleMax: 2 * time.Second, done: make(chan struct{}, 1),
 		jobTimeout: queue.VisibilityTimeout - time.Minute,
 	}
 	for _, o := range opts {
@@ -140,7 +144,13 @@ func (w *Worker) Run(ctx context.Context) error {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				defer func() { <-slots }()
+				defer func() {
+					<-slots
+					select {
+					case w.done <- struct{}{}:
+					default:
+					}
+				}()
 				w.handle(jobCtx, job)
 			}()
 		}
@@ -178,7 +188,8 @@ func (w *Worker) drain(wg *sync.WaitGroup, cancelJobs context.CancelFunc) {
 	<-done
 }
 
-// idle sleeps 1 to 2 seconds. It returns false when ctx ends first.
+// idle sleeps 1 to 2 seconds, or until a job of this worker settles. It
+// returns false when ctx ends first.
 func (w *Worker) idle(ctx context.Context) bool {
 	d := w.idleMin
 	if span := w.idleMax - w.idleMin; span > 0 {
@@ -190,6 +201,8 @@ func (w *Worker) idle(ctx context.Context) bool {
 	case <-ctx.Done():
 		return false
 	case <-t.C:
+		return true
+	case <-w.done:
 		return true
 	}
 }

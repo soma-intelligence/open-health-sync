@@ -96,6 +96,32 @@ func TestWorker_ProcessesCompletesAndFails(t *testing.T) {
 	assert.Equal(t, 4, rows["quantity_samples"], "the rows each job wrote are reported; the failed job reports none")
 }
 
+// One user's backlog runs one job at a time (DefaultETLPerUser), so the
+// next job becomes claimable only when the previous one ends. The worker
+// claims it at once instead of sleeping its idle interval: 20 small jobs
+// of one user drain in far less than 20 idle intervals (20 to 40 s).
+func TestWorker_OneUsersBacklogDoesNotWaitIdle(t *testing.T) {
+	e := newEnv(t)
+	e.register("apple_health", quantityMap)
+	at := recent()
+	const n = 20
+	for i := range n {
+		e.enqueue(e.upload(e.tenant, e.user, "apple_health", "heart_rate", q("heart_rate", 60+float64(i), "bpm", at.Add(time.Duration(i)*time.Minute))))
+	}
+	w := NewWorkerWith(e.pool, e.rs, queue.NewETL(e.pool), queue.TierStandard, 4, WithLookup(e.reg.Get))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- w.Run(ctx) }()
+	require.Eventually(t, func() bool { return e.jobStates()["done"] == n }, 60*time.Second, 50*time.Millisecond)
+	took := time.Since(start)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Less(t, took, 10*time.Second, "one user's jobs follow each other without the idle sleep")
+	assert.Equal(t, n, e.count("quantity_samples"))
+}
+
 func TestWorker_WaitsForInFlightJobsOnCancel(t *testing.T) {
 	e := newEnv(t)
 	var started, finished atomic.Int32
