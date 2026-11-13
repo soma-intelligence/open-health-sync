@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
+	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
@@ -27,7 +29,7 @@ import (
 
 const adminUsage = "usage: ohs admin tenant create --name <name> [--admin] | tenant list | " +
 	"tenant admin --tenant <id> [--off] | " +
-	"key create --tenant <id> [--expires-at <time>] | key list --tenant <id> | key revoke --tenant <id> --key <key or prefix> | " +
+	"key create --tenant <id> [--expires-at <time>] [--scopes <a,b>] | key list --tenant <id> | key revoke --tenant <id> --key <key or prefix> | " +
 	"personal setup [--person <name>] [--url <url>] | rekey [--batch <rows>]"
 
 // personalTenant is the tenant `ohs admin personal setup` keeps a person's
@@ -48,7 +50,7 @@ func runAdmin(rest []string, out io.Writer) error {
 	// Each command has its own flags: a flag another command takes is refused.
 	fs := flag.NewFlagSet("admin "+rest[0]+" "+rest[1], flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	var name, tenantFlag, key, person, publicURL, expiresAt *string
+	var name, tenantFlag, key, person, publicURL, expiresAt, scopesFlag *string
 	var admin, off *bool
 	cmd := rest[0] + " " + rest[1]
 	switch cmd {
@@ -65,6 +67,7 @@ func runAdmin(rest []string, out io.Writer) error {
 	case "key create":
 		tenantFlag = fs.String("tenant", "", "tenant id")
 		expiresAt = fs.String("expires-at", "", "when the key stops working (RFC 3339 time or YYYY-MM-DD, UTC)")
+		scopesFlag = fs.String("scopes", "", "what the key may do, comma separated (default *, everything)")
 	case "key list":
 		tenantFlag = fs.String("tenant", "", "tenant id")
 	case "key revoke":
@@ -149,6 +152,15 @@ func runAdmin(rest []string, out io.Writer) error {
 			return fmt.Errorf("--url: %w", err)
 		}
 		do = func(ctx context.Context, s *tenant.Store) error {
+			// The person's user needs vault keys before anything can be
+			// stored for them: the store gives them, as the API does.
+			v, err := userVault(ctx, s.Pool())
+			if err != nil {
+				return err
+			}
+			if v != nil {
+				s = s.WithVault(v)
+			}
 			return personalSetup(ctx, s, *person, strings.TrimRight(u, "/"), out, record)
 		}
 	case "tenant list":
@@ -171,7 +183,13 @@ func runAdmin(rest []string, out io.Writer) error {
 				return err
 			}
 		}
-		do = keyCommand(rest[1], id, k, expires, out, record)
+		var scopes []string
+		if scopesFlag != nil {
+			if scopes, err = parseScopes(*scopesFlag); err != nil {
+				return err
+			}
+		}
+		do = keyCommand(rest[1], id, k, tenant.KeyOptions{ExpiresAt: expires, Scopes: scopes}, out, record)
 	}
 	url, err := databaseURL()
 	if err != nil {
@@ -225,6 +243,11 @@ func personalSetup(ctx context.Context, s *tenant.Store, person, publicURL strin
 	if created {
 		state = "created"
 	}
+	// A user found without keys (made before the vault, or by a command that
+	// had no key to give) gets them now.
+	if err := ensureUserKeys(ctx, s, t.ID, u.ID); err != nil {
+		return err
+	}
 	_, err = fmt.Fprintf(out, `# Open Health Sync, personal setup for %q (user %s, tenant %s %s).
 # The key below is new and shown only this once. Keep this file private (chmod 600).
 # Earlier keys keep working until revoked: ohs admin key list --tenant %s
@@ -254,14 +277,30 @@ func parseExpiry(v string, now time.Time) (*time.Time, error) {
 	return &t, nil
 }
 
-// keyCommand runs key create, list or revoke for tenant id. expires is the
-// expiry of a created key, nil for one that lives until it is revoked.
-func keyCommand(action string, id uuid.UUID, key string, expires *time.Time, out io.Writer,
+// parseScopes reads --scopes: key scopes separated by commas. Empty means
+// every scope.
+func parseScopes(v string) ([]string, error) {
+	var scopes []string
+	for _, sc := range strings.Split(v, ",") {
+		if sc = strings.TrimSpace(sc); sc != "" {
+			scopes = append(scopes, sc)
+		}
+	}
+	if _, err := auth.NormalizeKeyScopes(scopes); err != nil {
+		return nil, fmt.Errorf("--scopes %q names an unknown scope; the scopes are: %s", v, strings.Join(auth.KeyScopes, ", "))
+	}
+	return scopes, nil
+}
+
+// keyCommand runs key create, list or revoke for tenant id. opts are the
+// expiry and the scopes of a created key: no expiry is a key that lives
+// until it is revoked, no scopes one that does everything.
+func keyCommand(action string, id uuid.UUID, key string, opts tenant.KeyOptions, out io.Writer,
 	record func(context.Context, uuid.UUID, string, map[string]any) error) func(context.Context, *tenant.Store) error {
 	return func(ctx context.Context, s *tenant.Store) error {
 		switch action {
 		case "create":
-			k, info, err := s.CreateKeyWith(ctx, id, tenant.KeyOptions{ExpiresAt: expires})
+			k, info, err := s.CreateKeyWith(ctx, id, opts)
 			switch {
 			case errors.Is(err, tenant.ErrNotFound):
 				return fmt.Errorf("no tenant with id %s", id)
@@ -270,11 +309,14 @@ func keyCommand(action string, id uuid.UUID, key string, expires *time.Time, out
 			case err != nil:
 				return err
 			}
-			detail, life := map[string]any{"key_prefix": shortKey(k)}, ""
+			detail, life := map[string]any{"key_prefix": shortKey(k), "scopes": info.Scopes}, ""
 			if info.ExpiresAt != nil {
 				at := info.ExpiresAt.UTC().Format(time.RFC3339)
 				detail["expires_at"] = at
 				life = ", expires " + at
+			}
+			if !slices.Contains(info.Scopes, auth.ScopeAll) {
+				life += ", scopes " + strings.Join(info.Scopes, ",")
 			}
 			if err := record(ctx, id, audit.KeyCreate, detail); err != nil {
 				return err
@@ -354,10 +396,10 @@ func printKeys(out io.Writer, keys []tenant.APIKey) error {
 		return t.UTC().Format(time.RFC3339)
 	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "PREFIX\tCREATED\tLAST USED\tREVOKED\tEXPIRES")
+	fmt.Fprintln(w, "PREFIX\tCREATED\tLAST USED\tREVOKED\tEXPIRES\tSCOPES")
 	for _, k := range keys {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", k.Prefix, k.CreatedAt.UTC().Format(time.RFC3339),
-			when(k.LastUsedAt), when(k.RevokedAt), when(k.ExpiresAt))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", k.Prefix, k.CreatedAt.UTC().Format(time.RFC3339),
+			when(k.LastUsedAt), when(k.RevokedAt), when(k.ExpiresAt), strings.Join(k.Scopes, ","))
 	}
 	return w.Flush()
 }
@@ -408,6 +450,10 @@ func runRekey(args []string, out io.Writer) error {
 		err = ferr
 	}
 	if err != nil {
+		return err
+	}
+	// A vault root key derived from OHS_ENCRYPTION_KEY rotates with it.
+	if err := rekeyVaultRoot(ctx, cfg, pool, out); err != nil {
 		return err
 	}
 	if total.Failed > 0 {

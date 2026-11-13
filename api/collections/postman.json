@@ -182,7 +182,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"external_ref\": \"example\"\n}",
+              "raw": "{\n  \"external_ref\": \"example\",\n  \"timezone\": \"example\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -244,6 +244,45 @@
                   "value": "{{userId}}"
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Set or clear an end user's time zone",
+          "request": {
+            "method": "PATCH",
+            "description": "Set or clear an end user's time zone.\n\n`PATCH /v1/users/{id}`\n\n`timezone` is the zone of the local day of a sample that carries no zone of its own\n(a cloud source that reports instants only): the ETL takes the sample's zone, then the\nuser's, then UTC. Setting it here makes it the developer's explicit choice\n(`timezone_source` `explicit`), which a device upload never replaces; `null` clears\nit, and the zone may then be learnt again from the user's device uploads.\n\nThe zone applies to what is written from then on. A stored sample keeps the day it\nwas attributed to, and the daily summaries already derived are not recomputed.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"timezone\": \"example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         },
@@ -339,7 +378,7 @@
           "name": "Mint a user token",
           "request": {
             "method": "POST",
-            "description": "Mint a user token.\n\n`POST /v1/users/{id}/tokens`\n\nReturns an opaque `ohs_ut_` token for one active user, shown only in this response\n(`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token\nwhose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI\nagent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working\nwhen it expires, when it is revoked (`id` names it), when its user is deleted, or when\nthe API key that minted it is revoked or expires.",
+            "description": "Mint a user token.\n\n`POST /v1/users/{id}/tokens`\n\nReturns an opaque `ohs_ut_` token for one active user, shown only in this response\n(`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token\nwhose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI\nagent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working\nwhen it expires, when it is revoked (`id` names it), when its user is deleted, or when\nthe API key that minted it is revoked or expires. The key must hold the key scope each\ntoken scope stands for (`data:write` for `upload`, `connections:write` for `connect`,\n`data:read` for `read`), else 403; each call made with the token is then checked against\nthe scopes of that key.",
             "header": [
               {
                 "key": "Content-Type",
@@ -3530,7 +3569,7 @@
           "name": "Create an API key for the tenant",
           "request": {
             "method": "POST",
-            "description": "Create an API key for the tenant.\n\n`POST /v1/keys`\n\nA new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in\nthis answer only. To rotate: deploy the new key, then revoke the old one. With\n`expires_at` the key stops working by itself at that time; without, it lives until it is\nrevoked. Recorded in the audit log as `key.create`.",
+            "description": "Create an API key for the tenant.\n\n`POST /v1/keys`\n\nA new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in\nthis answer only. To rotate: deploy the new key, then revoke the old one. With\n`expires_at` the key stops working by itself at that time; without, it lives until it is\nrevoked. With `scopes` the key does only what they allow; without, what the calling key\ndoes. A key never creates a key holding a scope it lacks itself: that is a 403 naming\nthe scope. Recorded in the audit log as `key.create`.",
             "header": [
               {
                 "key": "Content-Type",
@@ -3549,7 +3588,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"expires_at\": \"2026-01-01T00:00:00Z\"\n}",
+              "raw": "{\n  \"expires_at\": \"2026-01-01T00:00:00Z\",\n  \"scopes\": [\n    \"*\"\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"

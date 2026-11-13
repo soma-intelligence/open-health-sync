@@ -125,6 +125,12 @@ Values the API sends as the string `"None"`, and readings outside plausible rang
 Not pulled: the Pod's temperature settings and schedules, alarms, the base, the speaker, and the
 sleep fitness sub scores.
 
+**Time zone.** Eight Sleep sends instants and no zone, and the nights are asked with `tz=UTC`.
+Where a local day is needed (the coverage of a day, a daily total), the day is taken in the
+user's time zone when the user has one (`timezone` on the user, set through the API or learnt
+from a device upload; see [api.md](../api.md#users)), else in UTC. Give the user a zone before
+the first pull if your users are far from UTC: what is already stored keeps its day.
+
 **Provenance.** Every record carries `provider: eight_sleep` and the source name `Eight Sleep`, and
 the raw night is kept. In FHIR output each Observation has a [Provenance](../fhir.md#provenance)
 naming Eight Sleep, like any other source.

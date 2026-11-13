@@ -89,3 +89,13 @@ func (p *localProvider) Unwrap(_ context.Context, wrapped, aad []byte, version s
 	}
 	return plain, nil
 }
+
+// LocalRootVersion is the version name the local provider gives a root key:
+// what ohs_core.vault_keys.parent_version holds for a tenant key it wrapped.
+func LocalRootVersion(key []byte) (string, error) {
+	k, err := newLocalKey(key)
+	if err != nil {
+		return "", err
+	}
+	return k.version, nil
+}

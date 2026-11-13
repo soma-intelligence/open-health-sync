@@ -270,10 +270,15 @@ func TestWhoopEndToEnd(t *testing.T) {
 	require.NotEmpty(t, key)
 
 	listen := freeAddr(t)
+	// A Config built here, not by Load: the vault settings are the ones Load
+	// derives from the encryption key alone.
+	encKey := make([]byte, 32)
+	vaultCfg, err := config.DerivedVault(encKey)
+	require.NoError(t, err)
 	cfg := config.Config{
 		DatabaseURL: dbURL, RawStore: "file://" + t.TempDir(), Listen: listen, LogLevel: "warn",
 		Roles:         map[string]bool{"api": true, "etl": true, "collect": true},
-		EncryptionKey: make([]byte, 32), PublicURL: "http://" + listen,
+		EncryptionKey: encKey, Vault: vaultCfg, PublicURL: "http://" + listen,
 		Providers: map[string]config.ProviderKeys{whoop.Slug: {"CLIENT_ID": e2eClientID, "CLIENT_SECRET": e2eClientSecret}},
 	}
 	var wg sync.WaitGroup

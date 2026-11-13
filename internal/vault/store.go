@@ -3,6 +3,7 @@
 package vault
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -69,6 +71,8 @@ type Vault struct {
 	ttl         time.Duration
 	// onListen, when set (tests), runs once Listen listens.
 	onListen func()
+	// probed is set once the provider passed a round trip (probe).
+	probed atomic.Bool
 }
 
 type userRef struct{ tenant, user uuid.UUID }
@@ -584,10 +588,40 @@ func (v *Vault) purgeUsers() {
 	v.userLoads.forgetAll()
 }
 
+// probeAAD binds the value probe wraps: it is no key and opens nothing.
+const probeAAD = "ohs.vault.probe.v1"
+
+// probe wraps and unwraps a random value through the provider, once per
+// process: on an instance with no tenant key yet it is the only way to tell
+// that the provider works before the first tenant needs it.
+func (v *Vault) probe(ctx context.Context) error {
+	if v.probed.Load() {
+		return nil
+	}
+	plain := make([]byte, 32)
+	if _, err := rand.Read(plain); err != nil {
+		return fmt.Errorf("vault: probe: %w", err)
+	}
+	wrapped, version, err := v.wrap(ctx, plain, []byte(probeAAD))
+	if err != nil {
+		return err
+	}
+	got, err := v.unwrap(ctx, wrapped, []byte(probeAAD), version)
+	if err != nil {
+		return fmt.Errorf("vault: the key provider wraps and then does not unwrap: %w", err)
+	}
+	if !bytes.Equal(got, plain) {
+		return fmt.Errorf("vault: the %s key provider does not return what it wrapped", v.provider.Name())
+	}
+	v.probed.Store(true)
+	return nil
+}
+
 // Ready checks that the provider opens keys: it unwraps the newest tenant
 // key, through the cache, so a provider outage fails it only once that key
-// has left the cache. A process that cannot open, or an instance with no
-// tenant key yet, is ready.
+// has left the cache. On an instance with no tenant key yet it makes one
+// round trip through the provider instead (probe). A process that cannot
+// open is ready.
 func (v *Vault) Ready(ctx context.Context) error {
 	if !v.canOpen {
 		return nil
@@ -600,7 +634,7 @@ func (v *Vault) Ready(ctx context.Context) error {
 		SELECT tenant_id, version FROM ohs_core.vault_keys
 		WHERE user_id IS NULL ORDER BY created_at DESC, version DESC LIMIT 1`).Scan(&tenant, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return v.probe(ctx)
 	}
 	if err != nil {
 		return fmt.Errorf("vault: ready: %w", err)

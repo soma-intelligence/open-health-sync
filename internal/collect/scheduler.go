@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
@@ -61,6 +62,33 @@ const (
 	DefaultBackfillsPerProvider = 2
 )
 
+// DefaultTick is how often due connections are looked for, and pending
+// subscriptions subscribed, unless SchedulerConfig.Tick says otherwise.
+const DefaultTick = time.Minute
+
+// How long one pass of a loop may hold it before the loop counts as hung
+// (SchedulerHooks). A scheduling pass enqueues up to scheduleRounds batches
+// under one lock; a pull is bounded by JobTimeout, then settled, and a
+// settle is retried for up to half the visibility timeout while the database
+// is away.
+const (
+	schedulePassLimit = 15 * time.Minute
+	settleLimit       = queue.VisibilityTimeout/2 + time.Minute
+)
+
+// SchedulerHooks tell the process what the three loops of a Scheduler do.
+// Every field is optional.
+type SchedulerHooks struct {
+	// Schedule, Subscribe and Work get the heartbeat of the scheduling
+	// loop, the subscription loop and the pull worker loop: one beat per
+	// round, and each pass or pull in flight as work that excuses a silent
+	// loop (a worker whose slots are all taken waits for one of them).
+	Schedule, Subscribe, Work *ops.Loop
+	// Pulled is told how each pull job ended (the ohs.job.outcome span
+	// attribute) and how long it ran, settle included.
+	Pulled func(job queue.PullJob, outcome string, took time.Duration)
+}
+
 // scheduleRounds bounds the batches of connections one scheduling pass
 // looks at for regular pulls: a pass goes on while its batches are full of
 // connections that turn out not to be due, up to this many.
@@ -75,7 +103,7 @@ type SchedulerConfig struct {
 	// Concurrency is the number of pulls in flight per instance (default
 	// DefaultPullConcurrency).
 	Concurrency int
-	// Tick is how often due connections are looked for (default 1 minute).
+	// Tick is how often due connections are looked for (default DefaultTick).
 	Tick time.Duration
 	// JobTimeout bounds one pull (default queue.VisibilityTimeout minus one minute).
 	JobTimeout time.Duration
@@ -94,6 +122,8 @@ type SchedulerConfig struct {
 	// Run's context ends; then their context is cancelled (an unsettled
 	// claim is reclaimed later). Zero leaves them bounded by JobTimeout only.
 	ShutdownGrace time.Duration
+	// Hooks report the loops' heartbeats and the pulls' durations.
+	Hooks SchedulerHooks
 }
 
 // Scheduler is the collect role: it enqueues pulls (a backfill per new
@@ -115,7 +145,7 @@ func NewScheduler(d Deps, cfg SchedulerConfig) *Scheduler {
 		cfg.Concurrency = DefaultPullConcurrency
 	}
 	if cfg.Tick <= 0 {
-		cfg.Tick = time.Minute
+		cfg.Tick = DefaultTick
 	}
 	if cfg.JobTimeout <= 0 {
 		cfg.JobTimeout = queue.VisibilityTimeout - time.Minute
@@ -164,9 +194,12 @@ func (s *Scheduler) scheduleLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.Tick)
 	defer t.Stop()
 	for {
+		s.cfg.Hooks.Schedule.Tick()
+		done := s.cfg.Hooks.Schedule.Busy(schedulePassLimit)
 		if _, err := s.Schedule(ctx); err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "collect: schedule pulls", "error", err)
 		}
+		done()
 		select {
 		case <-ctx.Done():
 			return
@@ -198,6 +231,8 @@ func (s *Scheduler) subscribeLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.Tick)
 	defer t.Stop()
 	for {
+		s.cfg.Hooks.Subscribe.Tick()
+		done := s.cfg.Hooks.Subscribe.Busy(schedulePassLimit)
 		if n, err := s.RenewSilent(ctx, s.cfg.Batch); err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "collect: renew silent subscriptions", "error", err)
 		} else if n > 0 {
@@ -206,6 +241,7 @@ func (s *Scheduler) subscribeLoop(ctx context.Context) {
 		if _, err := s.subscribePass(ctx, jobCtx, defaultSubscribeBatch); err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "collect: subscribe pending", "error", err)
 		}
+		done()
 		select {
 		case <-ctx.Done():
 			return
@@ -221,6 +257,7 @@ func (s *Scheduler) workLoop(ctx context.Context) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for {
+		s.cfg.Hooks.Work.Tick()
 		select {
 		case <-ctx.Done():
 			return
@@ -747,16 +784,21 @@ func (s *Scheduler) handle(ctx context.Context, job queue.PullJob) {
 			attribute.String(tracing.AttrUserID, job.UserID.String()),
 			attribute.Int(tracing.AttrAttempts, job.Attempts)))
 	outcome := ""
+	start := time.Now()
+	done := s.cfg.Hooks.Work.Busy(s.cfg.JobTimeout + settleLimit)
 	defer func() {
 		if r := recover(); r != nil {
 			log.ErrorContext(ctx, "collect: pull job panicked", "panic", r)
 			outcome = s.settle(ctx, log, job, errors.New("pull job panicked"))
 		}
 		endJobSpan(span, outcome)
+		done()
+		if s.cfg.Hooks.Pulled != nil {
+			s.cfg.Hooks.Pulled(job, outcome, time.Since(start))
+		}
 	}()
 	jobCtx, cancel := context.WithTimeout(ctx, s.cfg.JobTimeout)
 	defer cancel()
-	start := time.Now()
 	stored, err := s.pull(jobCtx, job)
 	if err != nil && ctx.Err() == nil && errors.Is(jobCtx.Err(), context.DeadlineExceeded) {
 		err = jobTimeoutError{err}

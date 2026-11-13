@@ -53,6 +53,7 @@ const (
 	DataWrite        = "data.write"
 	UserCreate       = "user.create"
 	UserRead         = "user.read"
+	UserUpdate       = "user.update"
 	UserDelete       = "user.delete"
 	UserErased       = "user.erased"
 	TokenCreate      = "token.create"
@@ -291,8 +292,11 @@ func Classify(method, pattern string) string {
 		}
 		return UserRead
 	case path == userPrefix:
-		if method == "DELETE" {
+		switch method {
+		case "DELETE":
 			return UserDelete
+		case "PATCH":
+			return UserUpdate
 		}
 		return UserRead
 	case strings.HasPrefix(path, "/v1/deletions/"):

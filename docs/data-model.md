@@ -10,6 +10,12 @@ schema. Every stored row carries `tenant_id` and `user_id`; the two are
 set by the pipeline and are never part of a content hash. Times are UTC. A field
 typed as a pointer is optional and reads as null in the API when absent.
 
+A local calendar day (a daily total, the coverage of a day) is the day in the
+record's own time zone, the `timezone` of its metadata; else in the user's time
+zone (`ohs_core.end_users.timezone`, set through the API or learnt from device
+uploads); else in UTC. The zone a sample's day was taken in is stored with it
+(`tz`), so changing the user's zone moves no stored sample to another day.
+
 Field names below are the Go names used inside the pipeline, not the wire names:
 the JSON the API returns uses snake_case names, and some differ (for example
 `SummaryDate` is `date`). Use [../api/openapi.yaml](../api/openapi.yaml) for the JSON shapes.

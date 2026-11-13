@@ -5,6 +5,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -44,6 +45,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/memlimit"
+	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
@@ -115,6 +117,11 @@ type options struct {
 	// memLimit sets the runtime's soft memory limit from the container's
 	// when GOMEMLIMIT is unset (the process, not a test).
 	memLimit bool
+	// noMinStall holds every loop to three of its own intervals, without
+	// the one minute floor (ops.MinStall); jobLimit, when set, is how long a
+	// claimed ETL job excuses its loop, in place of jobBusyLimit.
+	noMinStall bool
+	jobLimit   time.Duration
 }
 
 func run(ctx context.Context, cfg config.Config, logOut io.Writer) error {
@@ -289,26 +296,60 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	}
 
 	etlMetrics := &automation.Metrics{}
+	// The heartbeats of the loops below and the worker metrics, served on
+	// the ops listener (OHS_OPS_LISTEN).
+	loops := ops.NewRegistry()
+	if opts.noMinStall {
+		loops.WithMinStall(0)
+	}
+	workerMetrics := ops.NewMetrics(loops)
+	if cfg.OpsListen != "" {
+		d := api.OpsDeps{Pool: pool, Raw: raw, Vault: keyVault, Stalled: stalledLoops(loops)}
+		if cfg.Metrics {
+			writers := []func(io.Writer){}
+			if cfg.Roles["etl"] {
+				writers = append(writers, func(w io.Writer) { ops.WriteSnapshot(w, "ohs_etl_", etlMetrics.Snapshot()) })
+			}
+			if canOpen {
+				writers = append(writers, keyVault.Metrics().Write)
+			}
+			d.Metrics = opsMetrics(workerMetrics, writers...)
+			goRole("queue backlog", func() error {
+				return sampleQueues(ctx, pool, cfg.Roles, workerMetrics, queueSampleEvery)
+			})
+		}
+		if err := serveOps(ctx, cfg, d, opts.grace, logger, goRole); err != nil {
+			cancel()
+			wg.Wait()
+			return err
+		}
+	}
 	if cfg.Roles["etl"] {
 		q := queue.NewETL(pool)
 		// Zero (a Config not built by Load) means the queue's default.
 		q.PerUser = cfg.ETLJobsPerUser
+		q.Hooks = etlHooks(loops, workerMetrics, cmp.Or(opts.jobLimit, jobBusyLimit))
 		for _, tier := range []string{queue.TierStandard, queue.TierHighFreq} {
 			w := etl.NewWorkerWith(pool, raw, q, tier, etlConcurrency(cfg), etl.WithShutdownGrace(opts.grace),
-				etl.WithConsentRequired(cfg.ConsentRequired), etl.WithVault(keyVault))
+				etl.WithConsentRequired(cfg.ConsentRequired), etl.WithVault(keyVault),
+				etl.WithRowsWritten(workerMetrics.ETLRows))
 			goRole("etl "+tier, func() error { return w.Run(ctx) })
 		}
 		// The user's keys are shredded first, then provider grants are
 		// revoked best effort before the user's rows go. A deletion cut
 		// short by shutdown stays pending for the next start.
-		dw := deletion.NewWorker(pool, raw, collectDeps).WithVault(keyVault).WithShutdownGrace(opts.grace)
+		dw := deletion.NewWorker(pool, raw, collectDeps).WithVault(keyVault).WithShutdownGrace(opts.grace).
+			WithHeartbeat(loops.Loop(loopDeletion, deletionPollEvery))
 		goRole("deletion", func() error { return dw.Run(ctx) })
 		// Records of a category whose consent was revoked are purged here.
-		cp := consent.NewPurger(pool)
-		goRole("consent purge", func() error { return cp.Run(ctx) })
+		cp := consent.NewPurger(pool).WithVault(keyVault)
+		purgeLoop := loops.Loop(loopConsentPurge, consent.DefaultPurgeEvery)
+		goRole("consent purge", func() error { return runConsentPurge(ctx, cp, purgeLoop) })
 		// Outgoing webhooks: deliveries are written with the change they
 		// announce, posted from here.
-		ww := webhook.NewWorker(pool, box, webhookWorkerConfig(cfg))
+		wcfg := webhookWorkerConfig(cfg)
+		wcfg.Loop, wcfg.Observe = loops.Loop(loopWebhooks, webhookPollEvery), workerMetrics.WebhookDone
+		ww := webhook.NewWorker(pool, box, wcfg)
 		goRole("webhooks", func() error { return ww.Run(ctx) })
 		goRole("automation", func() error {
 			return automation.Start(ctx, automation.Deps{
@@ -316,12 +357,15 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 				AuditRetentionDays: cfg.AuditRetentionDays,
 				// Zero means the default, negative keeps the rows for ever.
 				TrackingRetentionDays: cfg.TrackingRetentionDays,
+				OnTick:                loops.Task,
 			})
 		})
 	}
 
 	if cfg.Roles["collect"] {
-		sch := collect.NewScheduler(collectDeps, schedulerConfig(cfg, opts.grace))
+		scfg := schedulerConfig(cfg, opts.grace)
+		scfg.Hooks = pullHooks(loops, workerMetrics)
+		sch := collect.NewScheduler(collectDeps, scfg)
 		goRole("collect", func() error { return sch.Run(ctx) })
 	}
 

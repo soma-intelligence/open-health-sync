@@ -61,6 +61,41 @@ func DeriveVaultRootKey(key []byte) ([]byte, error) {
 	return hkdf.Key(sha256.New, key, nil, VaultRootInfo, 32)
 }
 
+// DerivedVault is the Vault that Load returns when no OHS_VAULT_ variable is
+// set: the local provider, its root key derived from the encryption key (and
+// the previous root keys from the previous encryption keys), the default
+// cache. A program or a test that builds a Config without Load sets its Vault
+// with it, so the instance it starts holds the same keys as one started from
+// the environment with only OHS_ENCRYPTION_KEY.
+func DerivedVault(encKey []byte, prevEnc ...[]byte) (Vault, error) {
+	v := Vault{Provider: "local", HashiCorpMount: "transit", CacheUsers: DefaultVaultCacheUsers, CacheTTL: DefaultVaultCacheTTL}
+	if err := v.deriveRoot(encKey, prevEnc); err != nil {
+		return Vault{}, err
+	}
+	return v, nil
+}
+
+// deriveRoot sets the root keys derived from the encryption keys.
+func (v *Vault) deriveRoot(encKey []byte, prevEnc [][]byte) error {
+	if len(encKey) != 32 {
+		return fmt.Errorf("%w: the root key is derived from OHS_ENCRYPTION_KEY, which must be 32 bytes, got %d", ErrVault, len(encKey))
+	}
+	var err error
+	v.RootDerived = true
+	if v.RootKey, err = DeriveVaultRootKey(encKey); err != nil {
+		return fmt.Errorf("%w: deriving the root key: %w", ErrVault, err)
+	}
+	v.RootKeyPrevious = nil
+	for _, k := range prevEnc {
+		d, err := DeriveVaultRootKey(k)
+		if err != nil {
+			return fmt.Errorf("%w: deriving a previous root key: %w", ErrVault, err)
+		}
+		v.RootKeyPrevious = append(v.RootKeyPrevious, d)
+	}
+	return nil
+}
+
 func loadVault(get func(string, string) string, encKey []byte, prevEnc [][]byte) (Vault, error) {
 	v := Vault{
 		Provider:           get("OHS_VAULT_KEY_PROVIDER", "local"),
@@ -130,18 +165,7 @@ func loadVaultRoot(v *Vault, get func(string, string) string, encKey []byte, pre
 		if get("OHS_VAULT_ROOT_KEY_PREVIOUS", "") != "" {
 			return fmt.Errorf("%w: OHS_VAULT_ROOT_KEY_PREVIOUS needs OHS_VAULT_ROOT_KEY or OHS_VAULT_ROOT_KEY_FILE", ErrVault)
 		}
-		v.RootDerived = true
-		if v.RootKey, err = DeriveVaultRootKey(encKey); err != nil {
-			return fmt.Errorf("%w: deriving the root key: %w", ErrVault, err)
-		}
-		for _, k := range prevEnc {
-			d, err := DeriveVaultRootKey(k)
-			if err != nil {
-				return fmt.Errorf("%w: deriving a previous root key: %w", ErrVault, err)
-			}
-			v.RootKeyPrevious = append(v.RootKeyPrevious, d)
-		}
-		return nil
+		return v.deriveRoot(encKey, prevEnc)
 	}
 	key, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {

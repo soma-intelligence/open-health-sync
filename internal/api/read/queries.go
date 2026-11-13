@@ -453,13 +453,14 @@ func samples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Quer
 			return Page[Sample]{}, err
 		}
 	}
-	l := list{table: "ohs_data.quantity_samples", timeCol: "start_date", typeCol: "quantity_type", cols: sampleCols}
+	l := list{table: "ohs_data.quantity_samples", timeCol: "start_date", typeCol: "quantity_type", cols: sampleSel.List("")}
 	if err := mergeWhere(ctx, db, tenantID, userID, n, &l, quantityFamily); err != nil {
 		return Page[Sample]{}, err
 	}
+	keys := keysFor(ctx, tenantID, userID)
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (Sample, time.Time, int64, error) {
 		var s Sample
-		err := r.Scan(s.dest()...)
+		err := sampleSel.Scan(ctx, keys, r, s.dest())
 		s.utc()
 		return s, s.StartDate, s.ID, err
 	})
@@ -505,22 +506,25 @@ func CategorySamples(ctx context.Context, db Querier, tenantID, userID uuid.UUID
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[CategorySample]{}, err
 	}
-	l := list{table: "ohs_data.category_samples", timeCol: "start_date", typeCol: "category_type",
-		cols: `id, category_type, value_int, value_label, start_date, end_date, source_name, external_id, metadata,
-			provider, source_slug, device_id, ingested_at`}
+	l := list{table: "ohs_data.category_samples", timeCol: "start_date", typeCol: "category_type", cols: categorySel.List("")}
 	if err := mergeWhere(ctx, db, tenantID, userID, n, &l, categoryFamily); err != nil {
 		return Page[CategorySample]{}, err
 	}
+	keys := keysFor(ctx, tenantID, userID)
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (CategorySample, time.Time, int64, error) {
 		var s CategorySample
-		err := r.Scan(&s.ID, &s.Type, &s.ValueInt, &s.ValueLabel, &s.StartDate, &s.EndDate, &s.SourceName,
-			&s.ExternalID, &s.Metadata, &s.Provider, &s.Source, &s.Device, &s.IngestedAt)
+		err := categorySel.Scan(ctx, keys, r, []any{&s.ID, &s.Type, &s.ValueInt, &s.ValueLabel, &s.StartDate, &s.EndDate,
+			&s.SourceName, &s.ExternalID, &s.Metadata, &s.Provider, &s.Source, &s.Device, &s.IngestedAt})
 		utc(&s.StartDate)
 		utc(s.EndDate)
 		utc(&s.IngestedAt)
 		return s, s.StartDate, s.ID, err
 	})
 }
+
+// categoryCols are the columns of a CategorySample, in the order of its scan.
+const categoryCols = `id, category_type, value_int, value_label, start_date, end_date, source_name, external_id, metadata,
+	provider, source_slug, device_id, ingested_at`
 
 // SleepSession is one night (or nap).
 type SleepSession struct {
@@ -551,13 +555,14 @@ func Sleep(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query)
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[SleepSession]{}, err
 	}
-	l := list{table: "ohs_data.sleep_sessions", timeCol: "bedtime_start", cols: sleepCols}
+	l := list{table: "ohs_data.sleep_sessions", timeCol: "bedtime_start", cols: sleepSel.List("")}
 	if err := mergeWhere(ctx, db, tenantID, userID, n, &l, sleepFamily); err != nil {
 		return Page[SleepSession]{}, err
 	}
+	keys := keysFor(ctx, tenantID, userID)
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (SleepSession, time.Time, int64, error) {
 		var s SleepSession
-		err := r.Scan(s.dest()...)
+		err := sleepSel.Scan(ctx, keys, r, s.dest())
 		s.utc()
 		return s, s.BedtimeStart, s.ID, err
 	})
@@ -600,21 +605,19 @@ func SleepPhases(ctx context.Context, db Querier, tenantID, userID uuid.UUID, se
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[SleepPhase]{}, err
 	}
-	var prov Provenance
-	err = db.QueryRow(ctx, `SELECT provider, source_slug, device_id FROM ohs_data.sleep_sessions
-		WHERE tenant_id = $1 AND user_id = $2 AND id = $3 LIMIT 1`, tenantID, userID, sessionID).
-		Scan(&prov.Provider, &prov.Source, &prov.Device)
+	keys := keysFor(ctx, tenantID, userID)
+	prov, err := parentProvenance(ctx, db, keys, "sleep_sessions", tenantID, userID, sessionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Page[SleepPhase]{}, ErrNotFound
 	}
 	if err != nil {
-		return Page[SleepPhase]{}, fmt.Errorf("read: sleep session: %w", err)
+		return Page[SleepPhase]{}, err
 	}
 	l := list{table: "ohs_data.sleep_phases", timeCol: "start_date", parentCol: "session_id", parentID: sessionID,
-		cols: `id, session_id, phase, start_date, end_date, duration_s, ingested_at`}
+		cols: phaseSel.List("")}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (SleepPhase, time.Time, int64, error) {
 		s := SleepPhase{Provenance: prov}
-		err := r.Scan(&s.ID, &s.SessionID, &s.Phase, &s.StartDate, &s.EndDate, &s.DurationS, &s.IngestedAt)
+		err := phaseSel.Scan(ctx, keys, r, []any{&s.ID, &s.SessionID, &s.Phase, &s.StartDate, &s.EndDate, &s.DurationS, &s.IngestedAt})
 		utc(&s.StartDate)
 		utc(s.EndDate)
 		utc(&s.IngestedAt)
@@ -650,13 +653,14 @@ func Workouts(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Que
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[Workout]{}, err
 	}
-	l := list{table: "ohs_data.workouts", timeCol: "start_date", typeCol: "activity_type", cols: workoutCols}
+	l := list{table: "ohs_data.workouts", timeCol: "start_date", typeCol: "activity_type", cols: workoutSel.List("")}
 	if err := mergeWhere(ctx, db, tenantID, userID, n, &l, workoutFamily); err != nil {
 		return Page[Workout]{}, err
 	}
+	keys := keysFor(ctx, tenantID, userID)
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (Workout, time.Time, int64, error) {
 		var w Workout
-		err := r.Scan(w.dest()...)
+		err := workoutSel.Scan(ctx, keys, r, w.dest())
 		w.utc()
 		return w, w.StartDate, w.ID, err
 	})
@@ -701,22 +705,20 @@ func WorkoutRoute(ctx context.Context, db Querier, tenantID, userID uuid.UUID, w
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[RoutePoint]{}, err
 	}
-	var prov Provenance
-	err = db.QueryRow(ctx, `SELECT provider, source_slug, device_id FROM ohs_data.workouts
-		WHERE tenant_id = $1 AND user_id = $2 AND id = $3 LIMIT 1`, tenantID, userID, workoutID).
-		Scan(&prov.Provider, &prov.Source, &prov.Device)
+	keys := keysFor(ctx, tenantID, userID)
+	prov, err := parentProvenance(ctx, db, keys, "workouts", tenantID, userID, workoutID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Page[RoutePoint]{}, ErrNotFound
 	}
 	if err != nil {
-		return Page[RoutePoint]{}, fmt.Errorf("read: workout: %w", err)
+		return Page[RoutePoint]{}, err
 	}
 	l := list{table: "ohs_data.route_points", timeCol: `"timestamp"`, parentCol: "workout_id", parentID: workoutID,
-		cols: `id, workout_id, "timestamp", latitude, longitude, altitude_m, speed_mps, course_deg, ingested_at`}
+		cols: routeSel.List("")}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (RoutePoint, time.Time, int64, error) {
 		p := RoutePoint{Provenance: prov}
-		err := r.Scan(&p.ID, &p.WorkoutID, &p.Timestamp, &p.Latitude, &p.Longitude, &p.AltitudeM, &p.SpeedMps,
-			&p.CourseDeg, &p.IngestedAt)
+		err := routeSel.Scan(ctx, keys, r, []any{&p.ID, &p.WorkoutID, &p.Timestamp, &p.Latitude, &p.Longitude, &p.AltitudeM,
+			&p.SpeedMps, &p.CourseDeg, &p.IngestedAt})
 		utc(&p.Timestamp)
 		utc(&p.IngestedAt)
 		return p, p.Timestamp, p.ID, err
@@ -743,7 +745,7 @@ type NutritionLog struct {
 }
 
 const nutritionCols = `id, start_date, end_date, meal_type, energy_kcal, protein_g, carbs_g, fat_g, fiber_g, sugar_g,
-	sodium_mg, coalesce(nutrients_json, 'null'::jsonb), external_id, metadata,
+	sodium_mg, nutrients_json, external_id, metadata,
 	provider, source_slug, device_id, ingested_at`
 
 func (x *NutritionLog) dest() []any {
@@ -752,7 +754,12 @@ func (x *NutritionLog) dest() []any {
 		&x.Provider, &x.Source, &x.Device, &x.IngestedAt}
 }
 
+// utc puts the times in UTC; a log with no nutrient list reads as the JSON
+// null.
 func (x *NutritionLog) utc() {
+	if x.Nutrients == nil {
+		x.Nutrients = json.RawMessage("null")
+	}
 	utc(&x.StartDate)
 	utc(x.EndDate)
 	utc(&x.IngestedAt)
@@ -767,10 +774,11 @@ func Nutrition(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Qu
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[NutritionLog]{}, err
 	}
-	l := list{table: "ohs_data.nutrition_logs", timeCol: "start_date", cols: nutritionCols}
+	l := list{table: "ohs_data.nutrition_logs", timeCol: "start_date", cols: nutritionSel.List("")}
+	keys := keysFor(ctx, tenantID, userID)
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (NutritionLog, time.Time, int64, error) {
 		var x NutritionLog
-		err := r.Scan(x.dest()...)
+		err := nutritionSel.Scan(ctx, keys, r, x.dest())
 		x.utc()
 		return x, x.StartDate, x.ID, err
 	})
@@ -818,11 +826,12 @@ func Daily(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query)
 		}
 		return dailyMerged(ctx, db, tenantID, userID, n, p)
 	}
-	l := list{table: "ohs_data.daily_summaries", timeCol: "summary_date", date: true, cols: dailyCols}
+	l := list{table: "ohs_data.daily_summaries", timeCol: "summary_date", date: true, cols: dailySel.List("")}
+	keys := keysFor(ctx, tenantID, userID)
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (DailySummary, time.Time, int64, error) {
 		var d DailySummary
 		var day time.Time
-		err := r.Scan(d.dest(&day)...)
+		err := dailySel.Scan(ctx, keys, r, d.dest(&day))
 		day = d.finish(day)
 		return d, day, d.ID, err
 	})

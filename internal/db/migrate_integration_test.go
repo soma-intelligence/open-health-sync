@@ -394,6 +394,12 @@ func TestVaultMigrationUpDownUp(t *testing.T) {
 	}
 	defer pool.Close()
 
+	// The database is at the latest migration: the later ones go down
+	// first, and come back at the end.
+	latest := schemaDump(t, ctx, pool)
+	if err := m.Migrate(50); err != nil {
+		t.Fatalf("down to 50: %v", err)
+	}
 	withVault := schemaDump(t, ctx, pool)
 	if err := m.Migrate(49); err != nil {
 		t.Fatalf("down to 49: %v", err)
@@ -417,7 +423,7 @@ func TestVaultMigrationUpDownUp(t *testing.T) {
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		t.Fatalf("up: %v", err)
 	}
-	if got := schemaDump(t, ctx, pool); got != withVault {
+	if got := schemaDump(t, ctx, pool); got != latest {
 		t.Errorf("schema after up, down, up differs")
 	}
 }

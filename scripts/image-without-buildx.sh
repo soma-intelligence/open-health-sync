@@ -18,7 +18,7 @@
 # continuation lines joined) that ohs_image_without_buildx reproduces.
 # ohs_build_flags_match refuses to build when the Dockerfile drifts.
 # shellcheck disable=SC2016 # the variables are the Dockerfile's, kept literal
-OHS_BUILD_RUN='RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" -o /out/ohs ./cmd/ohs'
+OHS_BUILD_RUN='RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -tags azurekv,awskms -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" -o /out/ohs ./cmd/ohs'
 
 # ohs_build_flags_match DOCKERFILE: true when its go build RUN is OHS_BUILD_RUN.
 ohs_build_flags_match() {
@@ -44,7 +44,7 @@ ohs_image_without_buildx() {
   commit=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo none)
   mkdir -p "$ctx/raw"
   # Same flags as OHS_BUILD_RUN, with TARGETOS=linux and TARGETARCH=$arch.
-  (cd "$root" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+  (cd "$root" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -tags azurekv,awskms \
     -ldflags "-s -w -X main.version=$version -X main.commit=$commit" \
     -o "$ctx/ohs" ./cmd/ohs) || return 1
   awk '/^FROM /{buf=""} {buf = buf $0 "\n"} END {printf "%s", buf}' "$root/deploy/Dockerfile" |

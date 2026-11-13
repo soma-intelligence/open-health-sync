@@ -5,6 +5,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,8 @@ type tenantJSON struct {
 type keyRefJSON struct {
 	ID     uuid.UUID `json:"id"`
 	Prefix string    `json:"prefix"`
+	// Scopes are what the key may do; ["*"] is everything.
+	Scopes []string `json:"scopes"`
 }
 
 type apiKeyJSON struct {
@@ -35,6 +38,8 @@ type apiKeyJSON struct {
 	RevokedAt  *time.Time `json:"revoked_at"`
 	// ExpiresAt is when the key stops working by itself; null means never.
 	ExpiresAt *time.Time `json:"expires_at"`
+	// Scopes are what the key may do; ["*"] is everything.
+	Scopes []string `json:"scopes"`
 	// Current is true for the key making the call.
 	Current bool `json:"current"`
 }
@@ -50,13 +55,25 @@ type createKeyRequest struct {
 	// ExpiresAt is when the key stops working. Absent or null means it
 	// lives until it is revoked.
 	ExpiresAt *time.Time `json:"expires_at"`
+	// Scopes are what the key may do (auth.KeyScopes). Absent, null or
+	// empty means the default of the route.
+	Scopes []string `json:"scopes"`
 }
 
 const errExpiryPast = "expires_at must be a time in the future"
 
+// errKeyScopes is the detail for a scope that does not exist.
+var errKeyScopes = "scopes must be a list of: " + strings.Join(auth.KeyScopes, ", ")
+
+// forbidScope answers 403 for a caller whose key does not hold scope and so
+// cannot hand it on (to a new key, or to a user token).
+func forbidScope(w http.ResponseWriter, scope string) {
+	problem(w, http.StatusForbidden, "this API key does not hold the scope "+scope+" and cannot grant it")
+}
+
 func toAPIKeyJSON(k tenant.APIKey, current string) apiKeyJSON {
 	return apiKeyJSON{ID: k.ID, Prefix: k.Prefix, CreatedAt: k.CreatedAt.UTC(), LastUsedAt: utcPtr(k.LastUsedAt),
-		RevokedAt: utcPtr(k.RevokedAt), ExpiresAt: utcPtr(k.ExpiresAt), Current: k.ID.String() == current}
+		RevokedAt: utcPtr(k.RevokedAt), ExpiresAt: utcPtr(k.ExpiresAt), Scopes: k.Scopes, Current: k.ID.String() == current}
 }
 
 func utcPtr(t *time.Time) *time.Time {
@@ -68,7 +85,8 @@ func utcPtr(t *time.Time) *time.Time {
 }
 
 // mountTenant serves the tenant of the key and its API keys. A tenant key
-// manages its own tenant's keys, as `ohs admin key` does from a shell.
+// manages its own tenant's keys, as `ohs admin key` does from a shell, and
+// never creates a key that holds a scope it lacks itself.
 func (s *server) mountTenant(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/tenant", s.getTenant)
 	s.tenantRoute(mux, "GET /v1/keys", s.listKeys)
@@ -91,7 +109,7 @@ func (s *server) getTenant(w http.ResponseWriter, r *http.Request) {
 	out := tenantJSON{ID: t.ID, Name: t.Name, Admin: t.Admin, CreatedAt: t.CreatedAt.UTC()}
 	for _, k := range keys {
 		if k.ID.String() == p.KeyID {
-			out.Key = keyRefJSON{ID: k.ID, Prefix: k.Prefix}
+			out.Key = keyRefJSON{ID: k.ID, Prefix: k.Prefix, Scopes: k.Scopes}
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -117,7 +135,25 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req, true) {
 		return
 	}
-	full, k, err := s.d.Store.CreateKeyWith(r.Context(), p.TenantID, tenant.KeyOptions{ExpiresAt: req.ExpiresAt})
+	// Without scopes the new key holds what the calling key holds. With
+	// them, none may be one the calling key lacks: keys:write alone must
+	// not be a way to full access.
+	scopes := req.Scopes
+	if len(scopes) == 0 {
+		scopes = p.KeyScopes
+	}
+	scopes, err := auth.NormalizeKeyScopes(scopes)
+	if err != nil {
+		badRequest(w, errKeyScopes)
+		return
+	}
+	for _, sc := range scopes {
+		if !p.Can(sc) {
+			forbidScope(w, sc)
+			return
+		}
+	}
+	full, k, err := s.d.Store.CreateKeyWith(r.Context(), p.TenantID, tenant.KeyOptions{ExpiresAt: req.ExpiresAt, Scopes: scopes})
 	switch {
 	case errors.Is(err, tenant.ErrExpiryPast):
 		badRequest(w, errExpiryPast)

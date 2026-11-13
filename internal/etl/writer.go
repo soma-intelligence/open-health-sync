@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/soma-intelligence/open-health-sync/internal/memlimit"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
@@ -106,6 +107,10 @@ type scope struct {
 	captured time.Time
 	uv       *vault.UserVault
 	hours    hourSet
+	// zone is the user's time zone (end_users.timezone), nil when the user
+	// has none: the zone of the local day of a record whose metadata names
+	// no zone of its own (scope.location).
+	zone *time.Location
 }
 
 // capturedAt is the captured_at value of every row of one write: the raw
@@ -124,7 +129,26 @@ func (s scope) providerOr(p string) string {
 type WriterConfig struct {
 	BatchSize     int // Multi-row INSERT batch size (default: 100)
 	CopyThreshold int // Row count above which COPY is used (default: 500)
+	// ChunkRecords is how many bulk records (quantity and category samples,
+	// heartbeats, observations) of one raw object the ETL holds at a time:
+	// an object with more is written chunk by chunk inside its transaction
+	// (stream.go). Default DefaultChunkRecords, or LowChunkRecords under the
+	// low-memory profile (memlimit.Low).
+	ChunkRecords int
 }
+
+// DefaultChunkRecords and LowChunkRecords are the default sizes of a write
+// chunk. A chunk of quantity samples costs about 4 KiB of heap per record
+// while it is written (the records, their keyed copies, the staged rows, the
+// dedup lookups and the garbage of mapping them), so a job on a large object
+// peaks near 40 MiB with the default and near 12 MiB with the low profile,
+// where the eight jobs of a process (OHS_ETL_CONCURRENCY, two tiers) share a
+// soft limit of a few hundred MiB. Smaller chunks cost no time: the size of a
+// chunk does not change what the database does per row.
+const (
+	DefaultChunkRecords = 10_000
+	LowChunkRecords     = 2_500
+)
 
 // Writer handles database writes for all canonical record types.
 type Writer struct {
@@ -138,6 +162,12 @@ func NewWriter(cfg WriterConfig) *Writer {
 	}
 	if cfg.CopyThreshold <= 0 {
 		cfg.CopyThreshold = 500
+	}
+	if cfg.ChunkRecords <= 0 {
+		cfg.ChunkRecords = DefaultChunkRecords
+		if memlimit.Low() {
+			cfg.ChunkRecords = LowChunkRecords
+		}
 	}
 	return &Writer{cfg: cfg}
 }
@@ -180,23 +210,57 @@ func Accumulate(dst, src *model.MapResult) {
 // writes the aliases of its records last (see writer_aliases.go). With keys,
 // the hourly buckets of every hour the batch touched are recomputed last
 // (hourly.go).
+//
+// It is begin and finish with nothing in between. An object too large to hold
+// goes through the same two, with its bulk records written chunk by chunk
+// between them (batchWrite.writeChunk, stream.go).
 func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) (Counts, error) {
-	c := Counts{}
 	if acc == nil {
-		return c, nil
+		return Counts{}, nil
 	}
+	bw, err := w.begin(ctx, tx, sc, acc, false)
+	if err != nil {
+		return nil, err
+	}
+	return bw.finish(ctx, tx, acc)
+}
+
+// batchWrite is the write of one raw object in progress, inside its
+// transaction: begin takes the locks and applies the deletions, writeChunk
+// writes a slice of the object's bulk records, finish writes the rest and
+// recomputes what the whole write touched.
+type batchWrite struct {
+	w  *Writer
+	sc scope
+	c  Counts
+	// aliased is MapResult.AliasExternalIDs of the object.
+	aliased bool
+	// staleDays are the local days of the additive samples the deletions
+	// removed.
+	staleDays map[dayKey]*time.Location
+	// days are the days the chunks written so far touched (touchedDays),
+	// with the first zone seen for each.
+	days map[dayKey]*time.Location
+}
+
+// begin starts the write of one object for sc in tx: it takes the alias lock
+// of an aliased object and the merge locks, and applies the object's
+// deletions. acc holds the object's deletions and every record that is not
+// written through writeChunk; bulkQuantity says the chunks will carry quantity
+// samples, which acc then does not show.
+func (w *Writer) begin(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult, bulkQuantity bool) (*batchWrite, error) {
+	bw := &batchWrite{w: w, sc: sc, c: Counts{}, aliased: acc.AliasExternalIDs}
 	if sc.uv != nil {
-		sc.hours = hourSet{}
+		bw.sc.hours = hourSet{}
 	}
 	if acc.AliasExternalIDs {
 		if err := lockAliases(ctx, tx, sc); err != nil {
 			return nil, err
 		}
 	}
-	if err := lockMerged(ctx, tx, sc, acc); err != nil {
+	if err := lockMerged(ctx, tx, sc, acc, bulkQuantity); err != nil {
 		return nil, err
 	}
-	var staleDays map[dayKey]*time.Location
 	if len(acc.Deletions) > 0 {
 		// A deletion may reach rows in compressed chunks: one of HealthKit's
 		// can span months of a user's segment. Lift the decompression cap for
@@ -209,20 +273,29 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 		if acc.AliasExternalIDs {
 			apply = applyAliasDeletions
 		}
-		days, err := apply(ctx, tx, sc, acc.Deletions, c)
+		days, err := apply(ctx, tx, bw.sc, acc.Deletions, bw.c)
 		if err != nil {
 			return nil, fmt.Errorf("apply deletions: %w", err)
 		}
-		staleDays = days
+		bw.staleDays = days
 	}
+	return bw, nil
+}
+
+// writeRecords writes the records of acc: it drops those of a tombstoned
+// provider record (acc is filtered in place), converts the clear rows they can
+// meet, writes every family in a fixed order, then the aliases of an aliased
+// object, and collects the hours of the quantity samples.
+func (bw *batchWrite) writeRecords(ctx context.Context, tx TxLike, acc *model.MapResult) error {
+	w, sc, c := bw.w, bw.sc, bw.c
 	if err := dropTombstoned(ctx, tx, sc, acc, c); err != nil {
-		return nil, err
+		return err
 	}
 	// The clear rows the batch can meet are converted first (legacy.go);
 	// from here on every hash is the stored one: keyed when the job holds
-	// keys. touchedDays below reads only types, times and zones.
+	// keys. touchedDays reads only types, times and zones.
 	if err := convertBatchLegacy(ctx, tx, sc, acc); err != nil {
-		return nil, err
+		return err
 	}
 	acc = sc.keyed(acc)
 	type step struct {
@@ -282,28 +355,74 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	}
 	for _, s := range steps {
 		if err := s.run(); err != nil {
-			return nil, fmt.Errorf("write %s: %w", s.name, err)
+			return fmt.Errorf("write %s: %w", s.name, err)
 		}
 	}
-	if acc.AliasExternalIDs {
+	if bw.aliased {
 		if err := writeAliases(ctx, tx, sc, acc); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	// The hours of the batch's samples, written or met again, and of the
-	// samples its deletions and supersedes removed (collected in sc.hours).
+	// The hours of the batch's samples, written or met again; those of the
+	// samples its deletions and supersedes removed are in sc.hours already.
 	for _, s := range acc.QuantitySamples {
 		sc.hours.add(s.QuantityType, s.StartDate)
 	}
-	if err := RecomputeHours(ctx, tx, sc.uv, sc.tenant, sc.user, sc.hours.keys()); err != nil {
+	return nil
+}
+
+// writeChunk writes one slice of the object's bulk records (chunk is filtered
+// in place) and remembers the days it touched.
+func (bw *batchWrite) writeChunk(ctx context.Context, tx TxLike, chunk *model.MapResult) error {
+	if err := bw.writeRecords(ctx, tx, chunk); err != nil {
+		return err
+	}
+	bw.days = mergeDays(bw.days, touchedDays(bw.sc, chunk))
+	return nil
+}
+
+// touched returns the days the whole write touched: those of its chunks, then
+// those of acc, the records finish wrote (filtered).
+func (bw *batchWrite) touched(acc *model.MapResult) map[dayKey]*time.Location {
+	if len(bw.days) == 0 {
+		return touchedDays(bw.sc, acc)
+	}
+	return mergeDays(bw.days, touchedDays(bw.sc, acc))
+}
+
+// mergeDays adds to dst the days of src it does not hold yet, so the first
+// zone seen for a day stays, and returns dst (src when dst is nil).
+func mergeDays(dst, src map[dayKey]*time.Location) map[dayKey]*time.Location {
+	if dst == nil {
+		return src
+	}
+	for k, loc := range src {
+		if _, ok := dst[k]; !ok {
+			dst[k] = loc
+		}
+	}
+	return dst
+}
+
+// finish writes acc, the records of the object that did not go through
+// writeChunk, then recomputes the hourly buckets of every hour the whole
+// write touched and the derived daily rows of the days its deletions left
+// stale. It returns the counts of the whole write.
+func (bw *batchWrite) finish(ctx context.Context, tx TxLike, acc *model.MapResult) (Counts, error) {
+	sc, c := bw.sc, bw.c
+	if err := bw.writeRecords(ctx, tx, acc); err != nil {
+		return nil, err
+	}
+	if err := recomputeHourSet(ctx, tx, sc, sc.hours); err != nil {
 		return nil, err
 	}
 	// The days whose additive samples a deletion removed are summed again.
 	// The days the batch's own samples touch are left to the caller, which
 	// derives them after this write. Most batches delete nothing, so the
 	// batch's days are only collected when there is something to subtract.
+	staleDays := bw.staleDays
 	if len(staleDays) > 0 {
-		for k := range touchedDays(sc, acc) {
+		for k := range bw.touched(acc) {
 			delete(staleDays, k)
 		}
 	}
@@ -328,7 +447,9 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 // sample recomputes its hourly bucket (RecomputeHours), which takes that lock,
 // and taking it there, after the daily lock of a figure clearing, would break
 // the order. Without keys the merge is one SQL statement and needs no lock.
-func lockMerged(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) error {
+// bulkQuantity says the batch has quantity samples acc does not hold (the
+// chunks of a large object).
+func lockMerged(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult, bulkQuantity bool) error {
 	if sc.uv == nil {
 		return nil
 	}
@@ -345,7 +466,7 @@ func lockMerged(ctx context.Context, tx TxLike, sc scope, acc *model.MapResult) 
 		table string
 		need  bool
 	}{
-		{tQuantity, len(acc.QuantitySamples) > 0 || len(acc.Deletions) > 0},
+		{tQuantity, bulkQuantity || len(acc.QuantitySamples) > 0 || len(acc.Deletions) > 0},
 		{tNutrition, replaceable(len(acc.NutritionLogs), func(i int) bool { return acc.NutritionLogs[i].Replaceable })},
 		{tSleep, replaceable(len(acc.SleepSessions), func(i int) bool { return acc.SleepSessions[i].Replaceable })},
 		{tWorkouts, replaceable(len(acc.Workouts), func(i int) bool { return acc.Workouts[i].Replaceable })},

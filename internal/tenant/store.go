@@ -82,7 +82,37 @@ type User struct {
 	ExternalRef string
 	Status      string
 	CreatedAt   time.Time
+	// Timezone is the user's IANA time zone, "" when none is known: the zone
+	// of the local day of a sample that carries none of its own.
+	Timezone string
+	// TimezoneSource says where Timezone came from: TimezoneExplicit (set
+	// through the API) or TimezoneLearnt (taken by the ETL from a device
+	// upload that carried a zone). "" when Timezone is.
+	TimezoneSource string
 }
+
+// The values of User.TimezoneSource.
+const (
+	TimezoneExplicit = "explicit"
+	TimezoneLearnt   = "learnt"
+)
+
+// ErrInvalidTimezone is a time zone that is not an IANA name this host knows.
+var ErrInvalidTimezone = errors.New("tenant: not an IANA time zone name")
+
+// ValidTimezone reports whether name is an IANA time zone name
+// (time.LoadLocation takes it). "Local", the server's own zone, is not one.
+func ValidTimezone(name string) bool {
+	if name == "" || name == "Local" {
+		return false
+	}
+	_, err := time.LoadLocation(name)
+	return err == nil
+}
+
+// userColumns is what scanUser reads.
+const userColumns = `id, tenant_id, coalesce(external_ref, ''), status, created_at,
+	coalesce(timezone, ''), coalesce(timezone_source, '')`
 
 // Store is the Postgres backed tenant store.
 type Store struct {
@@ -298,9 +328,10 @@ func insertTenant(ctx context.Context, tx pgx.Tx, name string) (Tenant, string, 
 	}
 	k := APIKey{Prefix: full[:keyPrefixLen]}
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash) VALUES ($1, $2, $3) RETURNING id, created_at`,
+		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash) VALUES ($1, $2, $3)
+		 RETURNING id, created_at, scopes`,
 		t.ID, k.Prefix, hash,
-	).Scan(&k.ID, &k.CreatedAt); err != nil {
+	).Scan(&k.ID, &k.CreatedAt, &k.Scopes); err != nil {
 		return Tenant{}, "", APIKey{}, fmt.Errorf("tenant: insert key: %w", err)
 	}
 	return t, full, k, nil
@@ -310,9 +341,22 @@ func insertTenant(ctx context.Context, tx pgx.Tx, name string) (Tenant, string, 
 // user whose keys cannot be made is not created. An empty externalRef is
 // stored as NULL, so unreferenced users never collide.
 func (s *Store) CreateUser(ctx context.Context, tenantID uuid.UUID, externalRef string) (User, error) {
-	var ref *string
+	return s.CreateUserIn(ctx, tenantID, externalRef, "")
+}
+
+// CreateUserIn is CreateUser for a user whose time zone the caller knows:
+// timezone is an IANA name, stored as the user's explicit zone, or "" for
+// none. A name that is not a zone is ErrInvalidTimezone.
+func (s *Store) CreateUserIn(ctx context.Context, tenantID uuid.UUID, externalRef, timezone string) (User, error) {
+	var ref, zone *string
 	if externalRef != "" {
 		ref = &externalRef
+	}
+	if timezone != "" {
+		if !ValidTimezone(timezone) {
+			return User{}, ErrInvalidTimezone
+		}
+		zone = &timezone
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -320,8 +364,9 @@ func (s *Store) CreateUser(ctx context.Context, tenantID uuid.UUID, externalRef 
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	row := tx.QueryRow(ctx,
-		`INSERT INTO ohs_core.end_users (tenant_id, external_ref) VALUES ($1, $2)
-		 RETURNING id, tenant_id, coalesce(external_ref, ''), status, created_at`, tenantID, ref)
+		`INSERT INTO ohs_core.end_users (tenant_id, external_ref, timezone, timezone_source)
+		 VALUES ($1, $2, $3, CASE WHEN $3::text IS NOT NULL THEN 'explicit' END)
+		 RETURNING `+userColumns, tenantID, ref, zone)
 	u, err := scanUser(row)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -349,12 +394,44 @@ func (s *Store) CreateUser(ctx context.Context, tenantID uuid.UUID, externalRef 
 // GetUser returns a user of the tenant. A user of another tenant is ErrNotFound.
 func (s *Store) GetUser(ctx context.Context, tenantID, userID uuid.UUID) (User, error) {
 	u, err := scanUser(s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, coalesce(external_ref, ''), status, created_at
+		`SELECT `+userColumns+`
 		 FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2`, tenantID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	return u, err
+}
+
+// SetUserTimezone sets the time zone of an active user of the tenant, as the
+// developer's explicit choice, and returns the user. timezone is an IANA
+// name; "" clears the zone, explicit or learnt, and the ETL may then learn
+// one again from the user's device uploads. A name that is not a zone is
+// ErrInvalidTimezone; a user of another tenant, or one being deleted, is
+// ErrNotFound.
+//
+// The zone applies to what the ETL writes from then on. Stored samples keep
+// the day they were attributed to.
+func (s *Store) SetUserTimezone(ctx context.Context, tenantID, userID uuid.UUID, timezone string) (User, error) {
+	var zone *string
+	if timezone != "" {
+		if !ValidTimezone(timezone) {
+			return User{}, ErrInvalidTimezone
+		}
+		zone = &timezone
+	}
+	u, err := scanUser(s.pool.QueryRow(ctx,
+		`UPDATE ohs_core.end_users
+		 SET timezone = $3, timezone_source = CASE WHEN $3::text IS NOT NULL THEN 'explicit' END,
+		     timezone_seen_at = NULL
+		 WHERE tenant_id = $1 AND id = $2 AND status = 'active'
+		 RETURNING `+userColumns, tenantID, userID, zone))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("tenant: set user time zone: %w", err)
+	}
+	return u, nil
 }
 
 // GetActiveUser is GetUser for the API: a user being deleted is ErrNotFound.
@@ -378,7 +455,7 @@ func (s *Store) EnsureUser(ctx context.Context, tenantID uuid.UUID, externalRef 
 	}
 	find := func() (User, error) {
 		return scanUser(s.pool.QueryRow(ctx,
-			`SELECT id, tenant_id, coalesce(external_ref, ''), status, created_at
+			`SELECT `+userColumns+`
 			 FROM ohs_core.end_users WHERE tenant_id = $1 AND external_ref = $2`, tenantID, externalRef))
 	}
 	u, err := find()
@@ -419,7 +496,7 @@ func (s *Store) ListUsers(ctx context.Context, tenantID uuid.UUID, cursor string
 		}
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, coalesce(external_ref, ''), status, created_at
+		`SELECT `+userColumns+`
 		 FROM ohs_core.end_users
 		 WHERE tenant_id = $1 AND status = 'active' AND (created_at, id) > ($2, $3)
 		 ORDER BY created_at, id LIMIT $4`,
@@ -476,7 +553,7 @@ type scanner interface{ Scan(dest ...any) error }
 
 func scanUser(r scanner) (User, error) {
 	var u User
-	err := r.Scan(&u.ID, &u.TenantID, &u.ExternalRef, &u.Status, &u.CreatedAt)
+	err := r.Scan(&u.ID, &u.TenantID, &u.ExternalRef, &u.Status, &u.CreatedAt, &u.Timezone, &u.TimezoneSource)
 	return u, err
 }
 
@@ -550,6 +627,7 @@ func normalizeScopes(in []string) ([]string, error) {
 }
 
 // LookupKey resolves the hash of an API key or user token. It satisfies auth.Lookup.
+// The Principal carries the scopes of the key, or of the key that minted the token.
 // Unknown, revoked and expired secrets, tokens minted by a key that is revoked or
 // expired, and tokens of users being deleted, return auth.ErrUnauthenticated.
 func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, error) {
@@ -558,15 +636,16 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 		keyID    uuid.UUID
 		stale    bool
 		admin    bool
+		granted  []string
 	)
 	err := s.pool.QueryRow(ctx,
 		`SELECT k.tenant_id, k.id,
-		        k.last_used_at IS NULL OR k.last_used_at < now() - $2::interval, t.admin
+		        k.last_used_at IS NULL OR k.last_used_at < now() - $2::interval, t.admin, k.scopes
 		 FROM ohs_core.api_keys k JOIN ohs_core.tenants t ON t.id = k.tenant_id
 		 WHERE k.key_hash = $1 AND k.revoked_at IS NULL
 		   AND (k.expires_at IS NULL OR k.expires_at > now())`,
 		hash, fmt.Sprintf("%d microseconds", touchEvery.Microseconds()),
-	).Scan(&tenantID, &keyID, &stale, &admin)
+	).Scan(&tenantID, &keyID, &stale, &admin, &granted)
 	if err == nil {
 		if stale {
 			// Best effort, and at most once a minute per key.
@@ -574,7 +653,7 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 				slog.DebugContext(ctx, "tenant: touch api key", "error", terr)
 			}
 		}
-		return auth.Principal{TenantID: tenantID, KeyID: keyID.String(), Admin: admin}, nil
+		return auth.Principal{TenantID: tenantID, KeyID: keyID.String(), Admin: admin, KeyScopes: granted}, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return auth.Principal{}, fmt.Errorf("tenant: lookup key: %w", err)
@@ -585,7 +664,8 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 		scopes []string
 	)
 	err = s.pool.QueryRow(ctx,
-		`SELECT t.tenant_id, t.user_id, t.scopes
+		`SELECT t.tenant_id, t.user_id, t.scopes,
+		        (SELECT k.scopes FROM ohs_core.api_keys k WHERE k.id = t.minted_by_key)
 		 FROM ohs_core.user_tokens t
 		 JOIN ohs_core.end_users u ON u.tenant_id = t.tenant_id AND u.id = t.user_id
 		 WHERE t.hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now() AND u.status = 'active'
@@ -593,14 +673,18 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 		                   WHERE k.id = t.minted_by_key
 		                     AND (k.revoked_at IS NOT NULL OR k.expires_at <= now()))`,
 		hash,
-	).Scan(&tenantID, &userID, &scopes)
+	).Scan(&tenantID, &userID, &scopes, &granted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.Principal{}, auth.ErrUnauthenticated
 	}
 	if err != nil {
 		return auth.Principal{}, fmt.Errorf("tenant: lookup token: %w", err)
 	}
-	return auth.Principal{TenantID: tenantID, UserID: &userID, Scopes: scopes, KeyID: audit.TokenID(hash)}, nil
+	// A token is held to the scopes of the key that minted it, read on each
+	// request like the key's revocation and expiry. A token tied to no key
+	// (minted from a shell, or before keys were remembered) has no such
+	// limit: granted is nil.
+	return auth.Principal{TenantID: tenantID, UserID: &userID, Scopes: scopes, KeyID: audit.TokenID(hash), KeyScopes: granted}, nil
 }
 
 // RevokeKey revokes an API key or user token of the tenant by hash. Revoking an

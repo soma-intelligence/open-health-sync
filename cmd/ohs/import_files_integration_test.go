@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,13 @@ func startInstance(t *testing.T) (string, string) {
 	}
 	addr := l.Addr().String()
 	_ = l.Close()
+	// A Config built here, not by Load: the vault settings are the ones Load
+	// derives from the encryption key alone.
+	encKey := make([]byte, 32)
+	vaultCfg, err := config.DerivedVault(encKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Config{
 		DatabaseURL:   url,
 		RawStore:      "file://" + t.TempDir(),
@@ -38,7 +46,8 @@ func startInstance(t *testing.T) (string, string) {
 		LogLevel:      "warn",
 		PublicURL:     "http://" + addr,
 		Roles:         map[string]bool{"api": true, "collect": true, "etl": true},
-		EncryptionKey: make([]byte, 32),
+		EncryptionKey: encKey,
+		Vault:         vaultCfg,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -159,8 +168,36 @@ func TestImportFilesIntoInstance(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		q(`SELECT count(*), coalesce(string_agg(DISTINCT source_slug || ':' || coalesce(device_id, '-'), ',' ORDER BY source_slug || ':' || coalesce(device_id, '-')), '')
-			FROM ohs_data.workouts WHERE tenant_id = $1 AND user_id = $2 AND provider = 'activity_files'`, &c.workouts, &c.sources)
+		q(`SELECT count(*) FROM ohs_data.workouts WHERE tenant_id = $1 AND user_id = $2 AND provider = 'activity_files'`, &c.workouts)
+		// The device of a workout is sealed in the database: the API opens it.
+		var page struct {
+			Data []struct {
+				Provider string  `json:"provider"`
+				Source   *string `json:"source"`
+				Device   *string `json:"device"`
+			} `json:"data"`
+		}
+		apiCall(t, "GET", base+"/v1/users/"+user.ID+"/workouts?view=all&limit=100", key, "", 200, &page)
+		seen := map[string]bool{}
+		for _, w := range page.Data {
+			if w.Provider != "activity_files" {
+				continue
+			}
+			source, device := "activity_files", "-"
+			if w.Source != nil {
+				source = *w.Source
+			}
+			if w.Device != nil {
+				device = *w.Device
+			}
+			seen[source+":"+device] = true
+		}
+		pairs := make([]string, 0, len(seen))
+		for p := range seen {
+			pairs = append(pairs, p)
+		}
+		sort.Strings(pairs)
+		c.sources = strings.Join(pairs, ",")
 		q(`SELECT count(*) FROM ohs_data.route_points WHERE tenant_id = $1 AND user_id = $2`, &c.routes)
 		q(`SELECT count(*) FILTER (WHERE quantity_type = 'heart_rate'),
 				count(*) FILTER (WHERE quantity_type IN ('cycling_power', 'running_power'))

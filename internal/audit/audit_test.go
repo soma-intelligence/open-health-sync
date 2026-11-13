@@ -21,6 +21,7 @@ func TestClassify(t *testing.T) {
 		{"GET", "GET /v1/users", UserRead},
 		{"GET", "GET /v1/users/{id}", UserRead},
 		{"DELETE", "DELETE /v1/users/{id}", UserDelete},
+		{"PATCH", "PATCH /v1/users/{id}", UserUpdate},
 		{"GET", "GET /v1/deletions/{job_id}", UserRead},
 		{"POST", "POST /v1/users/{id}/tokens", TokenCreate},
 		{"DELETE", "DELETE /v1/users/{id}/tokens", TokenRevoke},

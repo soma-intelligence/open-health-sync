@@ -42,7 +42,7 @@ checklist see [hardening.md](hardening.md); to report a problem see
   one or more tenant API keys. Trusted with its own users' data only.
 - **Tenant backend.** A server holding an `ohs_sk_` key. Can create users, mint user tokens,
   start provider connections, read and export data, manage webhooks and delete users, all within
-  its tenant.
+  its tenant, or only the part of it the scopes of its key allow.
 - **End-user device.** An app holding an `ohs_ut_` token for one user, with some of the scopes
   `upload`, `connect` and `read`.
 - **Providers.** Call the unauthenticated routes `GET /oauth/{provider}/callback` and
@@ -86,6 +86,16 @@ checklist see [hardening.md](hardening.md); to report a problem see
   a user token holding a given scope; anything else is 401 or 403 (`internal/auth/middleware.go`,
   routes in `internal/api/`). User tokens live one hour by default, at most 24 hours, or 30 days
   when `read` is the only scope (`internal/api/handlers_tokens.go`). The MCP server is read-only.
+- **A key that can do more than its service needs.** An API key holds scopes, fixed when it is
+  created (`users:read`, `data:write`, `webhooks:write`, ...; `*` for everything, the default
+  and what every key created before version 0.3.0 holds). Every route behind a credential
+  needs exactly one scope (`internal/api/scopes.go`); a test calls every route of the router and
+  of the OpenAPI description and fails when one has none, and a route that declares none is
+  reachable with `*` only. A key without the scope gets 403 naming it, recorded in the audit log
+  with `missing_scope`. A key creates another key only with scopes it holds itself, and a user
+  token never does more than the key that minted it: the mint is refused, and each request
+  with the token is checked against the scopes of that key as they are in the database
+  (`internal/tenant/store.go`, `LookupKey`). See [docs/api.md](api.md#key-scopes).
 - **Reading another tenant's data.** Every query on user data filters on `tenant_id` and
   `user_id` taken from the authenticated principal, never from the request body. A user or
   object of another tenant answers 404, not 403, so ids cannot be probed
@@ -244,6 +254,15 @@ A share link is a way out of the instance for one user's data, readable by whoev
   [exports.md](exports.md#complete-user-archive-data-portability)).
 
 ## Known limitations and residual risks
+
+- **The instance admin key stays all-powerful.** A key of an instance admin tenant with `*`, or
+  with `admin:write`, reaches every tenant: it can create a key with any scope for any tenant.
+  Scopes reduce an admin key to `admin:read` (it still reads every tenant's data) or to its own
+  tenant; they do not confine an admin credential to one other tenant. Keep the admin key on a
+  server and give each service a tenant key with the scopes it needs. The scopes of a key
+  cannot be changed: replace the key. `/mcp` needs `data:read` and also lists the tenant's users
+  and a user's connections under it. A user token tied to no key (minted before version 0.3.0)
+  is not limited by key scopes.
 
 - **Health data is not encrypted by the application.** Records in Postgres and payloads in the
   raw store are in clear (raw files are gzip). Encryption at rest is the operator's job: disk or

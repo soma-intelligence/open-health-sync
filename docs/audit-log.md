@@ -34,7 +34,7 @@ Each event holds:
 | `user_id` | The end user the action concerns: the user of a user token, the `{id}` of the route, or the demo user an admin key filled |
 | `method`, `route`, `status` | The HTTP method, the route **pattern** (`GET /v1/users/{id}/samples`) and the status code |
 | `request_id` | The request's `X-Request-Id`, to match the event with your own logs |
-| `detail` | Identifiers only, such as a deletion job id or a key prefix. For a route that names a tenant, a provider, an API key or a processing job in its path, its `tenant_id`, `provider`, `key_id` or `job_id`. A NUL character is removed and invalid UTF-8 replaced by U+FFFD, so such a value never stops the event from being written |
+| `detail` | Identifiers only, such as a deletion job id or a key prefix. For a route that names a tenant, a provider, an API key or a processing job in its path, its `tenant_id`, `provider`, `key_id` or `job_id`. For a request refused with 403 because the key lacks the [scope](api.md#key-scopes) of the route, `missing_scope`; for `key.create`, the `scopes` of the new key. A NUL character is removed and invalid UTF-8 replaced by U+FFFD, so such a value never stops the event from being written |
 
 An event never holds a health value, a request or response body, a query string (which may hold
 dates or provider codes), a token or a key. Only `auth.failed` events hold an IP address, the
@@ -47,7 +47,7 @@ one the refused credential came from.
 | `data.read` | Lists, FHIR, Open mHealth, coverage, freshness, MCP |
 | `data.export` | CSV and Parquet exports, the user archive |
 | `data.write` | Device uploads (`/v1/ingest/...`), and a demo user filled with synthetic data through the admin API (`POST /v1/admin/tenants/{tenant_id}/demo-user`) |
-| `user.create`, `user.read`, `user.delete` | The user routes; `user.delete` is the request, `user.erased` the completed erasure |
+| `user.create`, `user.read`, `user.update`, `user.delete` | The user routes; `user.update` sets or clears the user's time zone, `user.delete` is the request, `user.erased` the completed erasure |
 | `token.create` | Minting a user token |
 | `token.revoke` | Revoking one token of a user (`token_id` in `detail`) or all of them |
 | `auth.failed` | A well formed API key or user token refused with 401. `detail` holds `client_address`, `reason` (`unknown`, `revoked`, `expired`, or `user_inactive` for a token whose user is being deleted), for a key its `key_prefix` (and `key_id` when the key is known), and `suppressed`, the failures of that address (for a revoked, expired or `user_inactive` credential: of that credential) that were not written since its last event. Actor `api_key` with the key's id or prefix, or `user_token` with the token id. A revoked or expired credential is recorded on its tenant, so `GET /v1/audit?action=auth.failed` shows a retired key that is still used; an unknown credential names no tenant and is stored under the nil tenant id (`00000000-0000-0000-0000-000000000000`), which only the instance operator reads, in the database. At most one event per client address and minute for unknown credentials, one per credential and minute for the others, and 600 a minute per server process, 150 of which are kept for credentials that are not unknown. A failure answered 429 (the address used up its failures) is counted in `suppressed`, not written. With `OHS_RATE_LIMIT_AUTH_FAILURES=0` nothing is answered 429 and the events are written within the same bounds |

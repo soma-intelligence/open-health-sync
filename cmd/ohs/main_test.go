@@ -129,6 +129,8 @@ func TestAdminUsage(t *testing.T) {
 		{"admin", "key", "list", "--tenant", "x", "--expires-at", "2099-01-01"},
 		{"admin", "key", "revoke", "--tenant", "x", "--key", "y", "--expires-at", "2099-01-01"},
 		{"admin", "key", "create", "--expires-at", "2099-01-01"},
+		{"admin", "key", "list", "--tenant", "x", "--scopes", "data:read"},
+		{"admin", "key", "revoke", "--tenant", "x", "--key", "y", "--scopes", "data:read"},
 	} {
 		err := run(args, &buf)
 		if err == nil || !strings.Contains(err.Error(), "usage: ohs admin") {
@@ -137,6 +139,29 @@ func TestAdminUsage(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("usage errors print nothing: %q", buf.String())
+	}
+}
+
+// key create --scopes takes scopes that exist; anything else is refused
+// before the database is reached, with the list of scopes.
+func TestAdminKeyCreateScopes(t *testing.T) {
+	t.Setenv("OHS_DATABASE_URL", "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")
+	const id = "00000000-0000-0000-0000-000000000001"
+	var buf bytes.Buffer
+	for _, v := range []string{"data", "data:read,everything", "users:delete", "DATA:READ"} {
+		err := run([]string{"admin", "key", "create", "--tenant", id, "--scopes", v}, &buf)
+		if err == nil || !strings.Contains(err.Error(), "--scopes") || !strings.Contains(err.Error(), "webhooks:write") {
+			t.Errorf("--scopes %q = %v, want an error naming the flag and the scopes", v, err)
+		}
+	}
+	if buf.Len() != 0 {
+		t.Errorf("a refused scope prints nothing: %q", buf.String())
+	}
+	for v, want := range map[string][]string{"": nil, " ": nil, "data:read": {"data:read"}, "data:read, users:read,": {"data:read", "users:read"}} {
+		got, err := parseScopes(v)
+		if err != nil || strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("parseScopes(%q) = %v, %v, want %v", v, got, err, want)
+		}
 	}
 }
 

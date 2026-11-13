@@ -101,6 +101,13 @@ func startServer(t *testing.T) (string, string) {
 	t.Helper()
 	url := db.TestDB(t)
 	addr := freeAddr(t)
+	// A Config built here, not by Load: the vault settings are the ones Load
+	// derives from the encryption key alone.
+	encKey := make([]byte, 32)
+	vaultCfg, err := config.DerivedVault(encKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Config{
 		DatabaseURL:   url,
 		RawStore:      "file://" + t.TempDir(),
@@ -111,7 +118,8 @@ func startServer(t *testing.T) (string, string) {
 		Metrics:       true,
 		MetricsToken:  contractMetricsToken,
 		SetupToken:    contractSetupToken,
-		EncryptionKey: make([]byte, 32),
+		EncryptionKey: encKey,
+		Vault:         vaultCfg,
 		// Four OAuth callbacks and four setup attempts per address, so the
 		// run sees a 429 on each route.
 		RateLimitOAuth: config.RateLimit{Rate: 0.001, Burst: 4},

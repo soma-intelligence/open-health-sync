@@ -203,6 +203,11 @@ func start(t *testing.T) *env {
 	addr := l.Addr().String()
 	require.NoError(t, l.Close())
 	rawDir := "file://" + t.TempDir()
+	// A Config built here, not by Load: the vault settings are the ones Load
+	// derives from the encryption key alone.
+	encKey := bytes.Repeat([]byte{9}, 32)
+	vaultCfg, err := config.DerivedVault(encKey)
+	require.NoError(t, err)
 	cfg := config.Config{
 		DatabaseURL:   dbURL,
 		RawStore:      rawDir,
@@ -210,7 +215,8 @@ func start(t *testing.T) *env {
 		LogLevel:      "error",
 		PublicURL:     "http://" + addr,
 		Roles:         map[string]bool{"api": true, "collect": true, "etl": true},
-		EncryptionKey: bytes.Repeat([]byte{9}, 32),
+		EncryptionKey: encKey,
+		Vault:         vaultCfg,
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)

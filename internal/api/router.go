@@ -279,13 +279,16 @@ func allowedMethods(mux *http.ServeMux, r *http.Request) []string {
 }
 
 // mountMCP serves the read-only MCP server at /mcp to a tenant key or a user
-// token with scope read; a user token without it gets 403.
+// token with scope read; a user token without it gets 403. Like every
+// route, it asks the key (or the key that minted the token) for its key
+// scope, data:read (routeScopes).
 func (s *server) mountMCP(mux *http.ServeMux) {
 	h := mcp.NewHandler(mcp.Deps{DB: s.d.Pool, Store: s.d.Store, Webhooks: s.d.Webhooks})
 	mux.Handle("/mcp", auth.MiddlewareAny(s.lookup, auth.TenantKey, auth.UserRead)(h))
 }
 
-// tenantRoute mounts h behind a tenant API key.
+// tenantRoute mounts h behind a tenant API key. The key scope pattern needs
+// is declared in routeScopes.
 func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerFunc) {
 	mux.Handle(pattern, auth.Middleware(s.lookup, auth.TenantKey)(h))
 }
@@ -294,7 +297,9 @@ func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerF
 // when well formed), counts it by its matched pattern, logs it at debug level
 // (route pattern, never the query string or a header), records an
 // authenticated one in the audit log, and a refused credential within
-// bounds (authFailed), and turns a panic into a 500. A credential the lookup
+// bounds (authFailed), and turns a panic into a 500. It tells the auth
+// middleware which key scope each route needs (routeScope): a credential
+// without it answers 403, recorded with the scope it lacked. A credential the lookup
 // refused, from an address that presented too many of them, answers 429
 // instead of 401 (refused); a valid one is never refused for that. With
 // tracing on, the request is a server span named by its method and route
@@ -311,8 +316,9 @@ func (s *server) instrument(next http.Handler) http.Handler {
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(semconv.HTTPRequestMethodKey.String(method), attribute.String(tracing.AttrRequestID, id)))
 		ctx, slot := auth.WithSlot(reqid.With(ctx, id))
-		r = r.WithContext(ctx)
+		r = r.WithContext(s.sealedReads(ctx))
 		slot.OnFailure(func(auth.Failure) (time.Duration, bool) { return s.refused(r) })
+		slot.RequireScope(routeScope)
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
 			v := recover()
@@ -333,7 +339,7 @@ func (s *server) instrument(next http.Handler) http.Handler {
 			}
 			s.metrics.count(r.Pattern, code)
 			if p, ok := slot.Principal(); ok {
-				s.audit(r, p, code)
+				s.audit(r, p, code, slot.MissingScope())
 			} else if f, ok := slot.Failure(); ok && code == http.StatusUnauthorized {
 				// A throttled failure (429) leaves no event: it is counted.
 				s.authFailed(r, f)

@@ -7,6 +7,7 @@ package etl
 import (
 	"context"
 	"io"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -65,7 +66,14 @@ func TestWorker_ProcessesCompletesAndFails(t *testing.T) {
 	// A job for a provider nobody registered fails and is retried later.
 	e.enqueue(e.upload(e.tenant, e.user, "nobody", "x", q("heart_rate", 60, "bpm", at)))
 
-	w := NewWorkerWith(e.pool, e.rs, queue.NewETL(e.pool), queue.TierStandard, 2, WithLookup(e.reg.Get))
+	var mu sync.Mutex
+	rows := map[string]int{}
+	w := NewWorkerWith(e.pool, e.rs, queue.NewETL(e.pool), queue.TierStandard, 2, WithLookup(e.reg.Get),
+		WithRowsWritten(func(table string, n int) {
+			mu.Lock()
+			defer mu.Unlock()
+			rows[table] += n
+		}))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx) }()
@@ -83,6 +91,9 @@ func TestWorker_ProcessesCompletesAndFails(t *testing.T) {
 	}
 	assert.Equal(t, 4, e.count("quantity_samples"))
 	assert.Equal(t, 1, e.jobStates()["pending"], "the failed job waits for its backoff")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 4, rows["quantity_samples"], "the rows each job wrote are reported; the failed job reports none")
 }
 
 func TestWorker_WaitsForInFlightJobsOnCancel(t *testing.T) {

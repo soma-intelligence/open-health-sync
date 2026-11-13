@@ -7,11 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // DefaultPurgeEvery is how often the purger looks for queued purges when the
@@ -23,10 +27,21 @@ const DefaultPurgeEvery = 10 * time.Second
 type Purger struct {
 	pool  *pgxpool.Pool
 	every time.Duration
+	// vault opens and reseals the sealed rows a purge takes a figure out of
+	// (WithVault). Without it a purge that meets such a row fails, and is
+	// retried, rather than leave the figure in the sealed value.
+	vault *vault.Vault
 }
 
 // NewPurger returns a Purger polling every DefaultPurgeEvery.
 func NewPurger(pool *pgxpool.Pool) *Purger { return &Purger{pool: pool, every: DefaultPurgeEvery} }
+
+// WithVault returns the purger with the vault of the instance, which it
+// needs to take a revoked figure out of a sealed row (see sealedFigures).
+func (p *Purger) WithVault(v *vault.Vault) *Purger {
+	p.vault = v
+	return p
+}
 
 // Run purges until ctx is done. A failed purge is logged and retried on the
 // next pass.
@@ -90,7 +105,7 @@ func (p *Purger) Once(ctx context.Context) (bool, error) {
 	}
 	n := int64(0)
 	if !granted {
-		if n, err = purge(ctx, tx, tenant, user, provider, cat); err != nil {
+		if n, err = purge(ctx, tx, vault.NewReader(p.vault, tenant, user), tenant, user, provider, cat); err != nil {
 			return false, err
 		}
 	}
@@ -146,7 +161,7 @@ func allAliases(table string) string {
 
 // purge deletes the user's records of category cat that came from provider,
 // and the statistics derived from them, and returns how many records went.
-func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat string) (int64, error) {
+func purge(ctx context.Context, tx pgx.Tx, keys *vault.Reader, tenant, user uuid.UUID, provider, cat string) (int64, error) {
 	// A user's rows in a compressed chunk may need decompressing.
 	if _, err := tx.Exec(ctx, `SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0`); err != nil {
 		return 0, fmt.Errorf("consent: purge: %w", err)
@@ -253,7 +268,12 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 		}
 	}
 	// The figures of cat that records of other categories carry go too; the
-	// records stay, so they are not counted as deleted.
+	// records stay, so they are not counted as deleted. A clear row loses
+	// the column; a sealed row holds the figure inside its sealed value, where
+	// an UPDATE of the (NULL) column changes nothing, so it is opened, the
+	// figure dropped, and the row sealed again (sealedFigures).
+	var tables []string
+	cols := map[string][]string{}
 	for _, f := range figures {
 		if f.category != cat {
 			continue
@@ -263,6 +283,127 @@ func purge(ctx context.Context, tx pgx.Tx, tenant, user uuid.UUID, provider, cat
 			tenant, user, provider); err != nil {
 			return 0, fmt.Errorf("consent: purge %s figure %s.%s: %w", cat, f.table, f.column, err)
 		}
+		if _, ok := cols[f.table]; !ok {
+			tables = append(tables, f.table)
+		}
+		cols[f.table] = append(cols[f.table], f.column)
+	}
+	for _, table := range tables {
+		if err := sealedFigures(ctx, tx, keys, tenant, user, provider, table, cols[table]); err != nil {
+			return 0, fmt.Errorf("consent: purge %s figures of %s: %w", cat, table, err)
+		}
 	}
 	return total, nil
+}
+
+// figureBatch is how many sealed rows one pass of sealedFigures reads and
+// rewrites.
+const figureBatch = 500
+
+// sealedFigures takes the figures cols out of the sealed rows of table (a
+// qualified name of ohs_data) that came from provider: each row is opened,
+// the figures it holds are set to NULL, and the row is sealed again under
+// the same identity, with its content MAC recomputed, so nothing of the
+// revoked category is left inside the sealed value. A row that holds none
+// of the figures is not rewritten. Rows are taken by id, figureBatch at a
+// time.
+//
+// The purge fails, and is retried, when a sealed row cannot be read: the
+// purger was given no vault, or the row does not open. The one exception is
+// a user whose keys are gone: an erasure shredded them, nobody can open the
+// rows any more, and the deletion removes them.
+func sealedFigures(ctx context.Context, tx pgx.Tx, keys *vault.Reader, tenant, user uuid.UUID, provider, table string, cols []string) error {
+	t, ok := vault.Schema[strings.TrimPrefix(table, "ohs_data.")]
+	if !ok {
+		return fmt.Errorf("%s is not a sealed table", table)
+	}
+	drop := make([]int, 0, len(cols))
+	for _, c := range cols {
+		i := slices.IndexFunc(t.Sealed, func(s vault.Column) bool { return s.Name == c })
+		if i < 0 {
+			return fmt.Errorf("%s.%s is not a sealed column", table, c)
+		}
+		drop = append(drop, i)
+	}
+	identity := make([]string, len(t.Identity))
+	for i, c := range t.Identity {
+		identity[i] = `"` + c + `"`
+	}
+	after := int64(0)
+	for {
+		rows, err := tx.Query(ctx, `SELECT id, sealed, `+strings.Join(identity, ", ")+` FROM `+table+`
+			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND sealed IS NOT NULL AND id > $4
+			ORDER BY id LIMIT $5`, tenant, user, provider, after, figureBatch)
+		if err != nil {
+			return err
+		}
+		type stored struct {
+			id     int64
+			sealed []byte
+			ident  []any
+		}
+		batch, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (stored, error) {
+			s := stored{ident: make([]any, len(t.Identity))}
+			dest := []any{&s.id, &s.sealed}
+			for i := range s.ident {
+				dest = append(dest, &s.ident[i])
+			}
+			return s, r.Scan(dest...)
+		})
+		if err != nil {
+			return err
+		}
+		var ids []int64
+		var sealed, macs [][]byte
+		for _, s := range batch {
+			id, err := vault.RowIdentity(t, func(c string) any { return s.ident[slices.Index(t.Identity, c)] })
+			if err != nil {
+				return err
+			}
+			vals, err := keys.Open(ctx, t, id, s.sealed)
+			if errors.Is(err, vault.ErrNoKeys) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			changed := false
+			for _, i := range drop {
+				if vals[i] != nil {
+					vals[i], changed = nil, true
+				}
+			}
+			if !changed {
+				continue
+			}
+			uv, err := keys.Keys(ctx)
+			if err != nil {
+				return err
+			}
+			again, err := uv.SealRow(t, id, vals)
+			if err != nil {
+				return err
+			}
+			ids, sealed = append(ids, s.id), append(sealed, again)
+			if t.MAC {
+				macs = append(macs, uv.ContentMAC(t, vals))
+			}
+		}
+		if len(ids) > 0 {
+			set, args := "sealed = u.sealed", []any{tenant, user, ids, sealed}
+			from := "unnest($3::bigint[], $4::bytea[]) AS u(id, sealed)"
+			if t.MAC {
+				set, args = set+", content_mac = u.mac", append(args, macs)
+				from = "unnest($3::bigint[], $4::bytea[], $5::bytea[]) AS u(id, sealed, mac)"
+			}
+			if _, err := tx.Exec(ctx, `UPDATE `+table+` r SET `+set+` FROM `+from+`
+				WHERE r.tenant_id = $1 AND r.user_id = $2 AND r.id = u.id`, args...); err != nil {
+				return err
+			}
+		}
+		if len(batch) < figureBatch {
+			return nil
+		}
+		after = batch[len(batch)-1].id
+	}
 }

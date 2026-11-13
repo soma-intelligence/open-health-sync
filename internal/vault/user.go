@@ -20,6 +20,9 @@ type UserVault struct {
 	metrics      *Metrics
 }
 
+// Version is the newest key version of the user: the one new seals carry.
+func (u *UserVault) Version() uint32 { return u.newest.Version }
+
 // SealRow seals vals (in t.Sealed order, nil for NULL) for the row of t whose
 // identity is identity, under the newest data key.
 func (u *UserVault) SealRow(t Table, identity []byte, vals []any) ([]byte, error) {

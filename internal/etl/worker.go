@@ -34,6 +34,9 @@ type Worker struct {
 	idleMax     time.Duration
 	jobTimeout  time.Duration
 	grace       time.Duration
+	// rowsWritten, when set, is told the rows each job wrote, per table
+	// (WithRowsWritten).
+	rowsWritten func(table string, rows int)
 }
 
 // WorkerOption configures a Worker.
@@ -60,6 +63,13 @@ func WithWriterConfig(c WriterConfig) WorkerOption { return func(w *Worker) { w.
 // WithConsentRequired stores nothing from a source the user has recorded no
 // consent for (OHS_CONSENT_REQUIRED).
 func WithConsentRequired(b bool) WorkerOption { return func(w *Worker) { w.opts.ConsentRequired = b } }
+
+// WithRowsWritten makes the worker report the rows every processed job
+// wrote: fn is called once per table of the job's Counts with its written
+// count (the unqualified table name, "quantity_samples").
+func WithRowsWritten(fn func(table string, rows int)) WorkerOption {
+	return func(w *Worker) { w.rowsWritten = fn }
+}
 
 // WithVault gives every job the user's keys at its start (Options.Vault).
 func WithVault(v *vault.Vault) WorkerOption { return func(w *Worker) { w.opts.Vault = v } }
@@ -209,7 +219,12 @@ func (w *Worker) handle(ctx context.Context, job queue.ETLJob) {
 	}()
 	jobCtx, cancel := context.WithTimeout(ctx, w.jobTimeout)
 	defer cancel()
-	_, err := ProcessWith(jobCtx, w.pool, w.rs, job, w.opts)
+	counts, err := ProcessWith(jobCtx, w.pool, w.rs, job, w.opts)
+	if err == nil && w.rowsWritten != nil {
+		for table, tc := range counts {
+			w.rowsWritten(table, tc.Written)
+		}
+	}
 	// Settle on the base context: the job's own may have expired.
 	outcome = w.settle(ctx, log, job, err)
 }

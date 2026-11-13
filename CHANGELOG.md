@@ -17,6 +17,42 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 
 ### Added
 
+- A user has a time zone: `timezone` (an IANA name) and `timezone_source` on the user object.
+  Set it at `POST /v1/users` or with the new `PATCH /v1/users/{id}` (`users:write`, audit action
+  `user.update`); `null` clears it. Left unset, it is learnt from the latest record of an Apple
+  Health or Health Connect upload that carries a zone, and a zone you set is never replaced by a
+  learnt one. Migration `0052` adds the columns.
+- A process without the `api` role (`OHS_ROLES=collect`, `etl`) serves `/healthz`, `/readyz` and
+  `/metrics` on an ops listener of its own, `OHS_OPS_LISTEN`: `127.0.0.1:8081` by default
+  without the `api` role, off with it, `off` to turn it off, no credential. Until now a worker
+  had no HTTP at all. Its `/healthz` is the liveness of the process's background loops (pull
+  scheduler, subscriber and workers, the two ETL tiers, the webhook dispatcher, the deletion
+  worker, the consent purger): each beats once per round, and `/healthz` answers 503 naming the
+  loop that has been silent for three of its rounds (one minute at least). A worker whose slots
+  are all held by long jobs is busy, not hung, until a job goes past its time limit. `/readyz`
+  is the API's check, schema version included. Its `/metrics` adds the queue depth and the age
+  of the oldest due job per queue (counted every 15 s, not per scrape), job duration histograms
+  by queue, kind and outcome, pull duration by provider, webhook delivery duration by outcome,
+  and the last beat of each loop, next to the `ohs_etl_` metrics a worker never exposed. The
+  Helm chart probes the `collect` and `etl` pods of `splitRoles` on that listener (startup,
+  liveness, readiness) in place of the `ohs doctor --quick` exec probe, which could not see a
+  hung loop, names the port `ops` (`splitRoles.opsPort`), scrapes them with a PodMonitor when
+  `serviceMonitor.enabled`, and opens the port in the NetworkPolicy (`networkPolicy.opsFrom`).
+  Two workers on one host need an address each. See
+  [docs/observability.md](docs/observability.md#health).
+- API key scopes. A key holds `*` (everything, the default and what every existing key keeps) or a
+  list of `tenant:read`, `users:read`, `users:write`, `tokens:write`, `data:read`, `data:write`,
+  `data:delete`, `connections:read`, `connections:write`, `webhooks:read`, `webhooks:write`,
+  `exports:read`, `exports:write`, `keys:read`, `keys:write`, `audit:read`, `admin:read` and
+  `admin:write`; a `:write` scope also grants the `:read` of its resource. Every route behind a
+  credential needs exactly one scope (`x-required-scope` in the OpenAPI description); a key
+  without it gets 403 naming the scope, recorded in the audit log with `missing_scope`. Create a
+  scoped key with `{"scopes": [...]}` on `POST /v1/keys` (never more than the calling key holds)
+  and `POST /v1/admin/tenants/{tenant_id}/keys`, or `ohs admin key create --scopes a,b`; key
+  listings and `GET /v1/tenant` show the scopes. A user token never does more than the key that
+  minted it. An admin key can be reduced to `admin:read` or to its own tenant; one with `*` or
+  `admin:write` still reaches every tenant. Migration `0051` adds `api_keys.scopes`. See
+  [docs/api.md](docs/api.md#key-scopes).
 - The console's provider page shows the provider's sync schedule: how often it is pulled, with and
   without notifications, how far each pull reads again, the catch-up after an outage, the backfill
   of a new connection and the daily reconciliation. `GET /v1/admin/providers` and
@@ -87,6 +123,22 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 
 ### Changed
 
+- A sample that carries no time zone (Eight Sleep, Suunto, any source that sends instants only)
+  counts toward the day of the user's time zone when the user has one, and toward the UTC day
+  only when the user has none: the order is the sample's zone, the user's, UTC, for the derived
+  daily summaries, the coverage days and the `tz` column, sealed or clear. The zone is stored
+  with the sample, so changing a user's zone moves no stored sample to another day and
+  recomputes no daily summary already derived: the days written before keep the zone they were
+  written in. `samples/stats` still defaults `tz` to UTC.
+- An ETL job no longer holds its whole part in memory. A part with more than 10,000 quantity
+  samples, category samples, heartbeats and observations is read twice and written in chunks
+  inside its one transaction (2,500 under a soft memory limit of 512 MiB or less), with the same
+  rows and counts as before. A 64 MiB Apple Health part (162,480 samples) took 536 MiB of heap
+  sealed and 395 MiB clear (335 and 275 MiB under a 256 MiB soft limit, at the cost of a sealed
+  job three times slower); it now peaks near 42 MiB and 34 MiB, and a larger part of bulk
+  records adds next to nothing. Sleep sessions with their
+  stages, workouts with their routes, ECG recordings, nutrition logs, provider daily summaries
+  and deletions are still held for the length of the job.
 - The default compose file caps `ohs` at 1 GB (`mem_limit`, `OHS_MEM_LIMIT`), and `ohs` sets
   `GOMEMLIMIT` itself to three quarters of the container's memory limit when it is unset or
   empty, so the soft limit follows `OHS_MEM_LIMIT` (`OHS_GOMEMLIMIT` overrides it). Eight concurrent large uploads took the

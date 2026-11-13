@@ -5,7 +5,9 @@ package vault
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -33,6 +35,20 @@ type Metrics struct {
 	providerCount  atomic.Int64
 	providerMicros atomic.Int64
 	providerBucket []atomic.Int64 // one per providerBuckets entry, not cumulative
+
+	// clear is the last Status: the rows still stored clear, by table, and
+	// the raw objects not sealed. Nil until SetClearRows.
+	clearMu sync.Mutex
+	clear   *StatusReport
+}
+
+// SetClearRows records what Status found, for the ohs_vault_clear_rows and
+// ohs_vault_clear_raw_objects gauges: what `ohs vault seal` still has to
+// convert before the release that drops the clear columns.
+func (m *Metrics) SetClearRows(s StatusReport) {
+	m.clearMu.Lock()
+	defer m.clearMu.Unlock()
+	m.clear = &s
 }
 
 // NewMetrics returns counters at zero.
@@ -115,4 +131,24 @@ func (m *Metrics) Write(w io.Writer) {
 	fmt.Fprintf(w, "ohs_vault_provider_seconds_bucket{le=\"+Inf\"} %d\n", n)
 	fmt.Fprintf(w, "ohs_vault_provider_seconds_sum %s\n", strconv.FormatFloat(float64(m.providerMicros.Load())/1e6, 'g', -1, 64))
 	fmt.Fprintf(w, "ohs_vault_provider_seconds_count %d\n", n)
+
+	m.clearMu.Lock()
+	st := m.clear
+	m.clearMu.Unlock()
+	if st == nil {
+		return
+	}
+	fmt.Fprint(w, "# HELP ohs_vault_clear_rows Rows still stored clear, by table (zero once `ohs vault seal` is done).\n")
+	fmt.Fprint(w, "# TYPE ohs_vault_clear_rows gauge\n")
+	tables := make([]string, 0, len(st.Tables))
+	for t := range st.Tables {
+		tables = append(tables, t)
+	}
+	slices.Sort(tables)
+	for _, t := range tables {
+		fmt.Fprintf(w, "ohs_vault_clear_rows{table=\"%s\"} %d\n", t, st.Tables[t])
+	}
+	fmt.Fprint(w, "# HELP ohs_vault_clear_raw_objects Raw objects stored before the vault and not sealed yet.\n")
+	fmt.Fprint(w, "# TYPE ohs_vault_clear_raw_objects gauge\n")
+	fmt.Fprintf(w, "ohs_vault_clear_raw_objects %d\n", st.RawObjects)
 }

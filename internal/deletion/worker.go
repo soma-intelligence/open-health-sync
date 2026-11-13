@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
+	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
@@ -34,6 +35,10 @@ const (
 	maxRevokeBudget     = 5 * time.Minute
 	defaultBackoff      = 5 * time.Second
 	maxBackoff          = 10 * time.Minute
+	// jobLimit is how long one deletion may hold the loop before the loop
+	// counts as hung (WithHeartbeat): a user with years of data and a slow
+	// raw store takes a while, never this long.
+	jobLimit = time.Hour
 )
 
 // Worker finishes the deletion jobs the API queued.
@@ -55,6 +60,7 @@ type Worker struct {
 	interval time.Duration
 	backoff  time.Duration // first retry delay of a failing job; doubles, capped at maxBackoff
 	grace    time.Duration // how long a job in flight may go on once Run's context ends
+	loop     *ops.Loop     // heartbeat of Run, nil without WithHeartbeat
 
 	mu    sync.Mutex
 	fails map[uuid.UUID]failState
@@ -87,6 +93,13 @@ func (w *Worker) WithVault(v *vault.Vault) *Worker {
 	return w
 }
 
+// WithHeartbeat makes Run beat on l at every pass, and report the deletion in
+// flight as work that excuses a silent loop.
+func (w *Worker) WithHeartbeat(l *ops.Loop) *Worker {
+	w.loop = l
+	return w
+}
+
 // WithShutdownGrace sets how long Run lets a job in flight go on once its
 // context ends (default 0: the job is cancelled at once). The cancelled job
 // stays pending and is picked again on the next start.
@@ -109,6 +122,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	t := time.NewTicker(w.interval)
 	defer t.Stop()
 	for {
+		w.loop.Tick()
 		n, err := w.pass(ctx, jobCtx)
 		if err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "deletion: pass failed", "error", err)
@@ -148,7 +162,9 @@ func (w *Worker) pass(ctx, jobCtx context.Context) (int, error) {
 			break
 		}
 		skip = append(skip, j.id.String())
+		busy := w.loop.Busy(jobLimit)
 		finished, err := w.run(jobCtx, j)
+		busy()
 		if err != nil {
 			if ctx.Err() != nil || jobCtx.Err() != nil {
 				// Shutdown cut the job short: not a failure, it stays

@@ -55,6 +55,65 @@ An API key lives until it is revoked, unless it was created with an expiry:
 `POST /v1/keys` with `{"expires_at": "2027-01-01T00:00:00Z"}` makes a key that is refused from
 that time on, with the user tokens it minted. Key listings show `expires_at` (null for a key that does not expire).
 
+### Key scopes
+
+An API key holds scopes: what it may do in its tenant. A key created without scopes holds `*`,
+everything, and so does every key created before version 0.3.0. Give a service only what it
+needs:
+
+```sh
+# A key for a dashboard that reads users and their data, nothing else.
+curl -s -X POST $OHS/v1/keys -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{"scopes":["users:read","data:read"]}'
+# {"id":"...","prefix":"ohs_sk_2dybB","scopes":["users:read","data:read"],"key":"ohs_sk_...", ...}
+```
+
+From a shell: `ohs admin key create --tenant <id> --scopes users:read,data:read`.
+
+| Scope | Opens |
+|---|---|
+| `*` | Everything, the scopes added later included |
+| `tenant:read` | `GET /v1/tenant`, `GET /v1/providers` |
+| `users:read` | `GET /v1/users`, `GET /v1/users/{id}`, the user's consents and their history |
+| `users:write` | `POST /v1/users`, `PATCH /v1/users/{id}`, `PUT` and `DELETE /v1/users/{id}/consents/{provider}` |
+| `tokens:write` | Minting and revoking user tokens (`/v1/users/{id}/tokens`) |
+| `data:read` | Every read of health data: the lists, statistics, coverage, ECG, time tags, source priorities, FHIR, Open mHealth, and `/mcp` |
+| `data:write` | Uploads (`/v1/ingest/...` with a user token), self reports, creating, changing and deleting time tags, `PUT /v1/users/{id}/source-priorities` |
+| `data:delete` | `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`, `GET /v1/deletions/{job_id}` |
+| `connections:read` | A user's connections, freshness and sync runs, and the tenant's pipeline (`GET /v1/pipeline...`) |
+| `connections:write` | Starting, deleting and syncing a connection, connect sessions, retrying sync runs and processing jobs |
+| `webhooks:read` | Webhook endpoints and their deliveries |
+| `webhooks:write` | Creating, changing, deleting and testing endpoints, rotating secrets, retrying and replaying deliveries |
+| `exports:read` | `GET /v1/users/{id}/exports/{dataset}`, `GET /v1/users/{id}/archive`, listing and reading share links |
+| `exports:write` | Creating and revoking share links |
+| `keys:read` | `GET /v1/keys` |
+| `keys:write` | `POST /v1/keys`, `DELETE /v1/keys/{key_id}` |
+| `audit:read` | `GET /v1/audit` |
+| `admin:read` | Every `GET` under `/v1/admin`, on a key of an instance admin tenant |
+| `admin:write` | Every other route under `/v1/admin`, on a key of an instance admin tenant |
+
+The rules:
+
+- Every route that takes a credential needs exactly one scope. The OpenAPI description names it
+  on each operation as `x-required-scope`.
+- A `:write` scope also grants the `:read` of the same resource: `webhooks:write` lists
+  webhooks. `data:delete` grants nothing else.
+- A key without the scope of a route gets 403 with a `detail` that names it
+  (`this endpoint needs the scope users:read, which this API key does not hold`). The refusal is
+  in the [audit log](audit-log.md) with `missing_scope` in `detail`.
+- `POST /v1/keys` without `scopes` gives the new key the scopes of the calling key. With
+  `scopes`, each one must be granted by the calling key, else 403: `keys:write` alone is not a
+  way to full access. The scopes of a key never change; make a new key and revoke the old one.
+- A user token never does more than the key that minted it. Minting needs `tokens:write`, and
+  `data:write` for the token scope `upload`, `connections:write` for `connect`, `data:read` for
+  `read`. Each call made with the token is checked against that key's scopes as well: a `read`
+  token downloads the user archive only if its key holds `exports:read`. A token tied to no key
+  (minted before version 0.3.0) has no such limit.
+- `/mcp` needs `data:read`. Its tools `list_users` and `list_connections` answer under that
+  scope too.
+- `GET /v1/tenant` shows the scopes of the key in use (`key.scopes`), and key listings show the
+  scopes of each key.
+
 ### Rate limit
 
 Every route that takes a credential is rate limited per credential: an API key by itself, the
@@ -121,6 +180,23 @@ curl -s -X POST $OHS/v1/users -H "Authorization: Bearer $KEY" \
 `external_ref` is your own identifier, unique per tenant (a second user with the same one is a
 409); it may be omitted. `GET /v1/users` pages through the tenant's users, `GET /v1/users/{id}`
 returns one.
+
+A user has a time zone, `timezone` (an IANA name such as `Europe/Paris`, or null), with
+`timezone_source` saying where it came from. It is the zone of the local day of a sample that
+carries no zone of its own, as the cloud sources that report instants only send them (Eight
+Sleep, Suunto): the daily totals take the sample's zone, then the user's, then UTC.
+
+- Set it when you create the user (`{"external_ref":"customer-42","timezone":"Europe/Paris"}`)
+  or later with `PATCH /v1/users/{id}` and `{"timezone":"Europe/Paris"}`; `{"timezone":null}`
+  clears it. A zone set this way is `explicit`. A name that is not an IANA zone is a 400.
+- Left unset, it is learnt: when an Apple Health or Health Connect upload carries a zone, the
+  zone of its latest record becomes the user's (`learnt`), and later uploads keep it current. A
+  backfill of older records does not move it, and an `explicit` zone is never replaced.
+- It applies to what is written from then on. A stored sample keeps the day it was attributed
+  to (its zone is stored with it), and the daily summaries already derived are not recomputed:
+  after a change, the days written before still follow the zone they were written in.
+- The `tz` parameter of `samples/stats` does not default to it: without `tz` the intervals are
+  UTC days, as before.
 
 `DELETE /v1/users/{id}` answers 202 with a `job_id`. The user's status becomes `deleting` at
 once: reads return 404 and the user's tokens stop working, so uploads get 401 (410 only for an
@@ -339,7 +415,8 @@ Every record carries its provenance: `provider` (the integration it came through
 vendor that produced it, when known), `device` and `ingested_at`. The quantity names and their
 units are listed in [data-model.md](data-model.md). The ETL derives step, energy and distance
 totals per provider and local day from samples when a provider sends no daily summary of its
-own. `rr-intervals` serves the beat-to-beat intervals of heartbeat series and `hrv` the HRV
+own. The local day is the day in the sample's own time zone, else in the [user's](#users), else
+in UTC. `rr-intervals` serves the beat-to-beat intervals of heartbeat series and `hrv` the HRV
 derived from each series; the rules are in [hrv.md](hrv.md).
 
 ### Several sources of one metric: the merged view
@@ -640,8 +717,8 @@ API key and are recorded in the audit log.
 
 | Route | Purpose |
 |---|---|
-| `GET /v1/tenant` | The tenant of the key: `id`, `name`, `admin`, and the `id` and `prefix` of the key in use |
-| `GET /v1/keys`, `POST /v1/keys` | The tenant's API keys (revoked ones included, `current` marks the one in use, `expires_at` its expiry or null); create one, optionally with `{"expires_at": "..."}`, its full `key` is in the 201 answer only (`Cache-Control: no-store`) |
+| `GET /v1/tenant` | The tenant of the key: `id`, `name`, `admin`, and the `id`, `prefix` and `scopes` of the key in use |
+| `GET /v1/keys`, `POST /v1/keys` | The tenant's API keys (revoked ones included, `current` marks the one in use, `expires_at` its expiry or null, `scopes` what it may do); create one, optionally with `{"expires_at": "...", "scopes": [...]}` (see [key scopes](#key-scopes)), its full `key` is in the 201 answer only (`Cache-Control: no-store`) |
 | `DELETE /v1/keys/{key_id}` | Revoke a key and the user tokens it minted; 409 for the key making the call |
 | `DELETE /v1/users/{id}/tokens`, `DELETE /v1/users/{id}/tokens/{token_id}` | Revoke every token of a user (`{"revoked": n}`), or one by the `id` of its mint response (204) |
 | `GET /v1/pipeline` | The tenant's pipeline in one answer: users, sources (connections per provider and status, rate limit pauses), sync runs, processing jobs, rejected records, raw data stored in the last 24 hours, webhook endpoints and deliveries |

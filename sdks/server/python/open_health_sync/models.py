@@ -14,6 +14,14 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
 ConsentCategoryName = Literal["activity", "location", "heart", "ecg", "blood_pressure", "glucose", "respiratory", "body", "sleep", "nutrition", "reproductive", "mental", "other"]
 
+# One thing an API key may do. `*` is everything. A `:write` scope also grants the
+# `:read` of the same resource. `admin:read` and `admin:write` count only on a key of an
+# instance admin tenant.
+KeyScope = Literal["*", "tenant:read", "users:read", "users:write", "tokens:write", "data:read", "data:write", "data:delete", "connections:read", "connections:write", "webhooks:read", "webhooks:write", "exports:read", "exports:write", "keys:read", "keys:write", "audit:read", "admin:read", "admin:write"]
+
+# What the key may do. `["*"]` is everything; never empty.
+KeyScopes = List[KeyScope]
+
 # `data.written`: a sync wrote new or changed records. `data.deleted`: records the
 # provider deleted were removed. `data.erased`: everything a user held from one provider
 # was erased on your request. `user.deleted`: a user and all their data were erased.
@@ -131,6 +139,8 @@ class TenantKey(TypedDict):
 
     id: str
     prefix: str
+    # What the key may do. `["*"]` is everything; never empty.
+    scopes: KeyScopes
 
 
 class APIKey(TypedDict):
@@ -142,6 +152,8 @@ class APIKey(TypedDict):
     revoked_at: Optional[str]
     # When the key stops working by itself. Null for a key that does not expire.
     expires_at: Optional[str]
+    # What the key may do. `["*"]` is everything; never empty.
+    scopes: KeyScopes
     # True for the key making the call.
     current: bool
 
@@ -150,6 +162,9 @@ class CreateKeyRequest(TypedDict, total=False):
     # When the key stops working by itself (RFC 3339, in the future). Absent or null: the
     # key lives until it is revoked.
     expires_at: Optional[str]
+    # What the key may do. Absent, null or empty: on `POST /v1/keys` the scopes of the
+    # key making the call, on the admin route `["*"]`. A list holding `*` is `["*"]`.
+    scopes: Optional[List[KeyScope]]
 
 
 class CreatedAPIKey(TypedDict):
@@ -161,6 +176,8 @@ class CreatedAPIKey(TypedDict):
     revoked_at: Optional[str]
     # When the key stops working by itself. Null for a key that does not expire.
     expires_at: Optional[str]
+    # What the key may do. `["*"]` is everything; never empty.
+    scopes: KeyScopes
     # True for the key making the call.
     current: bool
     # The whole key, returned this once.
@@ -476,7 +493,7 @@ class _AuditEventRequired(TypedDict):
     id: int
     at: str
     actor: AuditEventActor
-    # data.read, data.export, data.write, user.create, user.read, user.delete,
+    # data.read, data.export, data.write, user.create, user.read, user.update, user.delete,
     # user.erased, token.create, connection.read, connection.create,
     # connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
     # config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
@@ -523,6 +540,14 @@ class Provider(_ProviderRequired, total=False):
 class CreateUserRequest(TypedDict, total=False):
     # The tenant's own reference, unique per tenant.
     external_ref: str
+    # The user's IANA time zone, such as `Europe/Paris`. Left out or null, the user has
+    # none until one is set or learnt from a device upload. See `User.timezone`.
+    timezone: Optional[str]
+
+
+class UpdateUserRequest(TypedDict):
+    # An IANA time zone name such as `Europe/Paris`, or null to clear the user's zone.
+    timezone: Optional[str]
 
 
 class User(TypedDict):
@@ -530,6 +555,15 @@ class User(TypedDict):
     external_ref: Optional[str]
     status: Literal["active", "deleting"]
     created_at: str
+    # The user's IANA time zone, null when none is known. It is the zone of the local
+    # day of a sample that carries no zone of its own: daily totals take the sample's
+    # zone, then this one, then UTC.
+    timezone: Optional[str]
+    # Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+    # when it was taken from the latest record of a device upload (Apple Health, Health
+    # Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+    # Null when `timezone` is.
+    timezone_source: Optional[Literal["explicit", "learnt"]]
 
 
 class DeletionJob(TypedDict):
@@ -2319,6 +2353,8 @@ __all__ = [
     "IngestBluetoothResponse",
     "IngestHealthConnectResponse",
     "IngestXiaomiResponse",
+    "KeyScope",
+    "KeyScopes",
     "ListAuditEventsResponse",
     "ListConnectionsResponse",
     "ListConsentHistoryResponse",
@@ -2408,6 +2444,7 @@ __all__ = [
     "TimeTagPage",
     "TimeTagTime",
     "UpdateTimeTagRequest",
+    "UpdateUserRequest",
     "UpdateWebhookRequest",
     "User",
     "UserToken",

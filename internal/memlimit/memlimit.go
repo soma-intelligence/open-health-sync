@@ -83,7 +83,8 @@ func CgroupLimit(root string) (int64, bool) {
 const LowLimit = 512 << 20
 
 // Low reports whether the soft memory limit in force (call it after Apply) is
-// at most LowLimit. Caches sized for the default profile shrink then.
+// at most LowLimit. Caches sized for the default profile shrink then, and the
+// ETL writes a large object in smaller chunks (etl.LowChunkRecords).
 func Low() bool {
 	return debug.SetMemoryLimit(-1) <= LowLimit
 }

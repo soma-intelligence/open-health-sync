@@ -168,7 +168,9 @@ The columns queries filter, sort or join on, and nothing else:
 - `unit`, `source_slug`, `is_primary_source`, and a new boolean `worn` (computed by the ETL from
   the device fields, which are sealed, so the merged view can still rank sources in SQL)
 - `content_hash`, now an HMAC under the user's index key (see below)
-- promoted out of `metadata` because SQL filters or ranks on them: `tz`, `summary_date`,
+- promoted out of `metadata` because SQL filters or ranks on them: `tz` (the zone the row's
+  local day was taken in: the record's own, else the user's `end_users.timezone` at the time
+  of the write), `summary_date`,
   `derived`, `synthesized`, and `source_key` (a keyed HMAC of the source, replacing the
   `sourceName` and `device_id` expressions of the merged view)
 - `external_id`: the provider's own record id, needed to apply provider deletions; it carries no

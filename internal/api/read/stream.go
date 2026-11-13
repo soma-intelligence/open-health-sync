@@ -170,7 +170,8 @@ func (s *sweep) rule(metric string) *sweepRule {
 }
 
 // streamCols are the wear and the stream key of a sample (alias r), as the
-// SQL view ranks them.
+// SQL view ranks them: from the clear source columns of a clear row, from
+// worn and source_key on a sealed one.
 var streamCols = quantityFamily.wear("r") + ", r.provider || '|' || " + quantityFamily.stream("r")
 
 // bounds are the conditions on the rows the pass reads: those of q's range
@@ -350,6 +351,7 @@ func (s *sweep) coveredByPast(a *sweepItem) bool {
 }
 
 func (s *sweep) run(ctx context.Context, db Querier, tenantID, userID uuid.UUID) error {
+	keys := keysFor(ctx, tenantID, userID)
 	var afterT time.Time
 	var afterID int64
 	paged := false
@@ -364,7 +366,7 @@ func (s *sweep) run(ctx context.Context, db Querier, tenantID, userID uuid.UUID)
 			after := arg(afterT)
 			where = append(where, "start_date >= "+after, "(start_date, id) > ("+after+", "+arg(afterID)+")")
 		}
-		sql := "SELECT " + sampleCols + ", " + streamCols + " FROM ohs_data.quantity_samples r WHERE " +
+		sql := "SELECT " + sampleSel.List("") + ", " + streamCols + " FROM ohs_data.quantity_samples r WHERE " +
 			strings.Join(where, " AND ") + " ORDER BY start_date, id LIMIT " + arg(streamBatch)
 		rows, err := db.Query(ctx, sql, args...)
 		if err != nil {
@@ -377,7 +379,7 @@ func (s *sweep) run(ctx context.Context, db Querier, tenantID, userID uuid.UUID)
 		}
 		batch, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (row, error) {
 			var x row
-			err := r.Scan(append(x.s.dest(), &x.wear, &x.key)...)
+			err := sampleSel.Scan(ctx, keys, r, x.s.dest(), &x.wear, &x.key)
 			x.s.utc()
 			return x, err
 		})

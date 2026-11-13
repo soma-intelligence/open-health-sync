@@ -34,7 +34,7 @@ func (s *server) mountAudit(mux *http.ServeMux) {
 // the caller's, and is named on that tenant's log instead (asTenant). A write
 // that fails is logged and counted, never turned into an error for the
 // caller, who already has the response.
-func (s *server) audit(r *http.Request, p auth.Principal, code int) {
+func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope string) {
 	ev := audit.Event{
 		Tenant:    p.TenantID,
 		ActorType: audit.APIKey,
@@ -59,6 +59,13 @@ func (s *server) audit(r *http.Request, p auth.Principal, code int) {
 			}
 			ev.Detail[name] = v
 		}
+	}
+	// A request refused for a key scope (403) says which one.
+	if missingScope != "" {
+		if ev.Detail == nil {
+			ev.Detail = map[string]any{}
+		}
+		ev.Detail["missing_scope"] = missingScope
 	}
 	s.record(r, ev)
 }

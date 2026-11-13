@@ -22,5 +22,14 @@ func runDoctor(args []string, out io.Writer) error {
 	if fs.NArg() != 0 {
 		return usageErr("usage: ohs doctor [--quick]")
 	}
-	return app.Doctor(context.Background(), out, app.DoctorOptions{Quick: *quick})
+	ctx := context.Background()
+	err := app.Doctor(ctx, out, app.DoctorOptions{Quick: *quick})
+	if *quick {
+		return err
+	}
+	// The vault: its key provider and what is left to seal.
+	if doctorVault(ctx, out) && err == nil {
+		err = app.ErrDoctorFailed
+	}
+	return err
 }

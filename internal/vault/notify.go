@@ -60,6 +60,7 @@ func (v *Vault) Listen(ctx context.Context) error {
 			}
 		}
 	}()
+	go v.watchClearRows(ctx)
 	backoff := time.Second
 	for {
 		listened, err := v.listenOnce(ctx)

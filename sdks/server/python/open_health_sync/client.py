@@ -118,6 +118,7 @@ from .models import (
     TimeTag,
     TimeTagPage,
     UpdateTimeTagRequest,
+    UpdateUserRequest,
     UpdateWebhookRequest,
     User,
     UserToken,
@@ -336,6 +337,26 @@ class OpenHealthSync:
         return self._request(
             "GET",
             f"/v1/users/{_path(user_id)}",
+        )
+
+    def update_user(self, user_id: str, body: UpdateUserRequest) -> User:
+        """Set or clear an end user's time zone.
+
+        ``PATCH /v1/users/{id}``
+
+        `timezone` is the zone of the local day of a sample that carries no zone of its own
+        (a cloud source that reports instants only): the ETL takes the sample's zone, then the
+        user's, then UTC. Setting it here makes it the developer's explicit choice
+        (`timezone_source` `explicit`), which a device upload never replaces; `null` clears
+        it, and the zone may then be learnt again from the user's device uploads.
+
+        The zone applies to what is written from then on. A stored sample keeps the day it
+        was attributed to, and the daily summaries already derived are not recomputed.
+        """
+        return self._request(
+            "PATCH",
+            f"/v1/users/{_path(user_id)}",
+            json_body=body,
         )
 
     def delete_user(self, user_id: str) -> DeleteUserResponse:
@@ -572,7 +593,10 @@ class OpenHealthSync:
         whose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI
         agent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working
         when it expires, when it is revoked (`id` names it), when its user is deleted, or when
-        the API key that minted it is revoked or expires.
+        the API key that minted it is revoked or expires. The key must hold the key scope each
+        token scope stands for (`data:write` for `upload`, `connections:write` for `connect`,
+        `data:read` for `read`), else 403; each call made with the token is then checked against
+        the scopes of that key.
         """
         return self._request(
             "POST",
@@ -2665,7 +2689,9 @@ class OpenHealthSync:
         A new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in
         this answer only. To rotate: deploy the new key, then revoke the old one. With
         `expires_at` the key stops working by itself at that time; without, it lives until it is
-        revoked. Recorded in the audit log as `key.create`.
+        revoked. With `scopes` the key does only what they allow; without, what the calling key
+        does. A key never creates a key holding a scope it lacks itself: that is a 403 naming
+        the scope. Recorded in the audit log as `key.create`.
         """
         return self._request(
             "POST",

@@ -113,7 +113,11 @@ func convertRow(ctx context.Context, tx TxLike, sc scope, table string, r Row, h
 		set = append(set, fmt.Sprintf("content_mac = $%d", len(args)))
 	}
 	if s.derive != nil {
-		for i, v := range s.derive(sc, func(c string) any { return r[c] }) {
+		// A stored row keeps the zone its day was attributed in: the user's
+		// zone of today is not read into a row written before.
+		stored := sc
+		stored.zone = nil
+		for i, v := range s.derive(stored, func(c string) any { return r[c] }) {
 			args = append(args, v)
 			set = append(set, fmt.Sprintf("%s = $%d", s.promoted[i], len(args)))
 		}

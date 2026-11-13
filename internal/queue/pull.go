@@ -62,6 +62,10 @@ const (
 	priorityBackfill = 2 // the history of a new connection
 )
 
+// TriggerName is what started the job, one of the Trigger constants, for
+// the metrics: Trigger, or what Inbound says when Trigger is empty.
+func (j PullJob) TriggerName() string { return j.trigger() }
+
 func (j PullJob) trigger() string {
 	switch {
 	case j.Trigger != "":

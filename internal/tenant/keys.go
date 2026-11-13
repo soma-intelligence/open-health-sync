@@ -30,6 +30,9 @@ type APIKey struct {
 	RevokedAt  *time.Time
 	// ExpiresAt is when the key stops working by itself. Nil means never.
 	ExpiresAt *time.Time
+	// Scopes are what the key may do (auth.KeyScopes): never empty,
+	// auth.ScopeAll alone for a key that does everything.
+	Scopes []string
 }
 
 // KeyOptions are the choices made when a key is created.
@@ -37,17 +40,24 @@ type KeyOptions struct {
 	// ExpiresAt is when the key stops working. Nil means it lives until it
 	// is revoked. A time that is not in the future is ErrExpiryPast.
 	ExpiresAt *time.Time
+	// Scopes are what the key may do (auth.KeyScopes). Empty means every
+	// scope (auth.ScopeAll). An unknown scope is ErrInvalidKeyScopes.
+	Scopes []string
 }
+
+// ErrInvalidKeyScopes means the scopes asked for a new key name a scope
+// that does not exist.
+var ErrInvalidKeyScopes = auth.ErrInvalidKeyScopes
 
 // ErrExpiryPast means the expiry asked for a new key is not in the future.
 var ErrExpiryPast = errors.New("tenant: the key expiry is not in the future")
 
 // apiKeyCols are the columns of an APIKey, in the order of scanAPIKey.
-const apiKeyCols = `id, key_prefix, created_at, last_used_at, revoked_at, expires_at`
+const apiKeyCols = `id, key_prefix, created_at, last_used_at, revoked_at, expires_at, scopes`
 
 func scanAPIKey(r pgx.Row) (APIKey, error) {
 	var k APIKey
-	err := r.Scan(&k.ID, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt, &k.ExpiresAt)
+	err := r.Scan(&k.ID, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt, &k.ExpiresAt, &k.Scopes)
 	return k, err
 }
 
@@ -146,7 +156,7 @@ func (s *Store) CreateKeyInfo(ctx context.Context, tenantID uuid.UUID) (string, 
 	return s.createKey(ctx, tenantID, KeyOptions{}, nil)
 }
 
-// CreateKeyWith is CreateKeyInfo with options (an expiry).
+// CreateKeyWith is CreateKeyInfo with options (an expiry, scopes).
 func (s *Store) CreateKeyWith(ctx context.Context, tenantID uuid.UUID, o KeyOptions) (string, APIKey, error) {
 	return s.createKey(ctx, tenantID, o, nil)
 }
@@ -158,7 +168,7 @@ func (s *Store) CreateKeyAudited(ctx context.Context, tenantID uuid.UUID, ev aud
 	return s.createKey(ctx, tenantID, KeyOptions{}, &ev)
 }
 
-// CreateKeyAuditedWith is CreateKeyAudited with options (an expiry).
+// CreateKeyAuditedWith is CreateKeyAudited with options (an expiry, scopes).
 func (s *Store) CreateKeyAuditedWith(ctx context.Context, tenantID uuid.UUID, o KeyOptions, ev audit.Event) (string, APIKey, error) {
 	return s.createKey(ctx, tenantID, o, &ev)
 }
@@ -166,6 +176,10 @@ func (s *Store) CreateKeyAuditedWith(ctx context.Context, tenantID uuid.UUID, o 
 func (s *Store) createKey(ctx context.Context, tenantID uuid.UUID, o KeyOptions, ev *audit.Event) (string, APIKey, error) {
 	if o.ExpiresAt != nil && !o.ExpiresAt.After(time.Now()) {
 		return "", APIKey{}, ErrExpiryPast
+	}
+	scopes, err := auth.NormalizeKeyScopes(o.Scopes)
+	if err != nil {
+		return "", APIKey{}, err
 	}
 	full, hash, err := auth.NewSecret(auth.PrefixSecretKey)
 	if err != nil {
@@ -178,10 +192,10 @@ func (s *Store) createKey(ctx context.Context, tenantID uuid.UUID, o KeyOptions,
 	defer tx.Rollback(ctx) //nolint:errcheck
 	k := APIKey{Prefix: full[:keyPrefixLen]}
 	err = tx.QueryRow(ctx,
-		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash, expires_at)
-		 SELECT id, $2, $3, $4::timestamptz FROM ohs_core.tenants WHERE id = $1
-		 RETURNING id, created_at, expires_at`,
-		tenantID, k.Prefix, hash, o.ExpiresAt).Scan(&k.ID, &k.CreatedAt, &k.ExpiresAt)
+		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash, expires_at, scopes)
+		 SELECT id, $2, $3, $4::timestamptz, $5 FROM ohs_core.tenants WHERE id = $1
+		 RETURNING id, created_at, expires_at, scopes`,
+		tenantID, k.Prefix, hash, o.ExpiresAt, scopes).Scan(&k.ID, &k.CreatedAt, &k.ExpiresAt, &k.Scopes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", APIKey{}, ErrNotFound
 	}
@@ -245,14 +259,15 @@ func (s *Store) revokeKeyByID(ctx context.Context, tenantID, keyID uuid.UUID, ev
 	return k, nil
 }
 
-// keyEvent is ev recorded for tenantID, with the key's id and prefix added to
-// a copy of its detail. The prefix is the one ListKeys shows followed by
+// keyEvent is ev recorded for tenantID, with the key's id, prefix and scopes
+// added to a copy of its detail. The prefix is the one ListKeys shows followed by
 // "...", as `ohs admin` writes it; the key itself never reaches the log.
 func keyEvent(ev audit.Event, tenantID uuid.UUID, k APIKey) audit.Event {
 	detail := make(map[string]any, len(ev.Detail)+2)
 	maps.Copy(detail, ev.Detail)
 	detail["key_id"] = k.ID.String()
 	detail["key_prefix"] = k.Prefix + "..."
+	detail["scopes"] = k.Scopes
 	ev.Tenant, ev.Detail = tenantID, detail
 	return ev
 }

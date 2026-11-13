@@ -38,6 +38,13 @@ type Config struct {
 	// /metrics presents. MetricsListen (OHS_METRICS_LISTEN) serves /metrics
 	// on an address of its own instead of the API listener.
 	MetricsToken, MetricsListen string
+	// OpsListen (OHS_OPS_LISTEN) serves /healthz, /readyz and /metrics on an
+	// address of its own, without a credential: the only HTTP a process
+	// without the api role has. Empty is off. Load sets DefaultOpsListen for
+	// a process without the api role when the variable is unset, and
+	// OpsListenDefault with it, so a taken port there is not fatal.
+	OpsListen        string
+	OpsListenDefault bool
 	// SetupToken (OHS_SETUP_TOKEN) opens the browser first run: POST
 	// /v1/setup creates the first tenant and its API key for whoever
 	// presents it, once, while the instance has no tenant. Empty (the
@@ -199,6 +206,11 @@ type RateLimit struct {
 // actions.
 const ConsoleReadOnly = "read-only"
 
+// DefaultOpsListen is OHS_OPS_LISTEN for a process without the api role:
+// the loopback interface, because the listener asks for no credential, and
+// the port next to the API's 8080 (9090 is Prometheus' own).
+const DefaultOpsListen = "127.0.0.1:8081"
+
 // MinMetricsToken is the shortest OHS_METRICS_TOKEN accepted.
 const MinMetricsToken = 16
 
@@ -281,6 +293,7 @@ var reserved = map[string]bool{
 	"CONSOLE":                      true,
 	"METRICS_TOKEN":                true,
 	"METRICS_LISTEN":               true,
+	"OPS_LISTEN":                   true,
 	"SETUP_TOKEN":                  true,
 	"SETUP_TOKEN_FILE":             true,
 	"RETENTION_DAYS":               true,
@@ -448,6 +461,14 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	c.MetricsListen = get("OHS_METRICS_LISTEN", "")
 	if c.MetricsListen != "" && c.MetricsListen == c.Listen {
 		return Config{}, fmt.Errorf("OHS_METRICS_LISTEN %q must differ from OHS_LISTEN", c.MetricsListen)
+	}
+	switch c.OpsListen = get("OHS_OPS_LISTEN", ""); {
+	case c.OpsListen == "off":
+		c.OpsListen = ""
+	case c.OpsListen == "" && !c.Roles["api"]:
+		c.OpsListen, c.OpsListenDefault = DefaultOpsListen, true
+	case c.OpsListen != "" && c.Roles["api"] && (c.OpsListen == c.Listen || c.OpsListen == c.MetricsListen):
+		return Config{}, fmt.Errorf("OHS_OPS_LISTEN %q must differ from OHS_LISTEN and OHS_METRICS_LISTEN", c.OpsListen)
 	}
 
 	if c.SetupToken, c.SetupTokenSource, err = secret(get, "OHS_SETUP_TOKEN", newToken); err != nil {

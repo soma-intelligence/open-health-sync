@@ -60,6 +60,38 @@ type ETL struct {
 	// than one job per user holds worker slots without writing faster, and
 	// one user's large import would keep every other user waiting.
 	PerUser int
+	// Hooks observe the claims and the settles. Set them before the first
+	// Claim.
+	Hooks ETLHooks
+}
+
+// ETLHooks tell the process what its ETL workers do, without the workers
+// knowing: the queue is where every worker loop comes round and where every
+// job starts and ends. A nil hook is skipped.
+type ETLHooks struct {
+	// Poll runs at the start of every Claim of tier: the heartbeat of that
+	// tier's worker loop.
+	Poll func(tier string)
+	// Claimed runs for each job a Claim returns.
+	Claimed func(j ETLJob)
+	// Settled runs once Complete or Fail has answered for a job, with how it
+	// ended: completed, failed, claim_lost (ErrNotRunning) or settle_error.
+	Settled func(j ETLJob, outcome string)
+}
+
+// settled reports the end of j: outcome is what the worker meant (completed
+// or failed), err what the settle statement answered.
+func (q *ETL) settled(j ETLJob, outcome string, err error) {
+	if q.Hooks.Settled == nil {
+		return
+	}
+	switch {
+	case errors.Is(err, ErrNotRunning):
+		outcome = "claim_lost"
+	case err != nil:
+		outcome = "settle_error"
+	}
+	q.Hooks.Settled(j, outcome)
 }
 
 // NewETL returns the ETL queue over pool.
@@ -136,6 +168,9 @@ const claimETLSQL = `
 // advisory lock), so the cap holds across instances. A claim can return
 // fewer than n jobs while more are due.
 func (q *ETL) Claim(ctx context.Context, tier string, n int) ([]ETLJob, error) {
+	if q.Hooks.Poll != nil {
+		q.Hooks.Poll(tier)
+	}
 	if n <= 0 {
 		return nil, nil
 	}
@@ -165,18 +200,27 @@ func (q *ETL) Claim(ctx context.Context, tier string, n int) ([]ETLJob, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("claim etl jobs: commit: %w", err)
 	}
+	if q.Hooks.Claimed != nil {
+		for _, j := range out {
+			q.Hooks.Claimed(j)
+		}
+	}
 	return out, nil
 }
 
 // Complete marks the job done. It returns ErrNotRunning if the claim is gone.
 func (q *ETL) Complete(ctx context.Context, j ETLJob) error {
-	return complete(ctx, "etl_jobs", q.pool, j.ID, j.ClaimedAt)
+	err := complete(ctx, "etl_jobs", q.pool, j.ID, j.ClaimedAt)
+	q.settled(j, "completed", err)
+	return err
 }
 
 // Fail records the error and retries the job after 30s*2^attempts, or parks
 // it once it has failed five times. It returns ErrNotRunning if the claim is gone.
 func (q *ETL) Fail(ctx context.Context, j ETLJob, cause error) error {
-	return fail(ctx, "etl_jobs", q.pool, j.ID, j.ClaimedAt, cause, standardBackoff)
+	err := fail(ctx, "etl_jobs", q.pool, j.ID, j.ClaimedAt, cause, standardBackoff)
+	q.settled(j, "failed", err)
+	return err
 }
 
 // ErrNotParked is returned by RetryETL for a job that is not parked: it is

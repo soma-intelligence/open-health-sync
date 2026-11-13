@@ -832,7 +832,7 @@ func deriveQuantity(sc scope, get func(string) any) []any {
 	return []any{
 		sc.sourceKey(firstNonEmpty(get("source_bundle_id"), get("source_name"), get("device_id"))),
 		namesWatch(get("product_type"), get("device_model"), get("source_name")),
-		metaText(md, MetadataTimezone), metaTrue(md, "derived"), metaTrue(md, "synthesized"),
+		sc.tzColumn(md, get("tz")), metaTrue(md, "derived"), metaTrue(md, "synthesized"),
 		metaDate(md, model.MetadataSummaryDate),
 	}
 }
@@ -852,8 +852,8 @@ func deriveSleep(sc scope, get func(string) any) []any {
 	return append(deriveWorkout(sc, get), metaTrue(get("metadata"), "synthesized"))
 }
 
-func deriveTZ(_ scope, get func(string) any) []any {
-	return []any{metaText(get("metadata"), MetadataTimezone)}
+func deriveTZ(sc scope, get func(string) any) []any {
+	return []any{sc.tzColumn(get("metadata"), get("tz"))}
 }
 
 func deriveDerived(_ scope, get func(string) any) []any {

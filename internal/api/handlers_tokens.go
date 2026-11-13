@@ -96,6 +96,15 @@ func (s *server) mintToken(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errTTLTooLong)
 		return
 	}
+	// A token never does more than the key that mints it: the key must
+	// hold the key scope each token scope stands for. The lookup holds the
+	// token to the key's scopes on every request as well.
+	for _, sc := range req.Scopes {
+		if need := auth.TokenNeeds(auth.Scope(sc)); need != "" && !p.Can(need) {
+			forbidScope(w, need)
+			return
+		}
+	}
 	// The token remembers the key that minted it: revoking the key revokes
 	// the token. An admin serving another tenant mints with a key that is
 	// not this tenant's; such a token is tied to no key.

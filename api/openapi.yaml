@@ -13,6 +13,18 @@ info:
     or `read`, and call the user routes. A tenant key on a user route, or a user token on
     a tenant route, gets 403.
 
+    **Key scopes.** An API key holds scopes, chosen when it is created: `["*"]` (the default,
+    everything) or a list of `tenant:read`, `users:read`, `users:write`, `tokens:write`,
+    `data:read`, `data:write`, `data:delete`, `connections:read`, `connections:write`,
+    `webhooks:read`, `webhooks:write`, `exports:read`, `exports:write`, `keys:read`,
+    `keys:write`, `audit:read`, `admin:read` and `admin:write`. A `:write` scope also grants
+    the `:read` of the same resource. Each operation that takes a credential needs exactly one
+    scope, its `x-required-scope`; a key without it gets 403 with a `detail` naming the scope,
+    and the refusal is in the audit log with `missing_scope`. A user token never does more
+    than the key that minted it: minting needs `data:write` for `upload`, `connections:write`
+    for `connect` and `data:read` for `read`, and each call with the token is checked against
+    that key's scopes. See docs/api.md.
+
     **Lists** are ordered by time ascending and paged with `cursor` and `limit` (default
     100, at most 1000; a larger limit is a 400). Every list answers
     `{"data": [...], "next_cursor": "..." | null}`; pass `next_cursor` back as `cursor`
@@ -118,6 +130,7 @@ paths:
     get:
       tags: [providers]
       operationId: listProviders
+      x-required-scope: "tenant:read"
       summary: Connectors enabled on this instance
       description: |
         The connectors enabled on this instance, less those an instance admin turned off for the
@@ -141,6 +154,7 @@ paths:
     post:
       tags: [users]
       operationId: createUser
+      x-required-scope: "users:write"
       summary: Create an end user
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -174,6 +188,7 @@ paths:
     get:
       tags: [users]
       operationId: listUsers
+      x-required-scope: "users:read"
       summary: List the tenant's end users, oldest first
       parameters:
         - $ref: "#/components/parameters/Cursor"
@@ -201,6 +216,7 @@ paths:
     get:
       tags: [users]
       operationId: getUser
+      x-required-scope: "users:read"
       summary: Get one end user
       responses:
         "200":
@@ -211,9 +227,40 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [users]
+      operationId: updateUser
+      x-required-scope: "users:write"
+      summary: Set or clear an end user's time zone
+      description: |
+        `timezone` is the zone of the local day of a sample that carries no zone of its own
+        (a cloud source that reports instants only): the ETL takes the sample's zone, then the
+        user's, then UTC. Setting it here makes it the developer's explicit choice
+        (`timezone_source` `explicit`), which a device upload never replaces; `null` clears
+        it, and the zone may then be learnt again from the user's device uploads.
+
+        The zone applies to what is written from then on. A stored sample keeps the day it
+        was attributed to, and the daily summaries already derived are not recomputed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateUserRequest" }
+      responses:
+        "200":
+          description: The user after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
     delete:
       tags: [users]
       operationId: deleteUser
+      x-required-scope: "data:delete"
       summary: Hard-delete an end user
       description: |
         The user's status becomes `deleting` at once: reads of their data return 404 and
@@ -247,6 +294,7 @@ paths:
     get:
       tags: [users]
       operationId: getDeletion
+      x-required-scope: "data:delete"
       summary: Status of a deletion
       description: |
         Poll until `status` is `done`: the user's raw files and rows are gone (with `provider`
@@ -266,6 +314,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: createWebhook
+      x-required-scope: "webhooks:write"
       summary: Register a webhook endpoint
       description: |
         The endpoint receives a signed POST for each event of `event_types` (empty or absent:
@@ -297,6 +346,7 @@ paths:
     get:
       tags: [webhooks]
       operationId: listWebhooks
+      x-required-scope: "webhooks:read"
       summary: The tenant's webhook endpoints
       description: Oldest first, on one page (`next_cursor` is always null).
       responses:
@@ -319,6 +369,7 @@ paths:
     get:
       tags: [webhooks]
       operationId: getWebhook
+      x-required-scope: "webhooks:read"
       summary: One webhook endpoint
       responses:
         "200":
@@ -332,6 +383,7 @@ paths:
     patch:
       tags: [webhooks]
       operationId: updateWebhook
+      x-required-scope: "webhooks:write"
       summary: Change a webhook endpoint
       description: |
         Absent fields stay as they are. `enabled: false` disables the endpoint and parks its
@@ -355,6 +407,7 @@ paths:
     delete:
       tags: [webhooks]
       operationId: deleteWebhook
+      x-required-scope: "webhooks:write"
       summary: Delete a webhook endpoint
       description: The endpoint and its deliveries are deleted; nothing more is sent to it.
       responses:
@@ -369,6 +422,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: rotateWebhookSecret
+      x-required-scope: "webhooks:write"
       summary: Replace the signing secret
       description: |
         The new secret signs every request from now on, retries of earlier events included.
@@ -416,6 +470,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: testWebhook
+      x-required-scope: "webhooks:write"
       summary: Send a test event
       description: |
         Queues a test event for this endpoint alone, whatever its event types. Without a body (or
@@ -444,6 +499,7 @@ paths:
     get:
       tags: [webhooks]
       operationId: listWebhookDeliveries
+      x-required-scope: "webhooks:read"
       summary: The endpoint's deliveries
       description: |
         Newest first (unlike the data lists). Finished deliveries are kept 30 days.
@@ -478,6 +534,7 @@ paths:
     get:
       tags: [webhooks]
       operationId: getWebhookDelivery
+      x-required-scope: "webhooks:read"
       summary: One delivery with its payload and attempts
       description: |
         The delivery, the exact JSON body it sends (`payload`) and its attempts, oldest first: status
@@ -500,6 +557,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: replayWebhookDelivery
+      x-required-scope: "webhooks:write"
       summary: Send a finished delivery's event again, as a new delivery
       description: |
         Queues a new delivery of a `done` or `parked` delivery's event: same `event_id` (so the same
@@ -528,6 +586,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: retryWebhookDelivery
+      x-required-scope: "webhooks:write"
       summary: Send a finished delivery again
       description: |
         A `done` or `parked` delivery is sent again from its first attempt, with its original
@@ -549,6 +608,7 @@ paths:
     post:
       tags: [tokens]
       operationId: mintUserToken
+      x-required-scope: "tokens:write"
       summary: Mint a user token
       description: |
         Returns an opaque `ohs_ut_` token for one active user, shown only in this response
@@ -556,7 +616,10 @@ paths:
         whose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI
         agent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working
         when it expires, when it is revoked (`id` names it), when its user is deleted, or when
-        the API key that minted it is revoked or expires.
+        the API key that minted it is revoked or expires. The key must hold the key scope each
+        token scope stands for (`data:write` for `upload`, `connections:write` for `connect`,
+        `data:read` for `read`), else 403; each call made with the token is then checked against
+        the scopes of that key.
       requestBody:
         required: true
         content:
@@ -579,6 +642,7 @@ paths:
     delete:
       tags: [tokens]
       operationId: revokeUserTokens
+      x-required-scope: "tokens:write"
       summary: Revoke every token of a user
       description: |
         Every token of the user that is still valid is refused from now on. Recorded in the audit
@@ -610,6 +674,7 @@ paths:
     delete:
       tags: [tokens]
       operationId: revokeUserToken
+      x-required-scope: "tokens:write"
       summary: Revoke one token of a user
       description: |
         The token is refused from now on. Revoking a revoked or expired token changes nothing. An
@@ -627,6 +692,7 @@ paths:
     get:
       tags: [connections]
       operationId: listConnections
+      x-required-scope: "connections:read"
       summary: The user's provider connections
       responses:
         "200":
@@ -650,6 +716,7 @@ paths:
     get:
       tags: [connections]
       operationId: getFreshness
+      x-required-scope: "connections:read"
       summary: How up to date each of the user's sources is
       description: |
         One entry per provider connection, then one per device source (Apple Health) that uploaded,
@@ -684,6 +751,7 @@ paths:
     post:
       tags: [connections]
       operationId: startConnection
+      x-required-scope: "connections:write"
       summary: Start connecting a provider
       description: |
         Returns the provider's consent URL. Send the user there; after consent the user
@@ -722,6 +790,7 @@ paths:
     delete:
       tags: [connections]
       operationId: deleteConnection
+      x-required-scope: "connections:write"
       summary: Disconnect a provider
       description: |
         Revokes the provider grant (best effort) and stops pulling. By default the data
@@ -761,6 +830,7 @@ paths:
     get:
       tags: [consent]
       operationId: listConsents
+      x-required-scope: "users:read"
       summary: The user's consent per source and data category
       description: |
         Every source the user has recorded consent for, with the state of each data
@@ -792,6 +862,7 @@ paths:
     get:
       tags: [consent]
       operationId: listConsentHistory
+      x-required-scope: "users:read"
       summary: Every consent change of the user, newest first
       description: |
         One event per category granted or revoked, with the credential that made the change
@@ -824,6 +895,7 @@ paths:
     put:
       tags: [consent]
       operationId: setConsent
+      x-required-scope: "users:write"
       summary: Set the categories the user allows from a source
       description: |
         `granted` becomes the whole list: every category left out is revoked. From then on
@@ -862,6 +934,7 @@ paths:
     delete:
       tags: [consent]
       operationId: revokeConsent
+      x-required-scope: "users:write"
       summary: Revoke every category of a source
       description: The same as a PUT with `granted` empty.
       parameters:
@@ -888,6 +961,7 @@ paths:
     delete:
       tags: [users]
       operationId: deleteProviderData
+      x-required-scope: "data:delete"
       summary: Erase a user's data from one provider
       description: |
         Erases everything the user holds from one provider without touching any connection:
@@ -920,6 +994,7 @@ paths:
     post:
       tags: [connections]
       operationId: createConnectSession
+      x-required-scope: "connections:write"
       summary: Create a link to the hosted connection page
       description: |
         Returns a link to a page served by Open Health Sync where the user picks a provider and goes
@@ -951,6 +1026,7 @@ paths:
     post:
       tags: [connections]
       operationId: syncConnection
+      x-required-scope: "connections:write"
       summary: Sync a connection now
       description: |
         Queues a pull of the connection ahead of routine work and answers with the sync run; follow it
@@ -997,6 +1073,7 @@ paths:
     post:
       tags: [connections]
       operationId: retryFailedSyncRuns
+      x-required-scope: "connections:write"
       summary: Retry the failed sync runs of a connection
       description: |
         Queues again every `failed` run of the user's connection to the provider, with fresh
@@ -1023,6 +1100,7 @@ paths:
     get:
       tags: [connections]
       operationId: listSyncRuns
+      x-required-scope: "connections:read"
       summary: The user's sync history
       description: |
         Every pull of the user's connections, newest first: what started it, its window, its status,
@@ -1065,6 +1143,7 @@ paths:
     get:
       tags: [connections]
       operationId: getSyncRun
+      x-required-scope: "connections:read"
       summary: One sync run
       responses:
         "200":
@@ -1086,6 +1165,7 @@ paths:
     post:
       tags: [connections]
       operationId: retrySyncRun
+      x-required-scope: "connections:write"
       summary: Retry a failed sync run
       description: |
         Queues a `failed` or `cancelled` run again with fresh attempts and answers with it; follow
@@ -1112,6 +1192,7 @@ paths:
     get:
       tags: [read]
       operationId: listSamples
+      x-required-scope: "data:read"
       summary: Quantity samples of one type
       parameters:
         - name: type
@@ -1141,6 +1222,7 @@ paths:
     get:
       tags: [read]
       operationId: sampleStats
+      x-required-scope: "data:read"
       summary: Statistics of one quantity type per hour or per local day
       description: |
         Count, sum, mean, min and max of the samples whose start falls in each interval. With
@@ -1205,6 +1287,7 @@ paths:
     get:
       tags: [read]
       operationId: listCategorySamples
+      x-required-scope: "data:read"
       summary: Category samples (events)
       parameters:
         - name: type
@@ -1233,6 +1316,7 @@ paths:
     get:
       tags: [read]
       operationId: listSleep
+      x-required-scope: "data:read"
       summary: Sleep sessions
       parameters:
         - $ref: "#/components/parameters/Start"
@@ -1261,6 +1345,7 @@ paths:
     get:
       tags: [read]
       operationId: listSleepPhases
+      x-required-scope: "data:read"
       summary: Phases of one sleep session
       parameters:
         - $ref: "#/components/parameters/Start"
@@ -1284,6 +1369,7 @@ paths:
     get:
       tags: [read]
       operationId: listWorkouts
+      x-required-scope: "data:read"
       summary: Workouts
       parameters:
         - name: type
@@ -1316,6 +1402,7 @@ paths:
     get:
       tags: [read]
       operationId: getWorkoutRoute
+      x-required-scope: "data:read"
       summary: GPS route of one workout
       parameters:
         - $ref: "#/components/parameters/Start"
@@ -1339,6 +1426,7 @@ paths:
     get:
       tags: [read]
       operationId: listNutrition
+      x-required-scope: "data:read"
       summary: Nutrition logs
       description: |
         Food and drink entries from Apple Health and Health Connect. Each nutrient has one
@@ -1366,6 +1454,7 @@ paths:
     get:
       tags: [read]
       operationId: listDaily
+      x-required-scope: "data:read"
       summary: Daily summaries
       description: |
         In the merged view (the default), one summary per local calendar day: each figure
@@ -1395,6 +1484,7 @@ paths:
     get:
       tags: [read]
       operationId: listRRIntervals
+      x-required-scope: "data:read"
       summary: Beat-to-beat (RR) intervals
       description: |
         The stored RR intervals of the user's heartbeat series, one per beat, by beat time (beats
@@ -1426,6 +1516,7 @@ paths:
     get:
       tags: [read]
       operationId: listHRV
+      x-required-scope: "data:read"
       summary: Heart rate variability derived from the RR intervals
       description: |
         One record per heartbeat series: the time domain HRV measures (RMSSD, SDNN, pNN50) and the
@@ -1459,6 +1550,7 @@ paths:
     get:
       tags: [read]
       operationId: listMenstrualCycles
+      x-required-scope: "data:read"
       summary: Menstrual cycles derived from the recorded flow
       description: |
         Derived at read time from the `menstrual_flow` category samples, so it always agrees with
@@ -1492,6 +1584,7 @@ paths:
     get:
       tags: [read]
       operationId: listECGRecordings
+      x-required-scope: "data:read"
       summary: ECG recordings, metadata only
       description: |
         The user's ECG recordings (Apple Watch, Withings) by start time, then id, without their
@@ -1524,6 +1617,7 @@ paths:
     get:
       tags: [read]
       operationId: getECGRecording
+      x-required-scope: "data:read"
       summary: One ECG recording with its voltage samples
       description: |
         One recording and its stored voltage samples, in offset order, as two parallel arrays:
@@ -1546,6 +1640,7 @@ paths:
     get:
       tags: [read]
       operationId: getSourcePriorities
+      x-required-scope: "data:read"
       summary: The order of sources the merged view ranks by
       description: |
         The user's own orders, keyed by metric (a quantity type, `sleep` or `workouts`), by
@@ -1565,6 +1660,7 @@ paths:
     put:
       tags: [read]
       operationId: putSourcePriorities
+      x-required-scope: "data:write"
       summary: Replace the user's orders of sources
       description: |
         Replaces every order of the user; `{"priorities": {}}` goes back to the built-in
@@ -1600,6 +1696,7 @@ paths:
     get:
       tags: [read]
       operationId: getCoverage
+      x-required-scope: "data:read"
       summary: What has landed, per provider and day, and what is still processing
       description: |
         Record counts per provider per local day, and `pending_jobs`, the user's work not
@@ -1633,6 +1730,7 @@ paths:
     post:
       tags: [tags]
       operationId: createTimeTag
+      x-required-scope: "data:write"
       summary: Record a time tag
       description: |
         A time tag is an interval that gives context to the user's data: an illness, a trip,
@@ -1673,6 +1771,7 @@ paths:
     get:
       tags: [tags]
       operationId: listTimeTags
+      x-required-scope: "data:read"
       summary: The user's time tags
       description: |
         By `start_at`, then id. With `start` and `end`, the tags that overlap the window
@@ -1707,6 +1806,7 @@ paths:
     get:
       tags: [tags]
       operationId: getTimeTag
+      x-required-scope: "data:read"
       summary: One time tag
       responses:
         "200":
@@ -1720,6 +1820,7 @@ paths:
     patch:
       tags: [tags]
       operationId: updateTimeTag
+      x-required-scope: "data:write"
       summary: Change a time tag
       description: |
         Absent members stay as they are; null clears `label`, `timezone`, `note` or `end_at`
@@ -1745,6 +1846,7 @@ paths:
     delete:
       tags: [tags]
       operationId: deleteTimeTag
+      x-required-scope: "data:write"
       summary: Delete a time tag
       responses:
         "204": { description: Deleted. }
@@ -1758,6 +1860,7 @@ paths:
     post:
       tags: [self-reports]
       operationId: createSelfReports
+      x-required-scope: "data:write"
       summary: Record the user's own ratings
       description: |
         1 to 100 self reports: how the person feels, their mood, stress, energy, sleep
@@ -1807,6 +1910,7 @@ paths:
     post:
       tags: [shares]
       operationId: createShare
+      x-required-scope: "exports:write"
       summary: Make a share link of the user's records
       description: |
         A SMART Health Link (HL7 FHIR IG "SMART Health Cards and Links", STU1) that the person
@@ -1853,6 +1957,7 @@ paths:
     get:
       tags: [shares]
       operationId: listShares
+      x-required-scope: "exports:read"
       summary: The user's share links
       description: |
         Oldest first, every status. Never a link, a key or a passcode: the server does not
@@ -1878,6 +1983,7 @@ paths:
     get:
       tags: [shares]
       operationId: getShare
+      x-required-scope: "exports:read"
       summary: One share link, with its latest accesses
       description: |
         The share and its 50 latest manifest requests, newest first, each with the name the
@@ -1894,6 +2000,7 @@ paths:
     delete:
       tags: [shares]
       operationId: revokeShare
+      x-required-scope: "exports:write"
       summary: Revoke a share link
       description: |
         The link stops working at once and its file is removed; the share stays listed as
@@ -1910,6 +2017,7 @@ paths:
     get:
       tags: [fhir]
       operationId: searchFHIRObservations
+      x-required-scope: "data:read"
       summary: The user's records as FHIR R4 Observations
       description: |
         The user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,
@@ -1988,6 +2096,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRObservation
+      x-required-scope: "data:read"
       summary: One FHIR R4 Observation
       description: |
         The Observation an entry's `fullUrl` points to. Not the user's, not an id of these
@@ -2013,6 +2122,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRPatient
+      x-required-scope: "data:read"
       summary: The user as a FHIR R4 Patient
       description: |
         The user as a Patient: `id` is the user id, `active` is true, and `identifier` is the
@@ -2035,6 +2145,7 @@ paths:
     get:
       tags: [fhir]
       operationId: everythingFHIRPatient
+      x-required-scope: "data:read"
       summary: The Patient and all their records, as FHIR R4 resources
       description: |
         One page of a `searchset` Bundle: on the first page the Patient, then the page's
@@ -2065,6 +2176,7 @@ paths:
     get:
       tags: [fhir]
       operationId: searchFHIRDevices
+      x-required-scope: "data:read"
       summary: The devices the user's records came from, as FHIR R4 Devices
       description: |
         A `searchset` Bundle of the devices named by the provenance of the user's quantity
@@ -2096,6 +2208,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRDevice
+      x-required-scope: "data:read"
       summary: One FHIR R4 Device
       description: |
         The Device an Observation references. A device none of the user's records names is a
@@ -2116,6 +2229,7 @@ paths:
     get:
       tags: [fhir]
       operationId: searchFHIRProvenance
+      x-required-scope: "data:read"
       summary: The Provenance of one Observation
       description: |
         A `searchset` Bundle holding the Provenance of the Observation `target` names, or no
@@ -2148,6 +2262,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRProvenance
+      x-required-scope: "data:read"
       summary: One FHIR R4 Provenance
       description: The Provenance of one Observation; an Observation that does not exist is a 404.
       responses:
@@ -2166,6 +2281,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRCapabilityStatement
+      x-required-scope: "data:read"
       summary: The FHIR R4 CapabilityStatement of the user's FHIR base
       description: What the FHIR routes serve (read only), as a CapabilityStatement.
       responses:
@@ -2184,6 +2300,7 @@ paths:
     get:
       tags: [omh]
       operationId: listOMHDataPoints
+      x-required-scope: "data:read"
       summary: The user's records as Open mHealth data points
       description: |
         The user's records as Open mHealth data points (a `header` and a `body` that follows one
@@ -2232,6 +2349,7 @@ paths:
     get:
       tags: [exports]
       operationId: exportDataset
+      x-required-scope: "exports:read"
       summary: One list of the user as a CSV or Parquet file
       description: |
         Every record of one list in `[start, end)`, as one file streamed in a single response
@@ -2276,6 +2394,7 @@ paths:
     get:
       tags: [exports]
       operationId: getUserArchive
+      x-required-scope: "exports:read"
       summary: Everything held about one user, as one zip file
       description: |
         The answer to a data portability request: one zip file streamed in a single response
@@ -2312,6 +2431,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestAppleHealth
+      x-required-scope: "data:write"
       summary: Upload one part of an Apple Health export
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one data type per part.
@@ -2390,6 +2510,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestHealthConnect
+      x-required-scope: "data:write"
       summary: Upload one part of Android Health Connect records
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one Health Connect record per
@@ -2463,6 +2584,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestXiaomi
+      x-required-scope: "data:write"
       summary: Upload one part of a Mi Fitness data copy
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one row of the Mi Fitness data
@@ -2536,6 +2658,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestActivityFiles
+      x-required-scope: "data:write"
       summary: Upload one activity file (FIT, GPX or TCX)
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated) holding one activity file on one
@@ -2615,6 +2738,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestBluetooth
+      x-required-scope: "data:write"
       summary: Upload one part of Bluetooth device values
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one characteristic value a
@@ -3073,6 +3197,7 @@ paths:
     post:
       tags: [mcp]
       operationId: mcp
+      x-required-scope: "data:read"
       summary: Read-only MCP server (Streamable HTTP, stateless)
       security:
         - tenantKey: []
@@ -3114,6 +3239,7 @@ paths:
     get:
       tags: [tenant]
       operationId: getTenant
+      x-required-scope: "tenant:read"
       summary: The tenant of the calling key
       description: |
         The tenant the key belongs to, whether it is the instance admin (the one tenant whose keys
@@ -3131,6 +3257,7 @@ paths:
     get:
       tags: [tenant]
       operationId: listKeys
+      x-required-scope: "keys:read"
       summary: The tenant's API keys
       description: |
         Every key of the tenant, revoked ones included, newest first. Only the prefix of a key is
@@ -3152,12 +3279,15 @@ paths:
     post:
       tags: [tenant]
       operationId: createKey
+      x-required-scope: "keys:write"
       summary: Create an API key for the tenant
       description: |
         A new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in
         this answer only. To rotate: deploy the new key, then revoke the old one. With
         `expires_at` the key stops working by itself at that time; without, it lives until it is
-        revoked. Recorded in the audit log as `key.create`.
+        revoked. With `scopes` the key does only what they allow; without, what the calling key
+        does. A key never creates a key holding a scope it lacks itself: that is a 403 naming
+        the scope. Recorded in the audit log as `key.create`.
       requestBody:
         required: false
         description: Empty, or the options of the key.
@@ -3185,6 +3315,7 @@ paths:
     delete:
       tags: [tenant]
       operationId: revokeKey
+      x-required-scope: "keys:write"
       summary: Revoke an API key
       description: |
         Every call with the key is refused from now on, and so is every user token the key minted.
@@ -3201,6 +3332,7 @@ paths:
     get:
       tags: [pipeline]
       operationId: getPipeline
+      x-required-scope: "connections:read"
       summary: The tenant's pipeline, stage by stage
       description: |
         Counts of the tenant's work at each stage, in the order data flows: the sources (providers
@@ -3220,6 +3352,7 @@ paths:
     get:
       tags: [pipeline]
       operationId: listTenantSyncRuns
+      x-required-scope: "connections:read"
       summary: Sync runs of every user of the tenant
       description: |
         The sync runs of all the tenant's users, newest first, each with its user. Filter by
@@ -3257,6 +3390,7 @@ paths:
     get:
       tags: [pipeline]
       operationId: listETLJobs
+      x-required-scope: "connections:read"
       summary: Processing jobs of the tenant
       description: |
         The jobs that turn stored raw payloads into records, newest first. `parked` (the default)
@@ -3295,6 +3429,7 @@ paths:
     post:
       tags: [pipeline]
       operationId: retryParkedETLJobs
+      x-required-scope: "connections:write"
       summary: Retry every parked processing job
       description: |
         Queues every parked job of the tenant again with fresh attempts, or only one provider's. A
@@ -3331,6 +3466,7 @@ paths:
     post:
       tags: [pipeline]
       operationId: retryETLJob
+      x-required-scope: "connections:write"
       summary: Retry one parked processing job
       description: Queues the job again with fresh attempts. Only a parked job can be retried (409 otherwise).
       responses:
@@ -3348,6 +3484,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminProviders
+      x-required-scope: "admin:read"
       summary: Every provider of this build and how it stands (instance admin)
       description: |
         Only a key of the instance admin tenant may call it (403 otherwise; `ohs admin tenant list`
@@ -3377,6 +3514,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminProvider
+      x-required-scope: "admin:read"
       summary: One provider and how it stands (instance admin)
       responses:
         "200":
@@ -3390,6 +3528,7 @@ paths:
     patch:
       tags: [admin]
       operationId: updateAdminProvider
+      x-required-scope: "admin:write"
       summary: Save a provider's keys, or turn it on or off (instance admin)
       description: |
         `keys` sets each named key (null removes it); keys left out are kept. The new keys are
@@ -3422,6 +3561,7 @@ paths:
     delete:
       tags: [admin]
       operationId: forgetAdminProvider
+      x-required-scope: "admin:write"
       summary: Forget what the console saved for a provider (instance admin)
       description: |
         Deletes the keys and the switch saved for the provider. Environment variables are not
@@ -3441,6 +3581,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenants
+      x-required-scope: "admin:read"
       summary: Every tenant of the instance, oldest first (instance admin)
       description: |
         Only a key of an instance admin tenant may call the `/v1/admin/tenants` routes (403
@@ -3468,6 +3609,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenant
+      x-required-scope: "admin:write"
       summary: Create a tenant and its first API key (instance admin)
       description: |
         A new tenant, never an instance admin (making one stays `ohs admin tenant`, run on the
@@ -3501,6 +3643,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenant
+      x-required-scope: "admin:read"
       summary: One tenant (instance admin)
       responses:
         "200":
@@ -3518,6 +3661,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantPipeline
+      x-required-scope: "admin:read"
       summary: A tenant's pipeline, stage by stage (instance admin)
       description: The answer the tenant's own key gets from GET /v1/pipeline.
       responses:
@@ -3536,6 +3680,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantKeys
+      x-required-scope: "admin:read"
       summary: A tenant's API keys (instance admin)
       description: |
         Every key of the tenant, revoked ones included, oldest first. `current` is true only for the
@@ -3558,12 +3703,14 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantKey
+      x-required-scope: "admin:write"
       summary: Create an API key for a tenant (instance admin)
       description: |
         As `ohs admin key create --tenant` makes. The whole key is in this answer only;
         `Idempotency-Key` is not honoured. With `expires_at` the key stops working by itself at
-        that time. Recorded as `key.create` in the caller's audit log and in
-        the tenant's.
+        that time. With `scopes` the key does only what they allow; without, everything (`["*"]`).
+        An admin grants any scope, one its own key lacks included. Recorded as `key.create` in
+        the caller's audit log and in the tenant's.
       requestBody:
         required: false
         description: Empty, or the options of the key.
@@ -3593,6 +3740,7 @@ paths:
     delete:
       tags: [admin]
       operationId: revokeAdminTenantKey
+      x-required-scope: "admin:write"
       summary: Revoke a tenant's API key (instance admin)
       description: |
         Every call with the key is refused from now on, and so is every user token the key minted.
@@ -3612,6 +3760,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantDemoUser
+      x-required-scope: "admin:write"
       summary: Fill a user of a tenant with synthetic data (instance admin)
       description: |
         What `ohs seed --demo --tenant` does: the tenant's user with `external_ref` is reused, or
@@ -3651,6 +3800,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantProviders
+      x-required-scope: "admin:read"
       summary: The providers of one tenant, each with its switch (instance admin)
       description: |
         Every provider the instance knows, in the order of `GET /v1/admin/providers`, with the
@@ -3679,6 +3829,7 @@ paths:
     patch:
       tags: [admin]
       operationId: updateAdminTenantProvider
+      x-required-scope: "admin:write"
       summary: Turn a provider off, or back on, for one tenant (instance admin)
       description: |
         While a provider is off for a tenant, `GET /v1/providers` and the connect page leave it
@@ -3710,6 +3861,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantProviderKeys
+      x-required-scope: "admin:read"
       summary: A tenant's own keys for a provider, without their values (instance admin)
       description: |
         Whether the tenant has keys of its own for the provider and how they stand. No value is
@@ -3729,6 +3881,7 @@ paths:
     put:
       tags: [admin]
       operationId: putAdminTenantProviderKeys
+      x-required-scope: "admin:write"
       summary: Set or replace a tenant's own keys for a provider (instance admin)
       description: |
         The tenant's users then connect the provider through the tenant's OAuth application
@@ -3767,6 +3920,7 @@ paths:
     delete:
       tags: [admin]
       operationId: deleteAdminTenantProviderKeys
+      x-required-scope: "admin:write"
       summary: Remove a tenant's own keys for a provider (instance admin)
       description: |
         The tenant's new connections go back to the instance's keys (or the provider is no longer
@@ -3792,6 +3946,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantUsers
+      x-required-scope: "admin:read"
       summary: List the tenant's end users, oldest first (instance admin, one tenant)
       description: |
         `GET /v1/users` (`listUsers`) for the tenant of `tenant_id`, read with an
@@ -3821,6 +3976,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantUser
+      x-required-scope: "admin:write"
       summary: Create an end user (instance admin, one tenant)
       description: |
         `POST /v1/users` (`createUser`) for the tenant of `tenant_id`, run with an
@@ -3866,6 +4022,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantUser
+      x-required-scope: "admin:read"
       summary: Get one end user (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}` (`getUser`) for the tenant of `tenant_id`, read with an
@@ -3884,6 +4041,7 @@ paths:
     delete:
       tags: [admin]
       operationId: deleteAdminTenantUser
+      x-required-scope: "admin:write"
       summary: Hard-delete an end user (instance admin, one tenant)
       description: |
         `DELETE /v1/users/{id}` (`deleteUser`) for the tenant of `tenant_id`, run with an
@@ -3912,6 +4070,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantDaily
+      x-required-scope: "admin:read"
       summary: Daily summaries (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/daily` (`listDaily`) for the tenant of `tenant_id`, read with an
@@ -3942,6 +4101,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantSamples
+      x-required-scope: "admin:read"
       summary: Quantity samples of one type (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/samples` (`listSamples`) for the tenant of `tenant_id`, read with an
@@ -3977,6 +4137,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantSampleStats
+      x-required-scope: "admin:read"
       summary: Statistics of one quantity type per hour or per local day (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/samples/stats` (`sampleStats`) for the tenant of `tenant_id`, read with an
@@ -4036,6 +4197,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantSleep
+      x-required-scope: "admin:read"
       summary: Sleep sessions (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/sleep` (`listSleep`) for the tenant of `tenant_id`, read with an
@@ -4066,6 +4228,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantWorkouts
+      x-required-scope: "admin:read"
       summary: Workouts (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/workouts` (`listWorkouts`) for the tenant of `tenant_id`, read with an
@@ -4100,6 +4263,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantNutrition
+      x-required-scope: "admin:read"
       summary: Nutrition logs (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/nutrition` (`listNutrition`) for the tenant of `tenant_id`, read with an
@@ -4129,6 +4293,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantCoverage
+      x-required-scope: "admin:read"
       summary: What has landed, per provider and day, and what is still processing (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/coverage` (`getCoverage`) for the tenant of `tenant_id`, read with an
@@ -4160,6 +4325,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantConnections
+      x-required-scope: "admin:read"
       summary: The user's provider connections (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/connections` (`listConnections`) for the tenant of `tenant_id`, read with an
@@ -4189,6 +4355,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantFreshness
+      x-required-scope: "admin:read"
       summary: How up to date each of the user's sources is (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/freshness` (`getFreshness`) for the tenant of `tenant_id`, read with an
@@ -4225,6 +4392,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantDeletion
+      x-required-scope: "admin:read"
       summary: Status of a deletion (instance admin, one tenant)
       description: |
         `GET /v1/deletions/{job_id}` (`getDeletion`) for the tenant of `tenant_id`, read with an
@@ -4248,6 +4416,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantSyncRuns
+      x-required-scope: "admin:read"
       summary: The user's sync history (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/sync-runs` (`listSyncRuns`) for the tenant of `tenant_id`, read with an
@@ -4292,6 +4461,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantSyncRun
+      x-required-scope: "admin:read"
       summary: One sync run (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/sync-runs/{run_id}` (`getSyncRun`) for the tenant of `tenant_id`, read with an
@@ -4319,6 +4489,7 @@ paths:
     post:
       tags: [admin]
       operationId: retryAdminTenantSyncRun
+      x-required-scope: "admin:write"
       summary: Retry a failed sync run (instance admin, one tenant)
       description: |
         `POST /v1/users/{id}/sync-runs/{run_id}/retry` (`retrySyncRun`) for the tenant of `tenant_id`, run with an
@@ -4346,6 +4517,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantConnectSession
+      x-required-scope: "admin:write"
       summary: Create a link to the hosted connection page (instance admin, one tenant)
       description: |
         `POST /v1/users/{id}/connect-sessions` (`createConnectSession`) for the tenant of `tenant_id`, run with an
@@ -4377,6 +4549,7 @@ paths:
     post:
       tags: [admin]
       operationId: syncAdminTenantConnection
+      x-required-scope: "admin:write"
       summary: Sync a connection now (instance admin, one tenant)
       description: |
         `POST /v1/users/{id}/connections/{provider}/sync` (`syncConnection`) for the tenant of `tenant_id`, run with an
@@ -4422,6 +4595,7 @@ paths:
     post:
       tags: [admin]
       operationId: retryAdminTenantFailedSyncRuns
+      x-required-scope: "admin:write"
       summary: Retry the failed sync runs of a connection (instance admin, one tenant)
       description: |
         `POST /v1/users/{id}/connections/{provider}/sync-runs/retry` (`retryFailedSyncRuns`) for the tenant of `tenant_id`, run with an
@@ -4451,6 +4625,7 @@ paths:
     delete:
       tags: [admin]
       operationId: deleteAdminTenantConnection
+      x-required-scope: "admin:write"
       summary: Disconnect a provider (instance admin, one tenant)
       description: |
         `DELETE /v1/users/{id}/connections/{provider}` (`deleteConnection`) for the tenant of `tenant_id`, run with an
@@ -4486,6 +4661,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantWebhooks
+      x-required-scope: "admin:read"
       summary: The tenant's webhook endpoints (instance admin, one tenant)
       description: |
         `GET /v1/webhooks` (`listWebhooks`) for the tenant of `tenant_id`, read with an
@@ -4509,6 +4685,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantWebhook
+      x-required-scope: "admin:write"
       summary: Register a webhook endpoint (instance admin, one tenant)
       description: |
         `POST /v1/webhooks` (`createWebhook`) for the tenant of `tenant_id`, run with an
@@ -4546,6 +4723,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantWebhook
+      x-required-scope: "admin:read"
       summary: One webhook endpoint (instance admin, one tenant)
       description: |
         `GET /v1/webhooks/{webhook_id}` (`getWebhook`) for the tenant of `tenant_id`, read with an
@@ -4564,6 +4742,7 @@ paths:
     patch:
       tags: [admin]
       operationId: updateAdminTenantWebhook
+      x-required-scope: "admin:write"
       summary: Change a webhook endpoint (instance admin, one tenant)
       description: |
         `PATCH /v1/webhooks/{webhook_id}` (`updateWebhook`) for the tenant of `tenant_id`, run with an
@@ -4589,6 +4768,7 @@ paths:
     delete:
       tags: [admin]
       operationId: deleteAdminTenantWebhook
+      x-required-scope: "admin:write"
       summary: Delete a webhook endpoint (instance admin, one tenant)
       description: |
         `DELETE /v1/webhooks/{webhook_id}` (`deleteWebhook`) for the tenant of `tenant_id`, run with an
@@ -4609,6 +4789,7 @@ paths:
     post:
       tags: [admin]
       operationId: rotateAdminTenantWebhookSecret
+      x-required-scope: "admin:write"
       summary: Replace the signing secret (instance admin, one tenant)
       description: |
         `POST /v1/webhooks/{webhook_id}/rotate-secret` (`rotateWebhookSecret`) for the tenant of `tenant_id`, run with an
@@ -4657,6 +4838,7 @@ paths:
     post:
       tags: [admin]
       operationId: testAdminTenantWebhook
+      x-required-scope: "admin:write"
       summary: Send a test event (instance admin, one tenant)
       description: |
         `POST /v1/webhooks/{webhook_id}/test` (`testWebhook`) for the tenant of `tenant_id`, run with an
@@ -4687,6 +4869,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantWebhookDeliveries
+      x-required-scope: "admin:read"
       summary: The endpoint's deliveries (instance admin, one tenant)
       description: |
         `GET /v1/webhooks/{webhook_id}/deliveries` (`listWebhookDeliveries`) for the tenant of `tenant_id`, read with an
@@ -4725,6 +4908,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantWebhookDelivery
+      x-required-scope: "admin:read"
       summary: One delivery with its payload and attempts (instance admin, one tenant)
       description: |
         `GET /v1/webhooks/{webhook_id}/deliveries/{delivery_id}` (`getWebhookDelivery`) for the tenant of `tenant_id`, read with an
@@ -4749,6 +4933,7 @@ paths:
     post:
       tags: [admin]
       operationId: retryAdminTenantWebhookDelivery
+      x-required-scope: "admin:write"
       summary: Send a finished delivery again (instance admin, one tenant)
       description: |
         `POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/retry` (`retryWebhookDelivery`) for the tenant of `tenant_id`, run with an
@@ -4775,6 +4960,7 @@ paths:
     post:
       tags: [admin]
       operationId: replayAdminTenantWebhookDelivery
+      x-required-scope: "admin:write"
       summary: Send a finished delivery's event again, as a new delivery (instance admin, one tenant)
       description: |
         `POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/replay` (`replayWebhookDelivery`) for the tenant of `tenant_id`, run with an
@@ -4803,6 +4989,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantPipelineSyncRuns
+      x-required-scope: "admin:read"
       summary: Sync runs of every user of the tenant (instance admin, one tenant)
       description: |
         `GET /v1/pipeline/sync-runs` (`listTenantSyncRuns`) for the tenant of `tenant_id`, read with an
@@ -4845,6 +5032,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantETLJobs
+      x-required-scope: "admin:read"
       summary: Processing jobs of the tenant (instance admin, one tenant)
       description: |
         `GET /v1/pipeline/etl-jobs` (`listETLJobs`) for the tenant of `tenant_id`, read with an
@@ -4887,6 +5075,7 @@ paths:
     post:
       tags: [admin]
       operationId: retryAdminTenantParkedETLJobs
+      x-required-scope: "admin:write"
       summary: Retry every parked processing job (instance admin, one tenant)
       description: |
         `POST /v1/pipeline/etl-jobs/retry` (`retryParkedETLJobs`) for the tenant of `tenant_id`, run with an
@@ -4928,6 +5117,7 @@ paths:
     post:
       tags: [admin]
       operationId: retryAdminTenantETLJob
+      x-required-scope: "admin:write"
       summary: Retry one parked processing job (instance admin, one tenant)
       description: |
         `POST /v1/pipeline/etl-jobs/{job_id}/retry` (`retryETLJob`) for the tenant of `tenant_id`, run with an
@@ -4952,6 +5142,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantAuditEvents
+      x-required-scope: "admin:read"
       summary: The tenant's audit log, newest first (instance admin, one tenant)
       description: |
         `GET /v1/audit` (`listAuditEvents`) for the tenant of `tenant_id`, read with an
@@ -4999,6 +5190,7 @@ paths:
     get:
       tags: [audit]
       operationId: listAuditEvents
+      x-required-scope: "audit:read"
       summary: The tenant's audit log, newest first
       description: |
         One event per authenticated request (tenant key or user token) and per
@@ -5320,7 +5512,10 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
     Forbidden:
-      description: This credential cannot call this route (wrong kind or missing scope).
+      description: |
+        This credential cannot call this route: the wrong kind of credential, a user token
+        without the token scope, or an API key (or the key that minted the user token) without
+        the key scope of the route, named in `detail`.
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -5486,14 +5681,15 @@ components:
         key:
           type: object
           description: The key making the call.
-          required: [id, prefix]
+          required: [id, prefix, scopes]
           properties:
             id: { type: string, format: uuid }
             prefix: { type: string, examples: [ohs_sk_2dybB] }
+            scopes: { $ref: "#/components/schemas/KeyScopes" }
 
     APIKey:
       type: object
-      required: [id, prefix, created_at, last_used_at, revoked_at, expires_at, current]
+      required: [id, prefix, created_at, last_used_at, revoked_at, expires_at, scopes, current]
       properties:
         id: { type: string, format: uuid }
         prefix: { type: string, description: "The start of the key, kept in clear to tell keys apart." }
@@ -5504,7 +5700,42 @@ components:
           type: [string, "null"]
           format: date-time
           description: When the key stops working by itself. Null for a key that does not expire.
+        scopes: { $ref: "#/components/schemas/KeyScopes" }
         current: { type: boolean, description: True for the key making the call. }
+
+    KeyScope:
+      type: string
+      description: |
+        One thing an API key may do. `*` is everything. A `:write` scope also grants the
+        `:read` of the same resource. `admin:read` and `admin:write` count only on a key of an
+        instance admin tenant.
+      enum:
+        - "*"
+        - "tenant:read"
+        - "users:read"
+        - "users:write"
+        - "tokens:write"
+        - "data:read"
+        - "data:write"
+        - "data:delete"
+        - "connections:read"
+        - "connections:write"
+        - "webhooks:read"
+        - "webhooks:write"
+        - "exports:read"
+        - "exports:write"
+        - "keys:read"
+        - "keys:write"
+        - "audit:read"
+        - "admin:read"
+        - "admin:write"
+
+    KeyScopes:
+      type: array
+      description: What the key may do. `["*"]` is everything; never empty.
+      minItems: 1
+      items: { $ref: "#/components/schemas/KeyScope" }
+      examples: [["*"], ["users:read", "data:read"]]
 
     CreateKeyRequest:
       type: object
@@ -5516,6 +5747,12 @@ components:
           description: |
             When the key stops working by itself (RFC 3339, in the future). Absent or null: the
             key lives until it is revoked.
+        scopes:
+          type: [array, "null"]
+          items: { $ref: "#/components/schemas/KeyScope" }
+          description: |
+            What the key may do. Absent, null or empty: on `POST /v1/keys` the scopes of the
+            key making the call, on the admin route `["*"]`. A list holding `*` is `["*"]`.
 
     CreatedAPIKey:
       allOf:
@@ -5900,7 +6137,7 @@ components:
         action:
           type: string
           description: |
-            data.read, data.export, data.write, user.create, user.read, user.delete,
+            data.read, data.export, data.write, user.create, user.read, user.update, user.delete,
             user.erased, token.create, connection.read, connection.create,
             connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
             config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
@@ -5944,15 +6181,43 @@ components:
           type: string
           maxLength: 255
           description: The tenant's own reference, unique per tenant.
+        timezone:
+          type: [string, "null"]
+          description: |
+            The user's IANA time zone, such as `Europe/Paris`. Left out or null, the user has
+            none until one is set or learnt from a device upload. See `User.timezone`.
+
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [timezone]
+      properties:
+        timezone:
+          type: [string, "null"]
+          description: An IANA time zone name such as `Europe/Paris`, or null to clear the user's zone.
 
     User:
       type: object
-      required: [id, external_ref, status, created_at]
+      required: [id, external_ref, status, created_at, timezone, timezone_source]
       properties:
         id: { type: string, format: uuid }
         external_ref: { type: [string, "null"] }
         status: { type: string, enum: [active, deleting] }
         created_at: { type: string, format: date-time }
+        timezone:
+          type: [string, "null"]
+          description: |
+            The user's IANA time zone, null when none is known. It is the zone of the local
+            day of a sample that carries no zone of its own: daily totals take the sample's
+            zone, then this one, then UTC.
+        timezone_source:
+          type: [string, "null"]
+          enum: [explicit, learnt, null]
+          description: |
+            Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+            when it was taken from the latest record of a device upload (Apple Health, Health
+            Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+            Null when `timezone` is.
 
     DeletionJob:
       type: object

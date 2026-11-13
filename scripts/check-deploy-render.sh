@@ -5,8 +5,9 @@
 #
 #   helm     lints the chart, renders it for every optional feature, checks
 #            the manifests against the Kubernetes schemas (kubeconform) and
-#            checks that what the pods run (`ohs serve --allow-newer-schema`,
-#            the `/ohs doctor --quick` probe) exists in cmd/ohs and the image.
+#            checks that what the pods run and are probed on (`ohs serve
+#            --allow-newer-schema`, the workers' ops listener, the `/ohs
+#            doctor --quick` fallback probe) exists in the code and the image.
 #   caddy    validates deploy/Caddyfile (and its commented second site block),
 #            then runs Caddy in front of a dummy upstream and checks that the
 #            security headers reach the client and that an event stream and a
@@ -30,7 +31,8 @@ KUBECONFORM_IMAGE="${KUBECONFORM_IMAGE:-ghcr.io/yannh/kubeconform:v0.6.7}"
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.34.0}"
 CADDY_IMAGE="${CADDY_IMAGE:-caddy:2.10.2-alpine}"
 PYTHON_IMAGE="${PYTHON_IMAGE:-python:3.13-alpine}"
-# The ServiceMonitor is a custom resource: its schema comes from this catalog.
+# The ServiceMonitor and the PodMonitor are custom resources: their schemas
+# come from this catalog.
 CRD_SCHEMAS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
 command -v docker > /dev/null || { echo "check-deploy-render: docker is required" >&2; exit 2; }
@@ -123,7 +125,17 @@ check_helm() {
   render existing-secret --set existingSecret=my-secret
   render s3 --set "$db" --set rawStore.type=s3 --set "$s3" --set replicaCount=3
   render split-roles --set "$db" --set splitRoles.enabled=true --set "$rwx"
-  render split-roles-no-probe --set "$db" --set splitRoles.enabled=true --set "$rwx" --set workerLivenessProbe=null
+  render split-roles-no-probe --set "$db" --set splitRoles.enabled=true --set "$rwx" \
+    --set workerStartupProbe=null --set workerLivenessProbe=null --set workerReadinessProbe=null
+  # The fallback for an image without the ops listener: no port, an exec probe.
+  render split-roles-exec-probe --set "$db" --set splitRoles.enabled=true --set "$rwx" --set splitRoles.opsPort=0 \
+    --set workerStartupProbe=null --set workerReadinessProbe=null \
+    --set workerLivenessProbe.httpGet=null --set-json 'workerLivenessProbe.exec={"command":["/ohs","doctor","--quick"]}' \
+    --set workerLivenessProbe.initialDelaySeconds=30 --set workerLivenessProbe.periodSeconds=30 \
+    --set workerLivenessProbe.timeoutSeconds=15 --set workerLivenessProbe.failureThreshold=10
+  render split-roles-ops-port --set "$db" --set splitRoles.enabled=true --set "$rwx" --set splitRoles.opsPort=9102
+  render split-roles-monitor --set "$db" --set splitRoles.enabled=true --set "$rwx" --set serviceMonitor.enabled=true
+  render split-roles-network-policy --set "$db" --set splitRoles.enabled=true --set "$rwx" --set networkPolicy.enabled=true
   render replicas-rwx --set "$db" --set replicaCount=3 --set "$rwx"
   render ingress --set "$db" --set ingress.enabled=true --set ingress.className=nginx
   render empty-dir --set "$db" --set rawStore.persistence.enabled=false
@@ -152,6 +164,10 @@ check_helm() {
     --set rawStore.persistence.enabled=false
   refuse monitor-without-metrics "serviceMonitor.enabled needs config.metrics=true" --set "$db" \
     --set serviceMonitor.enabled=true --set config.metrics=false
+  refuse ops-port-is-the-api "splitRoles.opsPort must be a port other than 8080" --set "$db" \
+    --set splitRoles.enabled=true --set "$rwx" --set splitRoles.opsPort=8080
+  refuse ops-off-with-http-probes "splitRoles.opsPort=0 turns the workers' ops listener off" --set "$db" \
+    --set splitRoles.enabled=true --set "$rwx" --set splitRoles.opsPort=0
 
   # What the rendered pods run.
   local f="$tmp/default.yaml"
@@ -159,19 +175,58 @@ check_helm() {
   expect "default: the pod runs \`serve\`" 1 "$(count 'args: ["serve"]' "$f")"
   expect "default: no exec probe on the pod that serves HTTP" 0 "$(count 'exec:' "$f")"
   expect "default: Recreate on the single-writer volume" 1 "$(count 'type: Recreate' "$f")"
+  expect "default: no ops listener next to the API" 0 "$(count 'OHS_OPS_LISTEN' "$f")"
   f="$tmp/all-optional.yaml"
   local kind
-  for kind in Ingress ServiceMonitor NetworkPolicy HorizontalPodAutoscaler PodDisruptionBudget; do
+  for kind in Ingress ServiceMonitor PodMonitor NetworkPolicy HorizontalPodAutoscaler PodDisruptionBudget; do
     expect "all-optional: one $kind" 1 "$(grep -cx "kind: $kind" "$f" || true)"
   done
   expect "all-optional: three Deployments" 3 "$(grep -cx 'kind: Deployment' "$f" || true)"
   f="$tmp/split-roles.yaml"
-  expect "split-roles: the collect and etl pods have the exec liveness probe" 2 "$(count 'exec:' "$f")"
-  expect "split-roles: the exec probe runs /ohs doctor --quick" 2 \
-    "$(tr -d ' \n' < "$f" | grep -oF 'livenessProbe:exec:command:-/ohs-doctor---quick' | wc -l | tr -d ' ')"
-  expect "split-roles: only the api pod has HTTP probes" 3 "$(count 'httpGet:' "$f")"
+  # The collect and etl pods: an ops listener, a port named ops, and the
+  # three HTTP probes on it instead of the exec probe.
+  local flat="$tmp/split-roles.flat"
+  tr -d ' \n' < "$f" > "$flat"
+  occurrences() { grep -oF -- "$1" "$flat" | wc -l | tr -d ' '; }
+  expect "split-roles: three Deployments" 3 "$(grep -cx 'kind: Deployment' "$f" || true)"
+  expect "split-roles: the collect and etl pods listen on OHS_OPS_LISTEN=:8081" 2 \
+    "$(occurrences '-name:OHS_OPS_LISTENvalue:":8081"')"
+  expect "split-roles: the collect and etl pods have a port named ops" 2 \
+    "$(occurrences 'ports:-name:opscontainerPort:8081protocol:TCP')"
+  expect "split-roles: the worker startup probe is /healthz on ops" 2 \
+    "$(occurrences 'startupProbe:failureThreshold:60httpGet:path:/healthzport:ops')"
+  expect "split-roles: the worker liveness probe is /healthz on ops" 2 \
+    "$(occurrences 'livenessProbe:failureThreshold:6httpGet:path:/healthzport:ops')"
+  expect "split-roles: the worker readiness probe is /readyz on ops" 2 \
+    "$(occurrences 'readinessProbe:failureThreshold:3httpGet:path:/readyzport:ops')"
+  expect "split-roles: three HTTP probes on each of the three pods" 9 "$(count 'httpGet:' "$f")"
+  expect "split-roles: no exec probe" 0 "$(count 'exec:' "$f")"
+  expect "split-roles: the api pod has no ops listener" 1 "$(count 'containerPort: 8080' "$f")"
   expect "split-roles: no Recreate on a shared volume" 0 "$(count 'type: Recreate' "$f")"
-  expect "split-roles-no-probe: workerLivenessProbe=null removes the probe" 0 "$(count 'exec:' "$tmp/split-roles-no-probe.yaml")"
+  expect "split-roles: no PodMonitor without serviceMonitor.enabled" 0 "$(grep -cx 'kind: PodMonitor' "$f" || true)"
+  f="$tmp/split-roles-no-probe.yaml"
+  expect "split-roles-no-probe: null removes the worker probes, the api pod keeps its own" 3 "$(count 'httpGet:' "$f")"
+  expect "split-roles-no-probe: the ops listener stays, for the metrics" 2 "$(count 'containerPort: 8081' "$f")"
+  f="$tmp/split-roles-exec-probe.yaml"
+  tr -d ' \n' < "$f" > "$flat"
+  expect "split-roles-exec-probe: opsPort=0 turns the listener off" 2 "$(occurrences '-name:OHS_OPS_LISTENvalue:"off"')"
+  expect "split-roles-exec-probe: no port named ops" 0 "$(count 'name: ops' "$f")"
+  expect "split-roles-exec-probe: the collect and etl pods run /ohs doctor --quick" 2 \
+    "$(occurrences 'livenessProbe:exec:command:-/ohs-doctor---quick')"
+  expect "split-roles-exec-probe: only the api pod has HTTP probes" 3 "$(count 'httpGet:' "$f")"
+  f="$tmp/split-roles-ops-port.yaml"
+  expect "split-roles-ops-port: the listener and the port follow splitRoles.opsPort" 4 \
+    "$(grep -cE 'value: ":9102"|containerPort: 9102' "$f" || true)"
+  f="$tmp/split-roles-monitor.yaml"
+  tr -d ' \n' < "$f" > "$flat"
+  expect "split-roles-monitor: one ServiceMonitor for the api" 1 "$(grep -cx 'kind: ServiceMonitor' "$f" || true)"
+  expect "split-roles-monitor: one PodMonitor for the workers" 1 "$(grep -cx 'kind: PodMonitor' "$f" || true)"
+  expect "split-roles-monitor: the PodMonitor scrapes /metrics on ops of the collect and etl pods" 1 \
+    "$(occurrences 'values:[collect,etl]podMetricsEndpoints:-port:opspath:/metrics')"
+  expect "service-monitor: no PodMonitor when one pod runs every role" 0 \
+    "$(grep -cx 'kind: PodMonitor' "$tmp/service-monitor.yaml" || true)"
+  expect "split-roles-network-policy: the ops port is open" 1 "$(count 'port: 8081' "$tmp/split-roles-network-policy.yaml")"
+  expect "network-policy: no ops port when one pod runs every role" 0 "$(count 'port: 8081' "$tmp/network-policy.yaml")"
   expect "no-probes: null removes the HTTP probes" 0 "$(count 'httpGet:' "$tmp/no-probes.yaml")"
   expect "newer-schema: the pod runs \`serve --allow-newer-schema\`" 1 \
     "$(count 'args: ["serve", "--allow-newer-schema"]' "$tmp/newer-schema.yaml")"
@@ -183,13 +238,19 @@ check_helm() {
   expect "no-migrations: no Job" 0 "$(grep -cx 'kind: Job' "$tmp/no-migrations.yaml" || true)"
   expect "empty-dir: no PersistentVolumeClaim" 0 "$(grep -cx 'kind: PersistentVolumeClaim' "$tmp/empty-dir.yaml" || true)"
 
-  # The chart and the binary agree: the flag and the probe command exist in
-  # cmd/ohs, and the image has the binary where the probe calls it.
+  # The chart and the binary agree: the flag, the ops listener and its
+  # routes and the fallback probe command exist in the code, and the image
+  # has the binary where the probe calls it.
   check "cmd/ohs: \`ohs serve\` has --allow-newer-schema" grep -qF '"allow-newer-schema"' "$root/cmd/ohs/serve.go"
   check "cmd/ohs: \`ohs doctor\` has --quick" grep -qF '"quick"' "$root/cmd/ohs/doctor.go"
   check "deploy/Dockerfile: the binary is /ohs" grep -qE '^COPY --from=build /out/ohs /ohs$' "$root/deploy/Dockerfile"
-  check "values.yaml: workerLivenessProbe calls /ohs doctor --quick" \
+  check "values.yaml: the fallback worker probe calls /ohs doctor --quick" \
     grep -qF 'command: ["/ohs", "doctor", "--quick"]' "$root/deploy/helm/ohs/values.yaml"
+  check "internal/config: ohs reads OHS_OPS_LISTEN, and off turns it off" \
+    grep -qF 'switch c.OpsListen = get("OHS_OPS_LISTEN", ""); {' "$root/internal/config/config.go"
+  check "internal/api: the ops listener serves /healthz" grep -qF 'mux.HandleFunc("GET /healthz"' "$root/internal/api/handlers_ops.go"
+  check "internal/api: the ops listener serves /readyz" grep -qF 'mux.HandleFunc("GET /readyz", s.readyz)' "$root/internal/api/handlers_ops.go"
+  check "internal/api: the ops listener serves /metrics" grep -qF 'mux.HandleFunc("GET /metrics"' "$root/internal/api/handlers_ops.go"
 }
 
 # ---------------------------------------------------------------------------

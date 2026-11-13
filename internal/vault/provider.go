@@ -45,5 +45,6 @@ func OpenProvider(ctx context.Context, c config.Vault) (KeyProvider, error) {
 	if open, ok := cloudOpeners[c.Provider]; ok {
 		return open(ctx, c)
 	}
-	return nil, fmt.Errorf("vault: key provider %q is not built into this binary", c.Provider)
+	return nil, fmt.Errorf("vault: key provider %q is not built into this binary: the published image and release binaries "+
+		"carry it, a build from source needs `go build -tags azurekv,awskms`", c.Provider)
 }

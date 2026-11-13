@@ -24,7 +24,7 @@ func (f fakeServer) RoundTrip(r *http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: status, Header: h, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 }
 
-const user = `{"id":"3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11","external_ref":null,"status":"active","created_at":"2026-01-10T10:00:00Z"}`
+const user = `{"id":"3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11","external_ref":null,"status":"active","created_at":"2026-01-10T10:00:00Z","timezone":null,"timezone_source":null}`
 
 func record(t *testing.T, srv fakeServer, method, path, auth string) Call {
 	t.Helper()

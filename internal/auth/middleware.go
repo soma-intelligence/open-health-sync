@@ -41,6 +41,11 @@ type Principal struct {
 	KeyID string
 	// Admin is true for an API key of the instance admin tenant.
 	Admin bool
+	// KeyScopes are the scopes of the API key (KeyScopes of this package),
+	// or, for a user token, of the key that minted it: a token never does
+	// more than its key. Nil means every scope: a token tied to no key, or
+	// a caller built in process.
+	KeyScopes []string
 }
 
 // ErrUnauthenticated is what a Lookup returns for an unknown, revoked or expired
@@ -62,6 +67,10 @@ type Slot struct {
 	failed *Failure
 	// onFailure is asked about each refused credential (OnFailure).
 	onFailure func(Failure) (retryAfter time.Duration, limited bool)
+	// routeScope names the key scope a request needs (RequireScope).
+	routeScope func(*http.Request) string
+	// missing is the key scope the caller lacked (MissingScope).
+	missing string
 }
 
 // Failure describes a well formed credential the lookup refused (401), for
@@ -96,6 +105,17 @@ func (s *Slot) Failure() (Failure, bool) {
 func (s *Slot) OnFailure(fn func(Failure) (retryAfter time.Duration, limited bool)) {
 	s.onFailure = fn
 }
+
+// RequireScope sets fn, which names the key scope the route of a request
+// needs. The middleware asks it once the credential is accepted and is of
+// the kind the route takes: a caller whose key scopes do not grant it
+// (Principal.Can) is refused with 403 and a detail naming the scope. Without
+// fn no key scope is asked for.
+func (s *Slot) RequireScope(fn func(*http.Request) string) { s.routeScope = fn }
+
+// MissingScope returns the key scope the caller of the request lacked, when
+// it was refused for that (403). Principal still names the caller.
+func (s *Slot) MissingScope() string { return s.missing }
 
 // LimitedError is what a Lookup returns for a credential that is valid but
 // over its rate limit: the middleware answers 429 with Retry-After.
@@ -211,6 +231,13 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 			}
 			if s, ok := r.Context().Value(slotKey{}).(*Slot); ok {
 				s.p, s.ok = p, true
+				if s.routeScope != nil {
+					if scope := s.routeScope(r); !p.Can(scope) {
+						s.missing = scope
+						WriteProblem(w, http.StatusForbidden, "Forbidden", missingScopeDetail(p, scope))
+						return
+					}
+				}
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 		})
@@ -232,6 +259,14 @@ func forbiddenDetail(wants []Scope) string {
 		}
 	}
 	return "this endpoint needs " + strings.Join(parts, " or ")
+}
+
+// missingScopeDetail tells a caller which key scope the endpoint needs.
+func missingScopeDetail(p Principal, scope string) string {
+	if p.UserID != nil {
+		return "this endpoint needs the scope " + scope + ", which the API key that minted this user token does not hold"
+	}
+	return "this endpoint needs the scope " + scope + ", which this API key does not hold"
 }
 
 func allowed(p Principal, want Scope) bool {

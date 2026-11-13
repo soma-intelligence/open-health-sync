@@ -15,15 +15,18 @@ repository yet: install it from a checkout of this repository.
   `pre-upgrade` hook), so the pods start on an up to date schema and never migrate themselves.
 - A **Service** on port 8080. Pods that serve HTTP are probed on `/healthz` (startup and liveness)
   and `/readyz` (readiness: the database and the raw store answer). The `-collect` and `-etl`
-  pods of `splitRoles` serve no HTTP: their liveness probe runs `ohs doctor --quick` in the
-  container every 30 seconds (`workerLivenessProbe`), and five minutes of failures restart the
-  pod. It tells that the pod still reaches the database and the raw store, not that its worker
-  loop makes progress: watch the queue metrics for that ([observability.md](observability.md)).
+  pods of `splitRoles` serve no API and stay out of the Service: they serve `/healthz`,
+  `/readyz` and `/metrics` on an ops listener (`OHS_OPS_LISTEN`, port `splitRoles.opsPort`,
+  8081), and are probed there (`workerStartupProbe`, `workerLivenessProbe`,
+  `workerReadinessProbe`). Their `/healthz` answers 503 when a worker loop of the pod is hung,
+  and a minute of that restarts the pod; a database that is away fails `/readyz` only
+  ([observability.md](observability.md#health)).
 - A **ConfigMap** with the non-secret `OHS_*` settings, and a **Secret** with
   `OHS_DATABASE_URL` and `OHS_ENCRYPTION_KEY` (or your own Secret, see `existingSecret`).
 - A **PersistentVolumeClaim** for the raw store at `/var/lib/ohs/raw`, unless the raw store is S3.
-- Optional, all off by default: Ingress, ServiceMonitor, NetworkPolicy, HorizontalPodAutoscaler
-  and PodDisruptionBudget.
+- Optional, all off by default: Ingress, ServiceMonitor (with a PodMonitor for the `-collect`
+  and `-etl` pods of `splitRoles`), NetworkPolicy, HorizontalPodAutoscaler and
+  PodDisruptionBudget.
 
 The pods run as user 65532 with a read-only root filesystem, no capabilities and no service
 account token.
@@ -194,20 +197,21 @@ object encrypted by the service as it is written, add `sse=AES256`, or `sse=aws:
 | `splitRoles.enabled` | `false` | One Deployment per role |
 | `splitRoles.<role>.replicaCount` | api 2, collect 1, etl 1 | |
 | `splitRoles.<role>.resources` | `{}` | Empty uses `resources` |
+| `splitRoles.opsPort` | `8081` | Port of the `-collect` and `-etl` pods' ops listener (`/healthz`, `/readyz`, `/metrics`, no credential, not behind the Service); `0` turns it off |
 | `migrations.enabled` | `true` | The `ohs migrate up` Job; disabled, run it yourself before each upgrade |
 | `migrations.backoffLimit`, `activeDeadlineSeconds` | `2`, `600` | |
 | `allowNewerSchema` | `false` | Start the pods with `ohs serve --allow-newer-schema`, see [Upgrading](#upgrading) |
 | `env`, `extraEnvFrom` | `[]` | Extra environment, as Kubernetes `env` and `envFrom` entries |
 | `service.type`, `service.port` | `ClusterIP`, `8080` | |
 | `startupProbe`, `livenessProbe`, `readinessProbe` | `/healthz`, `/healthz`, `/readyz` | Probes of the pods that serve HTTP |
-| `workerLivenessProbe` | `ohs doctor --quick` every 30 s, 10 failures | Liveness probe of the `-collect` and `-etl` pods; `null` removes it |
+| `workerStartupProbe`, `workerLivenessProbe`, `workerReadinessProbe` | `/healthz`, `/healthz`, `/readyz` on the ops port | Probes of the `-collect` and `-etl` pods; `null` removes one. With an image older than 0.3.0 or `splitRoles.opsPort=0`, use the `ohs doctor --quick` exec probe that `values.yaml` shows |
 | `terminationGracePeriodSeconds` | `35` | `ohs` gives work in flight 25 s on SIGTERM |
 | `serviceAccountName` | empty | An existing ServiceAccount |
 | `podSecurityContext`, `securityContext` | non-root 65532, read-only root | |
 | `podAnnotations`, `podLabels`, `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName` | empty | Pod placement |
 | `ingress.enabled` | `false` | With `className`, `annotations`, `hosts`, `tls` |
-| `serviceMonitor.enabled` | `false` | Needs the Prometheus Operator CRDs; `interval`, `scrapeTimeout`, `labels` |
-| `networkPolicy.enabled` | `false` | Ingress on 8080 from `ingressFrom`; egress to DNS, the database (`databasePort`, `databaseTo`), HTTPS (`allowHTTPS`) and `extraEgress` |
+| `serviceMonitor.enabled` | `false` | Needs the Prometheus Operator CRDs; `interval`, `scrapeTimeout`, `labels`. With `splitRoles`, also a PodMonitor that scrapes the `-collect` and `-etl` pods on their ops port |
+| `networkPolicy.enabled` | `false` | Ingress on 8080 from `ingressFrom`, and with `splitRoles` on the ops port from `opsFrom`; egress to DNS, the database (`databasePort`, `databaseTo`), HTTPS (`allowHTTPS`) and `extraEgress` |
 | `autoscaling.enabled` | `false` | CPU based, on the pods that serve HTTP; `minReplicas`, `maxReplicas`, `targetCPUUtilizationPercentage` |
 | `podDisruptionBudget.enabled` | `false` | On the pods that serve HTTP; `minAvailable` |
 

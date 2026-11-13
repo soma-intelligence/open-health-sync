@@ -12,6 +12,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -315,10 +317,23 @@ func (e *env) register(slug string, mapFn func(connector.RawRecord) (model.MapRe
 	e.reg.Register(&fakeConnector{slug: slug, mapFn: mapFn})
 }
 
-func (e *env) opts() Options { return Options{Lookup: e.reg.Get, Now: e.now, Vault: e.v} }
+func (e *env) opts() Options {
+	return Options{Lookup: e.reg.Get, Now: e.now, Vault: e.v, Writer: testWriterConfig()}
+}
 
 // clearOpts are the options of a process with no vault configured.
-func (e *env) clearOpts() Options { return Options{Lookup: e.reg.Get, Now: e.now} }
+func (e *env) clearOpts() Options {
+	return Options{Lookup: e.reg.Get, Now: e.now, Writer: testWriterConfig()}
+}
+
+// testWriterConfig is the writer configuration of the jobs the tests run.
+// OHS_ETL_TEST_CHUNK sets the size of a write chunk: with 1 or 2 nearly every
+// object of the suite is larger than a chunk and goes through the streamed
+// write (stream.go), which must give what the single batch gives.
+func testWriterConfig() WriterConfig {
+	n, _ := strconv.Atoi(os.Getenv("OHS_ETL_TEST_CHUNK"))
+	return WriterConfig{ChunkRecords: n}
+}
 
 func (e *env) process(job queue.ETLJob) Counts {
 	e.t.Helper()

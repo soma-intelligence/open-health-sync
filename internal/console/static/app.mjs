@@ -2464,6 +2464,7 @@ function main() {
         el("td", {}, el("span", { class: "named" }, icon("key"), el("code", {}, `${k.prefix}...`), k.current ? pill("accent", "This session") : null)),
         el("td", {}, when(k.created_at)),
         el("td", {}, k.last_used_at ? when(k.last_used_at) : el("span", { class: "dim" }, "Never")),
+        el("td", {}, !k.scopes || k.scopes.includes("*") ? "Everything" : el("code", {}, k.scopes.join(", "))),
         el("td", {}, k.revoked_at ? pill("off", "Revoked") : pill("ok", "Active")),
         readOnly
           ? null
@@ -2509,10 +2510,10 @@ function main() {
     return el(
       "div",
       {},
-      pageHead({ eyebrow: "Access", title: "API keys", sub: `Keys of ${tenant.name}. A key can do everything this console does: treat each one as a password.`, actions: [create] }),
+      pageHead({ eyebrow: "Access", title: "API keys", sub: `Keys of ${tenant.name}. A key created here does what the key of this session does: treat each one as a password. A key with fewer scopes is made with the API or ohs admin key create --scopes.`, actions: [create] }),
       card(
         { title: "Keys", count: keys.filter((k) => !k.revoked_at).length },
-        table(["Key", "Created", "Last used", "Status", readOnly ? null : ""].filter((h) => h !== null), rows, empty("No key")),
+        table(["Key", "Created", "Last used", "Scopes", "Status", readOnly ? null : ""].filter((h) => h !== null), rows, empty("No key")),
         readOnly ? null : foot("The key of this session cannot revoke itself: sign in with another key first."),
       ),
     );

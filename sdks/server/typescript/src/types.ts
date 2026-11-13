@@ -81,6 +81,8 @@ export interface Tenant {
 export interface TenantKey {
   id: string;
   prefix: string;
+  /** What the key may do. `["*"]` is everything; never empty. */
+  scopes: KeyScopes;
 }
 
 export interface APIKey {
@@ -92,9 +94,21 @@ export interface APIKey {
   revoked_at: string | null;
   /** When the key stops working by itself. Null for a key that does not expire. */
   expires_at: string | null;
+  /** What the key may do. `["*"]` is everything; never empty. */
+  scopes: KeyScopes;
   /** True for the key making the call. */
   current: boolean;
 }
+
+/**
+ * One thing an API key may do. `*` is everything. A `:write` scope also grants the
+ * `:read` of the same resource. `admin:read` and `admin:write` count only on a key of an
+ * instance admin tenant.
+ */
+export type KeyScope = "*" | "tenant:read" | "users:read" | "users:write" | "tokens:write" | "data:read" | "data:write" | "data:delete" | "connections:read" | "connections:write" | "webhooks:read" | "webhooks:write" | "exports:read" | "exports:write" | "keys:read" | "keys:write" | "audit:read" | "admin:read" | "admin:write";
+
+/** What the key may do. `["*"]` is everything; never empty. */
+export type KeyScopes = KeyScope[];
 
 export interface CreateKeyRequest {
   /**
@@ -102,6 +116,11 @@ export interface CreateKeyRequest {
    * key lives until it is revoked.
    */
   expires_at?: string | null;
+  /**
+   * What the key may do. Absent, null or empty: on `POST /v1/keys` the scopes of the
+   * key making the call, on the admin route `["*"]`. A list holding `*` is `["*"]`.
+   */
+  scopes?: KeyScope[] | null;
 }
 
 export interface CreatedAPIKey {
@@ -113,6 +132,8 @@ export interface CreatedAPIKey {
   revoked_at: string | null;
   /** When the key stops working by itself. Null for a key that does not expire. */
   expires_at: string | null;
+  /** What the key may do. `["*"]` is everything; never empty. */
+  scopes: KeyScopes;
   /** True for the key making the call. */
   current: boolean;
   /** The whole key, returned this once. */
@@ -443,7 +464,7 @@ export interface AuditEvent {
   at: string;
   actor: AuditEventActor;
   /**
-   * data.read, data.export, data.write, user.create, user.read, user.delete,
+   * data.read, data.export, data.write, user.create, user.read, user.update, user.delete,
    * user.erased, token.create, connection.read, connection.create,
    * connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
    * config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
@@ -487,6 +508,16 @@ export interface Provider {
 export interface CreateUserRequest {
   /** The tenant's own reference, unique per tenant. */
   external_ref?: string;
+  /**
+   * The user's IANA time zone, such as `Europe/Paris`. Left out or null, the user has
+   * none until one is set or learnt from a device upload. See `User.timezone`.
+   */
+  timezone?: string | null;
+}
+
+export interface UpdateUserRequest {
+  /** An IANA time zone name such as `Europe/Paris`, or null to clear the user's zone. */
+  timezone: string | null;
 }
 
 export interface User {
@@ -494,6 +525,19 @@ export interface User {
   external_ref: string | null;
   status: "active" | "deleting";
   created_at: string;
+  /**
+   * The user's IANA time zone, null when none is known. It is the zone of the local
+   * day of a sample that carries no zone of its own: daily totals take the sample's
+   * zone, then this one, then UTC.
+   */
+  timezone: string | null;
+  /**
+   * Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+   * when it was taken from the latest record of a device upload (Apple Health, Health
+   * Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+   * Null when `timezone` is.
+   */
+  timezone_source: "explicit" | "learnt" | null;
 }
 
 export interface DeletionJob {

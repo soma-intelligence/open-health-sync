@@ -31,12 +31,16 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/soma-intelligence/open-health-sync/connectors/applehealth"
 	"github.com/soma-intelligence/open-health-sync/internal/api"
+	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/demo"
 	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
+	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // goldenDir holds one file per captured output.
@@ -58,43 +62,109 @@ const goldenSeed = 1
 
 // goldenFixture is a served instance holding the demo data of one user.
 type goldenFixture struct {
-	srv  *httptest.Server
-	key  string
-	user uuid.UUID
+	srv    *httptest.Server
+	key    string
+	tenant uuid.UUID
+	user   uuid.UUID
+	pool   *pgxpool.Pool
+	store  *tenant.Store
+	// dbURL is the address of the instance's database, raw its raw store.
+	dbURL string
+	raw   rawstore.Store
+	// rawDir is the folder of the raw store.
+	rawDir string
+	// vault is the vault of the instance, nil for an instance without one.
+	vault *vault.Vault
 }
+
+// fixtureMode says how the demo data of a fixture is stored.
+type fixtureMode int
+
+const (
+	// fixtureClear is an instance with no vault: every row clear, as before
+	// the vault (the golden files were captured so).
+	fixtureClear fixtureMode = iota
+	// fixtureSealed is an instance with a vault from the start: the writer
+	// seals every row it writes.
+	fixtureSealed
+	// fixtureSealedLater is an instance that got its vault after the data:
+	// the rows are written clear, then converted by the seal command.
+	fixtureSealedLater
+	// fixtureRotated is fixtureSealed with the user's key rotated half way:
+	// the first providers are sealed under key version 1, the rest under
+	// version 2 (vault.RotateUser), then the seal command converts what is
+	// still clear (the ECG rows inserted by hand) under version 2.
+	fixtureRotated
+)
 
 // seedGolden serves the API on a migrated database and fills one user with
 // the demo data set, then with what the demo does not generate: ECG
 // recordings, a heartbeat series and menstrual flow, all invented and fixed.
-func seedGolden(t *testing.T) goldenFixture {
+func seedGolden(t *testing.T) goldenFixture { return seedFixture(t, fixtureClear, nil) }
+
+// seedFixture is seedGolden in a mode. plant, when set, changes the demo
+// batches before they are written (the leak test adds its canaries).
+func seedFixture(t *testing.T, mode fixtureMode, plant func([]demo.Batch)) goldenFixture {
 	t.Helper()
 	ctx := context.Background()
-	pool, err := db.Open(ctx, db.TestDB(t))
+	f := goldenFixture{dbURL: db.TestDB(t), rawDir: t.TempDir()}
+	pool, err := db.Open(ctx, f.dbURL)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	f.pool = pool
+	f.raw, err = rawstore.Open("file://" + f.rawDir)
+	require.NoError(t, err)
 	st := tenant.New(pool)
+	if mode != fixtureClear {
+		p, err := vault.OpenProvider(ctx, config.Vault{Provider: "local", RootKey: bytes.Repeat([]byte{5}, 32)})
+		require.NoError(t, err)
+		f.vault = vault.New(pool, p, vault.Options{CanOpen: true})
+		st = st.WithVault(f.vault)
+	}
+	f.store = st
 	tn, key, err := st.CreateTenant(ctx, "Golden")
 	require.NoError(t, err)
 	u, err := st.CreateUser(ctx, tn.ID, "golden-1")
 	require.NoError(t, err)
+	f.key, f.tenant, f.user = key, tn.ID, u.ID
 
+	// write is the vault the rows are written with: nil writes them clear.
+	var write *vault.Vault
+	if mode == fixtureSealed || mode == fixtureRotated {
+		write = f.vault
+	}
 	batches, err := demo.Generate(demo.Options{Days: goldenDays, Seed: goldenSeed, Today: goldenToday})
 	require.NoError(t, err)
-	for _, b := range batches {
-		_, err := etl.WriteSynthetic(ctx, pool, nil, tn.ID, u.ID, b.Provider, b.Records)
+	if plant != nil {
+		plant(batches)
+	}
+	for i, b := range batches {
+		if mode == fixtureRotated && i == len(batches)/2 {
+			v, err := vault.RotateUser(ctx, f.vault, pool, tn.ID, u.ID)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, v)
+		}
+		_, err := etl.WriteSynthetic(ctx, pool, write, tn.ID, u.ID, b.Provider, b.Records)
 		require.NoError(t, err, b.Provider)
 	}
-	seedExtras(t, pool, tn.ID, u.ID)
+	seedExtras(t, pool, write, tn.ID, u.ID)
 	_, err = pool.Exec(ctx, `CALL refresh_continuous_aggregate('ohs_data.quantity_hourly', NULL, NULL)`)
 	require.NoError(t, err)
+	if mode == fixtureSealedLater || mode == fixtureRotated {
+		_, err := vault.Seal(ctx, f.vault, pool, f.raw, vault.SealOptions{Rows: etl.Sealer{}})
+		require.NoError(t, err)
+	}
 
-	srv := httptest.NewServer(api.NewRouter(api.Deps{Pool: pool, Store: st}))
-	t.Cleanup(srv.Close)
-	return goldenFixture{srv: srv, key: key, user: u.ID}
+	f.srv = httptest.NewServer(api.NewRouter(api.Deps{Pool: pool, Store: st, Raw: f.raw, Vault: f.vault,
+		Device: applehealth.New()}))
+	t.Cleanup(f.srv.Close)
+	return f
 }
 
-// seedExtras writes the record kinds the demo person has none of.
-func seedExtras(t *testing.T, pool *pgxpool.Pool, tn, u uuid.UUID) {
+// seedExtras writes the record kinds the demo person has none of. v is the
+// vault the rows written through the writer are sealed with, nil for clear
+// rows; the ECG rows are inserted by hand and are always clear.
+func seedExtras(t *testing.T, pool *pgxpool.Pool, v *vault.Vault, tn, u uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -109,7 +179,7 @@ func seedExtras(t *testing.T, pool *pgxpool.Pool, tn, u uuid.UUID) {
 			StartDate: d.Add(8 * time.Hour), EndDate: d.Add(9 * time.Hour), SourceName: "Health",
 		})
 	}
-	_, err := etl.WriteSynthetic(ctx, pool, nil, tn, u, "apple_health", flow)
+	_, err := etl.WriteSynthetic(ctx, pool, v, tn, u, "apple_health", flow)
 	require.NoError(t, err)
 
 	// One heartbeat series of 120 beats.
@@ -122,7 +192,7 @@ func seedExtras(t *testing.T, pool *pgxpool.Pool, tn, u uuid.UUID) {
 		})
 		at = at.Add(time.Duration(rr * float64(time.Millisecond)))
 	}
-	_, err = etl.WriteSynthetic(ctx, pool, nil, tn, u, "apple_health", beats)
+	_, err = etl.WriteSynthetic(ctx, pool, v, tn, u, "apple_health", beats)
 	require.NoError(t, err)
 
 	// Two ECG recordings with their voltage samples, as the writer stores

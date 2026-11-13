@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
+	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
 
@@ -65,6 +66,9 @@ const (
 	DefaultPauseMax = 10 * time.Minute
 	maxErrorLen     = 500
 	pruneEvery      = time.Hour
+	// pruneLimit is how long one prune of old deliveries may hold the loop
+	// before it counts as hung.
+	pruneLimit = 15 * time.Minute
 )
 
 // retryDelays is the wait after the nth failed attempt: about 28 hours from
@@ -110,7 +114,20 @@ type WorkerConfig struct {
 	// PauseMax (defaults DefaultPauseBase and DefaultPauseMax).
 	PauseBase time.Duration
 	PauseMax  time.Duration
+	// Loop, when set, gets the heartbeat of the delivery loop: one beat per
+	// round, and the attempts in flight as work that excuses a silent loop
+	// (every slot can be held by a slow receiver).
+	Loop *ops.Loop
+	// Observe, when set, is told how each attempt ended (OutcomeDelivered
+	// or OutcomeFailed) and how long the receiver took.
+	Observe func(outcome string, took time.Duration)
 }
+
+// The outcomes of a delivery attempt, as WorkerConfig.Observe gets them.
+const (
+	OutcomeDelivered = "delivered"
+	OutcomeFailed    = "failed"
+)
 
 // Worker posts due deliveries.
 type Worker struct {
@@ -126,6 +143,9 @@ type Worker struct {
 	pauseAfter  int       // 0: endpoints are never paused
 	pauses      []float64 // seconds, see pauseSchedule
 
+	loop    *ops.Loop
+	observe func(outcome string, took time.Duration)
+
 	// claimFn and deliverFn are claim and deliver, replaced in tests of the
 	// slot pool.
 	claimFn   func(ctx context.Context, n int) ([]job, error)
@@ -134,7 +154,7 @@ type Worker struct {
 
 // NewWorker returns a delivery worker.
 func NewWorker(pool *pgxpool.Pool, box *crypto.Box, cfg WorkerConfig) *Worker {
-	w := &Worker{pool: pool, box: box, client: cfg.Client, idle: cfg.Idle}
+	w := &Worker{pool: pool, box: box, client: cfg.Client, idle: cfg.Idle, loop: cfg.Loop, observe: cfg.Observe}
 	if w.client == nil {
 		w.client = NewClient(cfg.AllowPrivate)
 	}
@@ -227,9 +247,11 @@ func (w *Worker) Run(ctx context.Context) error {
 		if time.Since(lastPrune) <= pruneEvery {
 			return
 		}
+		done := w.loop.Busy(pruneLimit)
 		if err := w.Prune(ctx); err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "webhook: prune deliveries", "err", err)
 		}
+		done()
 		lastPrune = time.Now()
 	})
 }
@@ -250,6 +272,7 @@ func (w *Worker) pump(ctx context.Context, each func()) error {
 	defer wg.Wait()
 
 	for {
+		w.loop.Tick()
 		each()
 		// Wait for one free slot, then take every other free one.
 		select {
@@ -277,8 +300,12 @@ func (w *Worker) pump(ctx context.Context, each func()) error {
 		}
 		for _, j := range jobs {
 			wg.Add(1)
+			// An attempt and its settle end well inside the visibility
+			// timeout: past it the loop is no longer excused.
+			done := w.loop.Busy(visibility)
 			go func() {
 				defer wg.Done()
+				defer done()
 				if err := w.deliverFn(jobCtx, j); err != nil {
 					slog.ErrorContext(jobCtx, "webhook: settle delivery", "delivery_id", j.id, "err", err)
 				}
@@ -532,6 +559,13 @@ func (w *Worker) deliver(ctx context.Context, j job) (err error) {
 	}()
 	sendErr = w.send(ctx, j, &o)
 	o.duration = time.Since(o.started)
+	if w.observe != nil {
+		result := OutcomeDelivered
+		if sendErr != nil {
+			result = OutcomeFailed
+		}
+		w.observe(result, o.duration)
+	}
 	if sendErr == nil {
 		return w.succeed(ctx, j, o)
 	}

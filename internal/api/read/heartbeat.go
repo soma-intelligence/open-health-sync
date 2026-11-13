@@ -3,14 +3,18 @@
 package read
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // MaxHRVBeats bounds the beats one HRV page reads: a page stops adding
@@ -64,6 +68,13 @@ func decodeKeyCursor(c string, n int) (time.Time, []string, error) {
 	return t, parts[1:], nil
 }
 
+// rrSel reads an RR interval and beatSel a beat of a series: the interval is
+// sealed on a sealed row.
+var (
+	rrSel   = vault.Select("heartbeat_samples", `"timestamp", rr_ms, series_id, provider, ingested_at, content_hash`)
+	beatSel = vault.Select("heartbeat_samples", `provider, series_id, "timestamp", rr_ms`)
+)
+
 // RRInterval is one beat-to-beat interval of a heartbeat series.
 type RRInterval struct {
 	Timestamp  time.Time `json:"timestamp"`
@@ -110,7 +121,7 @@ func RRIntervals(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q 
 		at := arg(afterT)
 		where = append(where, `"timestamp" >= `+at, `("timestamp", content_hash) > (`+at+`, `+arg(afterKey[0])+`)`)
 	}
-	rows, err := db.Query(ctx, `SELECT "timestamp", rr_ms, series_id, provider, ingested_at, content_hash
+	rows, err := db.Query(ctx, `SELECT `+rrSel.List("")+`
 		FROM ohs_data.heartbeat_samples WHERE `+strings.Join(where, " AND ")+
 		` ORDER BY "timestamp", content_hash LIMIT `+arg(n.Limit+1), args...)
 	if err != nil {
@@ -118,6 +129,7 @@ func RRIntervals(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q 
 	}
 	defer rows.Close()
 	out := Page[RRInterval]{Records: []RRInterval{}}
+	keys := keysFor(ctx, tenantID, userID)
 	var lastHash string
 	for rows.Next() {
 		if len(out.Records) == n.Limit {
@@ -125,7 +137,7 @@ func RRIntervals(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q 
 			break
 		}
 		var r RRInterval
-		if err := rows.Scan(&r.Timestamp, &r.RRMs, &r.SeriesID, &r.Provider, &r.IngestedAt, &lastHash); err != nil {
+		if err := rrSel.Scan(ctx, keys, rows, []any{&r.Timestamp, &r.RRMs, &r.SeriesID, &r.Provider, &r.IngestedAt, &lastHash}); err != nil {
 			return Page[RRInterval]{}, fmt.Errorf("read: heartbeat_samples: scan: %w", err)
 		}
 		utc(&r.Timestamp)
@@ -280,20 +292,23 @@ func seriesBeats(ctx context.Context, db Querier, tenantID, userID uuid.UUID, ke
 	}
 	// No beat of these series is before the earliest first beat: the bound
 	// lets TimescaleDB skip the older chunks.
-	rows, err := db.Query(ctx, `SELECT provider, series_id, "timestamp", rr_ms FROM ohs_data.heartbeat_samples
+	// Beats that share a time are ordered by their interval, which is sealed:
+	// SQL orders by time and the ties are settled below, on the opened beats.
+	rows, err := db.Query(ctx, `SELECT `+beatSel.List("")+` FROM ohs_data.heartbeat_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND "timestamp" >= $3
 			AND (provider, series_id) IN (SELECT * FROM unnest($4::text[], $5::text[]))
-		ORDER BY provider, series_id, "timestamp", rr_ms`,
+		ORDER BY provider, series_id, "timestamp"`,
 		tenantID, userID, from, providers, series)
 	if err != nil {
 		return nil, fmt.Errorf("read: heartbeat beats: %w", err)
 	}
 	defer rows.Close()
 	out := make(map[[2]string][]Beat, len(keys))
+	rd := keysFor(ctx, tenantID, userID)
 	for rows.Next() {
 		var p, s string
 		var b Beat
-		if err := rows.Scan(&p, &s, &b.At, &b.RRMs); err != nil {
+		if err := beatSel.Scan(ctx, rd, rows, []any{&p, &s, &b.At, &b.RRMs}); err != nil {
 			return nil, fmt.Errorf("read: heartbeat beats: scan: %w", err)
 		}
 		b.At = b.At.UTC()
@@ -302,6 +317,11 @@ func seriesBeats(ctx context.Context, db Querier, tenantID, userID uuid.UUID, ke
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read: heartbeat beats: %w", err)
+	}
+	for _, beats := range out {
+		slices.SortStableFunc(beats, func(a, b Beat) int {
+			return cmp.Or(a.At.Compare(b.At), cmp.Compare(a.RRMs, b.RRMs))
+		})
 	}
 	return out, nil
 }

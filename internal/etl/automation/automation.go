@@ -76,6 +76,10 @@ type Deps struct {
 	Metrics *Metrics
 	// Now is the clock, injectable for tests. Nil means time.Now.
 	Now func() time.Time
+	// OnTick, when set, is called at the top of every iteration of every
+	// task's loop with the task's name and interval: the heartbeat that
+	// tells a stalled task from a healthy one.
+	OnTick func(task string, interval time.Duration)
 }
 
 func (d Deps) now() time.Time {
@@ -133,6 +137,7 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 	drain := &Drainer{Pool: deps.Pool, Metrics: m, Since: deps.now()}
 
 	s := NewScheduler(jitter)
+	s.onTick = deps.OnTick
 	s.Add("reconciler", or(deps.Intervals.Reconcile, DefaultReconcileEvery), timeout, counted(func(ctx context.Context) error {
 		_, err := rec.Run(ctx)
 		return err

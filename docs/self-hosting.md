@@ -218,6 +218,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](self-hosting.md#metrics)) |
 | `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
 | `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
+| `OHS_OPS_LISTEN` | `127.0.0.1:8081` without the `api` role, none with it | Serve `/healthz`, `/readyz` and `/metrics` on this address, without a credential: the health checks and [worker metrics](observability.md#worker-metrics) of a process that serves no API. `/healthz` answers 503 when a [background loop is hung](observability.md#health). `off` turns it off. In a container set `:8081` and do not publish the port |
 | `OHS_CONSENT_REQUIRED` | `false` | Store nothing from a source until the user's [consent](consent.md) for it is recorded; by default a source without consent stores everything |
 | `OHS_AUDIT_RETENTION_DAYS` | `365` | Delete [audit events](audit-log.md) older than this many days, once a day; 0 keeps every event |
 | `OHS_RETENTION_DAYS` | `0` | Delete raw files and normalized data older than this many days (the HealthKit record aliases of those rows included; deletion tombstones and tags are kept); 0 keeps everything |
@@ -254,6 +255,13 @@ Environment variables only, documented line by line in `.env.example`.
 An upload in flight holds its whole body (at most 64 MiB of gzip) while it is checked and
 stored, and the check decompresses it in a stream (at most 64 MiB, `OHS_INGEST_MAX_DECOMPRESSED_MIB`).
 The rest of the process (the ETL workers, the pulls, the pools) stays around 100 to 300 MB.
+An ETL job does not hold its part: a part with more than 10,000 samples is read twice and
+written in chunks of 10,000 inside its one transaction, so a job peaks near 40 MiB of heap
+whatever the size of the part (a 64 MiB part took over 500 MiB when it was held whole). Under the low memory profile (a soft
+limit of 512 MiB or less) the chunks are 2,500 samples and a job peaks near 12 MiB. What a job
+still holds whole are the records that need each other: sleep sessions with their stages,
+workouts with their routes, ECG recordings, nutrition logs, provider daily summaries and
+deletions.
 Plan for about 200 MB plus 100 MB per upload slot in the worst case, when every slot holds a
 large part at once; real parts from the SDKs and `ohs import` are 8 MiB of NDJSON or less.
 
@@ -706,5 +714,9 @@ instance, so it is closed unless you open it one of two ways:
 
 With neither, `/metrics` answers 403 and names the two settings. `OHS_METRICS=false` removes the
 route altogether.
-[observability.md](observability.md) lists the metrics, and how to turn on OpenTelemetry
-traces.
+A process without the `api` role (`OHS_ROLES=collect`, `etl`) has no API listener: it serves
+`/healthz`, `/readyz` and its own `/metrics` on `OHS_OPS_LISTEN` (`127.0.0.1:8081` by default),
+without a token. Scrape each worker there, and never publish that port either.
+
+[observability.md](observability.md) lists the metrics, the health checks of the workers, and
+how to turn on OpenTelemetry traces.

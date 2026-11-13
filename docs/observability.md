@@ -1,8 +1,8 @@
 # Observability
 
-An instance tells you what it is doing in three ways: JSON logs on stderr, Prometheus metrics on
-`/metrics`, and, when you turn them on, OpenTelemetry traces sent over OTLP. None of the three
-carries a token, a key or a health value.
+An instance tells you what it is doing in four ways: JSON logs on stderr, health checks on
+`/healthz` and `/readyz`, Prometheus metrics on `/metrics`, and, when you turn them on,
+OpenTelemetry traces sent over OTLP. None of them carries a token, a key or a health value.
 
 ## Logs
 
@@ -13,11 +13,74 @@ and `span_id`, so you can go from a log line to its trace and back. Lines about 
 `tenant_id`, `user_id`, `provider` and `job_id`; lines about ETL jobs and webhook deliveries
 carry the job, delivery and endpoint ids.
 
+## Health
+
+A process that runs the `api` role answers `GET /healthz` (the server answers) and
+`GET /readyz` (the database answers and is at the schema version of the binary, the raw store
+answers, the vault opens keys) on the API listener.
+
+A process without the `api` role (`OHS_ROLES=collect`, `etl` or both) serves no API. It serves
+the same two routes, and `/metrics`, on a listener of its own: the ops listener.
+
+| | |
+|---|---|
+| Setting | `OHS_OPS_LISTEN`, a listen address |
+| Default without the `api` role | `127.0.0.1:8081` |
+| Default with the `api` role | off: the API listener already serves the three routes |
+| Turn it off | `OHS_OPS_LISTEN=off` |
+| Routes | `GET /healthz`, `GET /readyz`, `GET /metrics` (unless `OHS_METRICS=false`), nothing else |
+| Credential | none, on any of the three |
+
+The listener asks for no credential, so its address decides who reaches it: that is why the
+default is the loopback interface. In a container or on Kubernetes, where the probe and the
+scraper come from outside the process's network namespace, set it to `:8081` and do not publish
+the port (the Helm chart does this for the `collect` and `etl` pods). Port 8081 is the one next
+to the API's 8080; 9090, the usual example, is Prometheus' own. Two workers on one host cannot
+share the default: the second logs a warning and runs without the listener, so give each its
+own address. An address you set yourself that is taken stops the start.
+
+On the ops listener `/readyz` is the API's check, with the same answers. `/healthz` goes further
+than the API's: it is the liveness of the background loops of the process.
+
+| Loop | Role | Comes round |
+|---|---|---|
+| `pull_scheduler` | `collect` | every minute: enqueues the pulls that are due |
+| `pull_subscriber` | `collect` | every minute: subscribes and renews provider notifications |
+| `pull_workers` | `collect` | every 1 to 2 s: claims pull jobs |
+| `etl_standard`, `etl_high_freq` | `etl` | every 1 to 2 s: claims ETL jobs of the tier |
+| `webhooks` | `etl` | every second: claims webhook deliveries, prunes old ones |
+| `deletion` | `etl` | every 5 s: runs user and provider deletions |
+| `consent_purge` | `etl` | every 10 s: purges the records of a revoked consent |
+
+Each loop beats once per round, whether the round found work or failed. A loop is **stalled**
+when it has been silent for three of its rounds, and for one minute at least (a loop that polls
+every second is not hung because one claim waited for the database). `/healthz` then answers
+503 with the same problem document as the API's errors, naming the loop:
+
+```json
+{"type":"about:blank","title":"Service Unavailable","status":503,
+ "detail":"background loops stalled: etl_standard (no heartbeat for 1m12s, limit 1m0s)"}
+```
+
+A long job is not a hung loop. The beat comes from the loop, not from the end of a job, and a
+worker whose slots are all taken by long jobs waits for a slot instead of polling: while a job
+it started is inside its time limit (15 minutes for an ETL job or a pull: the 9 minute job
+timeout, then a settle retried while the database is away; 2 minutes for a webhook attempt; an
+hour for a deletion or a consent purge), the loop is busy, not stalled. A job past its limit
+excuses nothing: the detail then reads `a job ran past its limit`. A database that is away
+fails `/readyz`, not `/healthz`: the loops log the error and keep coming round, and restarting
+the process would not bring the database back.
+
+The upkeep jobs of the `etl` role (reconciler, orphan scan, drainer, retention and the pruners)
+do not beat yet: watch `ohs_etl_last_reconcile_unix_seconds` and `ohs_etl_run_failures_total`
+for them.
+
 ## Metrics
 
-`GET /metrics` serves the Prometheus text format unless `OHS_METRICS=false`. It is instance
-wide and refuses every scrape until you open it with `OHS_METRICS_TOKEN` (a bearer token) or
-`OHS_METRICS_LISTEN` (a private address); see [Metrics](self-hosting.md#metrics).
+`GET /metrics` serves the Prometheus text format unless `OHS_METRICS=false`. On the API
+listener it is instance wide and refuses every scrape until you open it with
+`OHS_METRICS_TOKEN` (a bearer token) or `OHS_METRICS_LISTEN` (a private address); see
+[Metrics](self-hosting.md#metrics).
 
 | Metric | Type | Meaning |
 |---|---|---|
@@ -40,7 +103,35 @@ wide and refuses every scrape until you open it with `OHS_METRICS_TOKEN` (a bear
 | `ohs_etl_run_failures_total` | counter | Background job runs that returned an error |
 | `ohs_etl_last_reconcile_unix_seconds` | gauge | When the last reconcile pass finished |
 
-The `ohs_etl_` metrics appear when the process serving `/metrics` also runs the `etl` role.
+The `ohs_etl_` metrics above appear when the process serving `/metrics` also runs the `etl`
+role.
+
+### Worker metrics
+
+The ops listener (`OHS_OPS_LISTEN`, see [Health](#health)) serves `/metrics` for the process it
+runs in: the worker metrics below, the `ohs_etl_` metrics above when it runs the `etl` role, and
+the vault's. It does not serve the API's `ohs_http_`, `ohs_ingest_` and `ohs_sync_` metrics. To
+get the worker metrics of a process that runs every role, set `OHS_OPS_LISTEN` on it and scrape
+both listeners.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `ohs_queue_depth{queue}` | gauge | Jobs due and not claimed yet. `queue` is `etl_standard`, `etl_high_freq` or `webhook` (`etl` role), `pull` (`collect` role). Jobs waiting for a retry or a provider's rate limit are not due and not counted |
+| `ohs_queue_oldest_job_age_seconds{queue}` | gauge | How long the oldest due job has waited; 0 with none. Alert when it keeps rising: the workers do not keep up, or do not run |
+| `ohs_job_duration_seconds{queue,kind,outcome}` | histogram | How long jobs ran, from claim to settle. `queue="etl"`: `kind` is the tier (`standard`, `high_freq`), `outcome` is `completed`, `failed`, `claim_lost` or `settle_error`. `queue="pull"`: `kind` is what started the pull (`scheduled`, `notification`, `backfill`, `manual`), `outcome` is the `ohs.job.outcome` of the [span](#spans) |
+| `ohs_pull_duration_seconds{provider}` | histogram | How long pulls of a provider took, every outcome together |
+| `ohs_webhook_delivery_duration_seconds{outcome}` | histogram | How long each webhook delivery attempt took; `outcome` is `delivered` or `failed` |
+| `ohs_etl_rows_written_total{table}` | counter | Rows the ETL wrote, by table (`quantity_samples`, `sleep_sessions`, ...). Not fed yet: the series appear with the release that wires the ETL writer to it |
+| `ohs_loop_last_tick_unix_seconds{loop}` | gauge | When each background loop of the process last beat |
+| `ohs_loop_stalled{loop}` | gauge | 1 while the loop is stalled and `/healthz` answers 503 |
+
+The histograms share their buckets: 10, 50, 100, 250 and 500 ms, then 1, 2.5, 5, 10, 30, 60,
+120, 300 and 600 s. A histogram or counter has no series until its first observation. The queue
+gauges are counted every 15 seconds from the index of pending jobs, not on each scrape: a
+scrape never waits for the database, and a queue of millions of jobs is not counted more often
+than that. They are instance wide, so every replica of a role reports the same values: take
+`max`, not `sum`. Label values are fixed sets (queues, tiers, outcomes, provider slugs, tables,
+loops): no tenant, user or job id.
 
 ## Traces
 

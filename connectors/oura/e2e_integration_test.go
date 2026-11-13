@@ -196,9 +196,14 @@ func TestEndToEnd_ConnectPullWebhooks(t *testing.T) {
 	require.NoError(t, err)
 
 	listen := freeAddr(t)
+	// A Config built here, not by Load: the vault settings are the ones Load
+	// derives from the encryption key alone.
+	encKey := make([]byte, 32)
+	vaultCfg, err := config.DerivedVault(encKey)
+	require.NoError(t, err)
 	cfg := config.Config{
 		DatabaseURL: dbURL, RawStore: "file://" + t.TempDir(), Listen: listen, LogLevel: "warn",
-		PublicURL: "http://" + listen, EncryptionKey: make([]byte, 32),
+		PublicURL: "http://" + listen, EncryptionKey: encKey, Vault: vaultCfg,
 		Roles: map[string]bool{"api": true, "etl": true, "collect": true},
 		Providers: map[string]config.ProviderKeys{oura.Slug: {
 			oura.KeyClientID: e2eClientID, oura.KeyClientSecret: e2eSecret, oura.KeyVerificationToken: e2eVerify,

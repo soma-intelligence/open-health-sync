@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -16,12 +17,63 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	apispec "github.com/soma-intelligence/open-health-sync/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
+
+// OpsDeps is what the ops listener of a process serves (OHS_OPS_LISTEN).
+type OpsDeps struct {
+	// Pool, Raw and Vault are what /readyz checks, as the API's does. Raw
+	// and Vault may be nil.
+	Pool  *pgxpool.Pool
+	Raw   rawstore.Store
+	Vault *vault.Vault
+	// Stalled returns the background loops of the process that are hung,
+	// each as one phrase starting with its name. Nil, /healthz always
+	// answers 200.
+	Stalled func() []string
+	// Metrics writes the process's metrics in the Prometheus text format.
+	// Nil leaves /metrics out (OHS_METRICS=false).
+	Metrics func(w io.Writer)
+}
+
+// NewOpsHandler serves /healthz, /readyz and /metrics for a process, the
+// workers without the api role first: nothing else, and no credential, so
+// the operator decides who reaches it by its bind address. The answers have
+// the shapes of the API's. /healthz is the liveness of the process's loops:
+// 503 naming the hung ones, where the API's only says the server answers.
+// /readyz is the API's check: database, schema version, raw store, vault.
+func NewOpsHandler(d OpsDeps) http.Handler {
+	if d.Pool == nil {
+		panic("api: NewOpsHandler needs Pool")
+	}
+	s := &server{d: Deps{Pool: d.Pool, Raw: d.Raw, Vault: d.Vault}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		if d.Stalled != nil {
+			if stalled := d.Stalled(); len(stalled) > 0 {
+				detail := "background loops stalled: " + strings.Join(stalled, "; ")
+				slog.WarnContext(r.Context(), "healthz: "+detail)
+				problem(w, http.StatusServiceUnavailable, detail)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	mux.HandleFunc("GET /readyz", s.readyz)
+	if d.Metrics != nil {
+		mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+			d.Metrics(w)
+		})
+	}
+	return mux
+}
 
 func (s *server) mountOps(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

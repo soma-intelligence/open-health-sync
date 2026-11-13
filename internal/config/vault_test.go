@@ -146,3 +146,25 @@ func TestVaultSettings(t *testing.T) {
 		t.Fatalf("OHS_VAULT_ variables read as provider settings: %v", c.Providers)
 	}
 }
+
+// A Config built without Load (a test harness, an embedding program) gets the
+// vault settings Load would give an environment with only OHS_ENCRYPTION_KEY.
+func TestDerivedVaultIsWhatLoadGives(t *testing.T) {
+	c, err := load(t, withBase(map[string]string{"OHS_PREVIOUS_ENCRYPTION_KEYS": b64(7)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DerivedVault(c.EncryptionKey, c.PreviousEncryptionKeys...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := c.Vault
+	if got.Provider != want.Provider || !got.RootDerived || !bytes.Equal(got.RootKey, want.RootKey) ||
+		len(got.RootKeyPrevious) != 1 || !bytes.Equal(got.RootKeyPrevious[0], want.RootKeyPrevious[0]) ||
+		got.CacheUsers != want.CacheUsers || got.CacheTTL != want.CacheTTL || got.HashiCorpMount != want.HashiCorpMount {
+		t.Fatalf("DerivedVault = %+v, Load gives %+v", got, want)
+	}
+	if _, err := DerivedVault(nil); !errors.Is(err, ErrVault) {
+		t.Fatalf("no encryption key: %v", err)
+	}
+}

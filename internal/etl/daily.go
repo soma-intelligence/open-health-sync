@@ -27,9 +27,12 @@ import (
 // samples so a later upload for the same day corrects the total.
 //
 // The local day comes from the sample's "timezone" metadata (an IANA name,
-// the key connectors set), falling back to UTC. A day is the interval from
-// local midnight to the next local midnight, so a daylight saving transition
-// gives a 23 or 25 hour day.
+// the key connectors set), then from the user's time zone (end_users.timezone,
+// set through the API or learnt from device uploads), then UTC. A day is the
+// interval from local midnight to the next local midnight, so a daylight
+// saving transition gives a 23 or 25 hour day. The zone a sample's day was
+// attributed in is stored in its tz column, so a later change of the user's
+// zone moves no stored sample to another day.
 
 // MetadataTimezone is the metadata key connectors set to the IANA time zone a
 // sample was recorded in.
@@ -58,25 +61,79 @@ func isAdditive(qt string) bool {
 	return false
 }
 
-// zoneCache holds the zones sampleLocation has loaded, by name. LoadLocation
-// reads and parses tzdata on every call and nearly every sample of a batch
-// names the same zone. Only zones that load are kept, so the cache is bounded
-// by the tz database, whatever names the metadata carries.
+// zoneCache holds the zones loadZone has loaded, by name. LoadLocation reads
+// and parses tzdata on every call and nearly every sample of a batch names the
+// same zone. Only zones that load are kept, so the cache is bounded by the tz
+// database, whatever names the metadata carries.
 var zoneCache sync.Map // string -> *time.Location
 
+// loadZone returns the IANA zone called name. "" and "Local" (the server's
+// own zone) name no zone of the user's.
+func loadZone(name string) (*time.Location, bool) {
+	if name == "" || name == "Local" {
+		return nil, false
+	}
+	if loc, ok := zoneCache.Load(name); ok {
+		return loc.(*time.Location), true
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, false
+	}
+	zoneCache.Store(name, loc)
+	return loc, true
+}
+
+// ownZone returns the zone a record's metadata names, when it names one that
+// loads.
+func ownZone(md map[string]any) (*time.Location, bool) {
+	name, _ := md[MetadataTimezone].(string)
+	return loadZone(name)
+}
+
 // sampleLocation returns the time zone named in metadata, or UTC. "Local" (the
-// server's own zone) names no zone of the user's and reads as UTC too.
+// server's own zone) names no zone of the user's and reads as UTC too. It is
+// the zone of a stored row, whose tz column already holds the zone its day
+// was attributed in; a record being written goes through scope.location.
 func sampleLocation(md map[string]any) *time.Location {
-	if name, ok := md[MetadataTimezone].(string); ok && name != "" && name != "Local" {
-		if loc, ok := zoneCache.Load(name); ok {
-			return loc.(*time.Location)
-		}
-		if loc, err := time.LoadLocation(name); err == nil {
-			zoneCache.Store(name, loc)
-			return loc
-		}
+	if loc, ok := ownZone(md); ok {
+		return loc
 	}
 	return time.UTC
+}
+
+// location is the zone a record's local day is attributed in: the zone its
+// metadata names, else the user's zone (scope.zone), else UTC.
+func (s scope) location(md map[string]any) *time.Location {
+	if loc, ok := ownZone(md); ok {
+		return loc
+	}
+	if s.zone != nil {
+		return s.zone
+	}
+	return time.UTC
+}
+
+// tzColumn is the tz column of a written row: the zone its metadata names
+// when that zone loads; else the zone a stored row already holds (a row keeps
+// the zone its day was attributed in); else the user's zone; else what the
+// metadata says, as before there was a user zone. It is the name of the zone
+// scope.location attributes the record's day in, so a deletion that reads tz
+// back finds the same day.
+func (s scope) tzColumn(md, stored any) any {
+	own := metaText(md, MetadataTimezone)
+	if name, _ := own.(string); name != "" {
+		if _, ok := loadZone(name); ok {
+			return own
+		}
+	}
+	if st := textOf(stored); st != "" {
+		return st
+	}
+	if s.zone != nil {
+		return s.zone.String()
+	}
+	return own
 }
 
 // localDate is the calendar day of t in the zone named by md, as midnight UTC.
@@ -92,14 +149,16 @@ type dayKey struct {
 
 // touchedDays collects the days the batch touches: the local day of every
 // additive sample (with the first zone seen for that day) and the day of every
-// provider summary, whose presence suppresses the derived row.
+// provider summary, whose presence suppresses the derived row. The local day
+// of a sample is its day in scope.location: its own zone, else the user's,
+// else UTC.
 func touchedDays(sc scope, acc *model.MapResult) map[dayKey]*time.Location {
 	days := map[dayKey]*time.Location{}
 	for _, s := range acc.QuantitySamples {
 		if !isAdditive(s.QuantityType) {
 			continue
 		}
-		loc := sampleLocation(s.Metadata)
+		loc := sc.location(s.Metadata)
 		k := dayKey{provider: sc.providerOr(s.Provider), day: dateOnly(s.StartDate.In(loc))}
 		if _, ok := days[k]; !ok {
 			days[k] = loc

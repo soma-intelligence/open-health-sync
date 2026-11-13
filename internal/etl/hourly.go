@@ -3,7 +3,6 @@
 package etl
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"math"
@@ -53,24 +52,74 @@ type HourKey struct {
 // is read in slices.
 const hourBatch = 500
 
-// hourSet collects the hours a write touches. A nil set collects nothing.
-type hourSet map[HourKey]struct{}
+// hourSet collects the hours a write touches, per quantity type, as hours
+// since the Unix epoch: eight bytes an hour, so the set of a part that
+// touches a different hour with every sample stays small beside the part. A
+// nil set collects nothing.
+type hourSet map[string]map[int64]struct{}
 
 // add records the hour of a sample of quantityType starting at start.
 func (h hourSet) add(quantityType string, start time.Time) {
 	if h == nil {
 		return
 	}
-	h[HourKey{QuantityType: quantityType, Bucket: hourOf(start)}] = struct{}{}
+	hours, ok := h[quantityType]
+	if !ok {
+		hours = map[int64]struct{}{}
+		h[quantityType] = hours
+	}
+	hours[hourOf(start).Unix()/3600] = struct{}{}
+}
+
+// len is the number of hours in the set.
+func (h hourSet) len() int {
+	n := 0
+	for _, hours := range h {
+		n += len(hours)
+	}
+	return n
 }
 
 // keys returns the hours of the set.
 func (h hourSet) keys() []HourKey {
-	out := make([]HourKey, 0, len(h))
-	for k := range h {
-		out = append(out, k)
+	out := make([]HourKey, 0, h.len())
+	for qt, hours := range h {
+		for hour := range hours {
+			out = append(out, HourKey{QuantityType: qt, Bucket: time.Unix(hour*3600, 0).UTC()})
+		}
 	}
 	return out
+}
+
+// batches yields the hours of the set by quantity type, then hour, in slices
+// of at most hourBatch. Only one type's hours are sorted at a time.
+func (h hourSet) batches(yield func([]HourKey) error) error {
+	types := make([]string, 0, len(h))
+	for qt := range h {
+		types = append(types, qt)
+	}
+	slices.Sort(types)
+	batch := make([]HourKey, 0, hourBatch)
+	for _, qt := range types {
+		hours := make([]int64, 0, len(h[qt]))
+		for hour := range h[qt] {
+			hours = append(hours, hour)
+		}
+		slices.Sort(hours)
+		for _, hour := range hours {
+			batch = append(batch, HourKey{QuantityType: qt, Bucket: time.Unix(hour*3600, 0).UTC()})
+			if len(batch) == hourBatch {
+				if err := yield(batch); err != nil {
+					return err
+				}
+				batch = batch[:0]
+			}
+		}
+	}
+	if len(batch) > 0 {
+		return yield(batch)
+	}
+	return nil
 }
 
 // hourOf is the hour a sample starting at t falls in.
@@ -152,26 +201,26 @@ func RecomputeHours(ctx context.Context, tx TxLike, uv *vault.UserVault, tenant,
 	if uv == nil || len(hours) == 0 {
 		return nil
 	}
-	sc := scope{tenant: tenant, user: user, uv: uv}
-	if err := lockUserTable(ctx, tx, tQuantity, sc); err != nil {
-		return err
-	}
 	set := hourSet{}
 	for _, h := range hours {
 		set.add(h.QuantityType, h.Bucket)
 	}
-	all := set.keys()
-	slices.SortFunc(all, func(a, b HourKey) int {
-		return cmp.Or(cmp.Compare(a.QuantityType, b.QuantityType), a.Bucket.Compare(b.Bucket))
-	})
-	for len(all) > 0 {
-		n := min(hourBatch, len(all))
-		if err := recomputeBatch(ctx, tx, sc, all[:n]); err != nil {
-			return err
-		}
-		all = all[n:]
+	return recomputeHourSet(ctx, tx, scope{tenant: tenant, user: user, uv: uv}, set)
+}
+
+// recomputeHourSet is RecomputeHours over a set of hours, for the keys of sc.
+// The hours are read hourBatch at a time, by quantity type, then hour.
+func recomputeHourSet(ctx context.Context, tx TxLike, sc scope, set hourSet) error {
+	if sc.uv == nil || set.len() == 0 {
+		return nil
 	}
-	return nil
+	sc = scope{tenant: sc.tenant, user: sc.user, uv: sc.uv}
+	if err := lockUserTable(ctx, tx, tQuantity, sc); err != nil {
+		return err
+	}
+	return set.batches(func(hours []HourKey) error {
+		return recomputeBatch(ctx, tx, sc, hours)
+	})
 }
 
 // recomputeBatch is RecomputeHours over one slice of hours.

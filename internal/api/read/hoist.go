@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/soma-intelligence/open-health-sync/internal/fusion"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // hoisted remembers the lookups every page of a list repeats for one user:
@@ -22,6 +23,8 @@ type hoisted struct {
 	user     bool
 	types    map[string]bool
 	policy   *fusion.Policy
+	// keys opens the user's sealed rows: the keys are unwrapped once.
+	keys *vault.Reader
 }
 
 type hoistKey struct{}
