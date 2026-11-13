@@ -11,6 +11,12 @@
 # terminology server tx.fhir.org, which also checks the LOINC and UCUM codes).
 #
 #   scripts/fhir-validate.sh            # or: make fhir-validate
+#   scripts/fhir-validate.sh DIR        # the *.json in DIR instead
+#
+# With a directory, it validates the files the server itself served
+# (test/synthflow TestEveryOutputConforms writes them with OHS_FHIR_OUT=DIR):
+# every file against R4, then the Observations that carry the Physical
+# Activity IG category against its activity measure profile.
 #
 # FHIR_VALIDATOR_DIR   where the jar is downloaded and the validator runs
 #                      (default: a new temporary directory, kept out of the tree)
@@ -45,18 +51,30 @@ tx=()
 if [ -n "${FHIR_VALIDATOR_TX:-}" ]; then
   tx=(-tx "$FHIR_VALIDATOR_TX")
 fi
-files=("$root"/internal/fhir/testdata/*.json)
-# The Observations that are Physical Activity IG measures (docs/fhir.md).
-pa_files=(
-  "$root"/internal/fhir/testdata/observation-activity-moderate-time.json
-  "$root"/internal/fhir/testdata/observation-activity-vigorous-time.json
-  "$root"/internal/fhir/testdata/observation-workout.json
-)
+if [ $# -gt 0 ]; then
+  src="$(cd "$1" && pwd)"
+  files=("$src"/*.json)
+  [ -e "${files[0]}" ] || { echo "fhir-validate: no .json file in $1" >&2; exit 2; }
+  # The Observations the server marks as Physical Activity IG measures.
+  mapfile -t pa_files < <(grep -l '"code": "PhysicalActivity"' "$src"/observation-*.json || true)
+else
+  files=("$root"/internal/fhir/testdata/*.json)
+  # The Observations that are Physical Activity IG measures (docs/fhir.md).
+  pa_files=(
+    "$root"/internal/fhir/testdata/observation-activity-moderate-time.json
+    "$root"/internal/fhir/testdata/observation-activity-vigorous-time.json
+    "$root"/internal/fhir/testdata/observation-workout.json
+  )
+fi
 pa_ig="hl7.fhir.us.physical-activity#1.0.0"
 pa_profile="http://hl7.org/fhir/us/physical-activity/StructureDefinition/pa-observation-activity-measure"
 
 # Run from the download directory: the validator writes its caches there.
 cd "$dir"
 java -Xmx4g -jar "$jar" "${files[@]}" -version 4.0.1 "${tx[@]}"
-echo "fhir-validate: Physical Activity IG ($pa_ig), profile $pa_profile"
+if [ ${#pa_files[@]} -eq 0 ]; then
+  echo "fhir-validate: no Physical Activity IG measure to check"
+  exit 0
+fi
+echo "fhir-validate: Physical Activity IG ($pa_ig), profile $pa_profile, ${#pa_files[@]} files"
 java -Xmx4g -jar "$jar" "${pa_files[@]}" -version 4.0.1 -ig "$pa_ig" -profile "$pa_profile" "${tx[@]}"
