@@ -26,6 +26,7 @@ chose. Open Health Sync does not show consent screens itself.
 | `nutrition` | Food, drinks, water, caffeine |
 | `reproductive` | Menstrual cycle, ovulation, basal body temperature, sexual activity, pregnancy |
 | `mental` | Mindfulness, state of mind, mood, stress, reported feeling, mood, stress and energy |
+| `labs` | Lab results uploaded to `POST /v1/users/{id}/labs` ([labs.md](labs.md)) |
 | `other` | Anything no category above describes, reported pain included |
 
 A record goes with its parent: route points are `location` but also go when `activity` is not

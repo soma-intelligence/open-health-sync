@@ -46,6 +46,8 @@ const (
 	KindDaily     Kind = 4
 	KindECG       Kind = 5
 	KindNutrition Kind = 6
+	// KindLab is a lab result (a row of ohs_data.observations, read.LabResult).
+	KindLab Kind = 7
 )
 
 // The two halves of a blood pressure reading.
@@ -68,6 +70,7 @@ type ObservationRecord struct {
 	// ECG is an ECG recording with its voltage samples.
 	ECG       *ECGRecordingDetail
 	Nutrition *NutritionLog
+	Lab       *LabResult
 }
 
 // ObservationFilter says which records a merged list holds.
@@ -84,11 +87,15 @@ type ObservationFilter struct {
 	Daily      bool
 	ECG        bool
 	Nutrition  bool
+	// Labs keeps lab results; LabCodes, when not nil, only those of these
+	// canonical codes (lab:loinc:<code>, lab:local:<code>).
+	Labs     bool
+	LabCodes []string
 }
 
 // AllObservations is the filter that keeps every record.
 func AllObservations() ObservationFilter {
-	return ObservationFilter{Quantities: true, Sleep: true, Workouts: true, Daily: true, ECG: true, Nutrition: true}
+	return ObservationFilter{Quantities: true, Sleep: true, Workouts: true, Daily: true, ECG: true, Nutrition: true, Labs: true}
 }
 
 // And is the filter that keeps what both f and g keep.
@@ -100,6 +107,22 @@ func (f ObservationFilter) And(g ObservationFilter) ObservationFilter {
 		Daily:      f.Daily && g.Daily,
 		ECG:        f.ECG && g.ECG,
 		Nutrition:  f.Nutrition && g.Nutrition,
+		Labs:       f.Labs && g.Labs,
+	}
+	if out.Labs {
+		switch {
+		case f.LabCodes == nil:
+			out.LabCodes = g.LabCodes
+		case g.LabCodes == nil:
+			out.LabCodes = f.LabCodes
+		default:
+			out.LabCodes = []string{}
+			for _, c := range f.LabCodes {
+				if slices.Contains(g.LabCodes, c) {
+					out.LabCodes = append(out.LabCodes, c)
+				}
+			}
+		}
 	}
 	if !out.Quantities {
 		return out
@@ -130,7 +153,8 @@ func (f ObservationFilter) And(g ObservationFilter) ObservationFilter {
 // Empty reports whether the filter keeps nothing.
 func (f ObservationFilter) Empty() bool {
 	q := f.Quantities && (f.Types == nil || len(f.Types) > 0)
-	return !q && !f.Sleep && !f.Workouts && !f.Daily && !f.ECG && !f.Nutrition
+	l := f.Labs && (f.LabCodes == nil || len(f.LabCodes) > 0)
+	return !q && !l && !f.Sleep && !f.Workouts && !f.Daily && !f.ECG && !f.Nutrition
 }
 
 // Blood pressure pairing. A systolic and a diastolic sample pair when they
@@ -222,7 +246,7 @@ func decodeObsCursor(c string) (time.Time, Kind, int64, error) {
 	t, err1 := time.Parse(time.RFC3339Nano, parts[0])
 	k, err2 := strconv.Atoi(parts[1])
 	id, err3 := strconv.ParseInt(parts[2], 10, 64)
-	if err1 != nil || err2 != nil || err3 != nil || k < int(KindQuantity) || k > int(KindNutrition) {
+	if err1 != nil || err2 != nil || err3 != nil || k < int(KindQuantity) || k > int(KindLab) {
 		return time.Time{}, 0, 0, ErrInvalidCursor
 	}
 	return t, Kind(k), id, nil
@@ -274,10 +298,10 @@ func cutPage(keys []obsKey, limit int) ([]obsKey, string) {
 }
 
 // Observations lists, in one page, the records f keeps: quantity samples,
-// sleep sessions, workouts, daily summaries, ECG recordings and nutrition
-// logs, ordered by time (a sample's start, a session's bedtime, a workout's
-// start, a day's date at midnight UTC, a recording's or a log's start), then
-// kind, then id. q.Type is
+// sleep sessions, workouts, daily summaries, ECG recordings, nutrition logs
+// and lab results, ordered by time (a sample's start, a session's bedtime, a
+// workout's start, a day's date at midnight UTC, a recording's or a log's
+// start, a lab result's collection), then kind, then id. q.Type is
 // ignored (it belongs in f). A systolic sample paired with a diastolic one
 // comes with it as Partner, and the diastolic one is not listed on its own,
 // so a pair is never split across pages. A page holds at most MaxECGPerPage
@@ -308,6 +332,7 @@ func Observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 		{"ohs_data.daily_summaries WHERE " + mine, "(summary_date::timestamp AT TIME ZONE 'UTC')"},
 		{"ohs_data.ecg_recordings WHERE " + mine, "start_date"},
 		{"ohs_data.nutrition_logs WHERE " + mine, "start_date"},
+		{"ohs_data.observations WHERE " + mine + " AND " + labCond, "ts"},
 	}
 	first := func(from time.Time) (time.Time, error) {
 		return firstFrom(ctx, db, sets, []any{tenantID, userID}, from)
@@ -447,6 +472,14 @@ func observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 	if f.Nutrition {
 		// No merged view either: two apps logging one meal are two entries.
 		branch(KindNutrition, "ohs_data.nutrition_logs", "n", "n.start_date", nil)
+	}
+	if f.Labs && (f.LabCodes == nil || len(f.LabCodes) > 0) {
+		// No merged view: each lab result is its own record.
+		where := []string{labCondOn("o")}
+		if f.LabCodes != nil {
+			where = append(where, "o.canonical_code = ANY("+arg(f.LabCodes)+"::text[])")
+		}
+		branch(KindLab, "ohs_data.observations", "o", "o.ts", where)
 	}
 	var keys []obsKey
 	if len(branches) > 0 {
@@ -692,6 +725,24 @@ func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k
 			}
 			x.utc()
 			out[obsKey{kind: KindNutrition, id: x.ID}] = ObservationRecord{Kind: KindNutrition, Nutrition: &x}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(ids[KindLab]) > 0 {
+		// The lab condition keeps a by-id read from returning another
+		// observation under a lab id.
+		err := fetchByIDs(ctx, db, "ohs_data.observations", labSel.List("r"), tenantID, userID, ids[KindLab], spans[KindLab], "ts", "timestamptz", func(r pgx.Rows) error {
+			x, err := scanLab(ctx, rd, r)
+			if err != nil {
+				return err
+			}
+			if !strings.HasPrefix(x.Code, "lab:") {
+				return nil
+			}
+			out[obsKey{kind: KindLab, id: x.ID}] = ObservationRecord{Kind: KindLab, Lab: &x}
 			return nil
 		})
 		if err != nil {

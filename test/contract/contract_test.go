@@ -667,6 +667,53 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	require.Equal(t, 200, r.status, "%s", r.body)
 	assert.Contains(t, string(r.body), `"performer"`)
 
+	// Lab results: the simple form and a FHIR Observation, a refusal, then
+	// the results, the report and the FHIR resources once processed.
+	labForm := `{"reports":[{"id":"lab-report-1","loinc":"24331-1","collected_at":"2026-01-10T07:00:00Z","performer":"Invented Lab",
+		"results":[{"id":"lab-chol","loinc":"2093-3","value":5.2,"unit":"mmol/L","reference_high":5.0,"interpretation":"H"},
+		{"id":"lab-note","code":"NOTE","value_string":"invented","status":"preliminary"}]}]}`
+	r = c.do("POST", u+"/labs", key, strings.NewReader(labForm),
+		map[string]string{"Content-Type": "application/json", "Idempotency-Key": "labs-1"})
+	require.Equal(t, 202, r.status, "%s", r.body)
+	r = c.json("POST", u+"/labs", tok.Token, labForm)
+	require.Equal(t, 202, r.status, "%s", r.body)
+	assert.Contains(t, string(r.body), `"duplicate":true`)
+	r = c.do("POST", u+"/labs", key, strings.NewReader(`{"resourceType":"Observation","id":"lab-glu","status":"final",
+		"category":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/observation-category","code":"laboratory"}]}],
+		"code":{"coding":[{"system":"http://loinc.org","code":"2345-7"}]},"effectiveDateTime":"2026-01-11T07:00:00Z",
+		"valueQuantity":{"value":5.4,"unit":"mmol/L","system":"http://unitsofmeasure.org","code":"mmol/L"}}`),
+		map[string]string{"Content-Type": "application/fhir+json"})
+	require.Equal(t, 202, r.status, "%s", r.body)
+	assert.Equal(t, 400, c.json("POST", u+"/labs", key, `{"reports":[{"id":"x","results":[]}]}`).status)
+	deadline = time.Now().Add(60 * time.Second)
+	for {
+		r = c.json("GET", u+"/labs", key, "")
+		require.Equal(t, 200, r.status, "%s", r.body)
+		if strings.Count(string(r.body), `"external_id"`) == 3 {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "lab results not processed: %s", r.body)
+		time.Sleep(200 * time.Millisecond)
+	}
+	assert.Equal(t, 200, c.json("GET", u+"/labs?code=2093-3&start=2026-01-01&limit=1", key, "").status)
+	assert.Equal(t, 400, c.json("GET", u+"/labs?type=x", key, "").status)
+	assert.Equal(t, 200, c.json("GET", u+"/labs/reports/lab-report-1", key, "").status)
+	assert.Equal(t, 404, c.json("GET", u+"/labs/reports/none", key, "").status)
+	r = c.json("GET", u+"/fhir/Observation?category=laboratory", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	assert.Contains(t, string(r.body), `"referenceRange"`)
+	r = c.json("GET", u+"/fhir/DiagnosticReport", key, "")
+	require.Equal(t, 200, r.status, "%s", r.body)
+	var reports struct {
+		Entry []struct {
+			Resource struct{ ID string } `json:"resource"`
+		} `json:"entry"`
+	}
+	r.json(t, &reports)
+	require.Len(t, reports.Entry, 1)
+	assert.Equal(t, 200, c.json("GET", u+"/fhir/DiagnosticReport/"+reports.Entry[0].Resource.ID, key, "").status)
+	assert.Equal(t, 200, c.json("GET", everything, key, "").status)
+
 	// Share links: make two, list and read them, then open one as its reader
 	// would (a wrong passcode, the file at a location, the file), revoke it,
 	// and the refusals. The public routes take four requests per address.

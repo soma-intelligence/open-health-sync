@@ -586,6 +586,7 @@ var providerNames = map[string]string{
 	"garmin":         "Garmin",
 	"health_connect": "Health Connect",
 	"intervals_icu":  "intervals.icu",
+	"labs":           "Lab results",
 	"omron":          "OMRON",
 	"oura":           "Oura",
 	"polar":          "Polar",

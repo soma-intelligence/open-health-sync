@@ -81,6 +81,9 @@ type Deps struct {
 	// SelfReport handles POST /v1/users/{id}/self-reports. Nil leaves the
 	// route out.
 	SelfReport connector.DeviceConnector
+	// Labs handles POST /v1/users/{id}/labs. Nil leaves the route
+	// unmounted; the read routes are mounted either way.
+	Labs connector.DeviceConnector
 	// IngestLimit bounds uploads in flight (0 means DefaultIngestLimit).
 	IngestLimit int
 	// IngestTenantLimit is the share of the upload slots one tenant is sure
@@ -233,6 +236,7 @@ func (s *server) handler() http.Handler {
 	s.mountReads(mux)
 	s.mountTags(mux)
 	s.mountSelfReports(mux)
+	s.mountLabs(mux)
 	s.mountSourcePriorities(mux)
 	s.mountFHIR(mux)
 	s.mountOMH(mux)

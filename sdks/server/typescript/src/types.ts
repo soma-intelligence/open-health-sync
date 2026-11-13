@@ -39,7 +39,7 @@ export interface PageBase {
   next_cursor: string | null;
 }
 
-export type ConsentCategoryName = "activity" | "location" | "heart" | "ecg" | "blood_pressure" | "glucose" | "respiratory" | "body" | "sleep" | "nutrition" | "reproductive" | "mental" | "other";
+export type ConsentCategoryName = "activity" | "location" | "heart" | "ecg" | "blood_pressure" | "glucose" | "respiratory" | "body" | "sleep" | "nutrition" | "reproductive" | "mental" | "labs" | "other";
 
 export interface ConsentCategory {
   category: ConsentCategoryName;
@@ -1445,6 +1445,164 @@ export interface SelfReportsResponse {
   duplicate: boolean;
 }
 
+export type LabStatus = "preliminary" | "final" | "amended" | "corrected" | "cancelled";
+
+/** HL7 v3 ObservationInterpretation flags; HH, LL and AA are the critical ones. An upload may send `critical`, stored as AA. */
+export type LabInterpretation = "H" | "L" | "N" | "A" | "HH" | "LL" | "AA";
+
+/** The simple form of a lab upload (docs/labs.md). Unknown fields are a 400. */
+export interface LabUpload {
+  reports: LabReportInput[];
+}
+
+/** One report. Its status (final when absent), collection time, issued time and performer are the defaults of its results. */
+export interface LabReportInput {
+  /** Your id of the report. Unique in the upload. */
+  id?: string;
+  /** The panel's LOINC code. */
+  loinc?: string;
+  /** Your own code of the panel. */
+  code?: string;
+  system?: string;
+  display?: string;
+  status?: LabStatus;
+  /** The default of its results' collection times. */
+  collected_at?: string;
+  issued_at?: string;
+  /** The lab that ran the tests. */
+  performer?: string;
+  /** Who ordered them. */
+  orderer?: string;
+  results: LabResultInput[];
+}
+
+/**
+ * One test result. `loinc` or `code` is required. At most one of `value`,
+ * `value_string` and `value_code`; none only for a cancelled result or one with
+ * `absent`. `collected_at` is required here or on the report.
+ */
+export interface LabResultInput {
+  /** Your id of the result. Sending it again replaces it. */
+  id: string;
+  loinc?: string;
+  /** Your own code of the test. */
+  code?: string;
+  system?: string;
+  display?: string;
+  value?: number;
+  comparator?: "<" | "<=" | ">=" | ">";
+  /** The UCUM unit of `value`. */
+  unit?: string;
+  value_string?: string;
+  value_code?: string;
+  value_system?: string;
+  reference_low?: number;
+  reference_high?: number;
+  reference_text?: string;
+  interpretation?: "H" | "L" | "N" | "A" | "HH" | "LL" | "AA" | "critical";
+  status?: LabStatus;
+  specimen?: string;
+  collected_at?: string;
+  collected_end?: string;
+  issued_at?: string;
+  performer?: string;
+  /** Why there is no value (a FHIR data absent reason code). */
+  absent?: string;
+}
+
+/**
+ * A FHIR R4 Bundle, DiagnosticReport or Observation of category laboratory. A
+ * DiagnosticReport's results are resolved in the Bundle (by fullUrl or Type/id) or in
+ * its contained resources. See docs/labs.md for the elements read and those rejected.
+ */
+export interface FHIRLabUpload {
+  resourceType: "Bundle" | "DiagnosticReport" | "Observation";
+}
+
+export interface LabUploadResponse {
+  /** The reports accepted, in upload order. */
+  reports: LabUploadResponseReport[];
+  /** true when this exact body had already been received. */
+  duplicate: boolean;
+}
+
+export interface LabUploadResponseReport {
+  /** Null for the results a FHIR upload sent without a DiagnosticReport. */
+  id: string | null;
+  results: LabUploadResponseReportResult[];
+}
+
+export interface LabUploadResponseReportResult {
+  id: string;
+  /** `lab:loinc:<code>` or `lab:local:<code>`. */
+  code: string;
+  status: LabStatus;
+}
+
+export interface LabResult {
+  /** The integration the record came through (apple_health, withings...). */
+  provider: string;
+  /** The vendor that produced the record, when it differs or is known. */
+  source: string | null;
+  device: string | null;
+  ingested_at: string;
+  id: number;
+  report_id: string | null;
+  code: string;
+  loinc: string | null;
+  source_code: string | null;
+  source_system: string | null;
+  display: string | null;
+  value: number | null;
+  unit: string | null;
+  comparator: string | null;
+  value_string: string | null;
+  value_code: string | null;
+  value_system: string | null;
+  /** The value in `normalized_unit`, only for the analytes and units of the normalization table (docs/labs.md). */
+  normalized_value: number | null;
+  normalized_unit: string | null;
+  reference_low: number | null;
+  reference_high: number | null;
+  reference_text: string | null;
+  interpretation: LabInterpretation | unknown;
+  interpretation_text: string | null;
+  critical: boolean;
+  status: LabStatus;
+  specimen: string | null;
+  collected_at: string;
+  collected_end: string | null;
+  issued_at: string | null;
+  /** The source gave no collection time; `collected_at` is the issued time. */
+  issued_as_collected: boolean;
+  data_absent_reason: string | null;
+  performer: string | null;
+  orderer: string | null;
+  /** The source's id of the result. */
+  external_id: string;
+}
+
+export interface LabResultPage {
+  data: LabResult[];
+  /** Null on the last page. */
+  next_cursor: string | null;
+}
+
+export interface LabReport {
+  id: string;
+  loinc: string | null;
+  code: string | null;
+  system: string | null;
+  display: string | null;
+  status: LabStatus | unknown;
+  /** The report's collection time, else the earliest of its results'. */
+  collected_at: string;
+  issued_at: string | null;
+  performer: string | null;
+  orderer: string | null;
+  results: LabResult[];
+}
+
 export interface CreateTimeTagRequest {
   /** The controlled vocabulary of time tags; see docs/time-tags.md. */
   kind: TimeTagKind;
@@ -1479,7 +1637,7 @@ export interface TimeTagPage {
 
 /**
  * The consent categories a share link can hold: those with records in the FHIR view.
- * location, ecg, nutrition, reproductive and mental are refused (400).
+ * location, ecg, nutrition, reproductive, mental and labs are refused (400).
  */
 export type ShareCategory = "activity" | "heart" | "blood_pressure" | "glucose" | "respiratory" | "body" | "sleep" | "other";
 
@@ -1847,7 +2005,7 @@ export interface FHIREverythingBundle {
 
 export interface FHIREverythingBundleEntry {
   fullUrl: string;
-  resource: FHIRPatient | FHIRObservation | FHIRDevice | FHIRProvenance;
+  resource: FHIRPatient | FHIRObservation | FHIRDiagnosticReport | FHIRDevice | FHIRProvenance;
   search?: FHIREverythingBundleEntrySearch;
 }
 
@@ -1895,9 +2053,52 @@ export interface OMHDataPointPage {
   next_cursor: string | null;
 }
 
+/** A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md). */
+export interface FHIRDiagnosticReport {
+  resourceType: "DiagnosticReport";
+  id: string;
+  meta?: FHIRDiagnosticReportMeta;
+  /** The source's report id. */
+  identifier?: FHIRIdentifier[];
+  status: "preliminary" | "final" | "amended" | "corrected" | "cancelled" | "unknown";
+  category: FHIRCodeableConcept[];
+  code: FHIRCodeableConcept;
+  subject: FHIRReference;
+  effectiveDateTime?: string;
+  issued?: string;
+  performer?: FHIRReference[];
+  /** The Observations (`lab-` ids) of its results. */
+  result?: FHIRReference[];
+}
+
+export interface FHIRDiagnosticReportMeta {
+  source?: string;
+}
+
+/** A FHIR R4 searchset Bundle of DiagnosticReports. */
+export interface FHIRDiagnosticReportBundle {
+  resourceType: "Bundle";
+  type: "searchset";
+  link: FHIRBundleLink[];
+  /** Absent on an empty page. */
+  entry?: FHIRDiagnosticReportBundleEntry[];
+}
+
+export interface FHIRDiagnosticReportBundleEntry {
+  fullUrl: string;
+  /** A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md). */
+  resource: FHIRDiagnosticReport;
+  search?: FHIRDiagnosticReportBundleEntrySearch;
+}
+
+export interface FHIRDiagnosticReportBundleEntrySearch {
+  mode?: "match";
+}
+
 /**
  * A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
- * session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+ * session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+ * docs/labs.md).
  */
 export interface FHIRObservation {
   resourceType: "Observation";
@@ -1905,20 +2106,29 @@ export interface FHIRObservation {
   meta?: FHIRObservationMeta;
   /** The provider's own id of the record (of each sample of a panel), when it has one. */
   identifier?: FHIRObservationIdentifier[];
-  status: "final";
+  /** final, except for a lab result, which keeps its own status. */
+  status: "final" | "preliminary" | "amended" | "corrected" | "cancelled";
   category?: FHIRCodeableConcept[];
   code: FHIRCodeableConcept;
   subject: FHIRReference;
   effectiveDateTime?: string;
   effectivePeriod?: FHIRObservationEffectivePeriod;
-  /** When the record was ingested (the later of a panel's two samples). */
+  /** When the record was ingested (the later of a panel's two samples); for a lab result, when the lab issued it. */
   issued?: string;
-  /** The person, on a self report (category survey); absent otherwise. */
+  /** The person, on a self report (category survey); the lab, on a lab result when known; absent otherwise. */
   performer?: FHIRReference[];
   valueQuantity?: FHIRQuantity;
-  /** Instead of valueQuantity for a classification (ecg_afib_classification). */
+  /** Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result. */
   valueCodeableConcept?: FHIRObservationValueCodeableConcept;
+  /** A lab result given as text. */
+  valueString?: string;
   dataAbsentReason?: FHIRCodeableConcept;
+  /** A lab result's flag (v3 ObservationInterpretation H, L, N, A, HH, LL, AA). */
+  interpretation?: FHIRCodeableConcept[];
+  /** A lab result's specimen, as a display. */
+  specimen?: FHIRObservationSpecimen;
+  /** A lab result's reference range, in the unit of its value. */
+  referenceRange?: FHIRObservationReferenceRange[];
   device?: FHIRReference;
   /**
    * The two values of a blood pressure panel, or a sleep session's, workout's, daily
@@ -1945,9 +2155,22 @@ export interface FHIRObservationEffectivePeriod {
   end?: string;
 }
 
-/** Instead of valueQuantity for a classification (ecg_afib_classification). */
+/** Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result. */
 export interface FHIRObservationValueCodeableConcept {
   coding?: FHIRCoding[];
+  text?: string;
+}
+
+/** A lab result's specimen, as a display. */
+export interface FHIRObservationSpecimen {
+  reference?: string;
+  identifier?: FHIRIdentifier;
+  display?: string;
+}
+
+export interface FHIRObservationReferenceRange {
+  low?: FHIRQuantity;
+  high?: FHIRQuantity;
   text?: string;
 }
 
@@ -1980,6 +2203,8 @@ export interface FHIRSampledData {
 
 export interface FHIRQuantity {
   value?: number;
+  /** A lab result's bound (`<5`). */
+  comparator?: "<" | "<=" | ">=" | ">";
   unit?: string;
   system?: "http://unitsofmeasure.org";
   code?: string;
@@ -2003,7 +2228,8 @@ export interface FHIRBundleEntry {
   fullUrl: string;
   /**
    * A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
-   * session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+   * session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+   * docs/labs.md).
    */
   resource: FHIRObservation;
   search?: FHIRBundleEntrySearch;

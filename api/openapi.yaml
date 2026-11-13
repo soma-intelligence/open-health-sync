@@ -88,6 +88,7 @@ tags:
   - name: read
   - name: tags
   - name: self-reports
+  - name: labs
   - name: shares
   - name: fhir
   - name: omh
@@ -1227,6 +1228,122 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/users/{id}/labs:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [labs]
+      operationId: createLabs
+      x-required-scope: "data:write"
+      summary: Upload lab results
+      description: |
+        Lab results as FHIR R4 or as the simple JSON form (docs/labs.md). A body with a
+        `resourceType` is read as FHIR: a Bundle, a DiagnosticReport or an Observation, with
+        category laboratory (a DiagnosticReport of another diagnostic service section, or an
+        Observation of another category, is a 400 naming it). Any other body is the simple
+        form, `{"reports": [...]}`. At most 100 reports, 500 results per report and 2000
+        results in all, in at most 1 MiB.
+
+        Each result is stored once per `id`: a result sent again with the same `id` (an
+        amended or corrected copy) replaces the stored one when its upload is newer, so the
+        latest upload wins. The body goes through the same processing as an upload, so the
+        answer is 202 and the results show once it is processed. The same body sent again is
+        a duplicate and is stored once. A tenant key uploads for any user of the tenant; a
+        user token with scope `upload` only for its own user, and another user is a 404.
+        Values are health data: never logged, never quoted in an error. While the user's lab
+        results are being deleted the answer is 409 and nothing is kept.
+      security:
+        - tenantKey: []
+        - userToken: [upload]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/LabUpload"
+                - $ref: "#/components/schemas/FHIRLabUpload"
+          application/fhir+json:
+            schema: { $ref: "#/components/schemas/FHIRLabUpload" }
+      responses:
+        "202":
+          description: Stored, and queued for processing.
+          headers:
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabUploadResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The user's lab results are being deleted, or an idempotent request with this key is in progress.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/IdempotencyMismatch" }
+    get:
+      tags: [labs]
+      operationId: listLabs
+      x-required-scope: "data:read"
+      summary: The user's lab results
+      description: |
+        One result per test, as last uploaded, by collection time then id. `start` and `end`
+        bound the collection time. Any other query parameter is a 400.
+      parameters:
+        - name: code
+          in: query
+          description: A LOINC code (2093-3), or the source's own code for a result without one.
+          schema: { type: string, examples: ["2093-3"] }
+        - name: report
+          in: query
+          description: The source's report id.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by collection time.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabResultPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/labs/reports/{report_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: report_id
+        in: path
+        required: true
+        description: The source's report id.
+        schema: { type: string }
+    get:
+      tags: [labs]
+      operationId: getLabReport
+      x-required-scope: "data:read"
+      summary: One lab report with its results
+      description: |
+        The report's fields come from its most recently uploaded result. A report id the user
+        has no result of is a 404.
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/samples:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -2065,9 +2182,10 @@ paths:
         `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
         panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
         workouts (`workout-`), daily summaries (`daily-`), ECG recordings with their
-        voltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a
-        sample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or
-        a meal's start), then by kind and id.
+        voltage samples (`ecg-`), nutrition logs (`nutrition-`) and lab results (`lab-`),
+        merged in time order (a sample's start, a bedtime, a workout's start, a day at
+        midnight UTC, a recording's or a meal's start, a specimen's collection), then by kind
+        and id.
         Paged like every list: the Bundle's `next` link carries the cursor, and there is no
         `next` link on the last page; `total` is left out. A blood pressure pair is never
         split across pages, and its two samples are not listed on their own. A page holds at
@@ -2092,7 +2210,7 @@ paths:
             A FHIR token `system|code` matched against `Observation.code`: a LOINC code
             (`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure
             panels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG
-            recordings), a quantity type
+            recordings; any LOINC code also finds the lab results of that test), a quantity type
             (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
             like `type`), or a record type
             (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
@@ -2104,8 +2222,9 @@ paths:
           description: |
             An HL7 observation category code, bare or as
             `http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,
-            `laboratory`, `activity` (activity samples, workouts and daily summaries) or `survey`
-            (self reports). One value. Another code of that system is an empty Bundle; anything
+            `laboratory` (lab results, and the samples of laboratory types), `activity`
+            (activity samples, workouts and daily summaries) or `survey` (self reports). One
+            value. Another code of that system is an empty Bundle; anything
             else is a 400.
           schema: { type: string, examples: [vital-signs] }
         - $ref: "#/components/parameters/Start"
@@ -2132,7 +2251,8 @@ paths:
         required: true
         description: |
           The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's
-          id), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id.
+          id), `sleep-`, `workout-`, `daily-`, `ecg-`, `nutrition-` or `lab-`, then the stored
+          row id.
         schema: { type: string, examples: [qs-1234, bp-1235, sleep-77, ecg-12] }
     get:
       tags: [fhir]
@@ -2152,6 +2272,67 @@ paths:
           content:
             application/fhir+json:
               schema: { $ref: "#/components/schemas/FHIRObservation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/DiagnosticReport:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: searchFHIRDiagnosticReports
+      x-required-scope: "data:read"
+      summary: The user's lab reports as FHIR R4 DiagnosticReports
+      description: |
+        One `searchset` Bundle of DiagnosticReports, one per lab report, each referencing the
+        Observations (`lab-` ids) of its results, by the report's earliest collection time
+        then id. Results sent without a report have no DiagnosticReport. Paged like the
+        Observation search. See docs/labs.md.
+      parameters:
+        - name: category
+          in: query
+          description: |
+            `LAB` (bare or with the system `http://terminology.hl7.org/CodeSystem/v2-0074`) or
+            `laboratory` (bare or with the observation category system). Another code of
+            those systems is an empty Bundle; another system is a 400. One value.
+          schema: { type: string, examples: [LAB] }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRDiagnosticReportBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/DiagnosticReport/{report_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: report_id
+        in: path
+        required: true
+        description: |
+          The DiagnosticReport id, as the Bundle gives it: `labreport-` then the first 40 hex
+          digits of the SHA-256 of the source's report id.
+        schema: { type: string, pattern: "^labreport-[0-9a-f]{40}$" }
+    get:
+      tags: [fhir]
+      operationId: readFHIRDiagnosticReport
+      x-required-scope: "data:read"
+      summary: One FHIR R4 DiagnosticReport
+      responses:
+        "200":
+          description: The DiagnosticReport.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRDiagnosticReport" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -2191,8 +2372,9 @@ paths:
       description: |
         One page of a `searchset` Bundle: on the first page the Patient, then the page's
         Observations (`search.mode` `match`, the list and the cursor of the Observation
-        search), then the Devices they reference (each once per page) and the Provenance of
-        each Observation (`include`). Follow the `next` link until there is none: no
+        search), the DiagnosticReports of the page's lab results (`match`), then the Devices
+        they reference (each once per page) and the Provenance of each Observation
+        (`include`). Follow the `next` link until there is none: no
         Observation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.
       parameters:
         - $ref: "#/components/parameters/Start"
@@ -2386,7 +2568,7 @@ paths:
         description: The list to export. Another name is a 404.
         schema:
           type: string
-          enum: [samples, category-samples, sleep, workouts, nutrition, daily, ecg]
+          enum: [samples, category-samples, sleep, workouts, nutrition, daily, ecg, labs]
     get:
       tags: [exports]
       operationId: exportDataset
@@ -3279,7 +3461,8 @@ paths:
         token needs the `read` scope and reads only its own user. Tools: `list_users`,
         `list_quantity_types`, `get_samples`, `get_category_samples`, `get_sleep`,
         `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_rr_intervals`,
-        `get_hrv`, `get_menstrual_cycles`, `get_tags`, `get_coverage`, `list_connections`. Each
+        `get_hrv`, `get_menstrual_cycles`, `get_tags`, `get_lab_results`, `get_coverage`,
+        `list_connections`. Each
         tool result is JSON text with `records`, `next_cursor` and `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
         is a tool error inside a 200, as MCP prescribes. A request the transport refuses (a
         body that is not JSON-RPC, an `Accept` without both `application/json` and
@@ -5780,7 +5963,7 @@ components:
 
     ConsentCategoryName:
       type: string
-      enum: [activity, location, heart, ecg, blood_pressure, glucose, respiratory, body, sleep, nutrition, reproductive, mental, other]
+      enum: [activity, location, heart, ecg, blood_pressure, glucose, respiratory, body, sleep, nutrition, reproductive, mental, labs, other]
     ConsentCategory:
       type: object
       required: [category, granted, granted_at, revoked_at]
@@ -7289,6 +7472,196 @@ components:
           type: boolean
           description: true when these exact reports had already been received.
 
+    LabStatus:
+      type: string
+      enum: [preliminary, final, amended, corrected, cancelled]
+    LabInterpretation:
+      type: string
+      description: HL7 v3 ObservationInterpretation flags; HH, LL and AA are the critical ones. An upload may send `critical`, stored as AA.
+      enum: [H, L, N, A, HH, LL, AA]
+
+    LabUpload:
+      type: object
+      description: The simple form of a lab upload (docs/labs.md). Unknown fields are a 400.
+      additionalProperties: false
+      required: [reports]
+      properties:
+        reports:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/LabReportInput" }
+
+    LabReportInput:
+      type: object
+      description: One report. Its status (final when absent), collection time, issued time and performer are the defaults of its results.
+      additionalProperties: false
+      required: [results]
+      properties:
+        id: { type: string, maxLength: 200, description: "Your id of the report. Unique in the upload." }
+        loinc: { type: string, pattern: "^[0-9]{1,7}-[0-9]$", description: "The panel's LOINC code." }
+        code: { type: string, maxLength: 200, description: "Your own code of the panel." }
+        system: { type: string, maxLength: 500 }
+        display: { type: string, maxLength: 500 }
+        status: { $ref: "#/components/schemas/LabStatus" }
+        collected_at: { type: string, format: date-time, description: The default of its results' collection times. }
+        issued_at: { type: string, format: date-time }
+        performer: { type: string, maxLength: 500, description: The lab that ran the tests. }
+        orderer: { type: string, maxLength: 500, description: Who ordered them. }
+        results:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { $ref: "#/components/schemas/LabResultInput" }
+
+    LabResultInput:
+      type: object
+      additionalProperties: false
+      required: [id]
+      description: |
+        One test result. `loinc` or `code` is required. At most one of `value`,
+        `value_string` and `value_code`; none only for a cancelled result or one with
+        `absent`. `collected_at` is required here or on the report.
+      properties:
+        id: { type: string, maxLength: 200, description: "Your id of the result. Sending it again replaces it." }
+        loinc: { type: string, pattern: "^[0-9]{1,7}-[0-9]$" }
+        code: { type: string, maxLength: 200, description: Your own code of the test. }
+        system: { type: string, maxLength: 500 }
+        display: { type: string, maxLength: 500 }
+        value: { type: number }
+        comparator: { type: string, enum: ["<", "<=", ">=", ">"] }
+        unit: { type: string, maxLength: 64, description: The UCUM unit of `value`. }
+        value_string: { type: string, maxLength: 500 }
+        value_code: { type: string, maxLength: 500 }
+        value_system: { type: string, maxLength: 500 }
+        reference_low: { type: number }
+        reference_high: { type: number }
+        reference_text: { type: string, maxLength: 500 }
+        interpretation:
+          type: string
+          enum: [H, L, N, A, HH, LL, AA, critical]
+        status: { $ref: "#/components/schemas/LabStatus" }
+        specimen: { type: string, maxLength: 500 }
+        collected_at: { type: string, format: date-time }
+        collected_end: { type: string, format: date-time }
+        issued_at: { type: string, format: date-time }
+        performer: { type: string, maxLength: 500 }
+        absent: { type: string, maxLength: 500, description: "Why there is no value (a FHIR data absent reason code)." }
+
+    FHIRLabUpload:
+      type: object
+      description: |
+        A FHIR R4 Bundle, DiagnosticReport or Observation of category laboratory. A
+        DiagnosticReport's results are resolved in the Bundle (by fullUrl or Type/id) or in
+        its contained resources. See docs/labs.md for the elements read and those rejected.
+      required: [resourceType]
+      properties:
+        resourceType: { type: string, enum: [Bundle, DiagnosticReport, Observation] }
+      additionalProperties: true
+
+    LabUploadResponse:
+      type: object
+      required: [reports, duplicate]
+      properties:
+        reports:
+          type: array
+          description: The reports accepted, in upload order.
+          items:
+            type: object
+            required: [id, results]
+            properties:
+              id:
+                type: [string, "null"]
+                description: Null for the results a FHIR upload sent without a DiagnosticReport.
+              results:
+                type: array
+                items:
+                  type: object
+                  required: [id, code, status]
+                  properties:
+                    id: { type: string }
+                    code: { type: string, description: "`lab:loinc:<code>` or `lab:local:<code>`.", examples: ["lab:loinc:2093-3"] }
+                    status: { $ref: "#/components/schemas/LabStatus" }
+        duplicate:
+          type: boolean
+          description: true when this exact body had already been received.
+
+    LabResult:
+      allOf:
+        - $ref: "#/components/schemas/Provenance"
+        - type: object
+          required: [id, report_id, code, loinc, source_code, source_system, display, value, unit,
+            comparator, value_string, value_code, value_system, normalized_value, normalized_unit,
+            reference_low, reference_high, reference_text, interpretation, interpretation_text,
+            critical, status, specimen, collected_at, collected_end, issued_at, issued_as_collected,
+            data_absent_reason, performer, orderer, external_id]
+          properties:
+            id: { type: integer, format: int64 }
+            report_id: { type: [string, "null"] }
+            code: { type: string, examples: ["lab:loinc:2093-3"] }
+            loinc: { type: [string, "null"] }
+            source_code: { type: [string, "null"] }
+            source_system: { type: [string, "null"] }
+            display: { type: [string, "null"] }
+            value: { type: [number, "null"] }
+            unit: { type: [string, "null"] }
+            comparator: { type: [string, "null"] }
+            value_string: { type: [string, "null"] }
+            value_code: { type: [string, "null"] }
+            value_system: { type: [string, "null"] }
+            normalized_value:
+              type: [number, "null"]
+              description: The value in `normalized_unit`, only for the analytes and units of the normalization table (docs/labs.md).
+            normalized_unit: { type: [string, "null"] }
+            reference_low: { type: [number, "null"] }
+            reference_high: { type: [number, "null"] }
+            reference_text: { type: [string, "null"] }
+            interpretation:
+              oneOf:
+                - $ref: "#/components/schemas/LabInterpretation"
+                - type: "null"
+            interpretation_text: { type: [string, "null"] }
+            critical: { type: boolean }
+            status: { $ref: "#/components/schemas/LabStatus" }
+            specimen: { type: [string, "null"] }
+            collected_at: { type: string, format: date-time }
+            collected_end: { type: [string, "null"], format: date-time }
+            issued_at: { type: [string, "null"], format: date-time }
+            issued_as_collected:
+              type: boolean
+              description: The source gave no collection time; `collected_at` is the issued time.
+            data_absent_reason: { type: [string, "null"] }
+            performer: { type: [string, "null"] }
+            orderer: { type: [string, "null"] }
+            external_id: { type: string, description: The source's id of the result. }
+
+    LabResultPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/LabResult" } }
+
+    LabReport:
+      type: object
+      required: [id, loinc, code, system, display, status, collected_at, issued_at, performer, orderer, results]
+      properties:
+        id: { type: string }
+        loinc: { type: [string, "null"] }
+        code: { type: [string, "null"] }
+        system: { type: [string, "null"] }
+        display: { type: [string, "null"] }
+        status:
+          oneOf:
+            - $ref: "#/components/schemas/LabStatus"
+            - type: "null"
+        collected_at: { type: string, format: date-time, description: "The report's collection time, else the earliest of its results'." }
+        issued_at: { type: [string, "null"], format: date-time }
+        performer: { type: [string, "null"] }
+        orderer: { type: [string, "null"] }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/LabResult" }
+
     CreateTimeTagRequest:
       type: object
       additionalProperties: false
@@ -7343,7 +7716,7 @@ components:
       enum: [activity, heart, blood_pressure, glucose, respiratory, body, sleep, other]
       description: |
         The consent categories a share link can hold: those with records in the FHIR view.
-        location, ecg, nutrition, reproductive and mental are refused (400).
+        location, ecg, nutrition, reproductive, mental and labs are refused (400).
 
     Share:
       type: object
@@ -7734,6 +8107,7 @@ components:
                 oneOf:
                   - $ref: "#/components/schemas/FHIRPatient"
                   - $ref: "#/components/schemas/FHIRObservation"
+                  - $ref: "#/components/schemas/FHIRDiagnosticReport"
                   - $ref: "#/components/schemas/FHIRDevice"
                   - $ref: "#/components/schemas/FHIRProvenance"
               search:
@@ -7779,11 +8153,63 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/OMHDataPoint" } }
+    FHIRDiagnosticReport:
+      type: object
+      description: A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md).
+      required: [resourceType, id, status, category, code, subject]
+      properties:
+        resourceType: { type: string, const: DiagnosticReport }
+        id: { type: string, pattern: "^labreport-[0-9a-f]{40}$" }
+        meta:
+          type: object
+          properties:
+            source: { type: string, format: uri }
+        identifier:
+          type: array
+          description: The source's report id.
+          items: { $ref: "#/components/schemas/FHIRIdentifier" }
+        status: { type: string, enum: [preliminary, final, amended, corrected, cancelled, unknown] }
+        category:
+          type: array
+          items: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        code: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        subject: { $ref: "#/components/schemas/FHIRReference" }
+        effectiveDateTime: { type: string, format: date-time }
+        issued: { type: string, format: date-time }
+        performer:
+          type: array
+          items: { $ref: "#/components/schemas/FHIRReference" }
+        result:
+          type: array
+          description: The Observations (`lab-` ids) of its results.
+          items: { $ref: "#/components/schemas/FHIRReference" }
+    FHIRDiagnosticReportBundle:
+      type: object
+      description: A FHIR R4 searchset Bundle of DiagnosticReports.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link: { type: array, items: { $ref: "#/components/schemas/FHIRBundleLink" } }
+        entry:
+          type: array
+          description: Absent on an empty page.
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource: { $ref: "#/components/schemas/FHIRDiagnosticReport" }
+              search:
+                type: object
+                properties:
+                  mode: { type: string, const: match }
     FHIRObservation:
       type: object
       description: |
         A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
-        session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+        session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+        docs/labs.md).
       required: [resourceType, id, status, code, subject]
       properties:
         resourceType: { type: string, const: Observation }
@@ -7810,7 +8236,10 @@ components:
             properties:
               system: { type: string, format: uri }
               value: { type: string }
-        status: { type: string, const: final }
+        status:
+          type: string
+          enum: [final, preliminary, amended, corrected, cancelled]
+          description: final, except for a lab result, which keeps its own status.
         category:
           type: array
           items: { $ref: "#/components/schemas/FHIRCodeableConcept" }
@@ -7825,16 +8254,35 @@ components:
         issued:
           type: string
           format: date-time
-          description: When the record was ingested (the later of a panel's two samples).
+          description: When the record was ingested (the later of a panel's two samples); for a lab result, when the lab issued it.
         performer:
           type: array
-          description: The person, on a self report (category survey); absent otherwise.
+          description: The person, on a self report (category survey); the lab, on a lab result when known; absent otherwise.
           items: { $ref: "#/components/schemas/FHIRReference" }
         valueQuantity: { $ref: "#/components/schemas/FHIRQuantity" }
         valueCodeableConcept:
           allOf: [{ $ref: "#/components/schemas/FHIRCodeableConcept" }]
-          description: Instead of valueQuantity for a classification (ecg_afib_classification).
+          description: Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result.
+        valueString: { type: string, description: A lab result given as text. }
         dataAbsentReason: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        interpretation:
+          type: array
+          maxItems: 1
+          description: A lab result's flag (v3 ObservationInterpretation H, L, N, A, HH, LL, AA).
+          items: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        specimen:
+          allOf: [{ $ref: "#/components/schemas/FHIRReference" }]
+          description: A lab result's specimen, as a display.
+        referenceRange:
+          type: array
+          maxItems: 1
+          description: A lab result's reference range, in the unit of its value.
+          items:
+            type: object
+            properties:
+              low: { $ref: "#/components/schemas/FHIRQuantity" }
+              high: { $ref: "#/components/schemas/FHIRQuantity" }
+              text: { type: string }
         device: { $ref: "#/components/schemas/FHIRReference" }
         component:
           type: array
@@ -7868,6 +8316,7 @@ components:
       type: object
       properties:
         value: { type: number }
+        comparator: { type: string, enum: ["<", "<=", ">=", ">"], description: "A lab result's bound (`<5`)." }
         unit: { type: string }
         system: { type: string, const: "http://unitsofmeasure.org" }
         code: { type: string, examples: ["/min"] }

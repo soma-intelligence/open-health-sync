@@ -1,0 +1,85 @@
+{
+  "resourceType": "Bundle",
+  "id": "f001",
+  "type": "collection",
+  "entry": [
+    {
+      "fullUrl": "http://hl7.org/fhir/DiagnosticReport/f001",
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "f001",
+        "identifier": [{"use": "official", "system": "http://www.bmc.nl/zorgportal/identifiers/reports", "value": "nr1239044"}],
+        "basedOn": [{"reference": "ServiceRequest/req"}],
+        "status": "final",
+        "category": [{"coding": [
+          {"system": "http://snomed.info/sct", "code": "252275004", "display": "Haematology test"},
+          {"system": "http://terminology.hl7.org/CodeSystem/v2-0074", "code": "HM"}
+        ]}],
+        "code": {"coding": [{"system": "http://loinc.org", "code": "58410-2", "display": "Complete blood count (hemogram) panel - Blood by Automated count"}]},
+        "subject": {"reference": "Patient/f001", "display": "P. van den Heuvel"},
+        "issued": "2013-05-15T19:32:52+01:00",
+        "performer": [{"reference": "Organization/f001", "display": "Burgers University Medical Centre"}],
+        "result": [
+          {"reference": "Observation/f001"},
+          {"reference": "Observation/f005"}
+        ],
+        "conclusion": "Core lab"
+      }
+    },
+    {
+      "fullUrl": "http://hl7.org/fhir/ServiceRequest/req",
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "req",
+        "status": "active",
+        "intent": "original-order",
+        "subject": {"reference": "Patient/f001"},
+        "requester": {"reference": "Practitioner/f001", "display": "Dr. E. van den Broek"}
+      }
+    },
+    {
+      "fullUrl": "http://hl7.org/fhir/Observation/f001",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "f001",
+        "identifier": [{"use": "official", "system": "http://www.bmc.nl/zorgportal/identifiers/observations", "value": "6323"}],
+        "status": "final",
+        "code": {"coding": [{"system": "http://loinc.org", "code": "15074-8", "display": "Glucose [Moles/volume] in Blood"}]},
+        "subject": {"reference": "Patient/f001", "display": "P. van de Heuvel"},
+        "effectivePeriod": {"start": "2013-04-02T09:30:10+01:00"},
+        "issued": "2013-04-03T15:30:10+01:00",
+        "performer": [{"reference": "Practitioner/f005", "display": "A. Langeveld"}],
+        "valueQuantity": {"value": 6.3, "unit": "mmol/l", "system": "http://unitsofmeasure.org", "code": "mmol/L"},
+        "interpretation": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation", "code": "H", "display": "High"}]}],
+        "referenceRange": [{
+          "low": {"value": 3.1, "unit": "mmol/l", "system": "http://unitsofmeasure.org", "code": "mmol/L"},
+          "high": {"value": 6.2, "unit": "mmol/l", "system": "http://unitsofmeasure.org", "code": "mmol/L"}
+        }]
+      }
+    },
+    {
+      "fullUrl": "http://hl7.org/fhir/Observation/f005",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "f005",
+        "identifier": [{"use": "official", "system": "http://www.bmc.nl/zorgportal/identifiers/observations", "value": "6327"}],
+        "status": "final",
+        "code": {"coding": [{"system": "http://loinc.org", "code": "718-7", "display": "Hemoglobin [Mass/volume] in Blood"}]},
+        "subject": {"reference": "Patient/f001", "display": "P. van de Heuvel"},
+        "effectivePeriod": {"start": "2013-04-05T10:30:10+01:00", "end": "2013-04-05T10:30:10+01:00"},
+        "issued": "2013-04-05T15:30:10+01:00",
+        "performer": [{"reference": "Practitioner/f005", "display": "A. Langeveld"}],
+        "valueQuantity": {"value": 7.2, "unit": "g/dl", "system": "http://unitsofmeasure.org", "code": "g/dL"},
+        "interpretation": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation", "code": "L", "display": "Low"}]}],
+        "referenceRange": [{
+          "low": {"value": 7.5, "unit": "g/dl", "system": "http://unitsofmeasure.org", "code": "g/dL"},
+          "high": {"value": 10, "unit": "g/dl", "system": "http://unitsofmeasure.org", "code": "g/dL"}
+        }]
+      }
+    },
+    {
+      "fullUrl": "http://hl7.org/fhir/Patient/f001",
+      "resource": {"resourceType": "Patient", "id": "f001", "active": true}
+    }
+  ]
+}

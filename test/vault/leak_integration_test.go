@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/connectors/applehealth"
+	labconn "github.com/soma-intelligence/open-health-sync/connectors/labs"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/demo"
@@ -49,12 +50,15 @@ const (
 	canaryLatitude  = 12.3456789
 	canaryLongitude = -98.7654321
 	canaryVoltage   = 2345.6789
+	canaryLab       = 87.6543
+	canaryLabText   = "canary-lab-3e8d"
 )
 
 // canaryTexts are the canaries as a dump would print them. The numbers are
 // looked for without their sign and as text; canaryBinary covers the heart
 // rate as a stored float.
-var canaryTexts = []string{"173.4567", canaryNote, canaryDevice, "12.3456789", "98.7654321", "2345.6789"}
+var canaryTexts = []string{"173.4567", canaryNote, canaryDevice, "12.3456789", "98.7654321", "2345.6789",
+	"87.6543", canaryLabText}
 
 // canaryBinary is the heart rate as the 8 bytes of a float64, big endian:
 // what a sealed row's plaintext, or a binary column, would hold.
@@ -351,20 +355,43 @@ func TestDumpHoldsNoHealthValue(t *testing.T) {
 			collect.HeaderDay: "2026-09-25", collect.HeaderBatch: "canary-1", collect.HeaderPart: "0",
 		}, gz.Bytes())
 		require.Equal(t, http.StatusOK, code, string(body))
+		// A lab result with the canary value, its lab, specimen and
+		// reference text: it goes through the raw store and the ETL too.
+		lab, err := json.Marshal(map[string]any{"reports": []any{map[string]any{
+			"id": "report-1", "loinc": "24331-1", "display": "Lipid panel", "collected_at": "2026-09-25T07:30:00Z",
+			"performer": canaryLabText, "results": []any{
+				map[string]any{"id": "result-1", "loinc": "2093-3", "value": canaryLab, "unit": "mmol/L",
+					"reference_text": canaryLabText, "specimen": canaryLabText, "interpretation": "H"},
+				map[string]any{"id": "result-2", "code": "XYZ", "value_string": canaryLabText},
+			}}}})
+		require.NoError(t, err)
+		code, body = do(http.MethodPost, base+"/labs", f.key, map[string]string{"Content-Type": "application/json"}, lab)
+		require.Equal(t, http.StatusAccepted, code, string(body))
 		q := queue.NewETL(f.pool)
 		processed := 0
-		for _, tier := range []string{queue.TierHighFreq, queue.TierStandard} {
-			jobs, err := q.Claim(ctx, tier, 10)
-			require.NoError(t, err)
-			for _, j := range jobs {
-				_, err := etl.ProcessWith(ctx, f.pool, f.raw, j, etl.Options{Vault: f.vault,
-					Lookup: func(slug string) (connector.Connector, bool) { return applehealth.New(), slug == applehealth.Slug }})
+		// One job of a user runs at a time: claim again until none is left.
+		for round := 0; round < 3; round++ {
+			for _, tier := range []string{queue.TierHighFreq, queue.TierStandard} {
+				jobs, err := q.Claim(ctx, tier, 10)
 				require.NoError(t, err)
-				require.NoError(t, q.Complete(ctx, j))
-				processed++
+				for _, j := range jobs {
+					_, err := etl.ProcessWith(ctx, f.pool, f.raw, j, etl.Options{Vault: f.vault,
+						Lookup: func(slug string) (connector.Connector, bool) {
+							switch slug {
+							case applehealth.Slug:
+								return applehealth.New(), true
+							case labconn.Slug:
+								return labconn.New(), true
+							}
+							return nil, false
+						}})
+					require.NoError(t, err)
+					require.NoError(t, q.Complete(ctx, j))
+					processed++
+				}
 			}
 		}
-		require.Equal(t, 1, processed, "the upload queued one ETL job")
+		require.Equal(t, 2, processed, "each upload queued one ETL job")
 
 		// A time tag with the canary note.
 		tag, err := json.Marshal(map[string]any{"kind": "illness", "label": canaryDevice, "start_at": "2026-09-25T08:00:00Z",
@@ -386,7 +413,10 @@ func TestDumpHoldsNoHealthValue(t *testing.T) {
 		for path, want := range map[string][]string{
 			base + "/samples?type=heart_rate&view=all&limit=1000&start=2026-09-25T09:59:00Z&end=2026-09-25T10:01:00Z": {"173.4567", canaryDevice, canaryNote},
 			base + "/samples?type=heart_rate&view=all&limit=1000":                                                     {"173.4567"},
-			base + "/tags": {canaryNote},
+			base + "/tags":                  {canaryNote},
+			base + "/labs":                  {"87.6543", canaryLabText},
+			base + "/labs/reports/report-1": {"87.6543", canaryLabText},
+			base + "/fhir/Observation?category=laboratory": {"87.6543", canaryLabText},
 		} {
 			code, body := do(http.MethodGet, path, f.key, nil, nil)
 			require.Equal(t, http.StatusOK, code, path+": "+string(body))

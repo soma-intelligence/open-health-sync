@@ -75,7 +75,7 @@ func TestObservationCursor(t *testing.T) {
 
 	enc := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
 	for _, bad := range []string{"%%", enc("2026-03-01T00:00:00Z|1"), enc("2026-03-01T00:00:00Z|0|1"),
-		enc("2026-03-01T00:00:00Z|7|1"), enc("2026-03-01T00:00:00Z|x|1"), enc("soon|1|1"),
+		enc("2026-03-01T00:00:00Z|8|1"), enc("2026-03-01T00:00:00Z|x|1"), enc("soon|1|1"),
 		enc("2026-03-01T00:00:00Z|1|x"), EncodeCursor(at, 42)} {
 		_, _, _, err := decodeObsCursor(bad)
 		assert.ErrorIs(t, err, ErrInvalidCursor, bad)

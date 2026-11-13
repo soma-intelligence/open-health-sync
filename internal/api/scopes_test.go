@@ -47,7 +47,7 @@ func everyRoute(t *testing.T) func(*Deps) {
 		require.NoError(t, err)
 		d.TenantProviders = tenantproviders.New(ctx, tenantproviders.NewPG(d.Pool))
 		d.TenantKeys = tenantkeys.New(ctx, tenantkeys.Options{Connectors: []connector.Connector{dev}})
-		d.Device, d.HealthConnect, d.Xiaomi, d.ActivityFiles, d.Bluetooth, d.SelfReport = dev, dev, dev, dev, dev, dev
+		d.Device, d.HealthConnect, d.Xiaomi, d.ActivityFiles, d.Bluetooth, d.SelfReport, d.Labs = dev, dev, dev, dev, dev, dev, dev
 		d.Collect = collect.NewHandlers(collect.Deps{Pool: d.Pool, Box: box, Tenants: d.Store})
 		d.Webhooks = webhook.NewStore(d.Pool, box)
 		d.Console, d.Metrics, d.MetricsToken, d.SetupToken = true, true, "metrics-token-0123456789", "the-right-setup-token"

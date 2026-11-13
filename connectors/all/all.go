@@ -14,6 +14,7 @@ import (
 	_ "github.com/soma-intelligence/open-health-sync/connectors/garmin"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/healthconnect"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/intervalsicu"
+	_ "github.com/soma-intelligence/open-health-sync/connectors/labs"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/omron"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/oura"
 	_ "github.com/soma-intelligence/open-health-sync/connectors/polar"

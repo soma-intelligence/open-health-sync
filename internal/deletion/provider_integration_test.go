@@ -40,7 +40,7 @@ const (
 
 func (e *env) requestProviderDelete(t *testing.T, userID uuid.UUID, provider string) *httptest.ResponseRecorder {
 	t.Helper()
-	known := []string{target, other, applehealth.Slug}
+	known := []string{target, other, applehealth.Slug, "labs"}
 	mux := http.NewServeMux()
 	mux.Handle("DELETE /v1/users/{id}/data/{provider}", auth.Middleware(e.store.LookupKey, auth.TenantKey)(
 		deletion.NewProviderDeleteHandler(deletion.Deps{Pool: e.pool, KnownProvider: func(s string) bool {

@@ -40,11 +40,11 @@ var archiveFolders = map[string]string{
 		"Tokens and sealed values are never included.",
 	"canonical/": "Every record of each list of the REST API, one JSON object per line (NDJSON), " +
 		"the same JSON as the list items: samples, category-samples, sleep, sleep-phases, workouts, " +
-		"workout-routes, nutrition, daily, and ecg (each ECG recording with its voltage samples, as " +
+		"workout-routes, nutrition, daily, labs, and ecg (each ECG recording with its voltage samples, as " +
 		"GET /v1/users/{id}/ecg/{ecg_id} returns it). Times are RFC 3339 in UTC, values in canonical units.",
 	"fhir/": "bundle.json: a FHIR R4 Bundle of type collection holding every Observation the FHIR " +
 		"endpoints serve for the user (quantity samples, blood pressure panels, sleep sessions, " +
-		"workouts, daily summaries, ECG recordings, nutrition logs).",
+		"workouts, daily summaries, ECG recordings, nutrition logs, lab results).",
 	"omh/": "data-points.ndjson: the records that have an Open mHealth schema, as Open mHealth data " +
 		"points, one per line.",
 	"raw/": "Every raw payload providers and devices sent for the user, byte for byte as received, " +
@@ -67,6 +67,7 @@ var archiveLists = []struct {
 	{"workout-routes", archiveChildren(read.Workouts, func(w read.Workout) int64 { return w.ID }, read.WorkoutRoute)},
 	{"nutrition", archiveList(read.Nutrition)},
 	{"daily", archiveList(read.Daily)},
+	{"labs", archiveList(read.AllLabs)},
 	{"ecg", archiveChildren(read.ECGRecordings, func(e read.ECGRecording) int64 { return e.ID }, ecgDetail)},
 }
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
-ConsentCategoryName = Literal["activity", "location", "heart", "ecg", "blood_pressure", "glucose", "respiratory", "body", "sleep", "nutrition", "reproductive", "mental", "other"]
+ConsentCategoryName = Literal["activity", "location", "heart", "ecg", "blood_pressure", "glucose", "respiratory", "body", "sleep", "nutrition", "reproductive", "mental", "labs", "other"]
 
 # One thing an API key may do. `*` is everything. A `:write` scope also grants the
 # `:read` of the same resource. `admin:read` and `admin:write` count only on a key of an
@@ -52,8 +52,13 @@ TimeTagTime = str
 # muscle_soreness from 1 to 5; exertion and pain from 0 to 10 (docs/self-reports.md).
 SelfReportKind = Literal["feeling", "mood", "stress", "energy", "sleep_quality", "muscle_soreness", "exertion", "pain"]
 
+LabStatus = Literal["preliminary", "final", "amended", "corrected", "cancelled"]
+
+# HL7 v3 ObservationInterpretation flags; HH, LL and AA are the critical ones. An upload may send `critical`, stored as AA.
+LabInterpretation = Literal["H", "L", "N", "A", "HH", "LL", "AA"]
+
 # The consent categories a share link can hold: those with records in the FHIR view.
-# location, ecg, nutrition, reproductive and mental are refused (400).
+# location, ecg, nutrition, reproductive, mental and labs are refused (400).
 ShareCategory = Literal["activity", "heart", "blood_pressure", "glucose", "respiratory", "body", "sleep", "other"]
 
 
@@ -1437,6 +1442,167 @@ class SelfReportsResponse(TypedDict):
     duplicate: bool
 
 
+class LabUpload(TypedDict):
+    """The simple form of a lab upload (docs/labs.md). Unknown fields are a 400."""
+
+    reports: List[LabReportInput]
+
+
+class _LabReportInputRequired(TypedDict):
+    results: List[LabResultInput]
+
+
+class LabReportInput(_LabReportInputRequired, total=False):
+    """One report. Its status (final when absent), collection time, issued time and performer are the defaults of its results."""
+
+    # Your id of the report. Unique in the upload.
+    id: str
+    # The panel's LOINC code.
+    loinc: str
+    # Your own code of the panel.
+    code: str
+    system: str
+    display: str
+    status: LabStatus
+    # The default of its results' collection times.
+    collected_at: str
+    issued_at: str
+    # The lab that ran the tests.
+    performer: str
+    # Who ordered them.
+    orderer: str
+
+
+class _LabResultInputRequired(TypedDict):
+    # Your id of the result. Sending it again replaces it.
+    id: str
+
+
+class LabResultInput(_LabResultInputRequired, total=False):
+    """One test result. `loinc` or `code` is required. At most one of `value`,
+    `value_string` and `value_code`; none only for a cancelled result or one with
+    `absent`. `collected_at` is required here or on the report.
+    """
+
+    loinc: str
+    # Your own code of the test.
+    code: str
+    system: str
+    display: str
+    value: float
+    comparator: Literal["<", "<=", ">=", ">"]
+    # The UCUM unit of `value`.
+    unit: str
+    value_string: str
+    value_code: str
+    value_system: str
+    reference_low: float
+    reference_high: float
+    reference_text: str
+    interpretation: Literal["H", "L", "N", "A", "HH", "LL", "AA", "critical"]
+    status: LabStatus
+    specimen: str
+    collected_at: str
+    collected_end: str
+    issued_at: str
+    performer: str
+    # Why there is no value (a FHIR data absent reason code).
+    absent: str
+
+
+class FHIRLabUpload(TypedDict):
+    """A FHIR R4 Bundle, DiagnosticReport or Observation of category laboratory. A
+    DiagnosticReport's results are resolved in the Bundle (by fullUrl or Type/id) or in
+    its contained resources. See docs/labs.md for the elements read and those rejected.
+    """
+
+    resourceType: Literal["Bundle", "DiagnosticReport", "Observation"]
+
+
+class LabUploadResponse(TypedDict):
+    # The reports accepted, in upload order.
+    reports: List[LabUploadResponseReport]
+    # true when this exact body had already been received.
+    duplicate: bool
+
+
+class LabUploadResponseReport(TypedDict):
+    # Null for the results a FHIR upload sent without a DiagnosticReport.
+    id: Optional[str]
+    results: List[LabUploadResponseReportResult]
+
+
+class LabUploadResponseReportResult(TypedDict):
+    id: str
+    # `lab:loinc:<code>` or `lab:local:<code>`.
+    code: str
+    status: LabStatus
+
+
+class LabResult(TypedDict):
+    # The integration the record came through (apple_health, withings...).
+    provider: str
+    # The vendor that produced the record, when it differs or is known.
+    source: Optional[str]
+    device: Optional[str]
+    ingested_at: str
+    id: int
+    report_id: Optional[str]
+    code: str
+    loinc: Optional[str]
+    source_code: Optional[str]
+    source_system: Optional[str]
+    display: Optional[str]
+    value: Optional[float]
+    unit: Optional[str]
+    comparator: Optional[str]
+    value_string: Optional[str]
+    value_code: Optional[str]
+    value_system: Optional[str]
+    # The value in `normalized_unit`, only for the analytes and units of the normalization table (docs/labs.md).
+    normalized_value: Optional[float]
+    normalized_unit: Optional[str]
+    reference_low: Optional[float]
+    reference_high: Optional[float]
+    reference_text: Optional[str]
+    interpretation: Union[LabInterpretation, Any]
+    interpretation_text: Optional[str]
+    critical: bool
+    status: LabStatus
+    specimen: Optional[str]
+    collected_at: str
+    collected_end: Optional[str]
+    issued_at: Optional[str]
+    # The source gave no collection time; `collected_at` is the issued time.
+    issued_as_collected: bool
+    data_absent_reason: Optional[str]
+    performer: Optional[str]
+    orderer: Optional[str]
+    # The source's id of the result.
+    external_id: str
+
+
+class LabResultPage(TypedDict):
+    data: List[LabResult]
+    # Null on the last page.
+    next_cursor: Optional[str]
+
+
+class LabReport(TypedDict):
+    id: str
+    loinc: Optional[str]
+    code: Optional[str]
+    system: Optional[str]
+    display: Optional[str]
+    status: Union[LabStatus, Any]
+    # The report's collection time, else the earliest of its results'.
+    collected_at: str
+    issued_at: Optional[str]
+    performer: Optional[str]
+    orderer: Optional[str]
+    results: List[LabResult]
+
+
 class _CreateTimeTagRequestRequired(TypedDict):
     # The controlled vocabulary of time tags; see docs/time-tags.md.
     kind: TimeTagKind
@@ -1873,7 +2039,7 @@ class FHIREverythingBundle(_FHIREverythingBundleRequired, total=False):
 
 class _FHIREverythingBundleEntryRequired(TypedDict):
     fullUrl: str
-    resource: Union[FHIRPatient, FHIRObservation, FHIRDevice, FHIRProvenance]
+    resource: Union[FHIRPatient, FHIRObservation, FHIRDiagnosticReport, FHIRDevice, FHIRProvenance]
 
 
 class FHIREverythingBundleEntry(_FHIREverythingBundleEntryRequired, total=False):
@@ -1927,17 +2093,72 @@ class OMHDataPointPage(TypedDict):
     next_cursor: Optional[str]
 
 
+class _FHIRDiagnosticReportRequired(TypedDict):
+    resourceType: Literal["DiagnosticReport"]
+    id: str
+    status: Literal["preliminary", "final", "amended", "corrected", "cancelled", "unknown"]
+    category: List[FHIRCodeableConcept]
+    code: FHIRCodeableConcept
+    subject: FHIRReference
+
+
+class FHIRDiagnosticReport(_FHIRDiagnosticReportRequired, total=False):
+    """A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md)."""
+
+    meta: FHIRDiagnosticReportMeta
+    # The source's report id.
+    identifier: List[FHIRIdentifier]
+    effectiveDateTime: str
+    issued: str
+    performer: List[FHIRReference]
+    # The Observations (`lab-` ids) of its results.
+    result: List[FHIRReference]
+
+
+class FHIRDiagnosticReportMeta(TypedDict, total=False):
+    source: str
+
+
+class _FHIRDiagnosticReportBundleRequired(TypedDict):
+    resourceType: Literal["Bundle"]
+    type: Literal["searchset"]
+    link: List[FHIRBundleLink]
+
+
+class FHIRDiagnosticReportBundle(_FHIRDiagnosticReportBundleRequired, total=False):
+    """A FHIR R4 searchset Bundle of DiagnosticReports."""
+
+    # Absent on an empty page.
+    entry: List[FHIRDiagnosticReportBundleEntry]
+
+
+class _FHIRDiagnosticReportBundleEntryRequired(TypedDict):
+    fullUrl: str
+    # A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md).
+    resource: FHIRDiagnosticReport
+
+
+class FHIRDiagnosticReportBundleEntry(_FHIRDiagnosticReportBundleEntryRequired, total=False):
+    search: FHIRDiagnosticReportBundleEntrySearch
+
+
+class FHIRDiagnosticReportBundleEntrySearch(TypedDict, total=False):
+    mode: Literal["match"]
+
+
 class _FHIRObservationRequired(TypedDict):
     resourceType: Literal["Observation"]
     id: str
-    status: Literal["final"]
+    # final, except for a lab result, which keeps its own status.
+    status: Literal["final", "preliminary", "amended", "corrected", "cancelled"]
     code: FHIRCodeableConcept
     subject: FHIRReference
 
 
 class FHIRObservation(_FHIRObservationRequired, total=False):
     """A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
-    session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+    session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+    docs/labs.md).
     """
 
     meta: FHIRObservationMeta
@@ -1946,14 +2167,22 @@ class FHIRObservation(_FHIRObservationRequired, total=False):
     category: List[FHIRCodeableConcept]
     effectiveDateTime: str
     effectivePeriod: FHIRObservationEffectivePeriod
-    # When the record was ingested (the later of a panel's two samples).
+    # When the record was ingested (the later of a panel's two samples); for a lab result, when the lab issued it.
     issued: str
-    # The person, on a self report (category survey); absent otherwise.
+    # The person, on a self report (category survey); the lab, on a lab result when known; absent otherwise.
     performer: List[FHIRReference]
     valueQuantity: FHIRQuantity
-    # Instead of valueQuantity for a classification (ecg_afib_classification).
+    # Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result.
     valueCodeableConcept: FHIRObservationValueCodeableConcept
+    # A lab result given as text.
+    valueString: str
     dataAbsentReason: FHIRCodeableConcept
+    # A lab result's flag (v3 ObservationInterpretation H, L, N, A, HH, LL, AA).
+    interpretation: List[FHIRCodeableConcept]
+    # A lab result's specimen, as a display.
+    specimen: FHIRObservationSpecimen
+    # A lab result's reference range, in the unit of its value.
+    referenceRange: List[FHIRObservationReferenceRange]
     device: FHIRReference
     # The two values of a blood pressure panel, or a sleep session's, workout's, daily
     # summary's or ECG recording's other fields; a field without a value is left out.
@@ -1979,9 +2208,23 @@ class FHIRObservationEffectivePeriod(TypedDict, total=False):
 
 
 class FHIRObservationValueCodeableConcept(TypedDict, total=False):
-    """Instead of valueQuantity for a classification (ecg_afib_classification)."""
+    """Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result."""
 
     coding: List[FHIRCoding]
+    text: str
+
+
+class FHIRObservationSpecimen(TypedDict, total=False):
+    """A lab result's specimen, as a display."""
+
+    reference: str
+    identifier: FHIRIdentifier
+    display: str
+
+
+class FHIRObservationReferenceRange(TypedDict, total=False):
+    low: FHIRQuantity
+    high: FHIRQuantity
     text: str
 
 
@@ -2018,6 +2261,8 @@ class FHIRSampledData(_FHIRSampledDataRequired, total=False):
 
 class FHIRQuantity(TypedDict, total=False):
     value: float
+    # A lab result's bound (`<5`).
+    comparator: Literal["<", "<=", ">=", ">"]
     unit: str
     system: Literal["http://unitsofmeasure.org"]
     code: str
@@ -2044,7 +2289,8 @@ class FHIRBundleLink(TypedDict):
 class _FHIRBundleEntryRequired(TypedDict):
     fullUrl: str
     # A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
-    # session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+    # session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+    # docs/labs.md).
     resource: FHIRObservation
 
 
@@ -2323,16 +2569,24 @@ __all__ = [
     "FHIRDeviceBundleEntry",
     "FHIRDeviceBundleEntrySearch",
     "FHIRDeviceDeviceName",
+    "FHIRDiagnosticReport",
+    "FHIRDiagnosticReportBundle",
+    "FHIRDiagnosticReportBundleEntry",
+    "FHIRDiagnosticReportBundleEntrySearch",
+    "FHIRDiagnosticReportMeta",
     "FHIREverythingBundle",
     "FHIREverythingBundleEntry",
     "FHIREverythingBundleEntrySearch",
     "FHIRIdentifier",
+    "FHIRLabUpload",
     "FHIRMeta",
     "FHIRObservation",
     "FHIRObservationComponent",
     "FHIRObservationEffectivePeriod",
     "FHIRObservationIdentifier",
     "FHIRObservationMeta",
+    "FHIRObservationReferenceRange",
+    "FHIRObservationSpecimen",
     "FHIRObservationValueCodeableConcept",
     "FHIRPatient",
     "FHIRProvenance",
@@ -2355,6 +2609,17 @@ __all__ = [
     "IngestXiaomiResponse",
     "KeyScope",
     "KeyScopes",
+    "LabInterpretation",
+    "LabReport",
+    "LabReportInput",
+    "LabResult",
+    "LabResultInput",
+    "LabResultPage",
+    "LabStatus",
+    "LabUpload",
+    "LabUploadResponse",
+    "LabUploadResponseReport",
+    "LabUploadResponseReportResult",
     "ListAuditEventsResponse",
     "ListConnectionsResponse",
     "ListConsentHistoryResponse",

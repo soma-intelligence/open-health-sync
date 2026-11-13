@@ -83,6 +83,45 @@
           ]
         },
         {
+          "type": "DiagnosticReport",
+          "interaction": [
+            {
+              "code": "read"
+            },
+            {
+              "code": "search-type"
+            }
+          ],
+          "searchParam": [
+            {
+              "name": "category",
+              "definition": "http://hl7.org/fhir/SearchParameter/DiagnosticReport-category",
+              "type": "token",
+              "documentation": "LAB or laboratory: every report is a lab report"
+            },
+            {
+              "name": "start",
+              "type": "date",
+              "documentation": "start \u003c= the record's time (RFC 3339 or YYYY-MM-DD)"
+            },
+            {
+              "name": "end",
+              "type": "date",
+              "documentation": "the record's time \u003c end"
+            },
+            {
+              "name": "limit",
+              "type": "number",
+              "documentation": "page size, 1 to 1000 (default 100)"
+            },
+            {
+              "name": "cursor",
+              "type": "string",
+              "documentation": "the cursor of the next link"
+            }
+          ]
+        },
+        {
           "type": "Device",
           "interaction": [
             {

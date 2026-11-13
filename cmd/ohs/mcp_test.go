@@ -143,7 +143,7 @@ func TestMCPStdioProxy(t *testing.T) {
 		names = append(names, tl.(map[string]any)["name"].(string))
 	}
 	slices.Sort(names)
-	want := []string{"get_category_samples", "get_coverage", "get_daily", "get_ecg_recordings", "get_hrv", "get_menstrual_cycles",
+	want := []string{"get_category_samples", "get_coverage", "get_daily", "get_ecg_recordings", "get_hrv", "get_lab_results", "get_menstrual_cycles",
 		"get_nutrition", "get_rr_intervals", "get_sample_stats", "get_samples", "get_sleep", "get_tags", "get_workout_route", "get_workouts",
 		"list_connections", "list_quantity_types", "list_users"}
 	if !slices.Equal(names, want) {

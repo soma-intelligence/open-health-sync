@@ -32,6 +32,23 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
   the Helm ingress defaults turn nginx buffering off and raise its read timeout. See
   docs/events-stream.md.
 
+- Lab results: `POST /v1/users/{id}/labs` (`data:write`; tenant key, or the user's own token
+  with scope `upload`) takes FHIR R4 (a Bundle, a DiagnosticReport or an Observation of category
+  laboratory; other categories are a 400 that says so) or a simple JSON form, and answers 202.
+  The body goes through the raw store and the ETL like an upload, sealed when the vault is on;
+  the same body again is a duplicate. Each result keeps its LOINC and source codes, its value
+  (numeric with a UCUM unit, text or coded), reference range, flag (`H`, `L`, `N`, `A`, and
+  `HH`, `LL`, `AA` for critical), specimen, collection and issued times, lab, orderer, status
+  and report id. A result is stored once per id: an amended or corrected copy replaces it, the
+  latest upload wins, and an older upload processed again never brings an earlier value back.
+  Glucose, cholesterol, HbA1c, creatinine and vitamin D also get a normalized value where the
+  unit conversion is exact. Read with `GET /v1/users/{id}/labs` (filters `code`, `report`,
+  `start`, `end`) and `GET /v1/users/{id}/labs/reports/{report_id}`, as FHIR Observations of
+  category `laboratory` and the new DiagnosticReport search and read (`$everything` includes
+  them), in the `labs` export dataset and archive file, and with the MCP tool
+  `get_lab_results`. A new consent category, `labs`; retention, erasure and provider deletion
+  include them. Migration `0055` adds `external_id`, `report_id` and `captured_at` to
+  `ohs_data.observations`. See docs/labs.md.
 - A user has a time zone: `timezone` (an IANA name) and `timezone_source` on the user object.
   Set it at `POST /v1/users` or with the new `PATCH /v1/users/{id}` (`users:write`, audit action
   `user.update`); `null` clears it. Left unset, it is learnt from the latest record of an Apple

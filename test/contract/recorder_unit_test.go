@@ -144,7 +144,7 @@ func TestRecorderFHIRGoldenFiles(t *testing.T) {
 	assert.Equal(t, "searchFHIRObservations", c.Operation)
 
 	c = record(t, func(*http.Request) (int, string, string) {
-		return 200, "application/fhir+json", `{"resourceType":"Observation","id":"qs-1","status":"preliminary","code":{"text":"x"},"subject":{"reference":"Patient/x"}}`
+		return 200, "application/fhir+json", `{"resourceType":"Observation","id":"qs-1","status":"registered","code":{"text":"x"},"subject":{"reference":"Patient/x"}}`
 	}, "GET", fhirPath+"/qs-1", "k")
 	require.NotEmpty(t, c.Problems, "the body is checked against the schema")
 	assert.Contains(t, c.Problems[0], "response:")

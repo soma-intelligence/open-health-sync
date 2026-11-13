@@ -63,7 +63,7 @@
     {
       "key": "observationId",
       "value": "qs-1234",
-      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id."
+      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-`, `nutrition-` or `lab-`, then the stored\nrow id."
     },
     {
       "key": "patientId",
@@ -79,6 +79,11 @@
       "key": "provider",
       "value": "withings",
       "description": "Connector slug, see GET /v1/providers."
+    },
+    {
+      "key": "reportId",
+      "value": "",
+      "description": "The source's report id."
     },
     {
       "key": "runId",
@@ -2540,6 +2545,153 @@
       ]
     },
     {
+      "name": "labs",
+      "item": [
+        {
+          "name": "Upload lab results",
+          "request": {
+            "method": "POST",
+            "description": "Upload lab results.\n\n`POST /v1/users/{id}/labs`\n\nLab results as FHIR R4 or as the simple JSON form (docs/labs.md). A body with a\n`resourceType` is read as FHIR: a Bundle, a DiagnosticReport or an Observation, with\ncategory laboratory (a DiagnosticReport of another diagnostic service section, or an\nObservation of another category, is a 400 naming it). Any other body is the simple\nform, `{\"reports\": [...]}`. At most 100 reports, 500 results per report and 2000\nresults in all, in at most 1 MiB.\n\nEach result is stored once per `id`: a result sent again with the same `id` (an\namended or corrected copy) replaces the stored one when its upload is newer, so the\nlatest upload wins. The body goes through the same processing as an upload, so the\nanswer is 202 and the results show once it is processed. The same body sent again is\na duplicate and is stored once. A tenant key uploads for any user of the tenant; a\nuser token with scope `upload` only for its own user, and another user is a 404.\nValues are health data: never logged, never quoted in an error. While the user's lab\nresults are being deleted the answer is 409 and nothing is kept.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "createLabs-0001",
+                "description": "Optional. A retry with the same key and the same request gets the first response back.",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/labs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "labs"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reports\": [\n    {\n      \"code\": \"example\",\n      \"collected_at\": \"2026-01-01T00:00:00Z\",\n      \"display\": \"example\",\n      \"id\": \"example\",\n      \"issued_at\": \"2026-01-01T00:00:00Z\",\n      \"loinc\": \"example\",\n      \"orderer\": \"example\",\n      \"performer\": \"example\",\n      \"results\": [\n        {\n          \"absent\": \"example\",\n          \"code\": \"example\",\n          \"collected_at\": \"2026-01-01T00:00:00Z\",\n          \"collected_end\": \"2026-01-01T00:00:00Z\",\n          \"comparator\": \"\\u003c\",\n          \"display\": \"example\",\n          \"id\": \"example\",\n          \"interpretation\": \"H\",\n          \"issued_at\": \"2026-01-01T00:00:00Z\",\n          \"loinc\": \"example\",\n          \"performer\": \"example\",\n          \"reference_high\": 1,\n          \"reference_low\": 1,\n          \"reference_text\": \"example\",\n          \"specimen\": \"example\",\n          \"status\": \"preliminary\",\n          \"system\": \"example\",\n          \"unit\": \"example\",\n          \"value\": 1,\n          \"value_code\": \"example\",\n          \"value_string\": \"example\",\n          \"value_system\": \"example\"\n        }\n      ],\n      \"status\": \"preliminary\",\n      \"system\": \"example\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "The user's lab results",
+          "request": {
+            "method": "GET",
+            "description": "The user's lab results.\n\n`GET /v1/users/{id}/labs`\n\nOne result per test, as last uploaded, by collection time then id. `start` and `end`\nbound the collection time. Any other query parameter is a 400.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/labs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "labs"
+              ],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "2093-3",
+                  "description": "A LOINC code (2093-3), or the source's own code for a result without one.",
+                  "disabled": true
+                },
+                {
+                  "key": "report",
+                  "value": "",
+                  "description": "The source's report id.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One lab report with its results",
+          "request": {
+            "method": "GET",
+            "description": "One lab report with its results.\n\n`GET /v1/users/{id}/labs/reports/{report_id}`\n\nThe report's fields come from its most recently uploaded result. A report id the user\nhas no result of is a 404.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/labs/reports/:report_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "labs",
+                "reports",
+                ":report_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "report_id",
+                  "value": "{{reportId}}",
+                  "description": "The source's report id."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "shares",
       "item": [
         {
@@ -2694,7 +2846,7 @@
           "name": "The user's records as FHIR R4 Observations",
           "request": {
             "method": "GET",
-            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`), daily summaries (`daily-`), ECG recordings with their\nvoltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a\nsample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or\na meal's start), then by kind and id.\nPaged like every list: the Bundle's `next` link carries the cursor, and there is no\n`next` link on the last page; `total` is left out. A blood pressure pair is never\nsplit across pages, and its two samples are not listed on their own. A page holds at\nmost 100 ECG recordings: one that reaches them ends there, with a `next` link.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
+            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`), daily summaries (`daily-`), ECG recordings with their\nvoltage samples (`ecg-`), nutrition logs (`nutrition-`) and lab results (`lab-`),\nmerged in time order (a sample's start, a bedtime, a workout's start, a day at\nmidnight UTC, a recording's or a meal's start, a specimen's collection), then by kind\nand id.\nPaged like every list: the Bundle's `next` link carries the cursor, and there is no\n`next` link on the last page; `total` is left out. A blood pressure pair is never\nsplit across pages, and its two samples are not listed on their own. A page holds at\nmost 100 ECG recordings: one that reaches them ends there, with a `next` link.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/users/:id/fhir/Observation",
@@ -2718,13 +2870,13 @@
                 {
                   "key": "code",
                   "value": "http://loinc.org|8867-4",
-                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG\nrecordings), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
+                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG\nrecordings; any LOINC code also finds the lab results of that test), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
                   "disabled": true
                 },
                 {
                   "key": "category",
                   "value": "vital-signs",
-                  "description": "An HL7 observation category code, bare or as\n`http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,\n`laboratory`, `activity` (activity samples, workouts and daily summaries) or `survey`\n(self reports). One value. Another code of that system is an empty Bundle; anything\nelse is a 400.",
+                  "description": "An HL7 observation category code, bare or as\n`http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,\n`laboratory` (lab results, and the samples of laboratory types), `activity`\n(activity samples, workouts and daily summaries) or `survey` (self reports). One\nvalue. Another code of that system is an empty Bundle; anything\nelse is a 400.",
                   "disabled": true
                 },
                 {
@@ -2801,7 +2953,98 @@
                 {
                   "key": "observation_id",
                   "value": "{{observationId}}",
-                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id."
+                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-`, `nutrition-` or `lab-`, then the stored\nrow id."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The user's lab reports as FHIR R4 DiagnosticReports",
+          "request": {
+            "method": "GET",
+            "description": "The user's lab reports as FHIR R4 DiagnosticReports.\n\n`GET /v1/users/{id}/fhir/DiagnosticReport`\n\nOne `searchset` Bundle of DiagnosticReports, one per lab report, each referencing the\nObservations (`lab-` ids) of its results, by the report's earliest collection time\nthen id. Results sent without a report have no DiagnosticReport. Paged like the\nObservation search. See docs/labs.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/DiagnosticReport",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "DiagnosticReport"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "LAB",
+                  "description": "`LAB` (bare or with the system `http://terminology.hl7.org/CodeSystem/v2-0074`) or\n`laboratory` (bare or with the observation category system). Another code of\nthose systems is an empty Bundle; another system is a 400. One value.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One FHIR R4 DiagnosticReport",
+          "request": {
+            "method": "GET",
+            "description": "One FHIR R4 DiagnosticReport.\n\n`GET /v1/users/{id}/fhir/DiagnosticReport/{report_id}`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/DiagnosticReport/:report_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "DiagnosticReport",
+                ":report_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "report_id",
+                  "value": "{{reportId}}",
+                  "description": "The DiagnosticReport id, as the Bundle gives it: `labreport-` then the first 40 hex\ndigits of the SHA-256 of the source's report id."
                 }
               ]
             }
@@ -2844,7 +3087,7 @@
           "name": "The Patient and all their records, as FHIR R4 resources",
           "request": {
             "method": "GET",
-            "description": "The Patient and all their records, as FHIR R4 resources.\n\n`GET /v1/users/{id}/fhir/Patient/{patient_id}/$everything`\n\nOne page of a `searchset` Bundle: on the first page the Patient, then the page's\nObservations (`search.mode` `match`, the list and the cursor of the Observation\nsearch), then the Devices they reference (each once per page) and the Provenance of\neach Observation (`include`). Follow the `next` link until there is none: no\nObservation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.",
+            "description": "The Patient and all their records, as FHIR R4 resources.\n\n`GET /v1/users/{id}/fhir/Patient/{patient_id}/$everything`\n\nOne page of a `searchset` Bundle: on the first page the Patient, then the page's\nObservations (`search.mode` `match`, the list and the cursor of the Observation\nsearch), the DiagnosticReports of the page's lab results (`match`), then the Devices\nthey reference (each once per page) and the Provenance of each Observation\n(`include`). Follow the `next` link until there is none: no\nObservation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/users/:id/fhir/Patient/:patient_id/$everything",

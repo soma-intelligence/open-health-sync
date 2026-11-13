@@ -232,7 +232,11 @@ var Schema = map[string]Table{
 			{"device_id", 9, KindText},
 			{"metadata", 10, KindJSON},
 		},
-		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "ts", "end_ts", "canonical_code", "unit_ucum", "is_primary_source", "content_hash", "ingested_at", "sealed"},
+		// external_id, report_id and captured_at (migration 0055) are the
+		// source's ids of a lab result and of its report, and the capture
+		// time that orders two copies of one result: ids and an ordering
+		// time, no value.
+		Clear:    []string{"id", "tenant_id", "user_id", "provider", "source_slug", "ts", "end_ts", "canonical_code", "unit_ucum", "is_primary_source", "content_hash", "ingested_at", "sealed", "external_id", "report_id", "captured_at"},
 		Identity: []string{"content_hash", "ts"},
 	},
 	"daily_summaries": {

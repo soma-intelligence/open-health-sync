@@ -45,7 +45,10 @@ from .models import (
     FHIRCapabilityStatement,
     FHIRDevice,
     FHIRDeviceBundle,
+    FHIRDiagnosticReport,
+    FHIRDiagnosticReportBundle,
     FHIREverythingBundle,
+    FHIRLabUpload,
     FHIRObservation,
     FHIRPatient,
     FHIRProvenance,
@@ -59,6 +62,11 @@ from .models import (
     IngestBluetoothResponse,
     IngestHealthConnectResponse,
     IngestXiaomiResponse,
+    LabReport,
+    LabResult,
+    LabResultPage,
+    LabUpload,
+    LabUploadResponse,
     ListAuditEventsResponse,
     ListConnectionsResponse,
     ListConsentHistoryResponse,
@@ -970,6 +978,114 @@ class OpenHealthSync:
         return self._request(
             "POST",
             f"/v1/users/{_path(user_id)}/sync-runs/{_path(run_id)}/retry",
+        )
+
+    def create_labs(
+        self,
+        user_id: str,
+        body: Union[LabUpload, FHIRLabUpload],
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> LabUploadResponse:
+        """Upload lab results.
+
+        ``POST /v1/users/{id}/labs``
+
+        Lab results as FHIR R4 or as the simple JSON form (docs/labs.md). A body with a
+        `resourceType` is read as FHIR: a Bundle, a DiagnosticReport or an Observation, with
+        category laboratory (a DiagnosticReport of another diagnostic service section, or an
+        Observation of another category, is a 400 naming it). Any other body is the simple
+        form, `{"reports": [...]}`. At most 100 reports, 500 results per report and 2000
+        results in all, in at most 1 MiB.
+
+        Each result is stored once per `id`: a result sent again with the same `id` (an
+        amended or corrected copy) replaces the stored one when its upload is newer, so the
+        latest upload wins. The body goes through the same processing as an upload, so the
+        answer is 202 and the results show once it is processed. The same body sent again is
+        a duplicate and is stored once. A tenant key uploads for any user of the tenant; a
+        user token with scope `upload` only for its own user, and another user is a 404.
+        Values are health data: never logged, never quoted in an error. While the user's lab
+        results are being deleted the answer is 409 and nothing is kept.
+        """
+        return self._request(
+            "POST",
+            f"/v1/users/{_path(user_id)}/labs",
+            json_body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def list_labs(
+        self,
+        user_id: str,
+        *,
+        code: Optional[str] = None,
+        report: Optional[str] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> LabResultPage:
+        """The user's lab results.
+
+        ``GET /v1/users/{id}/labs``
+
+        One result per test, as last uploaded, by collection time then id. `start` and `end`
+        bound the collection time. Any other query parameter is a 400.
+
+        Args:
+            code: A LOINC code (2093-3), or the source's own code for a result without one.
+            report: The source's report id.
+            start: Inclusive lower bound, RFC 3339 or YYYY-MM-DD.
+            end: Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.
+            cursor: The next_cursor of the previous page.
+        """
+        return self._request(
+            "GET",
+            f"/v1/users/{_path(user_id)}/labs",
+            query={
+                "code": code,
+                "report": report,
+                "start": start,
+                "end": end,
+                "cursor": cursor,
+                "limit": limit,
+            },
+        )
+
+    def iter_labs(
+        self,
+        user_id: str,
+        *,
+        code: Optional[str] = None,
+        report: Optional[str] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Iterator[LabResult]:
+        """Every item of :meth:`list_labs`, page after page, following ``next_cursor``."""
+        return paginate(
+            lambda cursor: self.list_labs(
+                user_id,
+                code=code,
+                report=report,
+                start=start,
+                end=end,
+                cursor=cursor,
+                limit=limit,
+            )
+        )
+
+    def get_lab_report(self, user_id: str, report_id: str) -> LabReport:
+        """One lab report with its results.
+
+        ``GET /v1/users/{id}/labs/reports/{report_id}``
+
+        The report's fields come from its most recently uploaded result. A report id the user
+        has no result of is a 404.
+        """
+        return self._request(
+            "GET",
+            f"/v1/users/{_path(user_id)}/labs/reports/{_path(report_id)}",
         )
 
     def list_samples(
@@ -2070,9 +2186,10 @@ class OpenHealthSync:
         `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
         panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
         workouts (`workout-`), daily summaries (`daily-`), ECG recordings with their
-        voltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a
-        sample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or
-        a meal's start), then by kind and id.
+        voltage samples (`ecg-`), nutrition logs (`nutrition-`) and lab results (`lab-`),
+        merged in time order (a sample's start, a bedtime, a workout's start, a day at
+        midnight UTC, a recording's or a meal's start, a specimen's collection), then by kind
+        and id.
         Paged like every list: the Bundle's `next` link carries the cursor, and there is no
         `next` link on the last page; `total` is left out. A blood pressure pair is never
         split across pages, and its two samples are not listed on their own. A page holds at
@@ -2091,7 +2208,7 @@ class OpenHealthSync:
             code: A FHIR token `system|code` matched against `Observation.code`: a LOINC code
                 (`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure
                 panels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG
-                recordings), a quantity type
+                recordings; any LOINC code also finds the lab results of that test), a quantity type
                 (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
                 like `type`), or a record type
                 (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
@@ -2099,8 +2216,9 @@ class OpenHealthSync:
                 systems are a 400. A code no Observation carries is an empty Bundle.
             category: An HL7 observation category code, bare or as
                 `http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,
-                `laboratory`, `activity` (activity samples, workouts and daily summaries) or `survey`
-                (self reports). One value. Another code of that system is an empty Bundle; anything
+                `laboratory` (lab results, and the samples of laboratory types), `activity`
+                (activity samples, workouts and daily summaries) or `survey` (self reports). One
+                value. Another code of that system is an empty Bundle; anything
                 else is a 400.
             start: Inclusive lower bound, RFC 3339 or YYYY-MM-DD.
             end: Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.
@@ -2157,6 +2275,55 @@ class OpenHealthSync:
             },
         )
 
+    def search_fhir_diagnostic_reports(
+        self,
+        user_id: str,
+        *,
+        category: Optional[str] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> FHIRDiagnosticReportBundle:
+        """The user's lab reports as FHIR R4 DiagnosticReports.
+
+        ``GET /v1/users/{id}/fhir/DiagnosticReport``
+
+        One `searchset` Bundle of DiagnosticReports, one per lab report, each referencing the
+        Observations (`lab-` ids) of its results, by the report's earliest collection time
+        then id. Results sent without a report have no DiagnosticReport. Paged like the
+        Observation search. See docs/labs.md.
+
+        Args:
+            category: `LAB` (bare or with the system `http://terminology.hl7.org/CodeSystem/v2-0074`) or
+                `laboratory` (bare or with the observation category system). Another code of
+                those systems is an empty Bundle; another system is a 400. One value.
+            start: Inclusive lower bound, RFC 3339 or YYYY-MM-DD.
+            end: Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.
+            cursor: The next_cursor of the previous page.
+        """
+        return self._request(
+            "GET",
+            f"/v1/users/{_path(user_id)}/fhir/DiagnosticReport",
+            query={
+                "category": category,
+                "start": start,
+                "end": end,
+                "cursor": cursor,
+                "limit": limit,
+            },
+        )
+
+    def read_fhir_diagnostic_report(self, user_id: str, report_id: str) -> FHIRDiagnosticReport:
+        """One FHIR R4 DiagnosticReport.
+
+        ``GET /v1/users/{id}/fhir/DiagnosticReport/{report_id}``
+        """
+        return self._request(
+            "GET",
+            f"/v1/users/{_path(user_id)}/fhir/DiagnosticReport/{_path(report_id)}",
+        )
+
     def read_fhir_patient(self, user_id: str, patient_id: str) -> FHIRPatient:
         """The user as a FHIR R4 Patient.
 
@@ -2188,8 +2355,9 @@ class OpenHealthSync:
 
         One page of a `searchset` Bundle: on the first page the Patient, then the page's
         Observations (`search.mode` `match`, the list and the cursor of the Observation
-        search), then the Devices they reference (each once per page) and the Provenance of
-        each Observation (`include`). Follow the `next` link until there is none: no
+        search), the DiagnosticReports of the page's lab results (`match`), then the Devices
+        they reference (each once per page) and the Provenance of each Observation
+        (`include`). Follow the `next` link until there is none: no
         Observation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.
 
         Args:
@@ -2376,7 +2544,7 @@ class OpenHealthSync:
     def export_dataset(
         self,
         user_id: str,
-        dataset: Literal["samples", "category-samples", "sleep", "workouts", "nutrition", "daily", "ecg"],
+        dataset: Literal["samples", "category-samples", "sleep", "workouts", "nutrition", "daily", "ecg", "labs"],
         *,
         format: Optional[Literal["csv", "parquet"]] = None,
         type: Optional[str] = None,

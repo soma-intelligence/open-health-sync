@@ -332,6 +332,8 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 | `menstrual-cycles` | `start`, `end` (compared as dates, on the cycle's start) | `start_date` |
 | `ecg` | `start`, `end` | `start_date`, metadata only ([ECG recordings](#ecg-recordings)) |
 | `ecg/{ecg_id}` | none | one recording with its samples, not paged |
+| `labs` | `code`, `report`, `start`, `end` | `collected_at` ([lab results](#lab-results)) |
+| `labs/reports/{report_id}` | none | one lab report with its results, not paged |
 | `coverage` | `provider`, `start`, `end` | not paged |
 
 `view` is `merged` (the default) or `all`; see
@@ -606,6 +608,23 @@ curl -s -X POST $OHS/v1/users/$USER_ID/self-reports -H "Authorization: Bearer $K
 curl -s "$OHS/v1/users/$USER_ID/samples?type=reported_feeling" -H "Authorization: Bearer $KEY"
 ```
 
+## Lab results
+
+`POST /v1/users/{id}/labs` (`data:write`; tenant key, or the user's own token with scope
+`upload`) takes lab results as FHIR R4 (a Bundle, a DiagnosticReport or an Observation of
+category laboratory) or as a simple JSON form, and answers 202. Each result is stored once per
+`id`: an amended copy replaces it, the latest upload wins. `GET /v1/users/{id}/labs` lists
+them (filters `code`, `report`, `start`, `end`), `GET /v1/users/{id}/labs/reports/{report_id}`
+reads one report, and FHIR serves them as Observations of category `laboratory` and
+DiagnosticReports. Mapping, unit normalization and amendments: [labs.md](labs.md).
+
+```sh
+curl -s -X POST $OHS/v1/users/$USER_ID/labs -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"reports":[{"id":"r1","collected_at":"2026-03-04T07:30:00Z","results":[{"id":"r1-glu","loinc":"2345-7","value":5.4,"unit":"mmol/L"}]}]}'
+curl -s "$OHS/v1/users/$USER_ID/labs?code=2345-7" -H "Authorization: Bearer $KEY"
+```
+
 ## Share links
 
 `POST /v1/users/{id}/shares` makes a SMART Health Link: a snapshot of the user's records of some
@@ -658,7 +677,7 @@ curl -s "$OHS/v1/users/$USER_ID/omh/data-points?schema=omh:blood-pressure&start=
 ## Exports
 
 `GET /v1/users/{id}/exports/{dataset}` streams every record of one list (`samples`,
-`category-samples`, `sleep`, `workouts`, `nutrition`, `daily` or `ecg`) in `[start, end)` as one CSV
+`category-samples`, `sleep`, `workouts`, `nutrition`, `daily`, `ecg` or `labs`) in `[start, end)` as one CSV
 (`format=csv`, the default) or Parquet (`format=parquet`) file, with the columns of the list's
 JSON records. Not paged. See [exports.md](exports.md).
 

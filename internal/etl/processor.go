@@ -19,6 +19,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/consent"
+	"github.com/soma-intelligence/open-health-sync/internal/labs"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
@@ -511,6 +512,9 @@ const (
 	coverageKeyECG       = "ecg"
 	coverageKeyHeartbeat = "heartbeat"
 	coverageKeyDaily     = "daily_summary"
+	// coverageKeyLab counts every lab result under one key: the test codes
+	// stay out of the coverage table.
+	coverageKeyLab = "lab_result"
 )
 
 // coverageBuilder counts mapped records per (canonical metric, local data
@@ -575,6 +579,10 @@ func (b *coverageBuilder) add(mr *model.MapResult) {
 		b.addAt(coverageKeyDaily, dateOnly(d.SummaryDate), nil)
 	}
 	for _, o := range mr.Observations {
+		if labs.IsLab(o.CanonicalCode) {
+			b.addAt(coverageKeyLab, o.TS, o.Metadata)
+			continue
+		}
 		b.addAt(o.CanonicalCode, o.TS, o.Metadata)
 	}
 }

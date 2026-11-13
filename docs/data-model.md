@@ -284,7 +284,7 @@ Stored in `ohs_data.series_blobs`: one compressed blob per series, the beats of 
 
 Observation is a generic coded health fact (the long-tail catch-all).
 
-Stored in `ohs_data.observations`. No connector writes it yet, and no read route serves it (planned).
+Stored in `ohs_data.observations`. Lab results are its only rows today (canonical code `lab:...`, provider `labs`), served by `/labs` ([labs.md](labs.md)); no other connector writes it yet.
 
 | Field | Type | Note |
 |---|---|---|
@@ -302,11 +302,14 @@ Stored in `ohs_data.observations`. No connector writes it yet, and no read route
 | `SourceName` | `string` |  |
 | `DeviceID` | `string` |  |
 | `IsPrimarySource` | `bool` |  |
-| `TypeConcept` | `string` | `device`, `survey`, `ehr` or `derived`. |
+| `TypeConcept` | `string` | `device`, `survey`, `ehr` or `derived`. A lab result is `ehr`. |
 | `SourceValue` | `string` |  |
 | `S3Ref` | `string` |  |
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
+| `ExternalID` | `string` | The source's id of the record. Clear: an id carries no value. |
+| `ReportID` | `string` | The source's id of the report (panel) a lab result belongs to. Clear, like ExternalID. |
+| `Replaceable` | `bool` | Writer instruction, not a column: the latest copy of the source record (same provider and external id) replaces every stored copy whole, also under another time (an amended lab result). |
 
 ### MapResult
 

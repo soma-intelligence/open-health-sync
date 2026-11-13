@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/connectors/applehealth"
+	labconn "github.com/soma-intelligence/open-health-sync/connectors/labs"
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
@@ -156,7 +157,7 @@ func seedFixture(t *testing.T, mode fixtureMode, plant func([]demo.Batch)) golde
 	}
 
 	f.srv = httptest.NewServer(api.NewRouter(api.Deps{Pool: pool, Store: st, Raw: f.raw, Vault: f.vault,
-		Device: applehealth.New()}))
+		Device: applehealth.New(), Labs: labconn.New()}))
 	t.Cleanup(f.srv.Close)
 	return f
 }

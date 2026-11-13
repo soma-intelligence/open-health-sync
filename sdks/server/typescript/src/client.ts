@@ -36,7 +36,10 @@ import type {
   FHIRCapabilityStatement,
   FHIRDevice,
   FHIRDeviceBundle,
+  FHIRDiagnosticReport,
+  FHIRDiagnosticReportBundle,
   FHIREverythingBundle,
+  FHIRLabUpload,
   FHIRObservation,
   FHIRPatient,
   FHIRProvenance,
@@ -50,6 +53,11 @@ import type {
   IngestBluetoothResponse,
   IngestHealthConnectResponse,
   IngestXiaomiResponse,
+  LabReport,
+  LabResult,
+  LabResultPage,
+  LabUpload,
+  LabUploadResponse,
   ListAuditEventsResponse,
   ListConnectionsResponse,
   ListConsentHistoryResponse,
@@ -268,6 +276,21 @@ export interface ListSyncRunsParams {
   limit?: number;
   /** The next_cursor of the previous page. */
   cursor?: string;
+}
+
+/** Query and header parameters of {@link OpenHealthSync.listLabs}. */
+export interface ListLabsParams {
+  /** A LOINC code (2093-3), or the source's own code for a result without one. */
+  code?: string;
+  /** The source's report id. */
+  report?: string;
+  /** Inclusive lower bound, RFC 3339 or YYYY-MM-DD. */
+  start?: string;
+  /** Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start. */
+  end?: string;
+  /** The next_cursor of the previous page. */
+  cursor?: string;
+  limit?: number;
 }
 
 /** Query and header parameters of {@link OpenHealthSync.listSamples}. */
@@ -525,7 +548,7 @@ export interface SearchFHIRObservationsParams {
    * A FHIR token `system|code` matched against `Observation.code`: a LOINC code
    * (`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure
    * panels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG
-   * recordings), a quantity type
+   * recordings; any LOINC code also finds the lab results of that test), a quantity type
    * (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
    * like `type`), or a record type
    * (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
@@ -536,8 +559,9 @@ export interface SearchFHIRObservationsParams {
   /**
    * An HL7 observation category code, bare or as
    * `http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,
-   * `laboratory`, `activity` (activity samples, workouts and daily summaries) or `survey`
-   * (self reports). One value. Another code of that system is an empty Bundle; anything
+   * `laboratory` (lab results, and the samples of laboratory types), `activity`
+   * (activity samples, workouts and daily summaries) or `survey` (self reports). One
+   * value. Another code of that system is an empty Bundle; anything
    * else is a 400.
    */
   category?: string;
@@ -568,6 +592,23 @@ export interface ReadFHIRObservationParams {
    * every stored record of every source.
    */
   view?: "merged" | "all";
+}
+
+/** Query and header parameters of {@link OpenHealthSync.searchFHIRDiagnosticReports}. */
+export interface SearchFHIRDiagnosticReportsParams {
+  /**
+   * `LAB` (bare or with the system `http://terminology.hl7.org/CodeSystem/v2-0074`) or
+   * `laboratory` (bare or with the observation category system). Another code of
+   * those systems is an empty Bundle; another system is a 400. One value.
+   */
+  category?: string;
+  /** Inclusive lower bound, RFC 3339 or YYYY-MM-DD. */
+  start?: string;
+  /** Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start. */
+  end?: string;
+  /** The next_cursor of the previous page. */
+  cursor?: string;
+  limit?: number;
 }
 
 /** Query and header parameters of {@link OpenHealthSync.everythingFHIRPatient}. */
@@ -1602,6 +1643,96 @@ export class OpenHealthSync {
   }
 
   /**
+   * Upload lab results.
+   *
+   * `POST /v1/users/{id}/labs`
+   *
+   * Lab results as FHIR R4 or as the simple JSON form (docs/labs.md). A body with a
+   * `resourceType` is read as FHIR: a Bundle, a DiagnosticReport or an Observation, with
+   * category laboratory (a DiagnosticReport of another diagnostic service section, or an
+   * Observation of another category, is a 400 naming it). Any other body is the simple
+   * form, `{"reports": [...]}`. At most 100 reports, 500 results per report and 2000
+   * results in all, in at most 1 MiB.
+   *
+   * Each result is stored once per `id`: a result sent again with the same `id` (an
+   * amended or corrected copy) replaces the stored one when its upload is newer, so the
+   * latest upload wins. The body goes through the same processing as an upload, so the
+   * answer is 202 and the results show once it is processed. The same body sent again is
+   * a duplicate and is stored once. A tenant key uploads for any user of the tenant; a
+   * user token with scope `upload` only for its own user, and another user is a 404.
+   * Values are health data: never logged, never quoted in an error. While the user's lab
+   * results are being deleted the answer is 409 and nothing is kept.
+   */
+  createLabs(
+    userId: string,
+    body: LabUpload | FHIRLabUpload,
+    options?: IdempotentRequestOptions,
+  ): Promise<LabUploadResponse> {
+    return this.#request<LabUploadResponse>({
+      method: "POST",
+      path: `/v1/users/${encode(userId)}/labs`,
+      json: body,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * The user's lab results.
+   *
+   * `GET /v1/users/{id}/labs`
+   *
+   * One result per test, as last uploaded, by collection time then id. `start` and `end`
+   * bound the collection time. Any other query parameter is a 400.
+   */
+  listLabs(
+    userId: string,
+    params: ListLabsParams = {},
+    options?: RequestOptions,
+  ): Promise<LabResultPage> {
+    return this.#request<LabResultPage>({
+      method: "GET",
+      path: `/v1/users/${encode(userId)}/labs`,
+      query: {
+        code: params.code,
+        report: params.report,
+        start: params.start,
+        end: params.end,
+        cursor: params.cursor,
+        limit: params.limit,
+      },
+      expect: "json",
+      options,
+    });
+  }
+
+  /** Every item of {@link OpenHealthSync.listLabs}, page after page, following `next_cursor`. */
+  iterLabs(
+    userId: string,
+    params: Omit<ListLabsParams, "cursor"> = {},
+    options?: RequestOptions,
+  ): AsyncGenerator<LabResult> {
+    return paginate((cursor) => this.listLabs(userId, { ...params, cursor }, options));
+  }
+
+  /**
+   * One lab report with its results.
+   *
+   * `GET /v1/users/{id}/labs/reports/{report_id}`
+   *
+   * The report's fields come from its most recently uploaded result. A report id the user
+   * has no result of is a 404.
+   */
+  getLabReport(userId: string, reportId: string, options?: RequestOptions): Promise<LabReport> {
+    return this.#request<LabReport>({
+      method: "GET",
+      path: `/v1/users/${encode(userId)}/labs/reports/${encode(reportId)}`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
    * Quantity samples of one type.
    *
    * `GET /v1/users/{id}/samples`
@@ -2448,9 +2579,10 @@ export class OpenHealthSync {
    * `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
    * panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
    * workouts (`workout-`), daily summaries (`daily-`), ECG recordings with their
-   * voltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a
-   * sample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or
-   * a meal's start), then by kind and id.
+   * voltage samples (`ecg-`), nutrition logs (`nutrition-`) and lab results (`lab-`),
+   * merged in time order (a sample's start, a bedtime, a workout's start, a day at
+   * midnight UTC, a recording's or a meal's start, a specimen's collection), then by kind
+   * and id.
    * Paged like every list: the Bundle's `next` link carries the cursor, and there is no
    * `next` link on the last page; `total` is left out. A blood pressure pair is never
    * split across pages, and its two samples are not listed on their own. A page holds at
@@ -2513,6 +2645,54 @@ export class OpenHealthSync {
   }
 
   /**
+   * The user's lab reports as FHIR R4 DiagnosticReports.
+   *
+   * `GET /v1/users/{id}/fhir/DiagnosticReport`
+   *
+   * One `searchset` Bundle of DiagnosticReports, one per lab report, each referencing the
+   * Observations (`lab-` ids) of its results, by the report's earliest collection time
+   * then id. Results sent without a report have no DiagnosticReport. Paged like the
+   * Observation search. See docs/labs.md.
+   */
+  searchFHIRDiagnosticReports(
+    userId: string,
+    params: SearchFHIRDiagnosticReportsParams = {},
+    options?: RequestOptions,
+  ): Promise<FHIRDiagnosticReportBundle> {
+    return this.#request<FHIRDiagnosticReportBundle>({
+      method: "GET",
+      path: `/v1/users/${encode(userId)}/fhir/DiagnosticReport`,
+      query: {
+        category: params.category,
+        start: params.start,
+        end: params.end,
+        cursor: params.cursor,
+        limit: params.limit,
+      },
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * One FHIR R4 DiagnosticReport.
+   *
+   * `GET /v1/users/{id}/fhir/DiagnosticReport/{report_id}`
+   */
+  readFHIRDiagnosticReport(
+    userId: string,
+    reportId: string,
+    options?: RequestOptions,
+  ): Promise<FHIRDiagnosticReport> {
+    return this.#request<FHIRDiagnosticReport>({
+      method: "GET",
+      path: `/v1/users/${encode(userId)}/fhir/DiagnosticReport/${encode(reportId)}`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
    * The user as a FHIR R4 Patient.
    *
    * `GET /v1/users/{id}/fhir/Patient/{patient_id}`
@@ -2541,8 +2721,9 @@ export class OpenHealthSync {
    *
    * One page of a `searchset` Bundle: on the first page the Patient, then the page's
    * Observations (`search.mode` `match`, the list and the cursor of the Observation
-   * search), then the Devices they reference (each once per page) and the Provenance of
-   * each Observation (`include`). Follow the `next` link until there is none: no
+   * search), the DiagnosticReports of the page's lab results (`match`), then the Devices
+   * they reference (each once per page) and the Provenance of each Observation
+   * (`include`). Follow the `next` link until there is none: no
    * Observation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.
    */
   everythingFHIRPatient(
@@ -2734,7 +2915,7 @@ export class OpenHealthSync {
    */
   exportDataset(
     userId: string,
-    dataset: "samples" | "category-samples" | "sleep" | "workouts" | "nutrition" | "daily" | "ecg",
+    dataset: "samples" | "category-samples" | "sleep" | "workouts" | "nutrition" | "daily" | "ecg" | "labs",
     params: ExportDatasetParams = {},
     options?: RequestOptions,
   ): Promise<Response> {

@@ -24,6 +24,7 @@ var exportDatasets = map[string]func(s *server, w http.ResponseWriter, r *http.R
 	"nutrition":        exportRoute(pages(read.Nutrition)),
 	"daily":            exportRoute(pages(read.Daily)),
 	"ecg":              exportRoute(pages(read.ECGRecordings)),
+	"labs":             exportRoute(pages(read.AllLabs)),
 }
 
 // eachFunc calls fn with every record of a list in [start, end), batch by

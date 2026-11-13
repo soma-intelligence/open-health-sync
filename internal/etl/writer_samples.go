@@ -697,6 +697,7 @@ var observationColumns = []string{
 	"tenant_id", "user_id", "provider", "source_slug", "source_name", "device_id", "ts", "end_ts",
 	"canonical_code", "value_num", "value_code", "value_text", "unit_ucum", "value_canonical",
 	"is_primary_source", "type_concept", "source_value", "raw_ref", "content_hash", "metadata",
+	"external_id", "report_id", "captured_at",
 }
 
 var observationShape = newShape(tObservation, observationColumns, nil, nil)
@@ -714,16 +715,30 @@ func observationRow(sc scope, o model.Observation, hash string) []any {
 	p := sc.providerOr(o.Provider)
 	return []any{
 		sc.tenant, sc.user, p, sourceSlugOrProvider("", p), o.SourceName, o.DeviceID, o.TS, nullTime(o.EndTS),
-		o.CanonicalCode, o.ValueNum, o.ValueCode, o.ValueText, o.UnitUCUM, o.ValueCanonical,
+		o.CanonicalCode, o.ValueNum, nullString(o.ValueCode), nullString(o.ValueText), nullString(o.UnitUCUM), o.ValueCanonical,
 		o.IsPrimarySource, o.TypeConcept, o.SourceValue, o.S3Ref, hash, normalizeMetadata(o.Metadata),
+		nullString(o.ExternalID), nullString(o.ReportID), sc.capturedAt(),
 	}
 }
 
 // writeObservations writes generic coded observations, the long tail of any
-// metric without a typed table, switching to COPY above the threshold.
+// metric without a typed table, switching to COPY above the threshold. A
+// Replaceable observation (a lab result) goes through replaceObservations
+// instead (writer_observations.go).
 func (w *Writer) writeObservations(ctx context.Context, tx TxLike, sc scope, obs []model.Observation) (written, skipped int, err error) {
-	return copyOrInsert(ctx, w, tx, sc, observationShape, hyperConflict("ts"), obs, observationRow,
-		func(o model.Observation) (string, time.Time) { return observationHash(sc, o), o.TS })
+	insertOnly, replace := splitReplaceable(obs)
+	if len(insertOnly) > 0 {
+		written, skipped, err = copyOrInsert(ctx, w, tx, sc, observationShape, hyperConflict("ts"), insertOnly, observationRow,
+			func(o model.Observation) (string, time.Time) { return observationHash(sc, o), o.TS })
+		if err != nil {
+			return written, skipped, err
+		}
+	}
+	if len(replace) == 0 {
+		return written, skipped, nil
+	}
+	n, k, err := w.replaceObservations(ctx, tx, sc, replace)
+	return written + n, skipped + k, err
 }
 
 // --- daily_summaries ---
