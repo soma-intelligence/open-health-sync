@@ -20,6 +20,9 @@ var skipped = map[string]string{
 	"metrics":       "Prometheus scrapes it",
 	"openapi":       "the document the SDKs are generated from",
 
+	"streamEvents":     "a long-lived Server-Sent Events stream: streamEvents in events.ts, stream_events in events.py",
+	"streamUserEvents": "a long-lived Server-Sent Events stream: streamEvents in events.ts, stream_events in events.py",
+
 	"connectPage":         "the end user's browser opens the connect link",
 	"connectProviderPage": "the end user's browser opens the connect link",
 	"connectStart":        "the connect page's form posts here",

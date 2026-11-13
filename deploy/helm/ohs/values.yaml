@@ -243,7 +243,13 @@ ingress:
   className: ""
   # Uploads carry up to 64 MiB of body: raise your controller's limit, for
   # example nginx.ingress.kubernetes.io/proxy-body-size: 64m.
-  annotations: {}
+  # The event stream (GET /v1/events/stream, Server-Sent Events) must reach
+  # the client unbuffered, and the read timeout must exceed its 15 s
+  # heartbeat: the two nginx annotations below do that (other controllers
+  # ignore them; set one to null to drop it).
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
   hosts:
     - host: ohs.example.org
       paths:

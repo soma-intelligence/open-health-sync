@@ -728,13 +728,17 @@ func (w *Worker) fail(ctx context.Context, j job, o outcome, cause error) error 
 	return tx.Commit(ctx)
 }
 
-// Prune deletes finished deliveries older than Retention, and the replaced
-// signing secrets whose grace period is over.
+// Prune deletes finished deliveries older than Retention, the stream events
+// older than StreamRetention, and the replaced signing secrets whose grace
+// period is over.
 func (w *Worker) Prune(ctx context.Context) error {
 	_, err := w.pool.Exec(ctx, `DELETE FROM ohs_core.webhook_deliveries
 		WHERE status IN ('done', 'parked') AND created_at < now() - make_interval(secs => $1::double precision)`,
 		Retention.Seconds())
 	if err != nil {
+		return err
+	}
+	if err := PruneStream(ctx, w.pool); err != nil {
 		return err
 	}
 	_, err = w.pool.Exec(ctx, `UPDATE ohs_core.webhook_endpoints

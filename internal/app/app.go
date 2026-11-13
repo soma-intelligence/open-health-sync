@@ -264,6 +264,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		}
 	}
 
+	// Events are written for the event stream unless it is off
+	// (OHS_STREAM_MAX=0), by every role that produces them.
+	webhook.SetStreamRecording(cfg.StreamMax >= 0)
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var (
@@ -449,7 +453,16 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		if warn := untrustedProxyWarning(cfg.Listen, cfg.TrustedProxies); warn != "" {
 			slog.Warn("api: " + warn)
 		}
+		if cfg.StreamMax >= 0 {
+			// The event stream: one LISTEN connection, the streams of this
+			// process, ended when the server shuts down.
+			deps.Stream = api.NewStreamHub(pool, api.StreamOptions{Max: cfg.StreamMax, MaxPerTenant: cfg.StreamMaxPerTenant})
+			goRole("event stream", func() error { return deps.Stream.Run(ctx) })
+		}
 		srv := newHTTPServer(cfg.Listen, api.NewRouter(deps), logger)
+		if deps.Stream != nil {
+			srv.RegisterOnShutdown(deps.Stream.Close)
+		}
 		// Started first: its shutdown goroutine stops it if the API listener fails.
 		if deps.MetricsMux != nil {
 			if err := serveMetrics(ctx, cfg.MetricsListen, deps.MetricsMux, opts.grace, logger, goRole); err != nil {

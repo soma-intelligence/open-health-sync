@@ -602,6 +602,47 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/events/stream:
+    get:
+      tags: [webhooks]
+      operationId: streamEvents
+      x-required-scope: "webhooks:read"
+      summary: The tenant's events as a Server-Sent Events stream
+      description: |
+        The events webhooks carry, as they happen, over one long-lived response
+        (`text/event-stream`): no public receiver needed. Each event is one SSE block whose
+        `id` is the event id (the `webhook-id` of its deliveries), whose `event` is its type
+        and whose `data` is the JSON body a webhook delivery posts, on one line. Thin like
+        webhooks: never a health value. The stream starts with `retry: 3000` and a comment, and
+        sends a comment every 15 seconds while idle. `Last-Event-ID` (or `last_event_id`)
+        replays what came after that event within the last 24 hours, then goes on live; an id
+        the window does not hold, or more than 10,000 missed events, sends one
+        `stream.reset` event (`{"reason": ..., "window_hours": 24}`) and goes on live. A client
+        that stops reading is disconnected; a stream ends after an hour or when the server
+        shuts down, and the client reconnects with `Last-Event-ID`. Delivery is at most once
+        per connection: deduplicate on the id, and use webhooks where every event must arrive.
+        Not compressed, `Cache-Control: no-store`. See docs/events-stream.md.
+      parameters:
+        - $ref: "#/components/parameters/StreamTypes"
+        - name: user_id
+          in: query
+          description: Only the events about this user.
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/StreamLastEventID"
+        - $ref: "#/components/parameters/StreamLastEventIDQuery"
+      responses:
+        "200": { $ref: "#/components/responses/EventStream" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: The event stream is off on this instance (`OHS_STREAM_MAX=0`).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/StreamTooMany" }
+        "503": { $ref: "#/components/responses/StreamUnavailable" }
+
   /v1/users/{id}/tokens:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -2426,6 +2467,36 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/events/stream:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [webhooks]
+      operationId: streamUserEvents
+      x-required-scope: "data:read"
+      summary: One user's events as a Server-Sent Events stream
+      description: |
+        `GET /v1/events/stream` limited to the events about one user, for a tenant key or for
+        that user's token with scope `read` (an app that streams to its own user without a
+        backend in between). A user token reads only its own user, and another user is a 404.
+        Same framing, heartbeat, resume and limits as the tenant stream; the streams count
+        against the tenant's cap. See docs/events-stream.md.
+      security:
+        - tenantKey: []
+        - userToken: [read]
+      parameters:
+        - $ref: "#/components/parameters/StreamTypes"
+        - $ref: "#/components/parameters/StreamLastEventID"
+        - $ref: "#/components/parameters/StreamLastEventIDQuery"
+      responses:
+        "200": { $ref: "#/components/responses/EventStream" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/StreamTooMany" }
+        "503": { $ref: "#/components/responses/StreamUnavailable" }
 
   /v1/ingest/apple-health:
     post:
@@ -5398,6 +5469,29 @@ components:
       schema: { type: string, const: "true" }
 
   parameters:
+    StreamTypes:
+      name: types
+      in: query
+      description: |
+        Only these event types, separated by commas (or the parameter repeated). Absent: every
+        type, including types added in later versions. An unknown type is a 400.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items: { $ref: "#/components/schemas/WebhookEventType" }
+    StreamLastEventID:
+      name: Last-Event-ID
+      in: header
+      description: |
+        The id of the last event the client received; an EventSource sends it on its own when it
+        reconnects. The events after it, within the last 24 hours, are sent first.
+      schema: { type: string }
+    StreamLastEventIDQuery:
+      name: last_event_id
+      in: query
+      description: The same as the `Last-Event-ID` header, for a client that cannot set headers; the header wins.
+      schema: { type: string }
     UserID:
       name: id
       in: path
@@ -5498,6 +5592,54 @@ components:
       schema: { type: string, minLength: 1, maxLength: 255 }
 
   responses:
+    EventStream:
+      description: |
+        The stream, open until the client leaves, the server ends it (after an hour, at
+        shutdown, or a client too slow to read) or the connection fails.
+      headers:
+        Cache-Control:
+          schema: { type: string, const: no-store }
+        X-Accel-Buffering:
+          description: '`no`: a proxy that honours it passes the stream unbuffered.'
+          schema: { type: string, const: "no" }
+      content:
+        text/event-stream:
+          schema:
+            type: string
+            description: |
+              Server-Sent Events. Each event: `id: <event id>`, `event: <type>`,
+              `data: <WebhookEvent JSON>`, a blank line. Lines starting with `:` are comments
+              (heartbeats). `event: stream.reset` (no id) says the stream could not resume.
+          example: |
+            retry: 3000
+
+            : connected
+
+            id: 0199d6c4-8a5e-7d3c-9f1e-6b2a4c8d0e17
+            event: data.written
+            data: {"id":"0199d6c4-8a5e-7d3c-9f1e-6b2a4c8d0e17","type":"data.written","timestamp":"2026-10-12T08:30:12.345Z","data":{"user_id":"4b7e1c9a-2f3d-4e5a-8b6c-1d2e3f4a5b6c","external_ref":"app-user-42","provider":"oura","records":{"sleep_sessions":1},"types":["sleep_analysis"],"first_day":"2026-10-11","last_day":"2026-10-12"}}
+
+            : ping
+
+    StreamTooMany:
+      description: |
+        The tenant holds `OHS_STREAM_MAX_PER_TENANT` streams on this server, or the server
+        `OHS_STREAM_MAX`; close one or retry after `Retry-After`. An EventSource does not retry
+        a 429 on its own.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    StreamUnavailable:
+      description: The server is shutting down, or not listening for events yet; retry after `Retry-After`.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
     BadRequest:
       description: Invalid parameters or body.
       content:

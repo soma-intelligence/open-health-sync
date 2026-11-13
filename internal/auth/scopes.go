@@ -26,7 +26,8 @@ const (
 	// ScopeTokensWrite mints and revokes user tokens. A token never does
 	// more than the key that minted it (TokenNeeds).
 	ScopeTokensWrite = "tokens:write"
-	// ScopeDataRead reads health data, in every format, and serves /mcp.
+	// ScopeDataRead reads health data, in every format, serves /mcp and
+	// streams one user's events (GET /v1/users/{id}/events/stream).
 	ScopeDataRead = "data:read"
 	// ScopeDataWrite uploads data: ingest, self reports, tags and source
 	// priorities.
@@ -38,7 +39,8 @@ const (
 	ScopeConnectionsRead  = "connections:read"
 	ScopeConnectionsWrite = "connections:write"
 	// ScopeWebhooksRead and ScopeWebhooksWrite read and change webhook
-	// endpoints and their deliveries.
+	// endpoints and their deliveries. ScopeWebhooksRead also streams the
+	// tenant's events (GET /v1/events/stream), the payloads deliveries carry.
 	ScopeWebhooksRead  = "webhooks:read"
 	ScopeWebhooksWrite = "webhooks:write"
 	// ScopeExportsRead downloads export files and user archives and reads

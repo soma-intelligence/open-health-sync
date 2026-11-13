@@ -17,6 +17,21 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 
 ### Added
 
+- Real-time event stream: `GET /v1/events/stream` (`webhooks:read`) streams the events webhooks
+  carry as Server-Sent Events, with the same names and JSON body and never a health value, for
+  a backend without a public HTTPS receiver. `GET /v1/users/{id}/events/stream` (`data:read`)
+  streams one user's events to a tenant key or that user's `read` token. Filters `types` and
+  `user_id`; `Last-Event-ID` resumes within 24 hours (`stream.reset` when it cannot); a
+  heartbeat comment every 15 s; `retry: 3000`. Events are written with the change they announce
+  (migration `0054`, `ohs_core.stream_events`) and announced by Postgres `NOTIFY` carrying ids
+  only, so every `api` replica streams what any process produced. Caps per `api` process:
+  `OHS_STREAM_MAX` (default 1000, `0` turns the stream off) and `OHS_STREAM_MAX_PER_TENANT`
+  (default 10), 429 past them. A client that cannot keep up is disconnected, a stream ends
+  after an hour (the credential is checked again on reconnect) and at shutdown. Never
+  compressed. The server SDKs gain `streamEvents` (TypeScript) and `stream_events` (Python);
+  the Helm ingress defaults turn nginx buffering off and raise its read timeout. See
+  docs/events-stream.md.
+
 - A user has a time zone: `timezone` (an IANA name) and `timezone_source` on the user object.
   Set it at `POST /v1/users` or with the new `PATCH /v1/users/{id}` (`users:write`, audit action
   `user.update`); `null` clears it. Left unset, it is learnt from the latest record of an Apple

@@ -10,6 +10,9 @@ Events are thin: they say what changed, for which user, from which provider and 
 never a health value. Your server reads the data with the API it already uses. A leaked or
 misrouted event therefore carries no health data.
 
+No public receiver? The same events also come as a Server-Sent Events stream,
+`GET /v1/events/stream`: see [events-stream.md](events-stream.md).
+
 Requests follow the [Standard Webhooks](https://www.standardwebhooks.com) specification, so the
 verification libraries it lists (Go, Python, JavaScript, Java, Kotlin, Ruby, PHP, Rust, C#,
 Elixir...) work as they are.

@@ -77,12 +77,12 @@ From a shell: `ohs admin key create --tenant <id> --scopes users:read,data:read`
 | `users:read` | `GET /v1/users`, `GET /v1/users/{id}`, the user's consents and their history |
 | `users:write` | `POST /v1/users`, `PATCH /v1/users/{id}`, `PUT` and `DELETE /v1/users/{id}/consents/{provider}` |
 | `tokens:write` | Minting and revoking user tokens (`/v1/users/{id}/tokens`) |
-| `data:read` | Every read of health data: the lists, statistics, coverage, ECG, time tags, source priorities, FHIR, Open mHealth, and `/mcp` |
+| `data:read` | Every read of health data: the lists, statistics, coverage, ECG, time tags, source priorities, FHIR, Open mHealth, `/mcp`, and one user's event stream (`GET /v1/users/{id}/events/stream`) |
 | `data:write` | Uploads (`/v1/ingest/...` with a user token), self reports, creating, changing and deleting time tags, `PUT /v1/users/{id}/source-priorities` |
 | `data:delete` | `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`, `GET /v1/deletions/{job_id}` |
 | `connections:read` | A user's connections, freshness and sync runs, and the tenant's pipeline (`GET /v1/pipeline...`) |
 | `connections:write` | Starting, deleting and syncing a connection, connect sessions, retrying sync runs and processing jobs |
-| `webhooks:read` | Webhook endpoints and their deliveries |
+| `webhooks:read` | Webhook endpoints and their deliveries, and the tenant's event stream (`GET /v1/events/stream`) |
 | `webhooks:write` | Creating, changing, deleting and testing endpoints, rotating secrets, retrying and replaying deliveries |
 | `exports:read` | `GET /v1/users/{id}/exports/{dataset}`, `GET /v1/users/{id}/archive`, listing and reading share links |
 | `exports:write` | Creating and revoking share links |
@@ -692,6 +692,13 @@ endpoint is paused after failures in a row, null otherwise) and `previous_secret
 `POST /v1/webhooks/{webhook_id}/rotate-secret` answers with the new `secret` and that same
 `previous_secret_expires_at`; send `{"expire_previous": true}` to end the old secret at once
 after a leak (the answer then has `previous_secret_expires_at` null).
+
+### Event stream
+
+`GET /v1/events/stream` (`webhooks:read`) streams the same events as Server-Sent Events, for a
+backend without a public receiver; `GET /v1/users/{id}/events/stream` (`data:read`, a tenant key
+or that user's token with scope `read`) streams one user's. Filter with `types` and `user_id`,
+resume with `Last-Event-ID` within 24 hours. See [events-stream.md](events-stream.md).
 
 ## Audit log
 

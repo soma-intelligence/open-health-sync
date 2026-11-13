@@ -151,7 +151,13 @@ type Config struct {
 	// 24). Negative means it stops at once (the setting's 0); 0 in a Config
 	// not built by Load means the default.
 	WebhookRotationGrace time.Duration
-	Providers            map[string]ProviderKeys // key = lower-case slug
+	// StreamMax caps the event streams one api process holds open at once
+	// (OHS_STREAM_MAX, default 1000), and StreamMaxPerTenant those of one
+	// tenant (OHS_STREAM_MAX_PER_TENANT, default 10, at most StreamMax).
+	// Negative StreamMax turns the event stream off (the setting's 0); 0 in
+	// a Config not built by Load means the default.
+	StreamMax, StreamMaxPerTenant int
+	Providers                     map[string]ProviderKeys // key = lower-case slug
 	// Vault holds the key provider and key cache settings of the health data
 	// vault (the OHS_VAULT_ variables).
 	Vault Vault
@@ -322,6 +328,8 @@ var reserved = map[string]bool{
 	"WEBHOOK_PER_TENANT":           true,
 	"WEBHOOK_PAUSE_AFTER":          true,
 	"WEBHOOK_ROTATION_GRACE_HOURS": true,
+	"STREAM_MAX":                   true,
+	"STREAM_MAX_PER_TENANT":        true,
 	"TRUSTED_PROXIES":              true,
 	"CONSENT_REQUIRED":             true,
 	"MCP_URL":                      true, // client side settings of `ohs mcp`
@@ -604,6 +612,9 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	}
 
 	if err := loadWorkers(get, &c); err != nil {
+		return Config{}, err
+	}
+	if err := loadStream(get, &c); err != nil {
 		return Config{}, err
 	}
 

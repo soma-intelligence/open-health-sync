@@ -160,6 +160,10 @@ type Deps struct {
 	// Vault holds the tenant and user keys. When set, /readyz checks that
 	// its key provider opens keys and /metrics carries its counters.
 	Vault *vault.Vault
+	// Stream serves the event stream (GET /v1/events/stream and
+	// /v1/users/{id}/events/stream); its Run must be running. Nil leaves
+	// the routes answering 404 (OHS_STREAM_MAX=0).
+	Stream *StreamHub
 }
 
 type server struct {
@@ -224,6 +228,7 @@ func (s *server) handler() http.Handler {
 	s.mountUsers(mux)
 	s.mountTokens(mux)
 	s.mountWebhooks(mux)
+	s.mountStream(mux)
 	s.mountDeletion(mux)
 	s.mountReads(mux)
 	s.mountTags(mux)

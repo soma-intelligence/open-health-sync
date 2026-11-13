@@ -66,6 +66,7 @@ var routeScopes = map[string]string{
 	"GET /v1/users/{id}/tags/{tag_id}":                         auth.ScopeDataRead,
 	"GET /v1/users/{id}/source-priorities":                     auth.ScopeDataRead,
 	"/mcp":                                                     auth.ScopeDataRead,
+	"GET /v1/users/{id}/events/stream":                         auth.ScopeDataRead,
 	"POST /v1/users/{id}/tags":                                 auth.ScopeDataWrite,
 	"PATCH /v1/users/{id}/tags/{tag_id}":                       auth.ScopeDataWrite,
 	"DELETE /v1/users/{id}/tags/{tag_id}":                      auth.ScopeDataWrite,
@@ -104,6 +105,7 @@ var routeScopes = map[string]string{
 	"POST /v1/webhooks/{webhook_id}/test":                            auth.ScopeWebhooksWrite,
 	"POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/retry":  auth.ScopeWebhooksWrite,
 	"POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/replay": auth.ScopeWebhooksWrite,
+	"GET /v1/events/stream":                                          auth.ScopeWebhooksRead,
 
 	"GET /v1/users/{id}/exports/{dataset}":    auth.ScopeExportsRead,
 	"GET /v1/users/{id}/archive":              auth.ScopeExportsRead,

@@ -176,6 +176,14 @@ check_helm() {
   expect "default: no exec probe on the pod that serves HTTP" 0 "$(count 'exec:' "$f")"
   expect "default: Recreate on the single-writer volume" 1 "$(count 'type: Recreate' "$f")"
   expect "default: no ops listener next to the API" 0 "$(count 'OHS_OPS_LISTEN' "$f")"
+  # The event stream passes nginx unbuffered, with a read timeout above its
+  # heartbeat, and values that add annotations keep those two.
+  for f in "$tmp/ingress.yaml" "$tmp/all-optional.yaml"; do
+    expect "$(basename "$f" .yaml): ingress-nginx does not buffer the event stream" 1 \
+      "$(count 'nginx.ingress.kubernetes.io/proxy-buffering: "off"' "$f")"
+    expect "$(basename "$f" .yaml): ingress-nginx read timeout above the stream heartbeat" 1 \
+      "$(count 'nginx.ingress.kubernetes.io/proxy-read-timeout: "300"' "$f")"
+  done
   f="$tmp/all-optional.yaml"
   local kind
   for kind in Ingress ServiceMonitor PodMonitor NetworkPolicy HorizontalPodAutoscaler PodDisruptionBudget; do
