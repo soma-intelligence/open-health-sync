@@ -140,6 +140,8 @@ So each connector declares how it is pulled (`connector.SyncPolicy`, see
 | Ultrahuman | | 3 h | 48 h | 30 days | 7 days |
 | WHOOP | 6 h | 1 h | 24 h | 90 days | 7 days |
 | Withings | 6 h | 1 h | 24 h | 90 days | 3 days |
+| Wahoo | 12 h | 6 h | 24 h | 30 days | none |
+| Sandbox | | 1 h | 24 h | 30 days | none |
 
 An empty cell means the provider sends no notifications. A Suunto pull makes 4 calls, so on the
 Development API (about 200 calls a week) an application serves about 7 users; more needs
