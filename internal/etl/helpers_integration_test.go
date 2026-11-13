@@ -31,6 +31,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // env is one migrated database, one raw store and one tenant with one active
@@ -277,13 +278,60 @@ func (e *env) count(table string) int {
 	return e.countFor(table, e.tenant, e.user)
 }
 
+// countFor counts the rows of table for tenant and user. For a per-point
+// table (vault.PerPoint) it counts the points: the rows still stored one per
+// point plus the points of the series blobs of its kind.
 func (e *env) countFor(table string, tenant, user uuid.UUID) int {
 	e.t.Helper()
 	var n int
 	require.NoError(e.t, e.pool.QueryRow(context.Background(),
 		fmt.Sprintf(`SELECT count(*) FROM ohs_data.%s WHERE tenant_id = $1 AND user_id = $2`, pgx.Identifier{table}.Sanitize()),
 		tenant, user).Scan(&n))
+	if k, ok := perPointKind[table]; ok {
+		var pts int
+		require.NoError(e.t, e.pool.QueryRow(context.Background(), `SELECT coalesce(sum(point_count), 0)
+			FROM ohs_data.series_blobs WHERE tenant_id = $1 AND user_id = $2 AND kind = $3`, tenant, user, int16(k)).Scan(&pts))
+		n += pts
+	}
 	return n
+}
+
+// perPointKind is the series kind of each per-point table.
+var perPointKind = map[string]series.Kind{
+	"ecg_samples": series.ECG, "route_points": series.Route, "heartbeat_samples": series.Heartbeat,
+}
+
+// blobPoints opens and decodes the series blobs of kind k of the env's user,
+// keyed by parent (and, for heartbeat series, "provider/series id").
+func (e *env) blobPoints(k series.Kind) map[string][]series.Point {
+	e.t.Helper()
+	return e.blobPointsOf(e.tenant, e.user, k)
+}
+
+func (e *env) blobPointsOf(tenant, user uuid.UUID, k series.Kind) map[string][]series.Point {
+	e.t.Helper()
+	ctx := context.Background()
+	sel := vault.Select(tSeries, `provider, parent, points`)
+	rows, err := e.pool.Query(ctx, `SELECT `+sel.List("")+` FROM ohs_data.series_blobs
+		WHERE tenant_id = $1 AND user_id = $2 AND kind = $3`, tenant, user, int16(k))
+	require.NoError(e.t, err)
+	defer rows.Close()
+	rd := vault.ReaderFor(vault.NewContext(ctx, e.v), tenant, user)
+	out := map[string][]series.Point{}
+	for rows.Next() {
+		var provider, parent string
+		var blob []byte
+		require.NoError(e.t, sel.Scan(ctx, rd, rows, []any{&provider, &parent, &blob}))
+		pts, err := series.Decode(k, blob)
+		require.NoError(e.t, err)
+		key := parent
+		if k == series.Heartbeat {
+			key = provider + "/" + parent
+		}
+		out[key] = pts
+	}
+	require.NoError(e.t, rows.Err())
+	return out
 }
 
 var batchSeq atomic.Int64

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // Parent and child families: sleep sessions and their phases, workouts and
@@ -435,14 +436,6 @@ var (
 	workoutSupersede = `DELETE FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND external_id = $4 AND id <> $5
 		RETURNING id`
-	// workoutRoutesAdopt moves the route points of superseded copies ($4) to
-	// the kept workout ($3).
-	workoutRoutesAdopt = `UPDATE ohs_data.route_points SET workout_id = $3
-		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($4)`
-	// workoutRoutesDrop deletes the route points of superseded copies when the
-	// new copy carries its own route.
-	workoutRoutesDrop = `DELETE FROM ohs_data.route_points
-		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
 	// workoutTracksDrop deletes the derived track summaries of superseded
 	// copies; they are rebuilt from the route points.
 	workoutTracksDrop = `DELETE FROM ohs_data.workout_tracks
@@ -539,7 +532,7 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 			}
 		}
 		if len(own) > 0 {
-			n, k, err := w.writeRoutePoints(ctx, tx, sc, parentID, wk.ContentHash, own)
+			n, k, err := w.writeRoutePoints(ctx, tx, sc, parentID, p, own)
 			if err != nil {
 				return fmt.Errorf("insert route points: %w", err)
 			}
@@ -561,8 +554,8 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 
 // supersedeWorkout deletes the stored copies of a Replaceable workout's
 // provider record under another key than parentID's, and their derived
-// tracks. Their route points move to parentID, or are deleted when the new
-// copy carries its own route (hasRoute).
+// tracks. Their routes move to parentID, merged into its own, or are
+// deleted when the new copy carries its own route (hasRoute).
 func supersedeWorkout(ctx context.Context, tx TxLike, sc scope, provider, externalID string, parentID int64, hasRoute bool) error {
 	rows, err := tx.Query(ctx, workoutSupersede, sc.tenant, sc.user, provider, externalID, parentID)
 	if err != nil {
@@ -575,13 +568,19 @@ func supersedeWorkout(ctx context.Context, tx TxLike, sc scope, provider, extern
 	if len(superseded) == 0 {
 		return nil
 	}
+	// The route of a superseded copy is dropped when the new copy carries
+	// its own, else it moves to the kept workout (merged into its route).
+	from := make([]seriesRef, len(superseded))
+	for i, id := range superseded {
+		from[i] = routeSeries(id, provider)
+	}
 	if hasRoute {
-		_, err = tx.Exec(ctx, workoutRoutesDrop, sc.tenant, sc.user, superseded)
+		err = deleteSeries(ctx, tx, sc, series.Route, superseded)
 	} else {
-		_, err = tx.Exec(ctx, workoutRoutesAdopt, sc.tenant, sc.user, parentID, superseded)
+		err = moveSeries(ctx, tx, sc, routeSeries(parentID, provider), from)
 	}
 	if err != nil {
-		return fmt.Errorf("supersede workout route points: %w", err)
+		return fmt.Errorf("supersede workout route: %w", err)
 	}
 	if _, err := tx.Exec(ctx, workoutTracksDrop, sc.tenant, sc.user, superseded); err != nil {
 		return fmt.Errorf("supersede workout tracks: %w", err)
@@ -613,16 +612,16 @@ func (w *Writer) writeOrphanRoutePoints(ctx context.Context, tx TxLike, sc scope
 		return err
 	}
 	var workoutID int64
-	var workoutHash string
+	var provider string
 	err := tx.QueryRow(ctx, `
-		SELECT id, content_hash FROM ohs_data.workouts
+		SELECT id, provider FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2
 		  AND start_date <= $3
 		  AND COALESCE(end_date, start_date) >= $4
 		ORDER BY start_date DESC
 		LIMIT 1`,
 		sc.tenant, sc.user, lo, hi,
-	).Scan(&workoutID, &workoutHash)
+	).Scan(&workoutID, &provider)
 	if errors.Is(err, pgx.ErrNoRows) {
 		slog.DebugContext(ctx, "route points skipped, no parent workout", "count", len(pts))
 		c.add(tRoutes, 0, len(pts))
@@ -631,35 +630,12 @@ func (w *Writer) writeOrphanRoutePoints(ctx context.Context, tx TxLike, sc scope
 	if err != nil {
 		return fmt.Errorf("orphan route points lookup: %w", err)
 	}
-	n, k, err := w.writeRoutePoints(ctx, tx, sc, workoutID, workoutHash, pts)
+	n, k, err := w.writeRoutePoints(ctx, tx, sc, workoutID, provider, pts)
 	if err != nil {
 		return fmt.Errorf("insert orphan route points: %w", err)
 	}
 	c.add(tRoutes, n, k)
 	return nil
-}
-
-var routePointColumns = []string{"tenant_id", "user_id", "workout_id", "timestamp", "latitude", "longitude", "altitude_m", "speed_mps", "course_deg", "content_hash"}
-
-var routePointShape = newShape(tRoutes, routePointColumns, nil, nil)
-
-// writeRoutePoints inserts route points under a resolved workout, using COPY
-// above the threshold. With keys every point is identified by the workout it
-// is written under (workoutHash, keyed), whether or not the mapper stamped it,
-// so a point hashes the same in its workout's batch and attached later.
-// Without keys the mapper's stamp stays, as it always did.
-func (w *Writer) writeRoutePoints(ctx context.Context, tx TxLike, sc scope, workoutID int64, workoutHash string, points []model.RoutePoint) (written, skipped int, err error) {
-	hash := func(p model.RoutePoint) string {
-		if sc.uv != nil {
-			p.ParentContentHash = workoutHash
-		}
-		return sc.hash(model.RoutePointContentHash(p))
-	}
-	row := func(sc scope, p model.RoutePoint, h string) []any {
-		return []any{sc.tenant, sc.user, workoutID, p.Timestamp, p.Latitude, p.Longitude, p.AltitudeM, p.SpeedMps, p.CourseDeg, h}
-	}
-	return copyOrInsert(ctx, w, tx, sc, routePointShape, hyperConflict(`"timestamp"`), points, row,
-		func(p model.RoutePoint) (string, time.Time) { return hash(p), p.Timestamp })
 }
 
 // --- ecg_recordings -> ecg_samples ---
@@ -714,7 +690,7 @@ func (w *Writer) writeECGWithSamples(ctx context.Context, tx TxLike, sc scope, r
 			}
 		}
 		if len(own) > 0 {
-			n, k, err := w.writeECGVoltageSamples(ctx, tx, sc, parentID, ecg.ContentHash, ecg.StartDate, own)
+			n, k, err := w.writeECGVoltageSamples(ctx, tx, sc, parentID, sc.provider, ecg.StartDate, own)
 			if err != nil {
 				return fmt.Errorf("insert ecg voltage samples: %w", err)
 			}
@@ -750,6 +726,7 @@ func (w *Writer) writeOrphanECGVoltageSamples(ctx context.Context, tx TxLike, sc
 			ecgID     int64
 			recHash   string
 			recStart  time.Time
+			provider  string
 			err       error
 			lookupKey string
 		)
@@ -758,20 +735,20 @@ func (w *Writer) writeOrphanECGVoltageSamples(ctx context.Context, tx TxLike, sc
 			lookupKey = "content_hash"
 			recHash = parentHash
 			err = tx.QueryRow(ctx, `
-				SELECT id, start_date FROM ohs_data.ecg_recordings
+				SELECT id, start_date, provider FROM ohs_data.ecg_recordings
 				WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3
 				ORDER BY start_date DESC LIMIT 1`,
-				sc.tenant, sc.user, parentHash).Scan(&ecgID, &recStart)
+				sc.tenant, sc.user, parentHash).Scan(&ecgID, &recStart, &provider)
 		case sourceKey != "":
 			lookupKey = "voltage_path"
 			if err := convertLegacy(ctx, tx, sc, tECG, `r.voltage_path = $3`, sourceKey); err != nil {
 				return err
 			}
 			err = tx.QueryRow(ctx, `
-				SELECT id, content_hash, start_date FROM ohs_data.ecg_recordings
+				SELECT id, content_hash, start_date, provider FROM ohs_data.ecg_recordings
 				WHERE tenant_id = $1 AND user_id = $2 AND voltage_path = $3
 				ORDER BY start_date DESC LIMIT 1`,
-				sc.tenant, sc.user, sourceKey).Scan(&ecgID, &recHash, &recStart)
+				sc.tenant, sc.user, sourceKey).Scan(&ecgID, &recHash, &recStart, &provider)
 		default:
 			slog.DebugContext(ctx, "ecg voltage skipped, no parent hash or source key", "count", len(group))
 			c.add(tECGSamples, 0, len(group))
@@ -785,41 +762,11 @@ func (w *Writer) writeOrphanECGVoltageSamples(ctx context.Context, tx TxLike, sc
 		if err != nil {
 			return fmt.Errorf("orphan ecg voltage lookup by %s: %w", lookupKey, err)
 		}
-		n, k, err := w.writeECGVoltageSamples(ctx, tx, sc, ecgID, recHash, recStart, group)
+		n, k, err := w.writeECGVoltageSamples(ctx, tx, sc, ecgID, provider, recStart, group)
 		if err != nil {
 			return fmt.Errorf("insert orphan ecg voltage samples: %w", err)
 		}
 		c.add(tECGSamples, n, k)
 	}
 	return nil
-}
-
-var ecgSampleColumns = []string{"tenant_id", "user_id", "ecg_id", "ts", "time_since_sample_start", "voltage_uv", "content_hash"}
-
-var ecgSampleShape = newShape(tECGSamples, ecgSampleColumns, nil, nil)
-
-// writeECGVoltageSamples inserts voltage samples under a resolved recording.
-// Every sample is identified by the recording it is written under (parentHash),
-// whether or not the mapper stamped it: the 512 Hz offset grid is the same for
-// every recording, so an unparented hash would collide across recordings. ts is
-// the recording start plus the sample's offset.
-func (w *Writer) writeECGVoltageSamples(ctx context.Context, tx TxLike, sc scope, ecgID int64, parentHash string, recStart time.Time, samples []model.ECGVoltageSample) (written, skipped int, err error) {
-	owned := make([]model.ECGVoltageSample, len(samples))
-	for i, s := range samples {
-		s.ParentContentHash = parentHash
-		owned[i] = s
-	}
-	// Rounded to the microsecond Postgres stores, so a sample resolved against
-	// the stored recording gets the same ts as one written with it in-batch.
-	base := recStart.Round(time.Microsecond)
-	ts := func(s model.ECGVoltageSample) time.Time {
-		return base.Add(time.Duration(s.TimeSinceSampleStart * float64(time.Second))).Round(time.Microsecond)
-	}
-	row := func(sc scope, s model.ECGVoltageSample, h string) []any {
-		return []any{sc.tenant, sc.user, ecgID, ts(s), s.TimeSinceSampleStart, s.VoltageUV, h}
-	}
-	return copyOrInsert(ctx, w, tx, sc, ecgSampleShape, hyperConflict("ts"), owned, row,
-		func(s model.ECGVoltageSample) (string, time.Time) {
-			return sc.hash(model.ECGVoltageSampleContentHash(s)), ts(s)
-		})
 }

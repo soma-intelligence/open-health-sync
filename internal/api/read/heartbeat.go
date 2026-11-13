@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -13,8 +14,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // MaxHRVBeats bounds the beats one HRV page reads: a page stops adding
@@ -71,7 +74,7 @@ func decodeKeyCursor(c string, n int) (time.Time, []string, error) {
 // rrSel reads an RR interval and beatSel a beat of a series: the interval is
 // sealed on a sealed row.
 var (
-	rrSel   = vault.Select("heartbeat_samples", `"timestamp", rr_ms, series_id, provider, ingested_at, content_hash`)
+	rrSel   = vault.Select("heartbeat_samples", `"timestamp", rr_ms, series_id, provider, ingested_at`)
 	beatSel = vault.Select("heartbeat_samples", `provider, series_id, "timestamp", rr_ms`)
 )
 
@@ -84,70 +87,189 @@ type RRInterval struct {
 	IngestedAt time.Time `json:"ingested_at"`
 }
 
-// RRIntervals lists the stored RR intervals by beat time. Beats that share a
-// time are ordered by their content hash, which the cursor carries.
+// rrCompare orders RR intervals by beat time, then provider, series id and
+// interval (bytewise): a total order over the stored beats, since a series
+// holds a beat once.
+func rrCompare(a, b RRInterval) int {
+	return cmp.Or(a.Timestamp.Compare(b.Timestamp), strings.Compare(a.Provider, b.Provider),
+		strings.Compare(a.SeriesID, b.SeriesID), cmp.Compare(a.RRMs, b.RRMs))
+}
+
+// rrCursor is the cursor after r: its time, interval, provider and series id
+// (last, so it may hold a "|").
+func rrCursor(r RRInterval) string {
+	return encodeKeyCursor(r.Timestamp, strconv.FormatFloat(r.RRMs, 'g', -1, 64), r.Provider, r.SeriesID)
+}
+
+// RRIntervals lists the stored RR intervals in rrCompare order, which the
+// cursor carries. A series is read from its blob, or from its per-point rows
+// until those are converted; the two are merged here.
 func RRIntervals(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q RRQuery) (Page[RRInterval], error) {
 	n, err := q.normalize()
 	if err != nil {
 		return Page[RRInterval]{}, err
 	}
-	var afterT time.Time
-	var afterKey []string
+	var after *RRInterval
 	if q.Cursor != "" {
-		if afterT, afterKey, err = decodeKeyCursor(q.Cursor, 1); err != nil {
+		t, key, err := decodeKeyCursor(q.Cursor, 3)
+		if err != nil {
 			return Page[RRInterval]{}, err
 		}
+		rr, err := strconv.ParseFloat(key[0], 64)
+		if err != nil {
+			return Page[RRInterval]{}, ErrInvalidCursor
+		}
+		after = &RRInterval{Timestamp: t, RRMs: rr, Provider: key[1], SeriesID: key[2]}
 	}
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[RRInterval]{}, err
 	}
+	// lower is the earliest beat time the page may hold.
+	lower := n.Start
+	if after != nil && after.Timestamp.After(lower) {
+		lower = after.Timestamp
+	}
+	keep := func(r RRInterval) bool {
+		return (lower.IsZero() || !r.Timestamp.Before(lower)) && (n.End.IsZero() || r.Timestamp.Before(n.End)) &&
+			(after == nil || rrCompare(r, *after) > 0)
+	}
+	cands, upper, err := legacyRR(ctx, db, tenantID, userID, q.SeriesID, lower, n.End, n.Limit+1, keep)
+	if err != nil {
+		return Page[RRInterval]{}, err
+	}
+	// trim keeps the limit+1 first candidates; bound is then the time past
+	// which no beat can enter the page.
+	trim := func() (time.Time, bool) {
+		slices.SortFunc(cands, rrCompare)
+		if len(cands) > n.Limit+1 {
+			cands = cands[:n.Limit+1]
+		}
+		if len(cands) == n.Limit+1 {
+			return cands[n.Limit].Timestamp, true
+		}
+		return time.Time{}, false
+	}
+	bound, full := trim()
+	if !upper.IsZero() && (!full || upper.Before(bound)) {
+		bound, full = upper, true
+	}
+	args := []any{}
+	arg := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args)+2)
+	}
+	var where []string
+	if q.SeriesID != "" {
+		where = append(where, "parent = "+arg(q.SeriesID))
+	}
+	if !lower.IsZero() {
+		where = append(where, "end_at >= "+arg(lower))
+	}
+	if !n.End.IsZero() {
+		where = append(where, "start_at < "+arg(n.End))
+	}
+	err = eachBlob(ctx, db, tenantID, userID, series.Heartbeat, strings.Join(where, " AND "), "start_at, provider, parent", args,
+		func(start time.Time) bool { return full && start.After(bound) },
+		func(b seriesBlob) error {
+			for _, p := range b.points {
+				r := RRInterval{Timestamp: p.Time(), RRMs: p.V[series.HeartbeatRR], SeriesID: b.parent,
+					Provider: b.provider, IngestedAt: b.ingested}
+				if keep(r) && (!full || !r.Timestamp.After(bound)) {
+					cands = append(cands, r)
+				}
+			}
+			if t, ok := trim(); ok && (!full || t.Before(bound)) {
+				bound, full = t, true
+			}
+			return nil
+		})
+	if err != nil {
+		return Page[RRInterval]{}, err
+	}
+	trim()
+	out := Page[RRInterval]{Records: cands}
+	if len(cands) > n.Limit {
+		out.Records = cands[:n.Limit]
+		out.NextCursor = rrCursor(out.Records[n.Limit-1])
+	}
+	return out, nil
+}
+
+// legacyRR reads the RR intervals still stored as per-point rows that keep
+// accepts, beat time at or after lower and before end (zero: open): at least
+// the limit first of them in rrCompare order when there are that many, with
+// every beat at the time of the last one read. upper is that time when more
+// rows follow it (no row left out is before or at it), zero when every row
+// was read.
+func legacyRR(ctx context.Context, db Querier, tenantID, userID uuid.UUID, seriesID string, lower, end time.Time,
+	limit int, keep func(RRInterval) bool) ([]RRInterval, time.Time, error) {
+	for read := limit; ; read *= 2 {
+		out, upper, err := legacyRROnce(ctx, db, tenantID, userID, seriesID, lower, end, read, keep)
+		// keep leaves out the beats at the cursor's time that precede it, so
+		// a read can come back short of limit: read further then.
+		if err != nil || upper.IsZero() || len(out) >= limit {
+			return out, upper, err
+		}
+	}
+}
+
+// legacyRROnce reads the rows up to the time of the read-th row in time
+// order (every row when there are fewer), keeping those keep accepts.
+func legacyRROnce(ctx context.Context, db Querier, tenantID, userID uuid.UUID, seriesID string, lower, end time.Time,
+	read int, keep func(RRInterval) bool) ([]RRInterval, time.Time, error) {
 	args := []any{tenantID, userID}
 	arg := func(v any) string {
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args))
 	}
 	where := []string{"tenant_id = $1", "user_id = $2"}
-	if q.SeriesID != "" {
-		where = append(where, "series_id = "+arg(q.SeriesID))
+	if seriesID != "" {
+		where = append(where, "series_id = "+arg(seriesID))
 	}
-	if !n.Start.IsZero() {
-		where = append(where, `"timestamp" >= `+arg(n.Start))
+	if !lower.IsZero() {
+		where = append(where, `"timestamp" >= `+arg(lower))
 	}
-	if !n.End.IsZero() {
-		where = append(where, `"timestamp" < `+arg(n.End))
+	if !end.IsZero() {
+		where = append(where, `"timestamp" < `+arg(end))
 	}
-	if afterKey != nil {
-		// The scalar bound lets TimescaleDB exclude chunks before the cursor.
-		at := arg(afterT)
-		where = append(where, `"timestamp" >= `+at, `("timestamp", content_hash) > (`+at+`, `+arg(afterKey[0])+`)`)
+	// The interval is sealed, so SQL cannot order the beats that share a
+	// time: the time of the read-th row is found first, then every row up to
+	// it is read and ordered by the caller.
+	var upper time.Time
+	err := db.QueryRow(ctx, `SELECT "timestamp" FROM ohs_data.heartbeat_samples WHERE `+strings.Join(where, " AND ")+
+		` ORDER BY "timestamp" OFFSET `+strconv.Itoa(read-1)+` LIMIT 1`, args...).Scan(&upper)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		upper = time.Time{}
+	case err != nil:
+		return nil, time.Time{}, fmt.Errorf("read: heartbeat_samples: %w", err)
+	default:
+		upper = upper.UTC()
+		where = append(where, `"timestamp" <= `+arg(upper))
 	}
 	rows, err := db.Query(ctx, `SELECT `+rrSel.List("")+`
-		FROM ohs_data.heartbeat_samples WHERE `+strings.Join(where, " AND ")+
-		` ORDER BY "timestamp", content_hash LIMIT `+arg(n.Limit+1), args...)
+		FROM ohs_data.heartbeat_samples WHERE `+strings.Join(where, " AND "), args...)
 	if err != nil {
-		return Page[RRInterval]{}, fmt.Errorf("read: heartbeat_samples: %w", err)
+		return nil, time.Time{}, fmt.Errorf("read: heartbeat_samples: %w", err)
 	}
 	defer rows.Close()
-	out := Page[RRInterval]{Records: []RRInterval{}}
+	var out []RRInterval
 	keys := keysFor(ctx, tenantID, userID)
-	var lastHash string
 	for rows.Next() {
-		if len(out.Records) == n.Limit {
-			out.NextCursor = encodeKeyCursor(out.Records[len(out.Records)-1].Timestamp, lastHash)
-			break
-		}
 		var r RRInterval
-		if err := rrSel.Scan(ctx, keys, rows, []any{&r.Timestamp, &r.RRMs, &r.SeriesID, &r.Provider, &r.IngestedAt, &lastHash}); err != nil {
-			return Page[RRInterval]{}, fmt.Errorf("read: heartbeat_samples: scan: %w", err)
+		if err := rrSel.Scan(ctx, keys, rows, []any{&r.Timestamp, &r.RRMs, &r.SeriesID, &r.Provider, &r.IngestedAt}); err != nil {
+			return nil, time.Time{}, fmt.Errorf("read: heartbeat_samples: scan: %w", err)
 		}
 		utc(&r.Timestamp)
 		utc(&r.IngestedAt)
-		out.Records = append(out.Records, r)
+		if keep(r) {
+			out = append(out, r)
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return Page[RRInterval]{}, fmt.Errorf("read: heartbeat_samples: %w", err)
+		return nil, time.Time{}, fmt.Errorf("read: heartbeat_samples: %w", err)
 	}
-	return out, nil
+	return out, upper, nil
 }
 
 // HRVSeries is the HRV derived from one heartbeat series.
@@ -252,7 +374,26 @@ func hrvSeries(ctx context.Context, db Querier, tenantID, userID uuid.UUID, seri
 	if len(outer) > 0 {
 		sql += " WHERE " + strings.Join(outer, " AND ")
 	}
-	sql += " ORDER BY g.first, g.provider, g.series_id LIMIT " + arg(n.Limit+1)
+	// The series held by a blob, under the same window and cursor: the blob
+	// keeps the first beat (start_at) and the beat count clear.
+	blob := []string{"b.tenant_id = $1", "b.user_id = $2", "b.kind = " + strconv.Itoa(int(series.Heartbeat))}
+	if seriesID != "" {
+		blob = append(blob, "b.parent = "+arg(seriesID))
+	}
+	if !lower.IsZero() {
+		blob = append(blob, "b.start_at >= "+arg(lower))
+	}
+	if !n.End.IsZero() {
+		blob = append(blob, "b.start_at < "+arg(n.End))
+	}
+	if afterKey != nil {
+		blob = append(blob, `(b.start_at, b.provider, b.parent) > (`+arg(afterT)+`, `+arg(afterKey[0])+`, `+arg(afterKey[1])+`)`)
+	}
+	sql = `SELECT provider, series_id, first, beats FROM (` + sql + `
+		UNION ALL
+		SELECT b.provider, b.parent, b.start_at, b.point_count::bigint FROM ohs_data.series_blobs b
+		WHERE ` + strings.Join(blob, " AND ") + `) u
+		ORDER BY first, provider, series_id LIMIT ` + arg(n.Limit+1)
 	rows, err := db.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("read: heartbeat series: %w", err)
@@ -282,10 +423,10 @@ func hrvSeries(ctx context.Context, db Querier, tenantID, userID uuid.UUID, seri
 // seriesBeats reads every beat of the series in keys, by series and time.
 func seriesBeats(ctx context.Context, db Querier, tenantID, userID uuid.UUID, keys []seriesKey) (map[[2]string][]Beat, error) {
 	providers := make([]string, len(keys))
-	series := make([]string, len(keys))
+	ids := make([]string, len(keys))
 	from := keys[0].first
 	for i, k := range keys {
-		providers[i], series[i] = k.provider, k.series
+		providers[i], ids[i] = k.provider, k.series
 		if k.first.Before(from) {
 			from = k.first
 		}
@@ -294,16 +435,28 @@ func seriesBeats(ctx context.Context, db Querier, tenantID, userID uuid.UUID, ke
 	// lets TimescaleDB skip the older chunks.
 	// Beats that share a time are ordered by their interval, which is sealed:
 	// SQL orders by time and the ties are settled below, on the opened beats.
+	out := make(map[[2]string][]Beat, len(keys))
+	err := eachBlob(ctx, db, tenantID, userID, series.Heartbeat,
+		"(provider, parent) IN (SELECT * FROM unnest($3::text[], $4::text[]))", "", []any{providers, ids}, nil,
+		func(b seriesBlob) error {
+			k := [2]string{b.provider, b.parent}
+			for _, p := range b.points {
+				out[k] = append(out[k], Beat{At: p.Time(), RRMs: p.V[series.HeartbeatRR]})
+			}
+			return nil
+		})
+	if err != nil {
+		return nil, err
+	}
 	rows, err := db.Query(ctx, `SELECT `+beatSel.List("")+` FROM ohs_data.heartbeat_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND "timestamp" >= $3
 			AND (provider, series_id) IN (SELECT * FROM unnest($4::text[], $5::text[]))
 		ORDER BY provider, series_id, "timestamp"`,
-		tenantID, userID, from, providers, series)
+		tenantID, userID, from, providers, ids)
 	if err != nil {
 		return nil, fmt.Errorf("read: heartbeat beats: %w", err)
 	}
 	defer rows.Close()
-	out := make(map[[2]string][]Beat, len(keys))
 	rd := keysFor(ctx, tenantID, userID)
 	for rows.Next() {
 		var p, s string

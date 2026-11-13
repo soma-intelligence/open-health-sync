@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // sealTables are the tables `ohs vault seal` converts that these tests fill.
@@ -34,6 +36,10 @@ func (e *env) opened() map[string]string {
 	e.t.Helper()
 	out := map[string]string{}
 	for _, table := range etlWritten {
+		if table == tSeries {
+			out[table] = e.openedSeries()
+			continue
+		}
 		var rows string
 		require.NoError(e.t, e.read().QueryRow(context.Background(), `
 			SELECT coalesce(jsonb_agg(j ORDER BY j::text), '[]')::text FROM (
@@ -43,6 +49,66 @@ func (e *env) opened() map[string]string {
 	}
 	out[tTimeTags] = e.openedTags()
 	return out
+}
+
+// openedSeries is every point of the env's user's series, whether in a blob
+// or still in a per-point row, as "kind provider parent time values nulls",
+// sorted: the same text before and after the seal command moves rows into
+// blobs.
+func (e *env) openedSeries() string {
+	e.t.Helper()
+	ctx := context.Background()
+	var out []string
+	line := func(k series.Kind, provider, parent string, p series.Point) string {
+		return fmt.Sprint(k, provider, parent, p.At, p.V, p.Null)
+	}
+	for _, k := range []series.Kind{series.ECG, series.Route, series.Heartbeat} {
+		for key, pts := range e.blobPoints(k) {
+			provider, parent := "", key
+			if k == series.Heartbeat {
+				provider, parent, _ = strings.Cut(key, "/")
+			}
+			for _, p := range pts {
+				out = append(out, line(k, provider, parent, p))
+			}
+		}
+	}
+	legacy := []struct {
+		k   series.Kind
+		sql string
+	}{
+		{series.ECG, `SELECT '', ecg_id::text, 0::bigint, time_since_sample_start, voltage_uv, NULL::float8, NULL::float8, NULL::float8
+			FROM ohs_data.ecg_samples WHERE tenant_id = $1 AND user_id = $2`},
+		{series.Route, `SELECT '', workout_id::text, (extract(epoch FROM "timestamp") * 1000000)::bigint, latitude, longitude,
+			altitude_m, speed_mps, course_deg FROM ohs_data.route_points WHERE tenant_id = $1 AND user_id = $2`},
+		{series.Heartbeat, `SELECT provider, series_id, (extract(epoch FROM "timestamp") * 1000000)::bigint, rr_ms,
+			NULL::float8, NULL::float8, NULL::float8, NULL::float8 FROM ohs_data.heartbeat_samples WHERE tenant_id = $1 AND user_id = $2`},
+	}
+	for _, l := range legacy {
+		rows, err := e.read().Query(ctx, l.sql, e.tenant, e.user)
+		require.NoError(e.t, err)
+		for rows.Next() {
+			var provider, parent string
+			var p series.Point
+			var v [5]*float64
+			require.NoError(e.t, rows.Scan(&provider, &parent, &p.At, &v[0], &v[1], &v[2], &v[3], &v[4]))
+			n := 1
+			switch l.k {
+			case series.ECG:
+				n = 2
+			case series.Route:
+				n = 5
+			}
+			for c := range n {
+				p.Set(c, v[c])
+			}
+			out = append(out, line(l.k, provider, parent, p))
+		}
+		require.NoError(e.t, rows.Err())
+		rows.Close()
+	}
+	slices.Sort(out)
+	return strings.Join(out, "\n")
 }
 
 // openedTags is the time tags of the env's user, opened. The ETL does not
@@ -150,6 +216,21 @@ func (e *env) legacyData(at time.Time) queue.ETLJob {
 		VALUES ($1, $2, 'dev', 'raw/k', 3, '{"hr": 61}', 'mapping', 'no such field')`, e.tenant, e.user)
 	e.exec(`INSERT INTO ohs_data.time_tags (tenant_id, user_id, kind, label, start_at, note)
 		VALUES ($1, $2, 'illness', 'flu', $3, 'three days in bed')`, e.tenant, e.user, at)
+	// Per-point rows of a release before the series blobs: two more voltages
+	// of the recording (whose first two are in its blob already) and a
+	// heartbeat series of three beats.
+	for i, uv := range []float64{14.5, 15.5} {
+		off := float64(i+2) / 512
+		e.exec(`INSERT INTO ohs_data.ecg_samples (tenant_id, user_id, ecg_id, ts, time_since_sample_start, voltage_uv, content_hash)
+			SELECT tenant_id, user_id, id, start_date + make_interval(secs => $3), $3, $4, $5
+			FROM ohs_data.ecg_recordings WHERE tenant_id = $1 AND user_id = $2 AND content_hash = 'e1'`,
+			e.tenant, e.user, off, uv, fmt.Sprintf("legacy-ecg-%d", i))
+	}
+	for i, rr := range []float64{790, 801, 812} {
+		e.exec(`INSERT INTO ohs_data.heartbeat_samples (tenant_id, user_id, provider, series_id, "timestamp", rr_ms, content_hash)
+			VALUES ($1, $2, 'dev', 'hb-legacy', $3, $4, $5)`, e.tenant, e.user, at.Add(time.Duration(i)*800*time.Millisecond), rr,
+			fmt.Sprintf("legacy-hb-%d", i))
+	}
 	return e.legacyUpload("prov", "q", rq("step_count", 12, at.Add(-24*time.Hour)))
 }
 
@@ -170,6 +251,8 @@ func TestSealConvertsWhatWasStoredClear(t *testing.T) {
 	require.False(t, st.Sealed())
 	require.EqualValues(t, 62, st.Tables[tQuantity])
 	require.EqualValues(t, 1, st.Tables[tTimeTags])
+	require.EqualValues(t, 2, st.Tables[tECGSamples])
+	require.EqualValues(t, 3, st.Tables[tHeartbeat])
 	require.EqualValues(t, 1, st.RawObjects)
 
 	dry, err := e.seal(ctx, vault.SealOptions{DryRun: true})
@@ -182,7 +265,9 @@ func TestSealConvertsWhatWasStoredClear(t *testing.T) {
 	assert.Equal(t, 1, report.Users)
 	assert.Equal(t, 62, report.Rows[tQuantity])
 	assert.Equal(t, 1, report.Rows[tPhases], "a parent takes its children along")
-	assert.Equal(t, 2, report.Rows[tECGSamples])
+	assert.Equal(t, 2, report.Rows[tECGSamples], "the recording takes its rows into its blob")
+	assert.Equal(t, 3, report.Rows[tHeartbeat])
+	assert.Positive(t, report.Rows[tSeries], "the blobs written clear are sealed")
 	assert.Equal(t, 1, report.Rows[tFailed])
 	assert.Equal(t, 1, report.Rows[tTimeTags])
 	assert.Equal(t, 1, report.RawObjects)
@@ -194,6 +279,13 @@ func TestSealConvertsWhatWasStoredClear(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, st.Sealed(), "%+v", st)
 	require.Equal(t, before, e.opened(), "every value reads back as before")
+	for _, table := range vault.PerPoint {
+		assert.Zero(t, e.stored(`SELECT count(*) FROM ohs_data.`+table+` WHERE tenant_id = $1`, e.tenant), "%s: rows left", table)
+	}
+	assert.Len(t, e.blobPoints(series.ECG), 1)
+	for _, pts := range e.blobPoints(series.ECG) {
+		assert.Len(t, pts, 4, "the rows merged into the recording's blob")
+	}
 	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples WHERE content_hash = $1`, e.hash("q1")),
 		"the content hash is the keyed one")
 	assert.EqualValues(t, 60, e.scalar(`SELECT count(*) FROM ohs_data.record_aliases a JOIN ohs_data.quantity_samples q

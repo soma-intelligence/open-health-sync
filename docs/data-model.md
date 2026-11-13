@@ -156,7 +156,7 @@ Stored in `ohs_data.workouts`.
 
 RoutePoint represents a GPS coordinate from a workout route.
 
-Stored in `ohs_data.route_points`.
+Stored in `ohs_data.series_blobs`: one compressed blob per series, the route of one workout (kind 2), sealed like any sealed row. Rows stored before 0.3.0 stay in `ohs_data.route_points` until `ohs vault seal` moves them into their blob.
 
 | Field | Type | Note |
 |---|---|---|
@@ -224,7 +224,7 @@ Stored in `ohs_data.ecg_recordings`.
 
 ECGVoltageSample represents a single voltage measurement from an ECG recording.
 
-Stored in `ohs_data.ecg_samples`.
+Stored in `ohs_data.series_blobs`: one compressed blob per series, the voltages of one recording (kind 1), sealed like any sealed row. Rows stored before 0.3.0 stay in `ohs_data.ecg_samples` until `ohs vault seal` moves them into their blob.
 
 | Field | Type | Note |
 |---|---|---|
@@ -269,7 +269,7 @@ Stored in `ohs_data.daily_summaries`.
 
 HeartbeatSample represents a single beat-to-beat RR interval measurement.
 
-Stored in `ohs_data.heartbeat_samples`.
+Stored in `ohs_data.series_blobs`: one compressed blob per series, the beats of one series (kind 3), sealed like any sealed row. Rows stored before 0.3.0 stay in `ohs_data.heartbeat_samples` until `ohs vault seal` moves them into their blob.
 
 | Field | Type | Note |
 |---|---|---|

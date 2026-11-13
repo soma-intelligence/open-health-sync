@@ -153,7 +153,10 @@ Every table of `ohs_data` that holds a value about a person:
 `sleep_sessions`, `sleep_phases`, `workouts`, `workout_tracks`, `route_points`,
 `nutrition_logs`, `observations`, `daily_summaries`, `time_tags`, `failed_records`, the derived
 rollup and profile tables when they land, self-reports, and the new
-`quantity_hourly_sealed`. Plus every raw store object and every export file at rest.
+`quantity_hourly_sealed`, and `series_blobs` (migration 0053: one compressed, sealed blob per
+ECG recording, workout route or heartbeat series, replacing the per-point rows of
+`ecg_samples`, `route_points` and `heartbeat_samples`). Plus every raw store object and every
+export file at rest.
 
 Not sealed, because they hold no health value: `quantity_codes` (a static code list),
 `deleted_records` (provider ids of deleted records; the plan confirms each column),
@@ -173,6 +176,8 @@ The columns queries filter, sort or join on, and nothing else:
   of the write), `summary_date`,
   `derived`, `synthesized`, and `source_key` (a keyed HMAC of the source, replacing the
   `sourceName` and `device_id` expressions of the merged view)
+- for `series_blobs`: `kind`, `provider`, `parent`, `start_at`, `end_at`, `point_count` and
+  `captured_at`; the points themselves are inside the sealed blob
 - `external_id`: the provider's own record id, needed to apply provider deletions; it carries no
   value
 

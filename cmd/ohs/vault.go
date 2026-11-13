@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -84,9 +85,16 @@ func runVaultStatus(ctx context.Context, args []string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "vault: %d rows and %d raw objects are still stored clear\n", st.ClearRows(), st.RawObjects)
 	for _, t := range sortedKeys(st.Tables) {
-		if st.Tables[t] > 0 {
-			fmt.Fprintf(out, "  %-20s %d\n", t, st.Tables[t])
+		if st.Tables[t] == 0 {
+			continue
 		}
+		if slices.Contains(vault.PerPoint, t) {
+			// Sealed or not, a per-point row is left until it is in its
+			// series blob.
+			fmt.Fprintf(out, "  %-20s %d (per-point rows to move into series blobs)\n", t, st.Tables[t])
+			continue
+		}
+		fmt.Fprintf(out, "  %-20s %d\n", t, st.Tables[t])
 	}
 	if st.RawObjects > 0 {
 		fmt.Fprintf(out, "  %-20s %d\n", "raw objects", st.RawObjects)

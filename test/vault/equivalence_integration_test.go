@@ -39,8 +39,8 @@ func goldenOutputs(t *testing.T) map[string][]byte {
 // sealedTables are the tables the demo person has rows in through the
 // writer: on a sealed instance none of their rows may be clear.
 var sealedTables = []string{
-	"quantity_samples", "category_samples", "heartbeat_samples", "sleep_sessions", "sleep_phases",
-	"workouts", "route_points", "daily_summaries",
+	"quantity_samples", "category_samples", "sleep_sessions", "sleep_phases",
+	"workouts", "daily_summaries", "series_blobs",
 }
 
 // TestOutputsMatchGolden proves that the vault changes no read output: the
@@ -64,6 +64,19 @@ func TestOutputsMatchGolden(t *testing.T) {
 					WHERE tenant_id = $1 AND user_id = $2`, f.tenant, f.user).Scan(&clear, &sealed))
 				assert.Zero(t, clear, "%s: rows left clear", table)
 				assert.NotZero(t, sealed, "%s: no sealed row", table)
+			}
+			// The heartbeats and routes the writer stored are series blobs.
+			// The ECG voltages the fixture inserts as rows by hand stay rows
+			// until the seal command moves them: read from the rows when
+			// sealed from the start, from blobs when sealed later.
+			for _, table := range vault.PerPoint {
+				if table == "ecg_samples" && mode == fixtureSealed {
+					continue
+				}
+				var n int
+				require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_data.`+table+`
+					WHERE tenant_id = $1 AND user_id = $2`, f.tenant, f.user).Scan(&n))
+				assert.Zero(t, n, "%s: per-point rows left", table)
 			}
 			if mode == fixtureSealedLater {
 				st, err := vault.Status(ctx, f.pool)

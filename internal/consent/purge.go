@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // DefaultPurgeEvery is how often the purger looks for queued purges when the
@@ -225,6 +226,9 @@ func purge(ctx context.Context, tx pgx.Tx, keys *vault.Reader, tenant, user uuid
 	const ofWorkouts = `workout_id IN (SELECT id FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3)`
 	var aliased, stmts []string
+	// blobs are the kinds of series blob (series.Kind) cat takes: a blob
+	// carries its parent's provider, so it goes by provider or by parent.
+	var blobs []series.Kind
 	switch cat {
 	case Sleep:
 		stmts = []string{
@@ -234,6 +238,7 @@ func purge(ctx context.Context, tx pgx.Tx, keys *vault.Reader, tenant, user uuid
 		}
 	case Activity:
 		aliased = []string{allAliases("workouts")}
+		blobs = []series.Kind{series.Route}
 		stmts = []string{
 			`DELETE FROM ohs_data.route_points WHERE tenant_id = $1 AND user_id = $2 AND ` + ofWorkouts,
 			`DELETE FROM ohs_data.workout_tracks WHERE tenant_id = $1 AND user_id = $2 AND ` + ofWorkouts,
@@ -241,17 +246,20 @@ func purge(ctx context.Context, tx pgx.Tx, keys *vault.Reader, tenant, user uuid
 			`DELETE FROM ohs_data.daily_summaries WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 		}
 	case Location:
+		blobs = []series.Kind{series.Route}
 		stmts = []string{
 			`DELETE FROM ohs_data.route_points WHERE tenant_id = $1 AND user_id = $2 AND ` + ofWorkouts,
 			`DELETE FROM ohs_data.workout_tracks WHERE tenant_id = $1 AND user_id = $2 AND ` + ofWorkouts,
 		}
 	case ECG:
+		blobs = []series.Kind{series.ECG}
 		stmts = []string{
 			`DELETE FROM ohs_data.ecg_samples WHERE tenant_id = $1 AND user_id = $2 AND ecg_id IN
 				(SELECT id FROM ohs_data.ecg_recordings WHERE tenant_id = $1 AND user_id = $2 AND provider = $3)`,
 			`DELETE FROM ohs_data.ecg_recordings WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 		}
 	case Heart:
+		blobs = []series.Kind{series.Heartbeat}
 		stmts = []string{`DELETE FROM ohs_data.heartbeat_samples WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`}
 	case Nutrition:
 		aliased = []string{allAliases("nutrition_logs")}
@@ -261,6 +269,23 @@ func purge(ctx context.Context, tx pgx.Tx, keys *vault.Reader, tenant, user uuid
 		if err := dropAliases(q); err != nil {
 			return 0, err
 		}
+	}
+	// A blob counts its points: they are the records the per-point rows
+	// were.
+	for _, k := range blobs {
+		parents := map[series.Kind]string{series.Route: "workouts", series.ECG: "ecg_recordings"}[k]
+		cond := "provider = $3"
+		if parents != "" {
+			cond = `(provider = $3 OR parent IN (SELECT id::text FROM ohs_data.` + parents + `
+				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3))`
+		}
+		var n int64
+		if err := tx.QueryRow(ctx, `WITH d AS (DELETE FROM ohs_data.series_blobs
+				WHERE tenant_id = $1 AND user_id = $2 AND kind = $4 AND `+cond+` RETURNING point_count)
+			SELECT coalesce(sum(point_count), 0)::bigint FROM d`, tenant, user, provider, int16(k)).Scan(&n); err != nil {
+			return 0, fmt.Errorf("consent: purge %s series: %w", cat, err)
+		}
+		total += n
 	}
 	for _, q := range stmts {
 		if err := exec(q); err != nil {

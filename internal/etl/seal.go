@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // Sealer converts stored rows for `ohs vault seal` and `ohs vault reseal`
@@ -35,13 +36,17 @@ const (
 )
 
 // sealOrder is the order tables are converted in: the samples, then the
-// parents (each takes its clear children along), then what is left of the
-// child tables, then the tables sealed under their id.
+// parents (each takes its clear children along, a workout or an ECG
+// recording its series into a blob), then what is left of the child tables,
+// then the tables sealed under their id, then the series blobs a process
+// without keys stored clear. The per-point tables (heartbeat_samples,
+// route_points, ecg_samples) are moved into series blobs whether their rows
+// are sealed or not (convertPerPoint).
 var sealOrder = []string{
 	tQuantity, tCategory, tHeartbeat, tNutrition, tObservation, tDaily,
 	tSleep, tWorkouts, tECG,
 	tPhases, tRoutes, tECGSamples,
-	tFailed, tTimeTags, tTracks,
+	tFailed, tTimeTags, tTracks, tSeries,
 }
 
 // sealParent names, for a child table, its parent and the column that links
@@ -52,12 +57,15 @@ var sealParent = map[string]struct{ table, link string }{
 	tECGSamples: {tECG, "ecg_id"},
 }
 
+// childSeries is the series kind of a per-point child table.
+var childSeries = map[string]series.Kind{tRoutes: series.Route, tECGSamples: series.ECG}
+
 // sealTime is the clear time column a batch walks a table by.
 var sealTime = map[string]string{
 	tQuantity: "start_date", tCategory: "start_date", tHeartbeat: "timestamp", tNutrition: "start_date",
 	tObservation: "ts", tDaily: "summary_date", tSleep: "bedtime_start", tWorkouts: "start_date", tECG: "start_date",
 	tPhases: "start_date", tRoutes: "timestamp", tECGSamples: "ts",
-	tFailed: "created_at", tTimeTags: "created_at", tTracks: "started_at",
+	tFailed: "created_at", tTimeTags: "created_at", tTracks: "started_at", tSeries: "start_at",
 	vault.HourlyTable: "bucket",
 }
 
@@ -150,6 +158,10 @@ func (Sealer) SealClear(ctx context.Context, tx pgx.Tx, uv *vault.UserVault, ten
 		err error
 	)
 	switch {
+	case perPointParents[table].sql != "":
+		c, err = convertPerPoint(ctx, q, sc, table, limit)
+	case table == tSeries:
+		c, err = sealClearSeries(ctx, q, sc, limit)
 	case table == tTracks:
 		c, err = dropClearTracks(ctx, tx, sc, limit)
 	case table == tFailed || table == tTimeTags:
@@ -277,9 +289,15 @@ func sealHashed(ctx context.Context, tx *queuedTx, sc scope, table string, from 
 				ids = append(ids, id)
 			}
 		}
+		// A route or an ECG takes every row of its series into a blob, sealed
+		// or not; a session its clear phases.
+		state := ` AND sealed IS NULL`
+		if child != tPhases {
+			state = ``
+		}
 		var n int
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+qualified(child)+`
-			WHERE tenant_id = $1 AND user_id = $2 AND sealed IS NULL AND `+sealParent[child].link+` = ANY($3)`,
+			WHERE tenant_id = $1 AND user_id = $2`+state+` AND `+sealParent[child].link+` = ANY($3)`,
 			sc.tenant, sc.user, ids).Scan(&n); err != nil {
 			return c, fmt.Errorf("seal %s rows: count %s: %w", table, child, err)
 		}
@@ -347,6 +365,12 @@ func deleteStored(ctx context.Context, tx TxLike, sc scope, table, child string,
 			if _, err := tx.Exec(ctx, `DELETE FROM `+qualified(child)+` WHERE tenant_id = $1 AND user_id = $2 AND `+
 				sealParent[child].link+` = $3`, args...); err != nil {
 				return fmt.Errorf("seal %s rows: delete the %s of a duplicate: %w", table, child, err)
+			}
+			if kind, ok := childSeries[child]; ok {
+				pid, _ := id.(int64)
+				if err := deleteSeries(ctx, tx, sc, kind, []int64{pid}); err != nil {
+					return fmt.Errorf("seal %s rows: delete the series of a duplicate: %w", table, err)
+				}
 			}
 		}
 	}

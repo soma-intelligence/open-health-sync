@@ -45,6 +45,11 @@ var retentionTables = []struct {
 	// cutoff is a whole hour, so a bucket goes exactly when every sample it
 	// counts does.
 	{table: "quantity_hourly_sealed", col: "bucket"},
+	// A series blob (migration 0053) goes whole once its last point is
+	// before the cutoff: a series is not cut in two, so an ECG, a route or
+	// a heartbeat series that straddles the cutoff stays until it is all
+	// past it.
+	{table: "series_blobs", col: "end_at"},
 }
 
 // retentionKept are the ohs_data tables with a user_id that retention leaves

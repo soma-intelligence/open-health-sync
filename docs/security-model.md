@@ -10,6 +10,7 @@ checklist see [hardening.md](hardening.md); to report a problem see
 | Asset | Where it lives | Protection in the application |
 |---|---|---|
 | Health records (samples, sleep, workouts, daily summaries) | Postgres, schema `ohs_data` | Every query filters on `tenant_id` and `user_id`. Stored in clear. |
+| ECG voltages, workout routes and heartbeat (RR) series | `ohs_data.series_blobs`: one row per recording, workout route or heartbeat series | Encoded in columns and compressed (zstd) in Go, then sealed with the vault's row seal under the user's data key: XChaCha20-Poly1305, the additional data binding tenant, user, table, kind, provider, blob format and parent id, so a blob cannot be moved to another series or user. Without keys the compressed blob is stored unsealed. Clear: the kind, provider, parent id, first and last point time and point count. Rows stored one per point before 0.3.0 (`ecg_samples`, `route_points`, `heartbeat_samples`) are moved into blobs by `ohs vault seal` |
 | Raw provider and device payloads | Raw store: a folder or an S3 bucket | Keyed by `raw/<tenant>/<user>/...`, written once. Gzip, not encrypted. |
 | Provider OAuth access and refresh tokens | `ohs_sync` connections | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the row |
 | Provider account passwords (Eight Sleep only: no OAuth) | `ohs_sync` connections, in the refresh token column | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the row; never logged; wiped on disconnect |
@@ -232,7 +233,11 @@ A share link is a way out of the instance for one user's data, readable by whoev
   under `raw/<tenant>/<user>/`, and deletes the user's rows from every table of `ohs_sync` and
   `ohs_data` that has a `user_id` column (found from the catalog, so a new table is covered),
   their tokens, idempotency records, unsent webhook deliveries and the user row
-  (`internal/deletion/`). It survives restarts and retries with backoff.
+  (`internal/deletion/`). It survives restarts and retries with backoff. The series blobs go
+  with the user's rows; erasing one provider's data deletes the blobs of that provider (an ECG
+  or a route carries the provider of its recording or workout), a revoked consent category
+  deletes the blobs of its kind, and retention drops a whole series once its last point is
+  older than the cutoff.
 
 ### Accountability, consent and portability
 

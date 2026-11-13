@@ -158,7 +158,7 @@ func testWriterStaleCopyIsHeldBackOnEveryReplaceableTable(t *testing.T, e *env) 
 	}
 	assert.Equal(t, TableCount{Skipped: 1}, c[tPhases])
 	assert.Equal(t, TableCount{Skipped: 1}, c[tRoutes])
-	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.route_points WHERE tenant_id = $1`, e.tenant))
+	assert.Equal(t, 1, e.count(tRoutes))
 
 	// The same capture time replaces, and so does a later one.
 	e.writeAt(t2, batch(9100, 510, 28100, 5300, "rem"))

@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // The canaries: values no other record holds, planted in the data and then
@@ -46,12 +48,13 @@ const (
 	canaryDevice    = "canary-device-9b2e"
 	canaryLatitude  = 12.3456789
 	canaryLongitude = -98.7654321
+	canaryVoltage   = 2345.6789
 )
 
 // canaryTexts are the canaries as a dump would print them. The numbers are
 // looked for without their sign and as text; canaryBinary covers the heart
 // rate as a stored float.
-var canaryTexts = []string{"173.4567", canaryNote, canaryDevice, "12.3456789", "98.7654321"}
+var canaryTexts = []string{"173.4567", canaryNote, canaryDevice, "12.3456789", "98.7654321", "2345.6789"}
 
 // canaryBinary is the heart rate as the 8 bytes of a float64, big endian:
 // what a sealed row's plaintext, or a binary column, would hold.
@@ -59,8 +62,9 @@ func canaryBinary() []byte {
 	return binary.BigEndian.AppendUint64(nil, math.Float64bits(canaryHeartRate))
 }
 
-// plantCanaries adds the canary heart rate (from the canary device) and the
-// canary route point to the demo batches, and returns the plain SHA-256
+// plantCanaries adds the canary heart rate (from the canary device), the
+// canary route point and an ECG recording with the canary voltage to the
+// demo batches, and returns the plain SHA-256
 // content hash of every record of the batches: the hash a release without
 // the vault stored, which a sealed instance must not hold anywhere.
 func plantCanaries(t *testing.T, batches []demo.Batch) map[string]bool {
@@ -86,8 +90,20 @@ func plantCanaries(t *testing.T, batches []demo.Batch) map[string]bool {
 			mr.RoutePoints = append(mr.RoutePoints, p)
 			planted |= 2
 		}
+		if planted&4 == 0 && b.Provider == "apple_health" && len(mr.QuantitySamples) > 0 {
+			start := mr.QuantitySamples[0].StartDate.Add(17 * time.Second)
+			rec := model.ECGRecording{StartDate: start, EndDate: start.Add(3 * time.Second / 512),
+				Classification: 1, SamplingFrequency: 512, NumberOfMeasurements: 3,
+				ContentHash: model.ComputeContentHash(map[string]string{"canary": "ecg", "provider": b.Provider})}
+			mr.ECGRecordings = append(mr.ECGRecordings, rec)
+			for k, uv := range []float64{-12.5, canaryVoltage, 40.25} {
+				mr.ECGSamples = append(mr.ECGSamples, model.ECGVoltageSample{TimeSinceSampleStart: float64(k) / 512,
+					VoltageUV: uv, ParentContentHash: rec.ContentHash})
+			}
+			planted |= 4
+		}
 	}
-	require.Equal(t, 3, planted, "the demo data has samples and a route to plant the canaries in")
+	require.Equal(t, 7, planted, "the demo data has samples and a route to plant the canaries in")
 
 	hashes := map[string]bool{}
 	add := func(h string) {
@@ -113,6 +129,9 @@ func plantCanaries(t *testing.T, batches []demo.Batch) map[string]bool {
 			add(r.ContentHash)
 		}
 		for _, r := range mr.NutritionLogs {
+			add(r.ContentHash)
+		}
+		for _, r := range mr.ECGRecordings {
 			add(r.ContentHash)
 		}
 	}
@@ -193,6 +212,46 @@ func rawFiles(t *testing.T, dir string) map[string][]byte {
 	return out
 }
 
+// blobContents decodes the series blobs stored clear (points not NULL) and
+// writes their values as text and as float64 bits, so the search sees
+// inside the compression: a clear instance's route and ECG canaries are
+// found there. sealed counts the blobs stored sealed, which nothing decodes
+// without the keys; their bytes are searched as they are, and once more
+// through the zstd decoder, which must refuse them.
+func blobContents(t *testing.T, pool *pgxpool.Pool) (plain []byte, sealed int) {
+	t.Helper()
+	ctx := context.Background()
+	rows, err := pool.Query(ctx, `SELECT kind, points, sealed FROM ohs_data.series_blobs`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var out bytes.Buffer
+	for rows.Next() {
+		var kind int16
+		var points, sealedBytes []byte
+		require.NoError(t, rows.Scan(&kind, &points, &sealedBytes))
+		if points == nil {
+			sealed++
+			out.Write(sealedBytes)
+			_, err := series.Decode(series.Kind(kind), sealedBytes)
+			assert.Error(t, err, "a sealed blob decodes without the keys")
+			continue
+		}
+		pts, err := series.Decode(series.Kind(kind), points)
+		require.NoError(t, err)
+		for _, p := range pts {
+			for c := range series.MaxCols {
+				if p.IsNull(c) {
+					continue
+				}
+				fmt.Fprintf(&out, "%s ", strconv.FormatFloat(p.V[c], 'f', -1, 64))
+				out.Write(binary.BigEndian.AppendUint64(nil, math.Float64bits(p.V[c])))
+			}
+		}
+	}
+	require.NoError(t, rows.Err())
+	return out.Bytes(), sealed
+}
+
 var hex64 = regexp.MustCompile(`[0-9a-f]{64}`)
 
 // leaks lists what of the canaries and of the plain content hashes data
@@ -237,8 +296,16 @@ func TestDumpHoldsNoHealthValue(t *testing.T) {
 		var hashes map[string]bool
 		f := seedFixture(t, fixtureClear, func(b []demo.Batch) { hashes = plantCanaries(t, b) })
 		found := strings.Join(leaks("dump", dumpDatabase(t, f), hashes), "\n")
-		for _, want := range []string{"173.4567", canaryDevice, "12.3456789", "98.7654321", "plain SHA-256"} {
+		for _, want := range []string{"173.4567", canaryDevice, "plain SHA-256"} {
 			assert.Contains(t, found, want, "the search must see a clear value")
+		}
+		// The route and the ECG are compressed series blobs: the canaries
+		// are inside them, where the decoded search finds them.
+		blobs, sealed := blobContents(t, f.pool)
+		assert.Zero(t, sealed)
+		found = strings.Join(leaks("series blobs", blobs, hashes), "\n")
+		for _, want := range []string{"12.3456789", "98.7654321", "2345.6789"} {
+			assert.Contains(t, found, want, "the search must see a value inside a clear blob")
 		}
 	})
 
@@ -341,9 +408,26 @@ func TestDumpHoldsNoHealthValue(t *testing.T) {
 			served = served || (strings.Contains(string(body), "12.3456789") && strings.Contains(string(body), "-98.7654321"))
 		}
 		require.True(t, served, "the canary route point is served")
+		code, body = do(http.MethodGet, base+"/ecg?limit=1000", f.key, nil, nil)
+		require.Equal(t, http.StatusOK, code, string(body))
+		var ecgs struct {
+			Data []struct {
+				ID json.Number `json:"id"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(body, &ecgs))
+		served = false
+		for _, e := range ecgs.Data {
+			_, body := do(http.MethodGet, base+"/ecg/"+e.ID.String(), f.key, nil, nil)
+			served = served || strings.Contains(string(body), "2345.6789")
+		}
+		require.True(t, served, "the canary ECG voltage is served")
 
 		var found []string
 		found = append(found, leaks("pg_dump", dumpDatabase(t, f), hashes)...)
+		blobs, sealed := blobContents(t, f.pool)
+		require.NotZero(t, sealed, "the route and the ECG are sealed blobs")
+		found = append(found, leaks("series blobs", blobs, hashes)...)
 		files := rawFiles(t, f.rawDir)
 		require.NotEmpty(t, files, "the upload is in the raw store")
 		for path, data := range files {

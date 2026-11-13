@@ -691,24 +691,6 @@ func deleteMovedLogs(ctx context.Context, tx TxLike, sc scope, logs []model.Nutr
 	return nil
 }
 
-// --- heartbeat_samples ---
-
-var heartbeatColumns = []string{"tenant_id", "user_id", "provider", "series_id", "timestamp", "rr_ms", "content_hash"}
-
-var heartbeatShape = newShape(tHeartbeat, heartbeatColumns, nil, nil)
-
-func heartbeatRow(sc scope, s model.HeartbeatSample, hash string) []any {
-	return []any{sc.tenant, sc.user, sc.provider, s.SeriesID, s.Timestamp, s.RRMS, hash}
-}
-
-// writeHeartbeatSamples writes heartbeat samples, using COPY above threshold.
-func (w *Writer) writeHeartbeatSamples(ctx context.Context, tx TxLike, sc scope, samples []model.HeartbeatSample) (written, skipped int, err error) {
-	return copyOrInsert(ctx, w, tx, sc, heartbeatShape, hyperConflict(`"timestamp"`), samples, heartbeatRow,
-		func(s model.HeartbeatSample) (string, time.Time) {
-			return sc.hash(model.HeartbeatSampleContentHash(s)), s.Timestamp
-		})
-}
-
 // --- observations ---
 
 var observationColumns = []string{

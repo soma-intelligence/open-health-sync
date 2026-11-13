@@ -7,6 +7,7 @@ package etl
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // mixMap is a provider whose object holds every kind of line: the records of
@@ -75,12 +77,10 @@ func (e *env) userDump(tenant, user uuid.UUID) map[string][]string {
 	sealed := map[string]string{
 		tQuantity:        `quantity_type, start_date, end_date, value, unit, external_id, provider, source_name, tz, summary_date, derived, synthesized, worn, metadata::text`,
 		tCategory:        `category_type, start_date, end_date, value_int, external_id, tz`,
-		tHeartbeat:       `"timestamp", rr_ms, series_id`,
 		tObservation:     `canonical_code, ts, value_num, unit_ucum`,
 		tSleep:           `external_id, bedtime_start, bedtime_end, total_sleep_seconds, resting_hr`,
 		tPhases:          `phase, start_date, end_date, duration_s`,
 		tWorkouts:        `external_id, activity_type, start_date, end_date`,
-		tRoutes:          `"timestamp", latitude, longitude`,
 		tNutrition:       `external_id, start_date, energy_kcal`,
 		tDaily:           `provider, summary_date, derived, step_count, active_kcal, resting_hr, hrv_avg_ms, recovery_score, metadata::text`,
 		"failed_records": `line_number, reason_code, error_message, raw_payload::text`,
@@ -95,6 +95,22 @@ func (e *env) userDump(tenant, user uuid.UUID) map[string][]string {
 		}
 		require.NoError(e.t, rows.Err(), table)
 	}
+	// The series, decoded: a route or an ECG by its provider (the parent
+	// ids differ between users), a heartbeat series by its id too.
+	for _, k := range []series.Kind{series.ECG, series.Route, series.Heartbeat} {
+		for parent, pts := range e.blobPointsOf(tenant, user, k) {
+			if k != series.Heartbeat {
+				parent = ""
+			}
+			for _, p := range pts {
+				// Each upload has its own capture time, as captured_at
+				// differs on the rows of the other tables.
+				p.Capture = 0
+				out[tSeries] = append(out[tSeries], fmt.Sprint(k, parent, p))
+			}
+		}
+	}
+	slices.Sort(out[tSeries])
 	plain := map[string]string{
 		"deleted_records": `SELECT provider, external_id FROM ohs_data.deleted_records WHERE tenant_id = $1 AND user_id = $2`,
 		"record_aliases":  `SELECT provider, external_id, record_table, start_time FROM ohs_data.record_aliases WHERE tenant_id = $1 AND user_id = $2`,
@@ -221,7 +237,7 @@ func TestStreamedWriteMatchesBatch(t *testing.T) {
 				rows := e.userDump(e.tenant, chunked)
 				assert.NotEmpty(t, rows["deleted_records"])
 				assert.NotEmpty(t, rows["failed_records"])
-				assert.NotEmpty(t, rows[tHeartbeat])
+				assert.NotEmpty(t, rows[tSeries])
 				assert.NotEmpty(t, rows[tObservation])
 				assert.NotEmpty(t, rows[tDaily])
 				if !mode.clear {

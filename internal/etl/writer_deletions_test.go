@@ -16,17 +16,18 @@ import (
 // user, and the ones that pick a provider record name its provider and id.
 func TestDeletionStatementsScopedToTenantAndUser(t *testing.T) {
 	all := map[string]string{
-		"deletionTombstone": deletionTombstone,
-		"deletionSleep":     deletionSleep,
-		"deletionPhases":    deletionPhases,
-		"deletionWorkout":   deletionWorkout,
-		"deletionRoutes":    deletionRoutes,
-		"deletionTracks":    deletionTracks,
-		"deletionSamples":   deletionSamples,
-		"deletionCategory":  deletionCategory,
-		"deletionNutrition": deletionNutrition,
-		"tombstonesAny":     tombstonesAny,
-		"tombstonesOf":      tombstonesOf,
+		"deletionTombstone":  deletionTombstone,
+		"deletionSleep":      deletionSleep,
+		"deletionPhases":     deletionPhases,
+		"deletionWorkout":    deletionWorkout,
+		"deletionRoutes":     deletionRoutes,
+		"deletionTracks":     deletionTracks,
+		"deletionRouteBlobs": deletionRouteBlobs,
+		"deletionSamples":    deletionSamples,
+		"deletionCategory":   deletionCategory,
+		"deletionNutrition":  deletionNutrition,
+		"tombstonesAny":      tombstonesAny,
+		"tombstonesOf":       tombstonesOf,
 	}
 	for name, q := range all {
 		if name == "deletionTombstone" {

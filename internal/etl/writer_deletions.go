@@ -62,6 +62,9 @@ var (
 		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
 	deletionTracks = `DELETE FROM ohs_data.workout_tracks
 		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
+	// deletionRouteBlobs deletes the route blobs of the deleted workouts.
+	deletionRouteBlobs = `DELETE FROM ohs_data.series_blobs
+		WHERE tenant_id = $1 AND user_id = $2 AND kind = 2 AND parent = ANY($3::bigint[]::text[])`
 	// deletionSamples and deletionCategory: $4 is the id, $5 the id followed
 	// by "_", $6 the id followed by "`" (see deletionExternalMatch).
 	// It returns, for each removed sample, the summary day it names (if any),
@@ -164,7 +167,7 @@ func applyDeletion(ctx context.Context, tx TxLike, sc scope, k recordKey, clear 
 		return 0, false, fmt.Errorf("delete workout: %w", err)
 	}
 	if len(workouts) > 0 {
-		for _, q := range []string{deletionRoutes, deletionTracks} {
+		for _, q := range []string{deletionRoutes, deletionRouteBlobs, deletionTracks} {
 			tag, err := tx.Exec(ctx, q, sc.tenant, sc.user, workouts)
 			if err != nil {
 				return 0, false, fmt.Errorf("delete workout children: %w", err)

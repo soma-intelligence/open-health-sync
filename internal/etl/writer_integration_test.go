@@ -263,10 +263,10 @@ func TestWriter_ECGWithSamples(t *testing.T) {
 	assert.Equal(t, 2, c["ecg_samples"].Written)
 
 	// ts is the recording start plus the offset.
-	var ts time.Time
+	var start64 time.Time
 	require.NoError(t, e.read().QueryRow(context.Background(),
-		`SELECT ts FROM ohs_data.ecg_samples WHERE tenant_id = $1 ORDER BY ts DESC LIMIT 1`, e.tenant).Scan(&ts))
-	assert.WithinDuration(t, start.Add(time.Second/512), ts, time.Microsecond)
+		`SELECT end_at FROM ohs_data.series_blobs WHERE tenant_id = $1 AND kind = 1`, e.tenant).Scan(&start64))
+	assert.WithinDuration(t, start.Add(time.Second/512), start64, time.Microsecond)
 
 	// Orphans linked by parent content hash.
 	c = e.write(smallCopy, &model.MapResult{ECGSamples: []model.ECGVoltageSample{sample(2, "ecg1")}})
@@ -531,6 +531,6 @@ func TestWriter_ReplaceableWorkoutMovedStartSupersedes(t *testing.T) {
 	})
 	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk(start.Add(5 * time.Minute))}})
 	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
-	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.route_points r JOIN ohs_data.workouts w ON w.id = r.workout_id
-		WHERE r.tenant_id = $1 AND w.start_date = $2`, e.tenant, start.Add(5*time.Minute)))
+	assert.EqualValues(t, 1, e.scalar(`SELECT sum(r.point_count) FROM ohs_data.series_blobs r JOIN ohs_data.workouts w ON w.id::text = r.parent
+		WHERE r.tenant_id = $1 AND r.kind = 2 AND w.start_date = $2`, e.tenant, start.Add(5*time.Minute)))
 }

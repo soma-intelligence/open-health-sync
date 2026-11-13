@@ -11,6 +11,7 @@ import (
 	"io"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"time"
 
@@ -196,13 +197,20 @@ const unsealedRaw = `r.key !~ '/v[0-9]+\.[^/]*$'
 	    WHERE k.tenant_id = r.tenant_id AND k.user_id = r.user_id), 'infinity')`
 
 // Status counts what is still stored clear: the rows of each sealed table
-// with no sealed value, and the raw objects not sealed. It reads only; any
+// with no sealed value, every row of the per-point tables (PerPoint), which
+// the seal command moves into series blobs, and the raw objects not sealed. It reads only; any
 // process may run it.
 func Status(ctx context.Context, pool *pgxpool.Pool) (StatusReport, error) {
 	s := StatusReport{Tables: map[string]int64{}}
 	for _, table := range statusTables() {
 		var n int64
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+pgx.Identifier{"ohs_data", table}.Sanitize()+` WHERE sealed IS NULL`).Scan(&n); err != nil {
+		left := ` WHERE sealed IS NULL`
+		if slices.Contains(PerPoint, table) {
+			// A per-point row is left to convert whether or not it is sealed:
+			// the seal command moves it into its series blob.
+			left = ``
+		}
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+pgx.Identifier{"ohs_data", table}.Sanitize()+left).Scan(&n); err != nil {
 			return StatusReport{}, fmt.Errorf("vault: status of %s: %w", table, err)
 		}
 		s.Tables[table] = n

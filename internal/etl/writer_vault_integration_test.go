@@ -17,6 +17,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // everyFamily is one batch with a record of every family the writer stores,
@@ -60,8 +61,8 @@ func everyFamily(at time.Time) *model.MapResult {
 // are written elsewhere; quantity_hourly_sealed, which has no such columns,
 // is checked apart.
 var etlWritten = []string{
-	tQuantity, tCategory, tSleep, tPhases, tWorkouts, tRoutes, tNutrition, tECG, tECGSamples,
-	tHeartbeat, tDaily, tObservation, "failed_records",
+	tQuantity, tCategory, tSleep, tPhases, tWorkouts, tNutrition, tECG, tSeries,
+	tDaily, tObservation, "failed_records",
 }
 
 // Every row the ETL writes for a user with keys is sealed: the sealed value is
@@ -132,7 +133,12 @@ func TestWriterSealsEveryTable(t *testing.T) {
 	assert.EqualValues(t, 61, e.scalar(`SELECT value FROM ohs_data.quantity_samples WHERE content_hash = $1`, e.hash("q1")))
 	assert.Equal(t, "medium", e.scalar(`SELECT value_label FROM ohs_data.category_samples WHERE content_hash = $1`, e.hash("c1")))
 	assert.EqualValues(t, 3600, e.scalar(`SELECT sum(duration_s) FROM ohs_data.sleep_phases`))
-	assert.EqualValues(t, 812, e.scalar(`SELECT rr_ms FROM ohs_data.heartbeat_samples`))
+	for _, pts := range e.blobPoints(series.Heartbeat) {
+		assert.EqualValues(t, 812, pts[0].V[series.HeartbeatRR])
+	}
+	assert.Equal(t, 1, e.count(tHeartbeat))
+	assert.Positive(t, e.count(tRoutes))
+	assert.Positive(t, e.count(tECGSamples))
 	assert.EqualValues(t, 36.6, e.scalar(`SELECT value_num FROM ohs_data.observations`))
 	assert.EqualValues(t, 0.3, e.scalar(`SELECT (nutrients_json->>'water')::float8 FROM ohs_data.nutrition_logs`))
 	assert.Contains(t, e.scalar(`SELECT error_message FROM ohs_data.failed_records`), "parse error")
@@ -308,11 +314,16 @@ func TestLegacyParentConvertsItsChildren(t *testing.T) {
 	assert.Equal(t, TableCount{Skipped: 2}, c[tECGSamples])
 	assert.Equal(t, 1, e.count(tECG))
 	assert.Equal(t, 2, e.count(tECGSamples))
-	var clear int
-	require.NoError(t, e.pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM ohs_data.ecg_samples WHERE tenant_id = $1 AND sealed IS NULL`, e.tenant).Scan(&clear))
-	assert.Zero(t, clear)
-	assert.EqualValues(t, 21, e.scalar(`SELECT sum(voltage_uv) FROM ohs_data.ecg_samples`))
+	// The rows went into the recording's blob, sealed.
+	assert.EqualValues(t, 0, e.scalar(`SELECT count(*) FROM ohs_data.ecg_samples WHERE tenant_id = $1`, e.tenant))
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.series_blobs WHERE tenant_id = $1 AND sealed IS NOT NULL`, e.tenant))
+	sum := 0.0
+	for _, pts := range e.blobPoints(series.ECG) {
+		for _, p := range pts {
+			sum += p.V[series.ECGVoltage]
+		}
+	}
+	assert.EqualValues(t, 21, sum)
 }
 
 // Two jobs of one user writing complementary figures of one summary: the

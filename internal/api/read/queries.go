@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/soma-intelligence/open-health-sync/internal/fusion"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // Page limits.
@@ -713,6 +714,13 @@ func WorkoutRoute(ctx context.Context, db Querier, tenantID, userID uuid.UUID, w
 	if err != nil {
 		return Page[RoutePoint]{}, err
 	}
+	blobs, err := readBlobs(ctx, db, tenantID, userID, series.Route, "parent = $3", "", strconv.FormatInt(workoutID, 10))
+	if err != nil {
+		return Page[RoutePoint]{}, err
+	}
+	if len(blobs) > 0 {
+		return routeOfBlob(blobs[0], workoutID, prov, n), nil
+	}
 	l := list{table: "ohs_data.route_points", timeCol: `"timestamp"`, parentCol: "workout_id", parentID: workoutID,
 		cols: routeSel.List("")}
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (RoutePoint, time.Time, int64, error) {
@@ -723,6 +731,34 @@ func WorkoutRoute(ctx context.Context, db Querier, tenantID, userID uuid.UUID, w
 		utc(&p.IngestedAt)
 		return p, p.Timestamp, p.ID, err
 	})
+}
+
+// routeOfBlob pages the route of a workout held by a blob. A point's id is
+// its position in the route, from 1, which is also its order among points
+// that share a time: the cursor (time, id) pages it as it pages rows.
+func routeOfBlob(b seriesBlob, workoutID int64, prov Provenance, q normalized) Page[RoutePoint] {
+	out := Page[RoutePoint]{Records: []RoutePoint{}}
+	for i, pt := range b.points {
+		id, at := int64(i+1), pt.Time()
+		if (!q.Start.IsZero() && at.Before(q.Start)) || (!q.End.IsZero() && !at.Before(q.End)) {
+			continue
+		}
+		if q.paged && (at.Before(q.afterT) || (at.Equal(q.afterT) && id <= q.afterID)) {
+			continue
+		}
+		if len(out.Records) == q.Limit {
+			last := out.Records[len(out.Records)-1]
+			out.NextCursor = EncodeCursor(last.Timestamp, last.ID)
+			break
+		}
+		p := RoutePoint{ID: id, WorkoutID: workoutID, Timestamp: at,
+			AltitudeM: pt.Value(series.RouteAltitude), SpeedMps: pt.Value(series.RouteSpeed),
+			CourseDeg: pt.Value(series.RouteCourse), Provenance: prov}
+		p.Latitude, p.Longitude = pt.V[series.RouteLatitude], pt.V[series.RouteLongitude]
+		p.IngestedAt = b.ingested
+		out.Records = append(out.Records, p)
+	}
+	return out
 }
 
 // NutritionLog is one meal or food entry.

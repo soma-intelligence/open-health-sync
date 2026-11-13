@@ -138,6 +138,18 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 
 ### Changed
 
+- ECG voltages, workout routes and heartbeat series are stored as one blob per series in
+  `ohs_data.series_blobs` (migration `0053`): the points are encoded in columns (delta
+  timestamps, values bit for bit), compressed with zstd in Go and sealed as one vault row under
+  the user's data key, the additional data binding tenant, user, table, kind, provider, format
+  and parent. On disk a point now takes 9.2 bytes for an ECG (was 593 clear, 653 sealed), 30.7
+  for a route (625, 696) and 3.7 for a heartbeat (574, 630). Parts of a series merge into its
+  blob: a point already stored is replaced only by a copy captured later. Reads decode the blob
+  and serve the same output; rows stored before stay readable until `ohs vault seal` moves them
+  (`ohs vault status` counts them). Erasure, provider deletion, consent purge and retention
+  remove the blobs. A route point's `id` is now its position in the route, and an
+  `/rr-intervals` cursor from before the upgrade is refused.
+
 - A sample that carries no time zone (Eight Sleep, Suunto, any source that sends instants only)
   counts toward the day of the user's time zone when the user has one, and toward the UTC day
   only when the user has none: the order is the sample's zone, the user's, UTC, for the derived

@@ -241,7 +241,7 @@ func applyAliasDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.
 			}
 		}
 		if len(workouts) > 0 {
-			for _, q := range []string{deletionRoutes, deletionTracks} {
+			for _, q := range []string{deletionRoutes, deletionRouteBlobs, deletionTracks} {
 				tag, err := tx.Exec(ctx, q, sc.tenant, sc.user, workouts)
 				if err != nil {
 					return nil, fmt.Errorf("delete workout children: %w", err)

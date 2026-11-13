@@ -24,7 +24,9 @@ import (
 // computed again over its keyed hash. Every lookup and conflict after that
 // compares keyed hashes only. The seal command converts the rest the same way.
 
-// shapeFor is the write shape of a sealed table the ETL writes.
+// shapeFor is the write shape of a sealed table the ETL writes row by row.
+// The per-point tables have none: their rows move into series blobs
+// (series.go).
 func shapeFor(table string) *shape {
 	switch table {
 	case tQuantity:
@@ -33,8 +35,6 @@ func shapeFor(table string) *shape {
 		return categoryShape
 	case tNutrition:
 		return nutritionShape
-	case tHeartbeat:
-		return heartbeatShape
 	case tObservation:
 		return observationShape
 	case tDaily:
@@ -45,12 +45,8 @@ func shapeFor(table string) *shape {
 		return sleepPhaseShape
 	case tWorkouts:
 		return workoutShape
-	case tRoutes:
-		return routePointShape
 	case tECG:
 		return ecgShape
-	case tECGSamples:
-		return ecgSampleShape
 	}
 	return nil
 }
@@ -169,54 +165,50 @@ func rekeyAliases(ctx context.Context, tx TxLike, sc scope, table, old, hash str
 	return nil
 }
 
-// convertChildren converts the clear children of a converted parent: their
-// hashes are computed over the parent's keyed hash, as the writer computes
-// them for a child it writes (writeSleepPhases, writeRoutePoints,
-// writeECGVoltageSamples).
+// convertChildren converts the clear children of a converted parent: the
+// phases of a sleep session get their hashes computed over the parent's
+// keyed hash, as writeSleepPhases computes them; the route of a workout and
+// the voltages of an ECG recording move into their series blob (series.go),
+// whose identity is the parent's id, not its hash.
 func convertChildren(ctx context.Context, tx TxLike, sc scope, table string, parentID any, parentHash string) error {
-	var child, link string
-	var rehash func(Row) string
+	id, _ := parentID.(int64)
 	switch table {
+	case tWorkouts, tECG:
+		var (
+			provider string
+			start    time.Time
+		)
+		if err := tx.QueryRow(ctx, `SELECT provider, start_date FROM `+qualified(table)+`
+			WHERE tenant_id = $1 AND user_id = $2 AND id = $3 LIMIT 1`, sc.tenant, sc.user, id).Scan(&provider, &start); err != nil {
+			return fmt.Errorf("convert the series of a %s row: %w", table, err)
+		}
+		ref := routeSeries(id, provider)
+		if table == tECG {
+			ref = ecgSeries(id, provider)
+		} else {
+			start = time.Time{}
+		}
+		_, err := convertParentSeries(ctx, tx, sc, ref, start)
+		return err
 	case tSleep:
-		child, link = tPhases, "session_id"
-		rehash = func(r Row) string {
-			d, _ := r.int("duration_s")
-			p := model.SleepPhase{Phase: r.text("phase"), DurationS: int(d), ParentContentHash: parentHash}
-			p.StartDate, _ = r["start_date"].(time.Time)
-			p.EndDate, _ = r["end_date"].(time.Time)
-			return sc.hash(model.SleepPhaseContentHash(p))
-		}
-	case tWorkouts:
-		child, link = tRoutes, "workout_id"
-		rehash = func(r Row) string {
-			p := model.RoutePoint{ParentContentHash: parentHash}
-			p.Timestamp, _ = r["timestamp"].(time.Time)
-			p.Latitude, _ = r.float("latitude")
-			p.Longitude, _ = r.float("longitude")
-			if alt, ok := r.float("altitude_m"); ok {
-				p.AltitudeM = &alt
-			}
-			return sc.hash(model.RoutePointContentHash(p))
-		}
-	case tECG:
-		child, link = tECGSamples, "ecg_id"
-		rehash = func(r Row) string {
-			s := model.ECGVoltageSample{ParentContentHash: parentHash}
-			s.TimeSinceSampleStart, _ = r.float("time_since_sample_start")
-			s.VoltageUV, _ = r.float("voltage_uv")
-			return sc.hash(model.ECGVoltageSampleContentHash(s))
-		}
 	default:
 		return nil
 	}
-	rows, err := collectRows(openRows(ctx, tx, nil, child,
-		`SELECT * FROM `+qualified(child)+` WHERE tenant_id = $1 AND user_id = $2 AND sealed IS NULL AND `+link+` = $3`,
+	rehash := func(r Row) string {
+		d, _ := r.int("duration_s")
+		p := model.SleepPhase{Phase: r.text("phase"), DurationS: int(d), ParentContentHash: parentHash}
+		p.StartDate, _ = r["start_date"].(time.Time)
+		p.EndDate, _ = r["end_date"].(time.Time)
+		return sc.hash(model.SleepPhaseContentHash(p))
+	}
+	rows, err := collectRows(openRows(ctx, tx, nil, tPhases,
+		`SELECT * FROM `+qualified(tPhases)+` WHERE tenant_id = $1 AND user_id = $2 AND sealed IS NULL AND session_id = $3`,
 		[]any{sc.tenant, sc.user, parentID}))
 	if err != nil {
-		return fmt.Errorf("convert clear %s rows: %w", child, err)
+		return fmt.Errorf("convert clear %s rows: %w", tPhases, err)
 	}
 	for _, r := range rows {
-		if err := convertRow(ctx, tx, sc, child, r, rehash(r)); err != nil {
+		if err := convertRow(ctx, tx, sc, tPhases, r, rehash(r)); err != nil {
 			return err
 		}
 	}
@@ -265,7 +257,6 @@ func convertBatchLegacy(ctx context.Context, tx TxLike, sc scope, acc *model.Map
 		{table: tWorkouts, timeCol: "start_date", timeType: "timestamptz"},
 		{table: tECG, timeCol: "start_date", timeType: "timestamptz"},
 		{table: tDaily, timeCol: "summary_date", timeType: "date"},
-		{table: tHeartbeat, timeCol: "timestamp", timeType: "timestamptz"},
 		{table: tObservation, timeCol: "ts", timeType: "timestamptz"},
 	}
 	for _, r := range acc.QuantitySamples {
@@ -289,11 +280,8 @@ func convertBatchLegacy(ctx context.Context, tx TxLike, sc scope, acc *model.Map
 	for _, r := range acc.DailySummaries {
 		tables[6].keys.add(r.ContentHash, dateOnly(r.SummaryDate))
 	}
-	for _, r := range acc.HeartbeatSamples {
-		tables[7].keys.add(model.HeartbeatSampleContentHash(r), r.Timestamp)
-	}
 	for _, r := range acc.Observations {
-		tables[8].keys.add(observationHash(scope{}, r), r.TS)
+		tables[7].keys.add(observationHash(scope{}, r), r.TS)
 	}
 	for _, k := range tables {
 		if len(k.keys.hashes) == 0 {

@@ -58,8 +58,6 @@ func TestReplaceStatementsScopedToTenantAndUser(t *testing.T) {
 		"sleepPhasesReplace":    sleepPhasesReplace,
 		"sleepPhasesAdopt":      sleepPhasesAdopt,
 		"workoutSupersede":      workoutSupersede,
-		"workoutRoutesAdopt":    workoutRoutesAdopt,
-		"workoutRoutesDrop":     workoutRoutesDrop,
 		"workoutTracksDrop":     workoutTracksDrop,
 		"sleepSessionNewer":     sleepSessionNewer,
 		"workoutNewer":          workoutNewer,

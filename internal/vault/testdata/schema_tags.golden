@@ -66,6 +66,7 @@ route_points longitude 2 1
 route_points altitude_m 3 1
 route_points speed_mps 4 1
 route_points course_deg 5 1
+series_blobs points 1 7
 sleep_phases phase 1 4
 sleep_phases duration_s 2 2
 sleep_sessions total_sleep_seconds 1 2

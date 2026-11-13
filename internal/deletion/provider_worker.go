@@ -23,12 +23,15 @@ import (
 //
 //   - a provider table, with a provider column: its rows of the user and
 //     provider are deleted (normalized records, daily summaries, provider
-//     tombstones, failed records, raw object rows, ETL and pull jobs, pull
+//     tombstones, failed records, raw object rows, series blobs (an ECG's
+//     voltages and a workout's route carry the provider of their recording
+//     or workout), ETL and pull jobs, pull
 //     coverage, the sync log, push subscriptions, OAuth states, and the
 //     connection once it is disconnected);
 //   - a child table, listed in childTables: its rows hang off a parent row of
 //     a provider table (sleep phases, route points, track summaries, ECG
-//     voltages) and are deleted with the parent's rows;
+//     voltages not yet moved into a series blob) and are deleted with the
+//     parent's rows;
 //   - a kept table, listed in keptTables: its rows are the user's own, not
 //     any provider's (time tags, the order of sources, share links and
 //     their access history), and stay; a share link that holds records of

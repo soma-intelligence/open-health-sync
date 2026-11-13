@@ -232,6 +232,11 @@ func TestRetentionDeletesOldDataAndFilesPerUser(t *testing.T) {
 	e.exec(`INSERT INTO ohs_data.workout_tracks (tenant_id, user_id, workout_id, length_m, point_count, started_at, ended_at)
 		VALUES ($1, $2, 1, 1, 1, $3, $3), ($1, $2, 2, 1, 1, $4, $4)`,
 		e.tenant, e.user, now.AddDate(0, 0, -200), now.AddDate(0, 0, -1))
+	// Series blobs: one whose last point is past the cutoff goes whole; one
+	// that started before the cutoff and ends after it stays whole.
+	e.exec(`INSERT INTO ohs_data.series_blobs (tenant_id, user_id, kind, provider, parent, format, start_at, end_at, point_count, points)
+		VALUES ($1, $2, 3, 'withings', 'old', 1, $3, $3, 1, '\x01'), ($1, $2, 3, 'withings', 'across', 1, $3, $4, 2, '\x01')`,
+		e.tenant, e.user, now.AddDate(0, 0, -200), now.AddDate(0, 0, -1))
 
 	// A second user (other tenant): old data and old files go, recent data and files stay.
 	t2 := e.newTenant()
@@ -259,7 +264,7 @@ func TestRetentionDeletesOldDataAndFilesPerUser(t *testing.T) {
 	res, err = (&Retention{Pool: e.pool, Store: e.rs, Days: 90, Metrics: m, Now: func() time.Time { return now }}).Run(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 2, res.Prefixes)
-	require.EqualValues(t, 4, res.Rows) // 2 samples + 1 summary + 1 track
+	require.EqualValues(t, 5, res.Rows) // 2 samples + 1 summary + 1 track + 1 series
 	require.Equal(t, 2, res.Chunks, "the old samples' chunk and the old summary's chunk are dropped whole")
 	require.Equal(t, 2, res.Users)
 
@@ -267,6 +272,8 @@ func TestRetentionDeletesOldDataAndFilesPerUser(t *testing.T) {
 	require.Equal(t, 2, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples WHERE content_hash = 'new2'`))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.workout_tracks`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.series_blobs WHERE parent = 'across'`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.series_blobs`))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.daily_summaries`))
 	require.Equal(t, 0, e.scalar(`SELECT count(*) FROM ohs_sync.raw_objects WHERE key = $1`, oldKey))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_sync.raw_objects WHERE key = $1`, newKey))
@@ -277,7 +284,7 @@ func TestRetentionDeletesOldDataAndFilesPerUser(t *testing.T) {
 	keys, err := e.rs.List(ctx, "raw/")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{newKey, newKey2}, keys)
-	require.EqualValues(t, 4, m.RetentionRows.Load())
+	require.EqualValues(t, 5, m.RetentionRows.Load())
 
 	// Deleting row by row reports the same rows as dropping chunks.
 	insertSample(e.tenant, e.user, now.AddDate(0, 0, -200), "old-again")

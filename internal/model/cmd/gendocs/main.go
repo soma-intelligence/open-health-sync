@@ -44,6 +44,16 @@ var tables = map[string]string{
 	"Observation":      "observations",
 }
 
+// seriesStored names the types stored as series blobs (migration 0053): the
+// points of one parent in one compressed row of ohs_data.series_blobs, by
+// kind. Their per-point table still holds the rows written before, until
+// `ohs vault seal` moves them.
+var seriesStored = map[string]string{
+	"RoutePoint":       "the route of one workout (kind 2)",
+	"ECGVoltageSample": "the voltages of one recording (kind 1)",
+	"HeartbeatSample":  "the beats of one series (kind 3)",
+}
+
 // notServed names the stored types that no REST route or MCP tool reads yet.
 var notServed = map[string]string{
 	"Observation": "No connector writes it yet, and no read route serves it (planned).",
@@ -253,7 +263,11 @@ func writeType(w io.Writer, fset *token.FileSet, name string, doc *ast.CommentGr
 	if s := firstSentence(doc, name); s != "" {
 		fmt.Fprintf(w, "%s\n\n", s)
 	}
-	if t, ok := tables[name]; ok {
+	if what, ok := seriesStored[name]; ok {
+		fmt.Fprintf(w, "Stored in `ohs_data.series_blobs`: one compressed blob per series, %s, sealed "+
+			"like any sealed row. Rows stored before 0.3.0 stay in `ohs_data.%s` until `ohs vault seal` moves them "+
+			"into their blob.\n\n", what, tables[name])
+	} else if t, ok := tables[name]; ok {
 		if note, unserved := notServed[name]; unserved {
 			fmt.Fprintf(w, "Stored in `ohs_data.%s`. %s\n\n", t, note)
 		} else {

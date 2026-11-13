@@ -52,7 +52,7 @@ func TestSeedDemo(t *testing.T) {
 		t.Helper()
 		got := map[string]int{}
 		for _, table := range []string{"quantity_samples", "sleep_sessions", "sleep_phases", "workouts",
-			"route_points", "daily_summaries"} {
+			"series_blobs", "daily_summaries"} {
 			var n int
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM ohs_data.`+table+
 				` WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID).Scan(&n); err != nil {

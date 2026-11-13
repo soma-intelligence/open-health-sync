@@ -321,7 +321,7 @@ func TestProcess_HeartbeatSeriesTakesTheDataType(t *testing.T) {
 	e.process(e.upload(e.tenant, e.user, "apple_health", "heartbeat_series", `{"x":1}`))
 	var series, provider string
 	require.NoError(t, e.read().QueryRow(context.Background(),
-		`SELECT series_id, provider FROM ohs_data.heartbeat_samples WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&series, &provider))
+		`SELECT parent, provider FROM ohs_data.series_blobs WHERE tenant_id = $1 AND user_id = $2 AND kind = 3`, e.tenant, e.user).Scan(&series, &provider))
 	assert.Equal(t, "heartbeat_series", series)
 	assert.Equal(t, "apple_health", provider)
 }

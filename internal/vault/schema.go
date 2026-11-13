@@ -16,6 +16,15 @@ package vault
 //     shared by every tenant.
 var Unsealed = []string{"quantity_codes", "deleted_records", "record_aliases", "device_aliases"}
 
+// PerPoint are the tables of one row per point that series_blobs replaces
+// (migration 0053). Nothing writes them any more; their rows, sealed or not,
+// are read until `ohs vault seal` has moved them into blobs, so every row
+// left in them counts as left to convert (Status).
+var PerPoint = []string{"heartbeat_samples", "ecg_samples", "route_points"}
+
+// SeriesTable is the table of the series blobs.
+const SeriesTable = "series_blobs"
+
 // Tags are explicit literals and never change meaning: a column added later takes
 // the next free tag, a dropped column leaves its tag unused, and an entry is never
 // reordered or renumbered. testdata/schema_tags.golden pins every (table, column,
@@ -271,6 +280,23 @@ var Schema = map[string]Table{
 	// raw_key is an object key and reason_code, status and
 	// attempts steer the retry queue, so they stay in clear. The payload and the
 	// error text can carry values.
+	// series_blobs (migration 0053) holds a whole series per parent: the
+	// voltages of one ECG recording, the route of one workout, the beats of
+	// one heartbeat series, as one compressed blob (package series). The
+	// blob is sealed; kind, provider and parent say which series it is, the
+	// times and the point count are what the per-point rows showed in clear
+	// before (one row per point, each with its time). The identity binds
+	// the blob to its series and to the layout it was written in: kind and
+	// format are 8 bytes each, and no text holds a zero byte, so provider
+	// and parent cannot trade bytes.
+	"series_blobs": {
+		Name: "series_blobs",
+		Sealed: []Column{
+			{"points", 1, KindBytes},
+		},
+		Clear:    []string{"tenant_id", "user_id", "kind", "provider", "parent", "format", "start_at", "end_at", "point_count", "ingested_at", "captured_at", "sealed"},
+		Identity: []string{"kind", "provider", "format", "parent"},
+	},
 	"failed_records": {
 		Name: "failed_records",
 		Sealed: []Column{

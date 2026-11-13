@@ -198,7 +198,7 @@ func TestImportFilesIntoInstance(t *testing.T) {
 		}
 		sort.Strings(pairs)
 		c.sources = strings.Join(pairs, ",")
-		q(`SELECT count(*) FROM ohs_data.route_points WHERE tenant_id = $1 AND user_id = $2`, &c.routes)
+		q(`SELECT coalesce(sum(point_count), 0) FROM ohs_data.series_blobs WHERE tenant_id = $1 AND user_id = $2 AND kind = 2`, &c.routes)
 		q(`SELECT count(*) FILTER (WHERE quantity_type = 'heart_rate'),
 				count(*) FILTER (WHERE quantity_type IN ('cycling_power', 'running_power'))
 			FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND user_id = $2 AND provider = 'activity_files'`, &c.hr, &c.power)

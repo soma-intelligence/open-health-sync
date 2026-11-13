@@ -175,6 +175,8 @@ func rowIdentity(t vault.Table, get func(column string) any) ([]byte, error) {
 			out = binary.BigEndian.AppendUint64(out, uint64(v))
 		case int32:
 			out = binary.BigEndian.AppendUint64(out, uint64(int64(v)))
+		case int16:
+			out = binary.BigEndian.AppendUint64(out, uint64(int64(v)))
 		case int:
 			out = binary.BigEndian.AppendUint64(out, uint64(int64(v)))
 		case bool:
