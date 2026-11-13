@@ -21,7 +21,9 @@ sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" 
 ```
 
 `OHS_ENCRYPTION_KEY` must hold 32 random bytes in base64. It encrypts the OAuth tokens stored in
-the database: keep it with your backups.
+the database, and the health data vault derives its root key from it unless you set
+`OHS_VAULT_ROOT_KEY`. Back it up, apart from the database backups: losing it loses the stored
+tokens and the health data.
 
 </Step>
 <Step>

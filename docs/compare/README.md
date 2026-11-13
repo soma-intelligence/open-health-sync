@@ -14,7 +14,7 @@ check their pages too.
 
 | | Kind | License | Starting price | Sources it claims |
 |---|---|---|---|---|
-| **Open Health Sync** | Open source, self-hosted | AGPL-3.0 | Free, you pay for your server | 18 available ([list](../connectors/README.md)) |
+| **Open Health Sync** | Open source, self-hosted | AGPL-3.0 | Free, you pay for your server | 19 available ([list](../connectors/README.md)) |
 | [Terra](https://tryterra.co) | Hosted API | Proprietary | $399 a month billed annually, $499 monthly | 500+ wearables and sources |
 | [Junction](https://junction.com) (formerly Vital) | Hosted API, plus lab testing | Proprietary | $300 a month for up to 500 users | 300+ devices |
 | [Thryve](https://www.thryve.health) | Hosted API, hosted in Europe | Proprietary | 499 EUR a month for up to 500 users | 500+ trackers |
@@ -98,14 +98,16 @@ Shimmer was the open source aggregator of the Open mHealth project: it read Fitb
 a few other APIs and wrote Open mHealth data points. Its repository has had no commit since May
 2021 and no release since 2017, and several of the APIs it supported no longer exist. Open
 Health Sync writes the same [Open mHealth](../open-mhealth.md) data points, checked against the
-official schemas, from 18 current sources.
+official schemas, from 19 current sources.
 
 ### Which devices and apps does Open Health Sync support?
 
-Eighteen sources are available: Apple Health, Health Connect (and through it Samsung Health and
+Nineteen sources are available: Apple Health, Health Connect (and through it Samsung Health and
 other Android apps), Withings, Oura, WHOOP, Strava, Polar, Fitbit, Suunto, Ultrahuman,
-intervals.icu, Dexcom, OMRON, Garmin, Eight Sleep, Xiaomi, FIT, GPX and TCX activity files, and standard
-Bluetooth health devices. Others are planned. The
+intervals.icu, Dexcom, OMRON, Garmin, Wahoo, Eight Sleep, Xiaomi, FIT, GPX and TCX activity files,
+and standard Bluetooth health devices. Lab results come in through an upload route, as FHIR R4 or
+JSON ([lab results](../labs.md)), and a sandbox provider, off by default, serves synthetic data
+for evaluation. Health records from EHRs and a Garmin Personal API connector are planned. The
 [connectors page](../connectors/README.md) lists the status and integration path of each.
 
 ## Next

@@ -18,7 +18,7 @@ its own site, pricing page and documentation, checked on 2026-10-18. They change
 | License | AGPL-3.0 | Proprietary |
 | Price | Free. You pay for your own server | Free sandbox for 30 days (25 development users). Starter: $299 a month billed annually, 1,000 users, then $0.40 a user. Pro: $1,499 a month billed annually, 10,000 users, then $0.20 a user. Enterprise on request ([pricing](https://sahha.ai/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Sahha's cloud, for 30 days on Starter and 120 days on Pro |
-| Sources | 18 available ([list](../connectors/README.md)) | 800+ devices across 165 integrations advertised, Garmin included |
+| Sources | 19 available ([list](../connectors/README.md)) | 800+ devices across 165 integrations advertised, Garmin included |
 | Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Listed, in beta, with Garmin's approval required |
 | What you read | Records as measured: samples, sleep sessions and phases, workouts, daily summaries, in one unit per quantity ([data model](../data-model.md)) | Five health scores, 100+ biomarkers, 100+ archetypes and insights computed by Sahha |
 | Health scores | None: it keeps the scores providers send (readiness, recovery, strain) and computes none | The product's core |
@@ -26,7 +26,7 @@ its own site, pricing page and documentation, checked on 2026-10-18. They change
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Not stated |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | REST API and webhooks |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Live context through MCP |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | iOS, Android, React Native and Flutter |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Swift reads HealthKit, Kotlin reads Health Connect, and the React Native and Flutter health modules read both through those two. The Kotlin reader and the Flutter plugin have not run on a device yet, the React Native module only on an iOS simulator ([SDKs](../sdks/README.md)) | iOS, Android, React Native and Flutter |
 | Personal data | You hold it, so you decide what you store | No PII required, per Sahha |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | SOC 2 Type II, HIPAA and GDPR, per Sahha. A BAA from Pro |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Sahha's cloud |
@@ -45,7 +45,7 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 - **You want scores, not raw figures**: health scores, biomarkers and archetypes you can show
   users without building the models yourself.
-- **You need Garmin without a Garmin app of your own**, or sources beyond the 18 here, through one SDK and API.
+- **You need Garmin without a Garmin app of your own**, or sources beyond the 19 here, through one SDK and API.
 - **You do not want to hold personal data**: Sahha works without PII.
 - **You need your vendor's SOC 2 Type II report**, or a BAA on Pro.
 
@@ -68,8 +68,8 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 The two products answer different questions, so there is no route by route mapping. In Open
 Health Sync, each person is a user (`POST /v1/users` with your own `external_ref`), phone data
-comes from the [Swift SDK](../sdks/swift.md#healthkit-sync) on iOS and from your own Health
-Connect reader on Android ([upload contract](../connectors/health-connect.md)), cloud providers connect through a
+comes from the [Swift SDK](../sdks/swift.md#healthkit-sync) on iOS and the
+[Kotlin SDK](../sdks/kotlin.md#health-connect-sync) on Android, cloud providers connect through a
 hosted page (`POST /v1/users/{id}/connect-sessions`), and the records are read from `samples`,
 `sleep`, `workouts` and `daily` ([API](../api.md)). Scores you compute yourself from those
 records, or keep from the providers that send them.

@@ -43,9 +43,17 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 ## Secrets
 
 - **Generate `OHS_ENCRYPTION_KEY`** with `openssl rand -base64 32`. Store it in a secret
-  manager and with your backups, not in the repository. Losing it makes stored OAuth tokens and
-  webhook secrets unreadable. To replace it, follow [key-rotation.md](key-rotation.md) (next
-  release): the old key goes to `OHS_PREVIOUS_ENCRYPTION_KEYS` until `ohs admin rekey` has run.
+  manager, apart from the database backups, not in the repository. Losing it makes stored OAuth
+  tokens and webhook secrets unreadable, and, while the vault's root key is derived from it, every
+  sealed health record too. To replace it, follow [key-rotation.md](key-rotation.md): the old
+  key goes to `OHS_PREVIOUS_ENCRYPTION_KEYS` until `ohs admin rekey` has run.
+- **Give the vault a root key of its own.** Unset, it is derived from `OHS_ENCRYPTION_KEY`, so
+  one secret guards both (`ohs doctor` warns). Set `OHS_VAULT_ROOT_KEY_FILE` (or
+  `OHS_VAULT_ROOT_KEY`) to 32 random bytes, or a KMS provider with `OHS_VAULT_KEY_PROVIDER`, run
+  `ohs vault rotate root` once, then restart every process. Back the root key up apart from the
+  database: losing it loses the health data ([self-hosting.md](self-hosting.md)).
+- **Seal what an earlier version stored.** After an upgrade to 0.3.0, run `ohs vault seal` once
+  and check with `ohs vault status --check`.
 - **Set a strong `POSTGRES_PASSWORD`** before the first `up`: `openssl rand -hex 24`, as the
   quickstart does. Since 0.3.0 the compose file has no default and refuses to run without one.
   It only applies when the volume is created; afterwards, and to leave the old default `ohs` of
@@ -69,8 +77,9 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 
 ## Storage
 
-- **Encrypt the disks** that hold the Postgres volume, the raw store and backups. `ohs` stores
-  health records and raw payloads in clear.
+- **Encrypt the disks** that hold the Postgres volume, the raw store and backups. The vault
+  seals health values and raw payloads, but ids, record types, times, units and providers stay
+  in clear, and rows stored before 0.3.0 stay in clear until `ohs vault seal`.
 - **Keep the raw folder private** to the container user:
   `chown -R 65532:65532 <folder> && chmod 750 <folder>`. Files are created 0600.
 - **On S3, turn on default server-side encryption** and block public access on the bucket,
@@ -96,8 +105,10 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 
 - **Keep the encryption key apart from the database backup**, so one stolen copy does not
   hold both, and **test a restore**.
-- **Plan for erasure in backups.** A deleted user stays in older backups until they expire;
-  keep backup retention as short as you can.
+- **Plan for erasure in backups.** A backup taken before an erasure still holds that user's
+  data for whoever has the root key: expire backups, or rotate the root key
+  (`ohs vault rotate root`) and destroy the previous version. Keep backup retention as short as
+  you can.
 
 ## Container
 

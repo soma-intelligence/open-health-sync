@@ -1,6 +1,6 @@
 # Spec: health data vault
 
-Status: design approved 2026-10-27, not built. Plan: [plans/vault.md](../plans/vault.md).
+Status: built in 0.3.0 (release N, migration `0050_vault`). The release N+1 migration that drops the clear columns is not built yet. Plan: [plans/vault.md](../plans/vault.md).
 
 ## Problem
 

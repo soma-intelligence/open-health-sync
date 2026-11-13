@@ -18,7 +18,7 @@ its own site, pricing page and documentation, checked on 2026-10-18. They change
 | License | AGPL-3.0 | Proprietary |
 | Price | Free. You pay for your own server | Wearables and IoT API from $450 a month (Sandbox plan), Enterprise on request. Nutrition Scanner AI from $450 a month ([pricing](https://spikeapi.com/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Spike's cloud, with retention settings in its admin console |
-| Sources | 18 available ([list](../connectors/README.md)) | 40+ providers and 500+ devices advertised, Garmin included, plus medical IoT devices |
+| Sources | 19 available ([list](../connectors/README.md)) | 40+ providers and 500+ devices advertised, Garmin included, plus medical IoT devices |
 | Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Spike's standardized data: statistics, sleep, workouts, samples and provider records |
 | FHIR and Open mHealth | FHIR R4 checked with the official HL7 validator, Open mHealth checked against the official schemas ([FHIR R4](../fhir.md), [Open mHealth](../open-mhealth.md)) | Not found in its documentation |
@@ -26,7 +26,7 @@ its own site, pricing page and documentation, checked on 2026-10-18. They change
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | REST requests and webhooks |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | An MCP server, with guides for desktop chat clients. "MCP-compatible" data is listed on Enterprise |
 | Health scores | None: it keeps the scores providers send (readiness, recovery, strain) and computes none | Sleep, stress and activity scores (Spike Analytics), on Enterprise |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | iOS, Android (with Samsung Health), React Native and Flutter |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Swift reads HealthKit, Kotlin reads Health Connect, and the React Native and Flutter health modules read both through those two. The Kotlin reader and the Flutter plugin have not run on a device yet, the React Native module only on an iOS simulator ([SDKs](../sdks/README.md)) | iOS, Android (with Samsung Health), React Native and Flutter |
 | Other products | None | Nutrition Scanner AI (calories and nutrients from a photo) and Lab Reports |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | GDPR, HIPAA and CCPA, per Spike |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Spike's cloud |
@@ -43,7 +43,7 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 ## Pick Spike when
 
-- **You need Garmin without a Garmin app of your own**, or devices beyond the 18 sources here, including medical IoT
+- **You need Garmin without a Garmin app of your own**, or devices beyond the 19 sources here, including medical IoT
   devices, under one contract.
 - **You also want nutrition from photos, or its Lab Reports product**, from the same vendor.
 - **You want ready-made sleep, stress and activity scores** rather than raw figures.

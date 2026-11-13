@@ -6,8 +6,13 @@ OMRON connect and CGM apps write to it, and an app with the user's permission re
 It has no server API, so an Android app reads it on the phone and uploads the records to
 `POST /v1/ingest/health-connect`. No keys are needed; the connector is always on.
 
-Status: available on the server. The Kotlin SDK that reads Health Connect and uploads in this
-format is being built; until it ships, your Android app implements the contract below.
+Status: available. The [Kotlin SDK](../sdks/kotlin.md#health-connect-sync) (module
+`open-health-sync-health-connect`) reads Health Connect on the phone and uploads in this format,
+with incremental sync, an offline queue and a background job; the
+[React Native](../sdks/react-native.md#health-store-sync) and
+[Flutter](../sdks/flutter.md#health-store-sync) SDKs run it on Android. It has been unit tested on
+the JVM against a fake Health Connect client, not yet run on a device. An app that reads Health
+Connect itself implements the contract below.
 
 ## Upload contract
 
@@ -123,7 +128,11 @@ fails at processing.
   re-sent record is a no-op, and an edited flow keeps the stored value until a `Deletion` of the
   record. `MenstruationPeriod` (a span with no flow per day) is not stored.
 - **Time zone**: `zoneOffset` (or `startZoneOffset`) gives `metadata.utc_offset_minutes` and,
-  for whole hours, `metadata.timezone`, which sets the local day of daily summaries.
+  for whole hours, `metadata.timezone`, which sets the local day of daily summaries. Health
+  Connect records carry an offset, never a zone name, so that zone is a fixed offset
+  (`Etc/GMT-1` for `+01:00`). A user whose zone is learnt from these uploads gets that fixed
+  offset, which does not follow daylight saving time; set the user's IANA zone with
+  `PATCH /v1/users/{id}` to avoid it ([users](../api.md#users)).
 - **Manual entries**: `recordingMethod` `manual` (or `manual_entry`) sets `was_user_entered`.
 
 ## Reading permissions

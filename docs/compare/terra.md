@@ -17,7 +17,7 @@ on 2026-10-17. They change, so check [tryterra.co](https://tryterra.co) as well.
 | License | AGPL-3.0 | Proprietary |
 | Price | Free. You pay for your own server | From $399 a month billed annually, or $499 billed monthly, with 100,000 credits. Each source a user connects costs 200 credits a month ([pricing](https://tryterra.co/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Terra's cloud, usually for two days and at most six months, then your destination ([privacy policy](https://tryterra.co/end-user-privacy)) |
-| Sources | 18 available ([list](../connectors/README.md)) | 500+ wearables and health sources advertised, Garmin included |
+| Sources | 19 available ([list](../connectors/README.md)) | 500+ wearables and health sources advertised, Garmin included |
 | Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes, through Terra's existing partnership |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Terra's own JSON models: Activity, Body, Daily, Sleep, Nutrition, Menstruation and others |
 | FHIR | FHIR R4, checked with the official HL7 validator in CI ([FHIR R4](../fhir.md)) | A FHIR processing option. The documentation names no FHIR version |
@@ -25,7 +25,7 @@ on 2026-10-17. They change, so check [tryterra.co](https://tryterra.co) as well.
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Recent payloads in the dashboard |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | Pushed to a destination (webhooks, Postgres, MySQL, S3, GCS, Azure Blob, SQS, Kafka), REST requests for history |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Read-only MCP server ("AI Interface") |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | iOS, Android, React Native and Flutter |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Swift reads HealthKit, Kotlin reads Health Connect, and the React Native and Flutter health modules read both through those two. The Kotlin reader and the Flutter plugin have not run on a device yet, the React Native module only on an iOS simulator ([SDKs](../sdks/README.md)) | iOS, Android, React Native and Flutter |
 | Vendor developer apps | You register your own app with each vendor | Terra's own for providers such as Fitbit, Oura, Polar and Withings. Yours for others, such as Strava, WHOOP and Dexcom |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | HIPAA, GDPR and SOC 2 Type II, per Terra |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Terra's cloud |
@@ -49,7 +49,7 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
   2026-10-21, so you can apply for your own business app, but the Enterprise tier this connector
   was written for is paid and a Starter app is push only with no history
   ([Garmin connector](../connectors/garmin.md)). Terra has held a Garmin integration for years.
-- **You need devices beyond the 18 sources here**, such as Peloton, Zwift, Wahoo or COROS through
+- **You need devices beyond the 19 sources here**, such as Peloton, Zwift or COROS through
   their APIs, under one contract.
 - **You do not want to run a server**, or to register a developer app with each vendor.
 - **You need your vendor's compliance attestations**, such as SOC 2 Type II and HIPAA.
@@ -92,8 +92,9 @@ Most of Terra's concepts have a direct counterpart. The data types map like this
 For each cloud provider, register your own developer app and set its keys: every connector guide
 starts with that step ([connectors](../connectors/README.md)). Apple Health and Health Connect
 data comes from your mobile app. On iOS the [Swift SDK](../sdks/swift.md#healthkit-sync) reads
-HealthKit and uploads it. On Android no SDK reads Health Connect yet: your app reads it and
-follows the [upload contract](../connectors/health-connect.md).
+HealthKit and uploads it. On Android the [Kotlin SDK](../sdks/kotlin.md#health-connect-sync)
+reads Health Connect and uploads it (not yet run on a device), or your app follows the
+[upload contract](../connectors/health-connect.md) itself.
 
 ## Try it
 

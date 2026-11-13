@@ -8,7 +8,7 @@ and health data. Each one links to the page with the details.
 It depends on where the data has to live and what you can pay. Hosted APIs such as Terra,
 Junction, Thryve, Spike, Sahha and ROOK run the service for you on a monthly plan. Open Health
 Sync is an open source health data aggregator you run yourself: one Go binary and Postgres, free
-under AGPL-3.0, with 18 sources and FHIR R4, Open mHealth, CSV, Parquet and REST outputs. See
+under AGPL-3.0, with 19 sources and FHIR R4, Open mHealth, CSV, Parquet and REST outputs. See
 [Health data aggregators compared](compare/README.md).
 
 ## Is there an open source alternative to the Terra API?
@@ -74,7 +74,8 @@ your own database, and exports it as CSV or Parquet or serves it over REST. See
 
 No software is compliant on its own, and Open Health Sync is not certified or audited. What it
 gives you is control: the data stays on infrastructure you choose, deletion and erasure are single
-calls, consent is enforced per source and category, and provider tokens are encrypted. Whether a
+calls, consent is enforced per source and category, provider tokens are encrypted, and from 0.3.0
+health records and raw payloads are sealed per user by the health data vault. Whether a
 deployment meets HIPAA or GDPR depends on how you run it. See the
 [security model](security-model.md).
 

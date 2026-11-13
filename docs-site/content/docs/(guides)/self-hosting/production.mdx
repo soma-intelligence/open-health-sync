@@ -42,27 +42,35 @@ metrics and shows how to send OpenTelemetry traces to a collector.
 
 ### Keep the encryption key safe
 
-`OHS_ENCRYPTION_KEY` seals provider OAuth tokens. Store it in your secret manager and in your
-backups. Without it, stored tokens cannot be read and every user must connect their providers
-again. Since 0.2.0, replace it online by following
-[rotating the encryption key](/documentation/self-hosting/key-rotation); on 0.1.0, a new key leaves
-the stored tokens unreadable.
+`OHS_ENCRYPTION_KEY` seals provider OAuth tokens and, unless you set a root key of its own, the
+keys of the health data vault are derived from it. Store it in your secret manager, apart from
+the database backups. Without it, stored tokens cannot be read and every user must connect their
+providers again; when the vault root key is derived from it, the health data is lost too. Set
+`OHS_VAULT_ROOT_KEY` (or a KMS provider: `hashicorp`, `azurekv`, `awskms`) so that one secret does
+not guard both, and back that key up apart from the database as well. Replace the encryption key
+online by following [rotating the encryption key](/documentation/self-hosting/key-rotation): once
+`ohs admin rekey` has run, it has also rewrapped the vault's tenant keys under the new derived root.
 
 </Step>
 <Step>
 
 ### Encrypt at rest
 
-`ohs` hashes keys and tokens and encrypts OAuth tokens, but health records themselves are stored
-in clear in Postgres and the raw store. Use disk or database encryption, and a bucket with
-server-side encryption.
+`ohs` hashes keys and tokens and encrypts OAuth tokens, and from 0.3.0 seals health records and
+raw payloads per user ([security model](/documentation/concepts/security-model)). Rows stored
+before 0.3.0 stay in clear until you run `ohs vault seal` once; `ohs vault status --check` exits
+non-zero while anything is left. What stays readable is the shape of the data: ids, record types,
+times, units and providers. Use disk or database encryption, and a bucket with server-side
+encryption, for that and for the backups.
 
 </Step>
 <Step>
 
 ### Back up, and test a restore
 
-Database, raw store and `.env`, taken together. See [Backup and restore](/documentation/self-hosting/backup).
+Database, raw store and `.env`, taken together, with `OHS_ENCRYPTION_KEY` and any `OHS_VAULT_ROOT_KEY`
+stored apart from the database copy: without them a restore opens no health data, and with them
+next to it the copy is as readable as before the vault. See [Backup and restore](/documentation/self-hosting/backup).
 
 </Step>
 <Step>

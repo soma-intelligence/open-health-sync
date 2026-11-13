@@ -9,9 +9,11 @@ checklist see [hardening.md](hardening.md); to report a problem see
 
 | Asset | Where it lives | Protection in the application |
 |---|---|---|
-| Health records (samples, sleep, workouts, daily summaries) | Postgres, schema `ohs_data` | Every query filters on `tenant_id` and `user_id`. Stored in clear. |
+| Health records (samples, sleep, workouts, nutrition, observations and lab results, daily summaries, time tags, failed records) | Postgres, schema `ohs_data` | Every query filters on `tenant_id` and `user_id`. Sealed per user by the [vault](#health-data-vault): the values, metadata, source and device fields of a row in one XChaCha20-Poly1305 seal under the user's data key, the additional data binding tenant, user, table and row, so a sealed value moved to another row does not open. Clear: ids, provider, record type, times, unit, and the keyed hashes used for dedup. Rows stored before 0.3.0 stay in clear until `ohs vault seal` converts them |
 | ECG voltages, workout routes and heartbeat (RR) series | `ohs_data.series_blobs`: one row per recording, workout route or heartbeat series | Encoded in columns and compressed (zstd) in Go, then sealed with the vault's row seal under the user's data key: XChaCha20-Poly1305, the additional data binding tenant, user, table, kind, provider, blob format and parent id, so a blob cannot be moved to another series or user. Without keys the compressed blob is stored unsealed. Clear: the kind, provider, parent id, first and last point time and point count. Rows stored one per point before 0.3.0 (`ecg_samples`, `route_points`, `heartbeat_samples`) are moved into blobs by `ohs vault seal` |
-| Raw provider and device payloads | Raw store: a folder or an S3 bucket | Keyed by `raw/<tenant>/<user>/...`, written once. Gzip, not encrypted. |
+| Raw provider and device payloads, lab result uploads included | Raw store: a folder or an S3 bucket | Keyed by `raw/<tenant>/<user>/...`, written once. Gzip, then sealed to the user's public keys at ingestion (ML-KEM-1024 and X25519 hybrid KEM, chunks under XChaCha20-Poly1305), so a process running `collect` alone writes what it cannot read. Objects stored before 0.3.0 stay gzip only until `ohs vault seal` rewrites them |
+| Vault keys | `ohs_core.vault_keys` | One key per tenant, wrapped by the root key; per user a data key, an index key and a KEM secret, wrapped by the tenant key. Only the users' KEM public keys are in clear. Shredded first when a user is erased |
+| Vault root key | `OHS_VAULT_ROOT_KEY` or its file, derived from `OHS_ENCRYPTION_KEY` when neither is set, or a key in HashiCorp Vault transit, Azure Key Vault or AWS KMS (`OHS_VAULT_KEY_PROVIDER`) | Not stored by the application; the operator's job. A process unwraps keys only when it runs `api` or `etl` |
 | Provider OAuth access and refresh tokens | `ohs_sync` connections | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the row |
 | Provider account passwords (Eight Sleep only: no OAuth) | `ohs_sync` connections, in the refresh token column | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the row; never logged; wiped on disconnect |
 | Tenant API keys (`ohs_sk_`) | `ohs_core.api_keys` | SHA-256 hash only |
@@ -22,6 +24,7 @@ checklist see [hardening.md](hardening.md); to report a problem see
 | Provider keys saved in the [console](console.md) | `ohs_core.provider_settings` | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the provider; the API never returns a secret's value |
 | A tenant's own provider keys ([admin API](admin-api.md#a-tenants-own-provider-keys)) | `ohs_core.tenant_provider_keys` | AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the tenant and the provider; the API never returns a value, only part of the client id |
 | `OHS_ENCRYPTION_KEY` and provider keys set by environment | The process environment | Not stored by the application; the operator's job |
+| Event stream backlog | `ohs_core.stream_events` | The events webhooks carry (names, ids, days), never a health value; kept 24 hours |
 
 ## Actors and trust boundaries
 
@@ -37,8 +40,10 @@ checklist see [hardening.md](hardening.md); to report a problem see
  instance operator: runs the host, holds the environment, the database and the raw store
 ```
 
-- **Instance operator.** Runs the containers and holds `OHS_ENCRYPTION_KEY`, the database and
-  the raw store. Fully trusted: nothing in the application protects data from the operator.
+- **Instance operator.** Runs the containers and holds `OHS_ENCRYPTION_KEY`, the vault's root
+  key (or the access to its KMS), the database and the raw store. Fully trusted: a process that
+  holds the root key reads every user's data, so nothing in the application protects data from
+  the operator.
 - **Tenant operator.** A customer of the instance, created with `ohs admin tenant create`. Holds
   one or more tenant API keys. Trusted with its own users' data only.
 - **Tenant backend.** A server holding an `ohs_sk_` key. Can create users, mint user tokens,
@@ -53,6 +58,49 @@ checklist see [hardening.md](hardening.md); to report a problem see
   `GET /shl/file/{ticket}` with no credential, from any origin. So can anyone on the internet.
 - **Webhook receivers.** URLs a tenant registers; `ohs` posts to them from the `etl` role.
 - **Database and raw store.** Trusted storage (see limitations).
+
+## Health data vault
+
+Every health value at rest is sealed under keys that belong to one user
+([spec](specs/vault.md), `internal/vault/`). The vault is on in every instance: with no
+`OHS_VAULT_` setting, the `local` provider uses a root key derived from `OHS_ENCRYPTION_KEY`
+(HKDF-SHA-256), and the first start of 0.3.0 gives every tenant and user keys. New writes are
+sealed; rows and raw objects stored by an earlier version stay in clear until `ohs vault seal`
+converts them, and `ohs vault status --check` exits non-zero while anything is left.
+
+| Attacker holds | What it reads |
+|---|---|
+| A database dump or replica | Index columns only (ids, types, times, units, providers); values sealed |
+| A raw store copy (folder, bucket, snapshot) | Sealed objects only |
+| A backup of both | Nothing readable without the root key |
+| A backup and the root key | Everything still in that backup, deleted users included |
+| A process running only the `collect` role | No stored value: it holds no private key. It still holds provider OAuth tokens, so it can pull fresh data from the providers |
+| A process running `api` or `etl` | Everything |
+| A tenant API key | Its tenant's data through the API, within its scopes; the vault changes nothing above the store |
+
+- **Roles.** A process unwraps tenant and user keys only when it runs `api` or `etl`. A process
+  started with `OHS_ROLES=collect` alone never calls the key provider and holds no private key:
+  it seals raw objects and cannot open them or any row. In the default deployment one process
+  runs all three roles and so holds everything; the write-only boundary exists only when the
+  operator splits roles.
+- **Root key unavailable.** An `api` or `etl` process refuses to start when the key provider
+  does not open the tenant keys. It never writes in clear and never serves an empty answer for
+  data it could not open: a row that fails to open is a 500 with the request id, an audit event
+  `vault.open_failed` and `ohs_vault_open_failures_total`.
+- **Guessable hashes.** Dedup hashes and source group keys are HMAC-SHA-256 under the user's index
+  key, so a dump holds no plain SHA-256 of a heart rate to guess back.
+- **Erasure.** Deleting a user first deletes their keys and evicts them from every process's
+  cache, in its own committed transaction; whatever the deletion has not removed yet (rows,
+  objects, a crash half way) no longer opens.
+- **Backups.** A backup taken before an erasure still holds that user's data for whoever has the
+  root key: expire backups, or rotate the root key (`ohs vault rotate root`) and destroy the
+  previous version.
+- **Rotation.** `ohs vault rotate root` rewraps the tenant keys under the configured root key,
+  `rotate tenant` rewraps a tenant's user keys, `rotate user` starts a new user key version, and
+  `ohs vault reseal` rewrites old rows under it. No routine rotation rewrites data. After
+  `rotate root`, restart every process: a running one keeps the old root key and fails once its
+  key cache expires. When the root key is derived, `ohs admin rekey` after a rotation of
+  `OHS_ENCRYPTION_KEY` rewraps the tenant keys under the new derived root.
 
 ## Threats and mitigations by boundary
 
@@ -209,6 +257,18 @@ A share link is a way out of the instance for one user's data, readable by whoev
 - **Data leaking through webhooks.** Payloads say what changed, for whom and over which days,
   never a health value; the receiver reads data through the API with its own key.
 
+### Event stream
+
+- **Who can listen.** `GET /v1/events/stream` needs a tenant key with `webhooks:read`;
+  `GET /v1/users/{id}/events/stream` a key with `data:read` or that user's own token with
+  `read`. A stream carries only the events of its tenant (and user), the same thin bodies as
+  webhooks, never a health value ([events-stream.md](events-stream.md)).
+- **A revoked credential.** A stream ends after an hour and the credential is checked again on
+  reconnect, so a revoked key or token stops streaming within the hour.
+- **Exhausting the instance.** At most `OHS_STREAM_MAX` streams per `api` process and
+  `OHS_STREAM_MAX_PER_TENANT` per tenant (429 past them); a client that does not keep up is
+  disconnected. `OHS_STREAM_MAX=0` turns the routes off.
+
 ### Logs
 
 - Logs never contain keys, tokens, OAuth codes or health values. Provider error text has URL
@@ -269,17 +329,32 @@ A share link is a way out of the instance for one user's data, readable by whoev
   and a user's connections under it. A user token tied to no key (minted before version 0.3.0)
   is not limited by key scopes.
 
-- **Health data is not encrypted by the application.** Records in Postgres and payloads in the
-  raw store are in clear (raw files are gzip). Encryption at rest is the operator's job: disk or
-  volume encryption, and server-side encryption on the bucket. Raw files are created with mode
-  0600 and folders 0750 by the filesystem driver; the S3 driver sets no encryption header.
-- **The database and the raw store are trusted.** Anyone who can read them reads every tenant's
-  health data. Anyone who can also read the environment can open the OAuth tokens. Tenant
-  isolation is enforced in application queries, not by Postgres row-level security.
-- **Losing the encryption key is final.** Rotation needs the old key listed in
+- **The vault hides values, not the shape of the data.** Who has data, of which type, from which
+  provider and at which times stays readable in the database, and so do the keyed hashes,
+  units and record ids. Rows and raw objects stored before 0.3.0 are in clear until
+  `ohs vault seal` has run. Disk or volume encryption, and server-side encryption on the bucket
+  (`sse=` in `OHS_RAW_STORE`), still cover what the vault leaves readable. Raw files are created
+  with mode 0600 and folders 0750 by the filesystem driver.
+- **One secret guards both by default.** With no `OHS_VAULT_ROOT_KEY` and the `local` provider,
+  the root key is derived from `OHS_ENCRYPTION_KEY`, and `ohs doctor` warns about it: whoever
+  holds that key and a copy of the database reads the health data, and losing it loses the
+  health data as well as the OAuth tokens. Set a separate `OHS_VAULT_ROOT_KEY` (or a KMS
+  provider) and back it up apart from the database; the first `ohs vault rotate root` after
+  setting it rewraps the tenant keys.
+- **The database and the raw store are trusted for integrity and isolation.** Tenant isolation
+  is enforced in application queries, not by Postgres row-level security. Anyone who can read
+  them and the root key reads every tenant's health data; anyone who can also read the
+  environment can open the OAuth tokens.
+- **Losing a key is final.** Rotation of `OHS_ENCRYPTION_KEY` needs the old key listed in
   `OHS_PREVIOUS_ENCRYPTION_KEYS` until `ohs admin rekey` has run. Without it, the stored OAuth
   tokens and webhook secrets do not open: users must reconnect and webhook secrets must be
   rotated. A leaked key exposes the tokens of a stolen database until they are re-sealed.
+  Losing the vault root key leaves every sealed row and object unreadable; there is no
+  recovery.
+- **Not zero knowledge.** A running process that holds the root key reads every user's data,
+  as the server-side features (ETL, rollups, FHIR, MCP, webhooks) need. Webhooks, API answers
+  and exports reach the tenant in clear over TLS. Key material is zeroed on eviction from the
+  cache on a best effort basis: copies the Go runtime makes are out of reach.
 - **Rate limits are per process and in memory.** Each replica counts on its own and a restart
   empties the buckets, though the 10 passcode attempts of a share link are counted in the
   database. With several replicas the ceiling of a credential or an address is the limit times
@@ -311,7 +386,7 @@ A share link is a way out of the instance for one user's data, readable by whoev
   athlete's activity.
 - **Tokens minted before version 0.3.0 are tied to no key.** Revoking the key that minted one
   does not revoke it: it lives until it expires (30 days at most) or is revoked through the
-  token routes. API key scopes do not exist: a tenant key reaches every tenant route.
+  token routes, and is not limited by key scopes.
 - **Provider revocation on deletion is best effort.** If a provider is unreachable, or the
   process carrying out the deletion lacks that provider's keys, the data is still deleted but the
   grant may stay valid at the provider.

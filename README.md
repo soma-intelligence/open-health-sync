@@ -23,10 +23,11 @@ Every health app and wearable sends data in its own format. Open Health Sync col
 gives it back in one clean format, through one API.
 
 - **In:** Apple Health, Health Connect, Garmin, Oura, WHOOP, Fitbit, Withings, Polar, Strava,
-  Dexcom and [more](docs/connectors/README.md).
-- **Out:** a REST API, FHIR R4, Open mHealth, signed webhooks, CSV and Parquet, native SDKs, and
-  an [MCP server](docs/mcp.md) so an AI agent can read your data.
-- **Runs anywhere:** one program plus Postgres, even on a Raspberry Pi. Your data stays with you.
+  Dexcom, [lab results](docs/labs.md) and [more](docs/connectors/README.md).
+- **Out:** a REST API, FHIR R4, Open mHealth, signed webhooks, an [event stream](docs/events-stream.md),
+  CSV and Parquet, native SDKs, and an [MCP server](docs/mcp.md) so an AI agent can read your data.
+- **Runs anywhere:** one program plus Postgres, even on a Raspberry Pi. Your data stays with you,
+  its health values sealed per user at rest ([security model](docs/security-model.md)).
 
 ## Try it
 
@@ -55,9 +56,9 @@ Fly.io and Railway steps are in [Deploy on a platform](docs/deploy-platforms.md)
 ## Build an app
 
 - **[SDKs](docs/sdks/README.md):** Swift, Kotlin, React Native and Flutter for the app,
-  [TypeScript and Python](docs/server-sdks.md) for your backend. Only the Swift SDK reads a health
-  store today (HealthKit). The Kotlin, React Native and Flutter SDKs are HTTP clients: they upload
-  records your app already holds and do not read Health Connect or HealthKit yet.
+  [TypeScript and Python](docs/server-sdks.md) for your backend. The Swift SDK reads HealthKit and
+  the Kotlin SDK reads Health Connect; the React Native and Flutter SDKs read both through a native
+  module built on those two. All four are at 0.1.0 and installed from this repository.
 - **[Example apps](examples/README.md):** iOS, Android, React Native and a web backend.
 - **[Connection page](docs/connect-page.md):** a hosted page where a user connects Oura, WHOOP,
   Withings and the other cloud sources.

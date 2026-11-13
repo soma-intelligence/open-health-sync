@@ -106,10 +106,12 @@ more, keep raw payloads where every pod can reach them: an S3 bucket (`rawStore.
 
 ### The encryption key
 
-`OHS_ENCRYPTION_KEY` seals the OAuth tokens stored in the database. Leave `encryptionKey` empty
+`OHS_ENCRYPTION_KEY` seals the OAuth tokens stored in the database, and the health data vault
+derives its root key from it unless `OHS_VAULT_ROOT_KEY` or a KMS provider is set (through
+`existingSecret` or `env`): losing it then loses the health data too. Leave `encryptionKey` empty
 and the chart generates one on the first install, then reads it back from the cluster on every
 upgrade, so it never changes. The Secret is created as a Helm hook (it has to exist before the
-migration Job), so `helm uninstall` keeps it. Back it up with the database:
+migration Job), so `helm uninstall` keeps it. Back it up, apart from the database backups:
 
 ```sh
 kubectl -n ohs get secret ohs-secret -o jsonpath='{.data.OHS_ENCRYPTION_KEY}' | base64 -d

@@ -14,11 +14,14 @@ They are generated from [`api/openapi.yaml`](../api/openapi.yaml) by `internal/s
 they cover the API exactly: one method per operation, named after its `operationId`
 (`listDaily` in TypeScript, `list_daily` in Python), with typed parameters, bodies and results.
 A Go test regenerates them and fails when the committed files differ, so they cannot drift
-from the document. The webhook verification helpers are the only hand-written part.
+from the document. The webhook verification helpers and the
+[event stream](events-stream.md#from-code) helpers (`streamEvents` in TypeScript,
+`stream_events` in Python) are the only hand-written parts.
 
 Left out on purpose: the routes providers call (`/oauth/{provider}/callback`,
 `/inbound/{provider}`), `/mcp` (AI agents speak MCP to it, see [mcp.md](mcp.md)), `/metrics`
-and `/openapi.yaml`. The liveness and readiness checks are there (`healthz`, `readyz`).
+and `/openapi.yaml`. The two event stream routes have no generated method: the stream helpers
+call them, parse the Server-Sent Events and reconnect with `Last-Event-ID`. The liveness and readiness checks are there (`healthz`, `readyz`).
 
 [`examples/web`](../examples/web/README.md) is a Next.js app built on the TypeScript client:
 it creates users, sends them to the hosted connection page, uploads synthetic data with an

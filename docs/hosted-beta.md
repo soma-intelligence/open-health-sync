@@ -23,7 +23,7 @@ instance. Everything below follows from how that server works
 | Is it HIPAA compliant? | No. No business associate agreement (BAA) is offered |
 | Is it certified or audited (SOC 2, ISO 27001, HITRUST)? | No. No certification is claimed |
 | How is it run? | As a single instance, with no stated uptime commitment |
-| Is health data encrypted by the application? | No. Health records and raw payloads are stored in clear; provider tokens and secrets are encrypted (below) |
+| Is health data encrypted by the application? | From 0.3.0, health records and raw payloads are sealed per user by the health data vault; what came in before the upgrade stays in clear until it is converted. Provider tokens and secrets are encrypted (below) |
 | Does deletion reach backups? | No. Deletion removes the live rows, raw objects and provider grants. Backups taken before it keep what they hold |
 
 If you need a BAA, a data processing agreement, a certification or a contractual uptime, the
@@ -55,8 +55,8 @@ This is the application's own protection, the same as on any instance
 
 | Data | How it is stored |
 |---|---|
-| Health records (samples, sleep, workouts, daily summaries) | In clear in Postgres. Every query filters on the tenant and the user |
-| Raw provider and device payloads | Gzip, not encrypted, in the raw store, under a path per tenant and user |
+| Health records (samples, sleep, workouts, lab results, daily summaries) | From 0.3.0, sealed per user in Postgres: the values under the user's own key, with the ids, types, times and units in clear so queries can filter on them. Every query filters on the tenant and the user |
+| Raw provider and device payloads | From 0.3.0, gzip and then sealed to the user's keys, in the raw store, under a path per tenant and user |
 | Provider OAuth access and refresh tokens | AES-256-GCM under the instance's encryption key, bound to the row |
 | Provider account passwords (Eight Sleep only) | AES-256-GCM under the instance's encryption key, bound to the row; never logged; wiped on disconnect |
 | Webhook signing secrets, and provider keys saved for a project | AES-256-GCM under the instance's encryption key |
@@ -64,13 +64,15 @@ This is the application's own protection, the same as on any instance
 | OAuth `state` values | SHA-256 hash only, single use, 10 minute lifetime |
 | Share link files | Encrypted (JWE, AES-256-GCM) under a key held only in the link |
 
-Health data is not encrypted by the application. Encryption at rest of the database and the raw
-store is a matter of the hosting underneath:
+Before 0.3.0, health data was not encrypted by the application, and rows stored then stay in
+clear until the operator converts them (`ohs vault seal`). The vault leaves the shape of the data
+readable (who has data of which type, when). Encryption at rest of the database and the raw
+store as a whole is a matter of the hosting underneath:
 `[OWNER TO FILL: whether the disks and the bucket of the hosted instance are encrypted at rest, and where the instance is hosted]`.
 
 Tenants are separated in application queries, not by Postgres row-level security. Whoever
-operates the instance can read the database and the raw store, and so can read every project's
-data: nothing in the application protects data from the operator.
+operates the instance holds the vault's root key as well as the database and the raw store, and
+so can read every project's data: nothing in the application protects data from the operator.
 
 The hosted instance is reached over HTTPS only.
 

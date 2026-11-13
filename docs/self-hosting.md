@@ -194,7 +194,7 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_ENCRYPTION_KEY` | none, required | 32 random bytes, base64. Seals stored OAuth tokens and webhook secrets. `openssl rand -base64 32` makes one, or `ohs doctor` prints one |
 | `OHS_ENCRYPTION_KEY_FILE` | none | Path of a file holding the key, used instead of `OHS_ENCRYPTION_KEY` (setting both is an error). If the file does not exist, `ohs` writes a random key into it on first start (mode 0600, parent folder created) and reads it back on every start after. For app store templates and Docker secrets. Back the file up with the database. 0.2.0 and later |
 | `OHS_PREVIOUS_ENCRYPTION_KEYS` | none | Comma separated keys `OHS_ENCRYPTION_KEY` replaced: they still open what they sealed, never seal. Set only while [rotating the key](key-rotation.md). 0.2.0 and later |
-| `OHS_VAULT_KEY_PROVIDER` | `local` | Which key guards the keys of the [health data vault](specs/vault.md): `local`, `hashicorp`, `azurekv` or `awskms`. The last two need a binary built with their provider |
+| `OHS_VAULT_KEY_PROVIDER` | `local` | Which key guards the keys of the [health data vault](security-model.md#health-data-vault): `local`, `hashicorp`, `azurekv` or `awskms`. The last two need a binary built with their provider: the release binaries and image are (`-tags azurekv,awskms`); `make build` is not |
 | `OHS_VAULT_ROOT_KEY` | derived | `local` provider: 32 random bytes, base64. Unset, the root key is derived from `OHS_ENCRYPTION_KEY` (HKDF-SHA-256), so an upgrade needs no new secret, and `ohs doctor` warns that one secret then guards both |
 | `OHS_VAULT_ROOT_KEY_FILE` | none | Path of a file holding the root key, used instead of `OHS_VAULT_ROOT_KEY` (not both). It is never created: a missing file is an error |
 | `OHS_VAULT_ROOT_KEY_PREVIOUS` | none | Comma separated root keys that were replaced: they still open, never wrap. Set only while rotating the root key |
@@ -431,7 +431,11 @@ docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs versio
 ```
 
 The container runs `ohs up`, so pending migrations apply on start; `ohs migrate version` prints
-the schema version. There is no step-by-step downgrade (`ohs migrate down --all` drops
+the schema version. From 0.3.0 new health data is sealed by the
+[vault](security-model.md#health-data-vault); after the upgrade run `ohs vault seal` once to
+seal what the earlier version stored (it works in batches and resumes after a stop), then
+`ohs vault status --check`, which exits non-zero while anything is still stored in clear. Once a
+row is sealed, 0.2.0 cannot read it. There is no step-by-step downgrade (`ohs migrate down --all` drops
 everything): to go back, run the old version on a restored backup.
 
 Without compose, the order is the same: back up, stop `ohs`, replace the binary, then start it
@@ -572,15 +576,22 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   $DC exec ohs /ohs admin key revoke --tenant <tenant id> --key <old prefix>
   ```
 
-  A user token minted with the old key keeps working until it expires. `key revoke` with a
-  whole user token (`ohs_ut_...`) revokes that token.
+  Revoking the old key revokes the user tokens it minted; a token minted before 0.3.0 is tied
+  to no key and keeps working until it expires. `key revoke` with a whole user token
+  (`ohs_ut_...`) revokes that token.
 - **`OHS_ENCRYPTION_KEY`.** Since 0.2.0, rotate it online: put the new key in `OHS_ENCRYPTION_KEY` and the
   old one in `OHS_PREVIOUS_ENCRYPTION_KEYS`, restart every process, run `ohs admin rekey`, then
   remove the old key once `ohs doctor` says nothing uses it. The whole procedure, and what
   happens when a step is skipped, is in [rotating the encryption key](key-rotation.md). On 0.1.0,
   and whenever the old key is not kept, replacing it leaves the stored OAuth tokens, webhook secrets
-  and provider keys saved in the console unreadable: each user must connect the provider again. Uploads and stored data are not
-  affected.
+  and provider keys saved in the console unreadable: each user must connect the provider again.
+  While the vault root key is derived from `OHS_ENCRYPTION_KEY` (the default), the old key also
+  opens the tenant keys until `ohs admin rekey` has rewrapped them: losing it then loses every
+  sealed health record.
+- **Vault root key.** Set the new key (`OHS_VAULT_ROOT_KEY` or its file, the replaced one in
+  `OHS_VAULT_ROOT_KEY_PREVIOUS`), run `ohs vault rotate root`, then restart every process.
+  The same command moves a derived root key to one of its own. See
+  [the vault root key](key-rotation.md#the-vault-root-key).
 - **Provider secrets.** See the Withings note under operating notes below.
 - **`POSTGRES_PASSWORD`** only applies when the database volume is first created. To change it
   later (also the way off the old default `ohs` of an install made before 0.3.0), run

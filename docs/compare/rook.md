@@ -4,7 +4,8 @@ Open Health Sync is an open source, self-hosted alternative to ROOK for wearable
 your product one API for data from wearables and health apps. ROOK runs that API for you, adds
 lab results, medical devices and health records next to it, and charges a monthly plan. Open
 Health Sync is software you run yourself: one Go binary and Postgres, free under AGPL-3.0, with
-the data on servers you choose. It has no lab or health record data today.
+the data on servers you choose. It stores lab results you upload (FHIR R4 or JSON) and has no
+EHR connection yet.
 
 This page compares the two and says when ROOK is the better pick. Facts about ROOK come from its
 own site and pricing page, checked on 2026-10-18. They change, so check
@@ -18,17 +19,17 @@ own site and pricing page, checked on 2026-10-18. They change, so check
 | License | AGPL-3.0 | Proprietary |
 | Price | Free. You pay for your own server | Core: $399 a month for up to 750 active users. Core+: $999 for up to 5,000. Business: $1,999 for up to 15,000. Enterprise on request. Lab data billed apart, from $249 a month for 300 files ([pricing](https://www.tryrook.io/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | ROOK's cloud. Dedicated servers on Enterprise |
-| Sources | 18 available ([list](../connectors/README.md)) | 500+ devices through one integration advertised (its site also lists 72 data sources), plus medical devices |
+| Sources | 19 available ([list](../connectors/README.md)) | 500+ devices through one integration advertised (its site also lists 72 data sources), plus medical devices |
 | Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes |
-| Lab results | No | Lab Data API, with biomarkers coded in LOINC and FHIR R4 output |
-| Health records (EHR) | Planned, after the SDKs: SMART on FHIR patient access ([connectors](../connectors/README.md)) | EHR/EMR API with FHIR R4 output, on a waitlist on the pricing page |
+| Lab results | Uploads of FHIR R4 or JSON lab results, read back as FHIR Observations and DiagnosticReports ([lab results](../labs.md)). No lab ordering or testing | Lab Data API, with biomarkers coded in LOINC and FHIR R4 output |
+| Health records (EHR) | Planned: SMART on FHIR patient access ([connectors](../connectors/README.md)) | EHR/EMR API with FHIR R4 output, on a waitlist on the pricing page |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | ROOK's normalized data |
 | FHIR R4 | Built in, checked with the official HL7 validator ([FHIR R4](../fhir.md)) | "Clinical Ready (FHIR R4)", an add-on on Core, included from Business |
 | Open mHealth | Yes, checked against the official schemas ([Open mHealth](../open-mhealth.md)) | Not found on its site |
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Not stated |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Not found on its site |
 | Health scores | None: it keeps the scores providers send (readiness, recovery, strain) and computes none | ROOK Score (physical, sleep and body health), as an add-on or from Business |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the others are HTTP clients ([SDKs](../sdks/README.md)) | The ROOK SDK, and the ROOK App when you cannot embed an SDK |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Swift reads HealthKit, Kotlin reads Health Connect, and the React Native and Flutter health modules read both through those two. The Kotlin reader and the Flutter plugin have not run on a device yet, the React Native module only on an iOS simulator ([SDKs](../sdks/README.md)) | The ROOK SDK, and the ROOK App when you cannot embed an SDK |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | A HIPAA-aligned security program with BAAs, and GDPR as a data processor, per ROOK |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | ROOK's cloud |
 
@@ -44,9 +45,9 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 
 ## Pick ROOK when
 
-- **You need lab results or health records next to wearable data**, in one API, with FHIR R4
-  output.
-- **You need Garmin without a Garmin app of your own**, or devices beyond the 18 sources here, under one contract.
+- **You need health records next to wearable data**, or lab results that arrive without your
+  own upload, in one API, with FHIR R4 output.
+- **You need Garmin without a Garmin app of your own**, or devices beyond the 19 sources here, under one contract.
 - **Your users cannot install your app**: the ROOK App collects their data instead.
 - **You want ready-made health scores and threshold alerts** (ROOK Score and ROOK Signals).
 - **You do not want to run a server**, or to register a developer app with each vendor.

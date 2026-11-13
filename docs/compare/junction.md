@@ -4,7 +4,7 @@ Open Health Sync is an open source, self-hosted alternative to Junction, the hea
 formerly called Vital. Both give your product one API for data from wearables and health apps.
 Junction runs that API for you, sells lab testing next to it, and charges a monthly plan. Open
 Health Sync is software you run yourself: one Go binary and Postgres, free under AGPL-3.0, with
-the data on servers you choose. It does no lab testing.
+the data on servers you choose. It does no lab testing, and stores the lab results you upload.
 
 This page compares the two, says when Junction is the better pick, and maps Junction's concepts
 to Open Health Sync for a move. Facts about Junction come from its own site, pricing page and
@@ -19,15 +19,15 @@ as well.
 | License | AGPL-3.0 | Proprietary |
 | Price | Free. You pay for your own server | Launch: $300 a month, billed monthly, for 1 to 500 connected users. Enterprise: custom, billed annually, unlimited users ([pricing](https://www.junction.com/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Junction's cloud, in a US or an EU region ([quickstart](https://docs.junction.com/home/quickstart)) |
-| Sources | 18 available ([list](../connectors/README.md)) | 300+ devices advertised: cloud APIs such as Garmin, Fitbit, Oura, WHOOP, Withings, Polar and Dexcom, Apple HealthKit, Health Connect and Samsung Health through its mobile SDKs, and Bluetooth meters ([providers](https://docs.junction.com/wearables/providers/introduction)) |
+| Sources | 19 available ([list](../connectors/README.md)) | 300+ devices advertised: cloud APIs such as Garmin, Fitbit, Oura, WHOOP, Withings, Polar and Dexcom, Apple HealthKit, Health Connect and Samsung Health through its mobile SDKs, and Bluetooth meters ([providers](https://docs.junction.com/wearables/providers/introduction)) |
 | Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes |
-| Lab testing | No | A lab testing API, at-home kits and phlebotomy, on Enterprise |
+| Lab testing | No. Lab results you already have are uploaded as FHIR R4 or JSON ([lab results](../labs.md)) | A lab testing API, at-home kits and phlebotomy, on Enterprise |
 | Data model | One canonical model, one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Junction's own resources, such as the sleep summary at `/summary/sleep` |
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Raw provider data through routes such as `/v2/summary/sleep/{user_id}/raw` |
 | FHIR and Open mHealth | FHIR R4 checked with the official HL7 validator, Open mHealth checked against the official schemas ([FHIR R4](../fhir.md), [Open mHealth](../open-mhealth.md)) | Not in its documentation index |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | REST requests, webhooks such as `daily.data.workouts.created`, and ETL pipelines to your warehouse on Enterprise |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Not in its documentation index |
-| SDKs | Swift, Kotlin, React Native and Flutter for apps; TypeScript and Python for your backend. Installed from the repository for now. Only the Swift SDK reads a health store (HealthKit); the other app SDKs are HTTP clients ([SDKs](../sdks/README.md)) | iOS, Android and Flutter for apps; Python, TypeScript, Java and Go for your backend |
+| SDKs | Swift, Kotlin, React Native and Flutter for apps; TypeScript and Python for your backend. Installed from the repository for now. Swift reads HealthKit, Kotlin reads Health Connect, and the React Native and Flutter health modules read both through those two; the Kotlin reader and the Flutter plugin have not run on a device yet ([SDKs](../sdks/README.md)) | iOS, Android and Flutter for apps; Python, TypeScript, Java and Go for your backend |
 | Vendor developer apps | You register your own app with each vendor | Junction's by default. Custom OAuth credentials on Enterprise |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | HIPAA compliant and GDPR ready on every plan; a BAA, SOC 2 Type 2 and ISO 27001 on Enterprise, per Junction |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Junction's cloud |
@@ -44,8 +44,9 @@ and runs on a Raspberry Pi 5 with 4 GB ([benchmarks](../benchmarks/ingest.md)).
 ## Pick Junction when
 
 - **You need lab tests as well as wearable data.** Junction runs a lab testing API with a lab
-  network, at-home kits and phlebotomy. Open Health Sync has no lab offering.
-- **You need Garmin without a Garmin app of your own**, or sources beyond the 18 here, such as Peloton, Zwift
+  network, at-home kits and phlebotomy. Open Health Sync orders no tests: it stores the results you
+  upload.
+- **You need Garmin without a Garmin app of your own**, or sources beyond the 19 here, such as Peloton, Zwift
   or Abbott LibreView, under one contract.
 - **You do not want to run a server**, or to register a developer app with each vendor.
 - **You need your vendor's attestations**: SOC 2 Type 2, ISO 27001 and a BAA, on Enterprise.
@@ -77,7 +78,7 @@ The main concepts have a direct counterpart:
 | Summary resources (`/summary/sleep` and the others) | `sleep`, `workouts`, `daily` and `samples` under `GET /v1/users/{id}/...` |
 | Raw provider data (`.../raw`) | The raw store keeps every payload; the [user archive](../exports.md#complete-user-archive-data-portability) hands it over |
 | Warehouse ETL | The data already sits in your Postgres. Exports as CSV or Parquet ([exports](../exports.md)) |
-| Mobile SDK for HealthKit and Health Connect | The [Swift SDK](../sdks/swift.md#healthkit-sync) for HealthKit. No SDK reads Health Connect yet: your Android app reads it and follows the [upload contract](../connectors/health-connect.md) |
+| Mobile SDK for HealthKit and Health Connect | The [Swift SDK](../sdks/swift.md#healthkit-sync) for HealthKit, the [Kotlin SDK](../sdks/kotlin.md#health-connect-sync) for Health Connect, and the [React Native](../sdks/react-native.md) and [Flutter](../sdks/flutter.md) health modules for both. The Kotlin reader has not run on a device yet |
 
 For each cloud provider, register your own developer app and set its keys: every connector guide
 starts with that step ([connectors](../connectors/README.md)).

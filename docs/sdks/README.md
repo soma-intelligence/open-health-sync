@@ -10,8 +10,8 @@ you learn in one carries over to the others.
 |---|---|---|---|
 | Kotlin | [`sdks/kotlin`](../../sdks/kotlin) | Android (API 26+), any JVM 11+ | [Kotlin](kotlin.md) |
 | Swift | [`sdks/swift`](../../sdks/swift) | iOS 15+, macOS 12+, Linux (client only) | [Swift](swift.md) |
-| React Native | [`sdks/react-native`](../../sdks/react-native) | React Native 0.72+, Expo, Node 18+, browsers | [React Native](react-native.md) |
-| Flutter | [`sdks/flutter`](../../sdks/flutter) | Flutter 3.22+ and Dart 3.4+ (iOS, Android, desktop, web) | [Flutter](flutter.md) |
+| React Native | [`sdks/react-native`](../../sdks/react-native) | Client: React Native 0.72+, Expo, Node 18+, browsers. Health module: React Native 0.80+ with the New Architecture, iOS 15.1+, Android API 26+ | [React Native](react-native.md) |
+| Flutter | [`sdks/flutter`](../../sdks/flutter) | Client: Flutter 3.22+ and Dart 3.4+ (iOS, Android, desktop, web). Health plugin: Flutter 3.41+, iOS 15+, Android API 26+ | [Flutter](flutter.md) |
 
 **Status: 0.1.0, not on any package registry yet.** Install them from this repository (each guide
 says how). Package names and coordinates are set when the first version is published.
@@ -31,7 +31,7 @@ Example apps for iOS, Android and React Native, built on these SDKs, are in
 
 - **The core routes.** Providers, users, tokens, connections, freshness, the read routes
   (samples, category samples, sleep and its phases, workouts and their routes, nutrition, daily
-  summaries), coverage, FHIR R4 Observations and the Apple Health upload: 23 or 24 of the 157
+  summaries), coverage, FHIR R4 Observations and the Apple Health upload: 23 to 36 of the 170
   operations of the OpenAPI file ([the list](#what-each-sdk-covers)).
 - **Typed records.** One type per schema those routes return, with the same field names in the
   language's own case. Fields the server adds later are ignored, not an error.
@@ -45,11 +45,21 @@ Example apps for iOS, Android and React Native, built on these SDKs, are in
   5xx answers and network errors, honouring `Retry-After`, up to 5 attempts; a 4xx stops at once.
 - **No secrets in logs.** Tokens and health values never reach a log line or an error message.
 
-The Swift SDK also reads HealthKit itself and uploads what changed since the last run
-([HealthKit sync](swift.md#healthkit-sync)). It is the only one that reads a health store today.
-The Kotlin, React Native and Flutter SDKs are HTTP clients: they do not read Health Connect or
-HealthKit, so your app reads the store (with the platform API or a community module) and hands the
-records to the SDK or to the upload route. Reading Health Connect is planned for the Kotlin SDK.
+Each SDK also reads the phone's health store and uploads what changed since the last run, in the
+foreground and in the background:
+
+| SDK | Reads | How |
+|---|---|---|
+| Swift | HealthKit | `HealthKitSync` in `OpenHealthSyncHealthKit` ([HealthKit sync](swift.md#healthkit-sync)) |
+| Kotlin | Health Connect | `HealthConnectSync` in the `open-health-sync-health-connect` module ([Health Connect sync](kotlin.md#health-connect-sync)) |
+| React Native | HealthKit and Health Connect | The native module `open-health-sync-react-native/health`, over the Swift and Kotlin SDKs. Needs a native build, so it does not load in Expo Go ([Health store sync](react-native.md#health-store-sync)) |
+| Flutter | HealthKit and Health Connect | The plugin `open_health_sync_health`, over the Swift and Kotlin SDKs ([Health store sync](flutter.md#health-store-sync)) |
+
+The React Native and Flutter readers run the Swift and Kotlin code, so the mapping of records to
+upload lines is the same everywhere. The Swift reader has an [iOS example](../../examples/ios/README.md)
+app. The React Native module has run on an iOS simulator (it loads and stores its credentials;
+no real sync), and the Kotlin reader and the Flutter plugin only in unit tests and builds, on no
+device or emulator. Each guide says what was verified.
 
 The Swift and Kotlin SDKs also upload what standard Bluetooth health devices send (straps, cuffs,
 scales, glucose meters, thermometers, pulse oximeters): see
@@ -73,16 +83,19 @@ in Swift.
 | FHIR R4 Observation: search and read | `searchFhirObservations`, `readFhirObservation` | Yes | Yes | Yes | Yes |
 | `POST /v1/ingest/apple-health` | `uploadAppleHealthPart`, `uploadParts` | Yes | Yes | Yes | Yes |
 | `POST /v1/ingest/bluetooth` | `uploadBluetoothPart` | Yes | Yes | No | No |
-| `POST /v1/ingest/health-connect` | none | No | No | No | No |
-| Reads HealthKit on the device | `HealthKitSync` | No | Yes | No | No |
-| Reads Health Connect on the device | none | No | No | No | No |
+| `POST /v1/ingest/health-connect` | `uploadHealthConnectPart` | Yes | No | No | No |
+| Hosted connection page, `POST /v1/users/{id}/connect-sessions` | `createConnectSession` | No | Yes | No | No |
+| Sample stats, RR intervals, HRV, ECG list and detail | `sampleStats`, `listRRIntervals`, `listHRV`, `listECGRecordings`, `getECGRecording` | No | Yes | No | No |
+| Time tags: create, list, get, update, delete | `createTimeTag`, `listTimeTags`, `getTimeTag`, `updateTimeTag`, `deleteTimeTag` | No | Yes | No | No |
+| `POST /v1/users/{id}/self-reports` | `createSelfReports` | No | Yes | No | No |
+| Reads HealthKit on the device | `HealthKitSync`; the React Native and Flutter modules | No | Yes | Yes, native module | Yes, plugin |
+| Reads Health Connect on the device | `HealthConnectSync`; the React Native and Flutter modules | Yes, `health-connect` module | No | Yes, native module | Yes, plugin |
 | Standard Bluetooth health devices | `BluetoothRecorder` decodes the GATT values; `BluetoothConnector` (Swift only) also scans and connects | Decodes values your app's Bluetooth code receives | Yes | No | No |
-| Operations of the API covered | | 24 of 157 | 24 of 157 | 23 of 157 | 23 of 157 |
+| Operations of the API covered | | 25 of 170 | 36 of 170 | 23 of 170 | 23 of 170 |
 
-Not covered by any of the four: the hosted connection page (`connect-sessions`), consent,
-webhook endpoints, exports and the user archive, the other FHIR resources, Open mHealth, time
-tags, self reports, share links, menstrual cycles, sync runs, API keys, the audit log and the
-admin routes. Call those from your backend with a [server SDK](../server-sdks.md), which has one
+Not covered by any of the four: consent, webhook endpoints and the event stream, exports and the
+user archive, lab results, the other FHIR resources, Open mHealth, share links, menstrual cycles,
+sync runs, API keys, the audit log and the admin routes. Call those from your backend with a [server SDK](../server-sdks.md), which has one
 method per operation, or over plain HTTP.
 
 ## Which credential goes where
@@ -93,7 +106,7 @@ app and read every user of the tenant. The API splits the work this way:
 | Who | Credential | Calls |
 |---|---|---|
 | Your backend | tenant key | everything except the upload: users, tokens, connections and `startConnection`, freshness, every read route, coverage, FHIR |
-| The app | user token with the `upload` scope, minted by your backend | `uploadAppleHealthPart`, `uploadParts` and `uploadBluetoothPart` only |
+| The app | user token with the `upload` scope, minted by your backend | the uploads (`uploadAppleHealthPart`, `uploadParts`, `uploadBluetoothPart`, `uploadHealthConnectPart`), the health store readers, and in Swift `createSelfReports` for its own user |
 
 A user token gets 403 on every other route the SDKs call: they are tenant routes. (A token with
 the `read` scope reads only through the [MCP server](../mcp.md), for a person's own AI agent,

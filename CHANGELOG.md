@@ -9,14 +9,72 @@ release may change the API, the configuration or the database schema.
 
 ## [0.3.0] - 2026-11-11
 
-A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
-samples leave the server, a stress and fuzz pass fixed how `ohs` behaves under load, outages and
-bad input, and many figures are now validated. Migration `0043` applies on start. The compose file
-caps `ohs` at 1 GB, Garmin notifications need `OHS_GARMIN_INBOUND_TOKEN`, and an uploaded part may
-expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before you upgrade.
+Health data is sealed per user at rest (the vault), API keys take scopes, events stream over
+Server-Sent Events, lab results can be uploaded, Wahoo joins the connectors, and the Kotlin, React
+Native and Flutter SDKs read Health Connect and HealthKit. Each provider is also pulled on its own
+schedule, deleted and edited HealthKit samples leave the server, and a stress and fuzz pass fixed
+how `ohs` behaves under load, outages and bad input. Migrations `0043` to `0055` apply on start
+(`0050` rewrites `quantity_samples` once). Run `ohs vault seal` after the upgrade, and read the
+[release notes](docs/release-notes/v0.3.0.md) before you upgrade: they list every change in
+behaviour.
 
 ### Added
 
+- Health data vault: every health value at rest is sealed under keys of one user
+  ([security model](docs/security-model.md#health-data-vault), [spec](docs/specs/vault.md)).
+  The rows of `ohs_data` (samples, sleep, workouts, nutrition, observations, daily summaries,
+  time tags, failed records, the hourly buckets) carry their values, metadata, source and
+  device fields in one XChaCha20-Poly1305 seal under the user's data key, bound to tenant, user,
+  table and row; ids, provider, record type, times and unit stay clear for queries. Raw objects
+  are sealed at ingestion to the user's public keys (ML-KEM-1024 and X25519 hybrid KEM), so a
+  process running `collect` alone writes what it cannot read. Dedup hashes and source keys are
+  HMAC-SHA-256 under the user's index key. Keys: a root key, a key per tenant wrapped by it, and
+  per user a data key, an index key and a KEM key pair wrapped by the tenant key
+  (`ohs_core.vault_keys`), created with the user and shredded first when the user is erased.
+  The root key comes from `OHS_VAULT_KEY_PROVIDER`: `local` (default: `OHS_VAULT_ROOT_KEY` or
+  `OHS_VAULT_ROOT_KEY_FILE`, derived from `OHS_ENCRYPTION_KEY` with HKDF-SHA-256 when neither is
+  set), `hashicorp` (Vault transit), `azurekv` (Azure Key Vault or Managed HSM) or `awskms`; the
+  last two are behind the `azurekv` and `awskms` build tags, which the release binaries and
+  image use. Unwrapped keys are cached (`OHS_VAULT_CACHE_USERS`, `OHS_VAULT_CACHE_TTL`). Every
+  read path opens sealed rows (REST, stats folded in Go from sealed hourly buckets, FHIR, Open
+  mHealth, exports, the archive, MCP, share links); a row that does not open is a 500 with the
+  audit event `vault.open_failed`, never a shorter page. An `api` or `etl` process whose key
+  provider does not open the tenant keys refuses to start. New commands: `ohs vault status
+  [--check]`, `ohs vault seal` (converts what an earlier version stored, in batches, resumable),
+  `ohs vault rotate root|tenant|user` and `ohs vault reseal`. `ohs doctor` reports the provider,
+  tenant keys under a previous root and what is still clear; `ohs admin rekey` rewraps the tenant
+  keys under a derived root after a rotation of `OHS_ENCRYPTION_KEY`. Audit events
+  `vault.key_created`, `vault.key_rotated`, `vault.user_shredded`, `vault.seal_progress`; metrics
+  `ohs_vault_seals_total`, `ohs_vault_opens_total`, `ohs_vault_open_failures_total`. Migration
+  `0050` adds the tables and columns and fills the promoted clear columns.
+- Wahoo connector: workouts and workout summaries (distance, speed, ascent, energy, heart rate;
+  power, normalized power, TSS and cadence in metadata), body mass and height, through the Wahoo
+  Cloud API with OAuth, scheduled pulls and workout summary webhooks (`OHS_WAHOO_CLIENT_ID`,
+  `OHS_WAHOO_CLIENT_SECRET`, optional `OHS_WAHOO_WEBHOOK_TOKEN`). FIT files are not downloaded:
+  the Wahoo API agreement forbids storing location. See
+  [docs/connectors/wahoo.md](docs/connectors/wahoo.md).
+- Sandbox provider, off unless `OHS_SANDBOX_ENABLED=true`: a complete OAuth connect flow against
+  an authorization server inside the instance, and deterministic synthetic sleep, heart rate,
+  steps and workouts, each record marked synthetic, to try the connect flow without a vendor
+  developer account. For evaluation only. See
+  [docs/connectors/sandbox.md](docs/connectors/sandbox.md).
+- Pages for sources with no public API a developer can register for, or whose terms forbid
+  automated access, each naming the supported way in: Peloton, Zwift, MyFitnessPal and
+  Cronometer are new; the COROS and FreeStyle Libre (LibreView) pages are rewritten with the
+  checks of 2026-11-12.
+- Kotlin SDK: the `open-health-sync-health-connect` Android module reads Health Connect and
+  uploads what changed (`HealthConnectSync`): incremental sync with change tokens, an offline
+  queue of gzip parts, a WorkManager job for background sync, 22 record types. The client gains
+  `uploadHealthConnectPart`. Unit tested on the JVM against a fake Health Connect client; not
+  run on a device yet. See [docs/sdks/kotlin.md](docs/sdks/kotlin.md#health-connect-sync).
+- React Native SDK: `open-health-sync-react-native/health`, a Turbo Native Module that reads
+  HealthKit and Health Connect through the Swift and Kotlin SDKs and uploads what changed, in the
+  foreground and the background, with an Expo config plugin. Needs React Native 0.80+ with the
+  New Architecture and a native build (not Expo Go). Built for Android and iOS and run on an iOS
+  simulator. See [docs/sdks/react-native.md](docs/sdks/react-native.md#health-store-sync).
+- Flutter SDK: the `open_health_sync_health` plugin reads HealthKit and Health Connect through the
+  Swift and Kotlin SDKs and uploads what changed. Flutter 3.41+, iOS 15+, Android API 26+. Not run
+  on a device yet. See [docs/sdks/flutter.md](docs/sdks/flutter.md#health-store-sync).
 - Real-time event stream: `GET /v1/events/stream` (`webhooks:read`) streams the events webhooks
   carry as Server-Sent Events, with the same names and JSON body and never a health value, for
   a backend without a public HTTPS receiver. `GET /v1/users/{id}/events/stream` (`data:read`)
@@ -149,8 +207,11 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
   mind; `HealthKitSync.allSupportedTypes` and grouped subsets; client methods for connect
   sessions, stats, RR intervals, HRV, ECG, time tags and self reports; installs by repository URL
   from this release (root `Package.swift`).
-- Helm: worker pods of a split-role release get a liveness probe; `allowNewerSchema`.
+- Helm: `allowNewerSchema` starts the pods with `serve --allow-newer-schema`. The worker pods of a
+  split-role release are probed on their ops listener (above).
 - A daily check that the image the compose file runs by default exists on the registry.
+- A `deploy-render` CI job (`scripts/check-deploy-render.sh`) lints and renders the Helm chart
+  against Kubernetes schemas, validates the Caddyfile and checks the compose files.
 - [What the hosted beta does with data](docs/hosted-beta.md).
 
 ### Changed
@@ -393,8 +454,14 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 - Retention counted no row of a dropped chunk and missed `daily_summaries` chunks by one day when
   the session time zone was not UTC.
 - Swift SDK: `requestAuthorization` no longer crashes on a correlation type.
-- The docs no longer say the mobile SDKs cover every API route, or that the Kotlin, React Native
-  and Flutter SDKs read Health Connect.
+- The docs no longer say the mobile SDKs cover every API route.
+- An ETL worker claims the next job as soon as one ends instead of sleeping its idle interval.
+  With one job per user at a time, a user's backlog drained at about 0.6 jobs a second; 20 small
+  jobs of one user now take about 2 seconds instead of 30.
+- The Caddyfile set its default security headers only when all of them were missing, so a page
+  that sent one of its own lost the others; each header now has its own line.
+- Helm: labels and names are quoted, so a release or an override named like a YAML boolean or
+  number still renders, and `allowNewerSchema` takes effect only when set to `true`.
 - The ETL no longer collects the days an upload touches twice per batch: the second pass, which
   only matters when the batch deleted samples, now runs only then. The time zone a sample names is
   loaded once per process instead of once per sample, which read and parsed tzdata again for every
