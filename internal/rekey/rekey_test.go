@@ -22,6 +22,9 @@ var notSealed = map[string]bool{
 	"sealed":      true, // a row sealed under the user key
 	"content_mac": true, // keyed MAC of a sealed row's content
 	"source_key":  true, // keyed HMAC of a record's source
+	// series_blobs.points (migration 0053): a series compressed, and sealed
+	// under the user key when the vault holds keys.
+	"points": true,
 }
 
 // Every bytea column a migration adds is either a sealed column Run walks or
