@@ -24,6 +24,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/console"
+	"github.com/soma-intelligence/open-health-sync/internal/consolesession"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/fusion"
 	"github.com/soma-intelligence/open-health-sync/internal/mcp"
@@ -196,6 +197,11 @@ type server struct {
 	sink func(audit.Event)
 	// schema caches the schema version check of /readyz.
 	schema schemaCheck
+	// sessions resolves the console cookie; nil when the console is off.
+	sessions *consolesession.Store
+	// apiLimit is the live limiter of limitedLookup, shared with the console
+	// session lookup so a cookie and a key of one id count together.
+	apiLimit *liveLimiter
 }
 
 // NewRouter returns the handler for every route of the public API and the ops
@@ -212,7 +218,11 @@ func newServer(d Deps) *server {
 	if s.lookup == nil {
 		s.lookup = d.Store.LookupKey
 	}
-	s.lookup = s.limitedLookup(s.lookup, s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.API, RateLimit{} }))
+	s.apiLimit = s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.API, RateLimit{} })
+	s.lookup = s.limitedLookup(s.lookup, s.apiLimit)
+	if d.Console {
+		s.sessions = consolesession.New(d.Pool)
+	}
 	s.authFail = newLiveAuthFailures(func() RateLimit { return s.limits().AuthFailures })
 	if d.Audit != nil {
 		s.metrics.auditDropped = d.Audit.Dropped
@@ -360,6 +370,9 @@ func (s *server) instrument(next http.Handler) http.Handler {
 		r = r.WithContext(s.sealedReads(withAuditNotes(ctx)))
 		slot.OnFailure(func(auth.Failure) (time.Duration, bool) { return s.refused(r) })
 		slot.RequireScope(routeScope)
+		if s.sessions != nil {
+			slot.AcceptSession(s.sessionAuth)
+		}
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
 			v := recover()

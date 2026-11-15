@@ -131,10 +131,15 @@ func (s *server) pathTenant(w http.ResponseWriter, r *http.Request) (tenant.Tena
 // admin, named by its key, the admin's tenant in the detail. The store adds
 // the target tenant and, for a key, its id and prefix.
 func adminEvent(r *http.Request, p auth.Principal, action string, status int, detail map[string]any) audit.Event {
-	d := map[string]any{"admin_tenant_id": p.TenantID.String()}
+	d := map[string]any{"admin_tenant_id": p.Actor().String()}
 	maps.Copy(d, detail)
-	return audit.Event{ActorType: audit.Admin, ActorID: "api_key:" + p.KeyID, Action: action,
+	ev := audit.Event{ActorType: audit.Admin, ActorID: "api_key:" + p.KeyID, Action: action,
 		Method: r.Method, Route: r.Pattern, Status: status, RequestID: reqid.From(r.Context()), Detail: d}
+	if p.SessionID != uuid.Nil {
+		at := p.ActorTenantID
+		ev.ActorTenant = &at
+	}
+	return ev
 }
 
 // checkAdminTenantName returns why a trimmed tenant name is refused, or "".
@@ -288,7 +293,7 @@ func (s *server) revokeAdminTenantKey(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "API key")
 		return
 	}
-	if tenantID == p.TenantID && keyID.String() == p.KeyID {
+	if tenantID == p.Actor() && keyID.String() == p.KeyID {
 		problem(w, http.StatusConflict, "this is the key making the call: revoke it with another key of the tenant")
 		return
 	}

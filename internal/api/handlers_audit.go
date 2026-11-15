@@ -57,6 +57,9 @@ func (s *server) mountAudit(mux *http.ServeMux) {
 // that fails is logged and counted, never turned into an error for the
 // caller, who already has the response.
 func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope string) {
+	if sessionOwnEvent[r.Pattern] {
+		return // the handler writes its own event
+	}
 	ev := audit.Event{
 		Tenant:    p.TenantID,
 		ActorType: audit.APIKey,
@@ -66,6 +69,10 @@ func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope
 		Route:     r.Pattern,
 		Status:    code,
 		RequestID: reqid.From(r.Context()),
+	}
+	if p.SessionID != uuid.Nil {
+		at := p.ActorTenantID
+		ev.ActorTenant = &at
 	}
 	if p.UserID != nil {
 		ev.ActorType = audit.UserToken
