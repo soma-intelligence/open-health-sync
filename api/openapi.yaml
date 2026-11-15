@@ -3821,6 +3821,7 @@ paths:
           description: The revision moved. `ETag` is the current one.
           headers:
             ETag:
+              description: The current settings revision, quoted; send it back as `If-Match` to retry.
               schema: { type: string }
           content:
             application/problem+json:
@@ -3832,6 +3833,12 @@ paths:
               schema: { $ref: "#/components/schemas/AdminSettingsProblem" }
         "428":
           description: No `If-Match`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500":
+          description: The settings could not be read or saved.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
