@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"net"
 	"net/http"
 	"sort"
@@ -51,7 +52,7 @@ func startInstance(t *testing.T) (string, string) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- app.Run(ctx, cfg) }()
+	go func() { done <- app.Run(ctx, cfg, settings.Start{}) }()
 	t.Cleanup(func() {
 		cancel()
 		select {

@@ -51,6 +51,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
@@ -88,8 +89,9 @@ const (
 // (an unsettled job claim is reclaimed later). Run returns at most ShutdownGrace plus a small margin
 // after ctx ends, and closes the database pool last. It returns the first
 // error that stopped a role early.
-func Run(ctx context.Context, cfg config.Config) error {
-	return runWith(ctx, cfg, os.Stderr, options{grace: ShutdownGrace, margin: shutdownMargin, memLimit: true})
+func Run(ctx context.Context, cfg config.Config, start settings.Start) error {
+	return runWith(ctx, cfg, os.Stderr, options{grace: ShutdownGrace, margin: shutdownMargin, memLimit: true,
+		start: start, lookup: os.LookupEnv, environ: os.Environ()})
 }
 
 // Version is logged at start (set by ohs serve).
@@ -123,6 +125,12 @@ type options struct {
 	// claimed ETL job excuses its loop, in place of jobBusyLimit.
 	noMinStall bool
 	jobLimit   time.Duration
+	// start is what Boot learned about the stored settings; lookup and
+	// environ are the environment the configuration was read from. Nil
+	// lookup and environ mean os.LookupEnv and os.Environ().
+	start   settings.Start
+	lookup  func(string) (string, bool)
+	environ []string
 }
 
 func run(ctx context.Context, cfg config.Config, logOut io.Writer) error {
