@@ -134,8 +134,8 @@ func newLiveLimiter(get func() (perAddr, global RateLimit)) *liveLimiter {
 // concurrent requests: when several see a change, one rebuild wins and all
 // use it.
 func (l *liveLimiter) current() *rateLimiter {
-	p, g := l.get()
 	for {
+		p, g := l.get() // read inside the loop: a stale reader never swaps an old limiter back
 		st := l.cur.Load()
 		if st != nil && st.perAddr == p && st.global == g {
 			return st.l
