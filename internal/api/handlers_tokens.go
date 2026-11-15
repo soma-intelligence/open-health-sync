@@ -109,7 +109,7 @@ func (s *server) mintToken(w http.ResponseWriter, r *http.Request) {
 	// the token. An admin serving another tenant mints with a key that is
 	// not this tenant's; such a token is tied to no key.
 	var mintedBy *uuid.UUID
-	if k, err := uuid.Parse(p.KeyID); err == nil && ownTenant(r, p) {
+	if k, err := uuid.Parse(p.KeyID); err == nil && ownTenant(r, p.TenantID) {
 		mintedBy = &k
 	}
 	token, exp, err := s.d.Store.MintUserTokenBy(r.Context(), p.TenantID, id, req.Scopes, time.Duration(req.TTLSeconds)*time.Second, mintedBy)

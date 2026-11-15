@@ -178,3 +178,37 @@ func TestConsoleOffIgnoresCookie(t *testing.T) {
 	cookie, _ := e.session(e.keyA)
 	assert.Equal(t, http.StatusUnauthorized, e.do("GET", "/v1/users", "", nil, "Cookie", ck(cookie)).code)
 }
+
+// An admin session of A acting as B: an admin route is recorded on A, the
+// settings are updated by A, and B's own audit log shows none of it.
+func TestConsoleSessionAdminRouteRecordsOnSessionTenant(t *testing.T) {
+	e, _ := settingsEnv(t, withConsole)
+	cookie, csrf, sess, err := consolesession.New(e.pool).Create(context.Background(), e.tenantA, e.keyIDOf(e.keyA), false)
+	require.NoError(t, err)
+	_, err = consolesession.New(e.pool).SetActingTenant(context.Background(), sess.ID, e.tenantB)
+	require.NoError(t, err)
+
+	r := e.do("GET", "/v1/admin/settings", "", nil, "Cookie", ck(cookie))
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	var sb settingsBody
+	r.json(t, &sb)
+	r = e.do("PATCH", "/v1/admin/settings", "", `{"OHS_WEBHOOK_PAUSE_AFTER": "9"}`, "Cookie", ck(cookie),
+		auth.CSRFHeader, csrf, "If-Match", etag(sb.Revision), "Content-Type", "application/json")
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+
+	var by uuid.UUID
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT updated_by FROM ohs_core.instance_settings WHERE name = 'OHS_WEBHOOK_PAUSE_AFTER'`).Scan(&by))
+	assert.Equal(t, e.tenantA, by, "updated_by is the session tenant, not the tenant viewed")
+
+	var onA, onB int
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT count(*) FILTER (WHERE tenant_id = $1 AND actor_tenant_id = $1), count(*) FILTER (WHERE tenant_id = $2)
+		 FROM ohs_core.audit_events WHERE route LIKE '% /v1/admin/settings'`, e.tenantA, e.tenantB).Scan(&onA, &onB))
+	assert.Equal(t, 2, onA)
+	assert.Zero(t, onB)
+
+	r = e.do("GET", "/v1/audit?limit=100", e.keyB, nil)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	assert.NotContains(t, string(r.body), "/v1/admin/settings")
+}
