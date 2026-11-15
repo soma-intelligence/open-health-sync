@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
+	"github.com/soma-intelligence/open-health-sync/internal/consolesession"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/shl"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
@@ -42,6 +43,8 @@ const (
 	DefaultTrackingEvery    = 24 * time.Hour
 	DefaultHeartbeatsEvery  = 24 * time.Hour
 
+	DefaultConsoleSessionsEvery = 24 * time.Hour
+
 	defaultRunTimeout  = 5 * time.Minute
 	defaultLongTimeout = time.Hour
 	defaultJitter      = 0.1
@@ -49,7 +52,7 @@ const (
 
 // Intervals sets how often each job runs. A zero value means the default.
 type Intervals struct {
-	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune, Shares, Tracking, Heartbeats time.Duration
+	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune, Shares, Tracking, Heartbeats, ConsoleSessions time.Duration
 }
 
 // Deps is everything Start needs.
@@ -185,6 +188,15 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 		n, err := shl.PurgeExpired(ctx, deps.Pool)
 		if n > 0 {
 			slog.InfoContext(ctx, "expired share link files removed", "shares", n)
+		}
+		return err
+	}))
+	// Always scheduled: rows may outlive OHS_CONSOLE=false.
+	cs := consolesession.New(deps.Pool)
+	s.Add("console_sessions", or(deps.Intervals.ConsoleSessions, DefaultConsoleSessionsEvery), timeout, counted(func(ctx context.Context) error {
+		n, err := cs.PurgeEnded(ctx)
+		if n > 0 {
+			slog.InfoContext(ctx, "console sessions purged", "rows", n)
 		}
 		return err
 	}))

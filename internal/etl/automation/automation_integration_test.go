@@ -438,8 +438,8 @@ func TestStartRegistersRetentionOnlyWhenEnabled(t *testing.T) {
 		}
 		return out
 	}
-	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "tracking"}, names(0))
-	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "tracking", "retention"}, names(30))
+	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "console_sessions", "files", "tracking"}, names(0))
+	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "console_sessions", "files", "tracking", "retention"}, names(30))
 	withHB, err := newScheduler(Deps{Pool: e.pool, Store: e.rs, RetentionDays: 30,
 		PruneHeartbeats: func(context.Context) (int64, error) { return 0, nil }})
 	require.NoError(t, err)
@@ -451,7 +451,7 @@ func TestStartRegistersRetentionOnlyWhenEnabled(t *testing.T) {
 			hbEvery = tk.interval
 		}
 	}
-	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "tracking", "heartbeats", "retention"}, hbNames)
+	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "console_sessions", "files", "tracking", "heartbeats", "retention"}, hbNames)
 	require.Equal(t, 24*time.Hour, hbEvery)
 	off, err := newScheduler(Deps{Pool: e.pool, Store: e.rs, TrackingRetentionDays: -1})
 	require.NoError(t, err)
@@ -472,6 +472,7 @@ func TestStartRegistersRetentionOnlyWhenEnabled(t *testing.T) {
 	require.Equal(t, 24*time.Hour, got["retention"])
 	require.Equal(t, time.Hour, got["idempotency"])
 	require.Equal(t, time.Hour, got["shares"])
+	require.Equal(t, 24*time.Hour, got["console_sessions"])
 }
 
 func TestStartRunsJobsAndStopsOnCancel(t *testing.T) {
