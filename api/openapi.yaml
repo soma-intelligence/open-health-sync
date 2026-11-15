@@ -3734,6 +3734,154 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/admin/settings:
+    get:
+      tags: [admin]
+      operationId: listAdminSettings
+      x-required-scope: "admin:read"
+      summary: Every runtime setting of this instance and where its value comes from (instance admin)
+      description: |
+        Only a key of the instance admin tenant may call it (403 otherwise). Every setting of the
+        registry, in registry order, with its effective value, its source (`env`, `console` or
+        `default`), and when it applies (`live` within moments, `restart` at the next start,
+        `bootstrap` only from the environment). A secret is never served: `value` is `"set"` or
+        null. The `ETag` is the settings revision; send it back as `If-Match` on `PATCH`.
+      responses:
+        "200":
+          description: The settings.
+          headers:
+            ETag:
+              description: The settings revision, quoted.
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminSettings" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    patch:
+      tags: [admin]
+      operationId: updateAdminSettings
+      x-required-scope: "admin:write"
+      summary: Save settings, all or nothing (instance admin)
+      description: |
+        The body maps setting names to a new value (a string) or null (back to the default).
+        `If-Match` carries the revision you read (`"5"` or `W/"5"`): 428 without it, 400 when it is
+        malformed or `*`, 412 when the revision moved (the problem carries the current `ETag`).
+        Nothing is stored unless every change passes: 409 when a setting is `bootstrap` or set by
+        the environment, 422 when a value is refused or the combination is invalid, each with one
+        entry per setting at fault. An empty string is a 422: send null. A secret is sealed with
+        `OHS_ENCRYPTION_KEY` and never served back. Recorded in the audit log as `config.write`
+        with the names that changed, never their values.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: The settings revision, quoted. `W/"<revision>"` is accepted.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminSettingsPatch" }
+      responses:
+        "200":
+          description: Saved. A body that changes nothing answers the unchanged revision and two empty lists.
+          headers:
+            ETag:
+              description: The new settings revision, quoted.
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revision, changed, restart_required]
+                properties:
+                  revision: { type: integer, format: int64 }
+                  changed:
+                    type: array
+                    description: The names saved or reset, sorted.
+                    items: { type: string }
+                  restart_required:
+                    type: array
+                    description: The names of `changed` that apply at the next start of each process, sorted.
+                    items: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: "A setting is not the console's to change (`bootstrap: ...` or `env: ...`)."
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/AdminSettingsProblem" }
+        "412":
+          description: The revision moved. `ETag` is the current one.
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: A value, or the combination, is refused. One entry per setting.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/AdminSettingsProblem" }
+        "428":
+          description: No `If-Match`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/admin/settings/export:
+    get:
+      tags: [admin]
+      operationId: exportAdminSettings
+      x-required-scope: "admin:read"
+      summary: The settings as an .env file (instance admin)
+      description: |
+        The first line is `# Open Health Sync settings, revision <n>`; then, per section, a line
+        `# <Section>` and per setting a comment and `OHS_X=<value>`. A secret is never written: a
+        set one gets `# set, value not exported` and an empty assignment.
+      responses:
+        "200":
+          description: The .env file.
+          headers:
+            Content-Disposition:
+              schema: { type: string, const: 'attachment; filename="ohs.env"' }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/admin/processes:
+    get:
+      tags: [admin]
+      operationId: listAdminProcesses
+      x-required-scope: "admin:read"
+      summary: The processes of this instance and the settings each one runs (instance admin)
+      description: |
+        Every process that reported within the last two minutes, by start time then id.
+        `behind` is true when it started before the last change to a `restart` setting;
+        `stale` when its live revision trails the stored one for over a minute.
+      responses:
+        "200":
+          description: The processes.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminProcesses" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /v1/admin/providers:
     get:
       tags: [admin]
@@ -6324,6 +6472,106 @@ components:
         secret: { type: boolean }
         set: { type: boolean }
         value: { type: [string, "null"], description: The saved value of a key that is not a secret. Secrets are never served. }
+
+    AdminSetting:
+      type: object
+      required: [name, label, section, help, type, min, max, values, default, default_note, secret, apply, source, value, stored_value, invalid]
+      properties:
+        name: { type: string, examples: [OHS_WEBHOOK_PAUSE_AFTER] }
+        label: { type: string }
+        section: { type: string }
+        help: { type: string }
+        type: { type: string, enum: [bool, int, duration, enum, url, list, rate, string] }
+        min: { type: [integer, "null"], format: int64, description: "The lower bound of an `int`, else null." }
+        max: { type: [integer, "null"], format: int64, description: "The upper bound of an `int`, else null." }
+        values:
+          type: [array, "null"]
+          description: The choices of an `enum`, else null.
+          items: { type: string }
+        default: { type: string, description: "The default as a string; empty when it is derived (see `default_note`)." }
+        default_note: { type: [string, "null"], description: How a derived default is computed. }
+        secret: { type: boolean, description: "Write only; its value is never served." }
+        apply:
+          type: string
+          enum: [live, restart, bootstrap]
+          description: |
+            `live` is applied by every process within moments, `restart` when a process next starts,
+            `bootstrap` is read from the environment before the database opens and cannot be edited here.
+        source: { type: string, enum: [env, console, default] }
+        value:
+          type: [string, "null"]
+          description: The effective value; for a secret `"set"`, or null when it is not set.
+        stored_value:
+          type: [string, "null"]
+          description: The value saved in the console while `source` is `env` (`"set"` for a secret), else null.
+        invalid:
+          type: [string, "null"]
+          description: Why the saved value is skipped, else null.
+
+    AdminSettings:
+      type: object
+      required: [revision, data]
+      properties:
+        revision: { type: integer, format: int64 }
+        data:
+          type: array
+          description: Every setting, in registry order.
+          items: { $ref: "#/components/schemas/AdminSetting" }
+
+    AdminSettingsPatch:
+      type: object
+      description: Setting name to its new value, or null to go back to the default.
+      minProperties: 1
+      additionalProperties: { type: [string, "null"] }
+      examples:
+        - { OHS_WEBHOOK_PAUSE_AFTER: "10", OHS_RETENTION_DAYS: null }
+
+    AdminSettingsProblem:
+      description: A refused settings change, with one entry per setting at fault.
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          required: [settings]
+          properties:
+            settings:
+              type: array
+              items:
+                type: object
+                required: [name, message]
+                properties:
+                  name: { type: string }
+                  message: { type: string }
+
+    AdminProcess:
+      type: object
+      required: [id, host, roles, version, started_at, seen_at, start_revision, live_revision, skipped, reload_error, behind, stale]
+      properties:
+        id: { type: string, format: uuid }
+        host: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+        version: { type: string }
+        started_at: { type: string, format: date-time }
+        seen_at: { type: string, format: date-time }
+        start_revision: { type: integer, format: int64 }
+        live_revision: { type: integer, format: int64 }
+        skipped:
+          type: array
+          description: Saved settings this process did not use (names only).
+          items: { type: string }
+        reload_error: { type: [string, "null"] }
+        behind: { type: boolean, description: It started before the last change to a `restart` setting. }
+        stale: { type: boolean, description: Its live revision trails the stored one for over a minute. }
+
+    AdminProcesses:
+      type: object
+      required: [revision, data]
+      properties:
+        revision: { type: integer, format: int64 }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/AdminProcess" }
 
     AdminProviderPatch:
       type: object

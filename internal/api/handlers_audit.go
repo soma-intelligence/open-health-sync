@@ -23,6 +23,28 @@ const auditTimeout = 2 * time.Second
 // identifiers, never a value read or written.
 var auditPathValues = []string{"tenant_id", "provider", "key_id", "job_id", "token_id"}
 
+type auditNotesKey struct{}
+
+// withAuditNotes gives the request an empty notes map: instrument calls it
+// once, a handler fills it with auditNote, audit merges it into the event.
+func withAuditNotes(ctx context.Context) context.Context {
+	return context.WithValue(ctx, auditNotesKey{}, map[string]any{})
+}
+
+// auditNote adds key to the detail of the request's own audit event. Names
+// and counts only, never a value read or written. Without a notes map in the
+// context (a handler run outside instrument) it does nothing.
+func auditNote(r *http.Request, key string, value any) {
+	if m, ok := r.Context().Value(auditNotesKey{}).(map[string]any); ok {
+		m[key] = value
+	}
+}
+
+func auditNotesOf(r *http.Request) map[string]any {
+	m, _ := r.Context().Value(auditNotesKey{}).(map[string]any)
+	return m
+}
+
 func (s *server) mountAudit(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/audit", s.listAudit)
 }
@@ -59,6 +81,13 @@ func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope
 			}
 			ev.Detail[name] = v
 		}
+	}
+	// What the handler chose to say about the request (auditNote).
+	for k, v := range auditNotesOf(r) {
+		if ev.Detail == nil {
+			ev.Detail = map[string]any{}
+		}
+		ev.Detail[k] = v
 	}
 	// A request refused for a key scope (403) says which one.
 	if missingScope != "" {

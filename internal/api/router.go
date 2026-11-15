@@ -30,6 +30,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
@@ -107,6 +108,10 @@ type Deps struct {
 	MetricsMux *http.ServeMux
 	// ETLMetrics is exported on /metrics when set (the etl role runs here).
 	ETLMetrics *automation.Metrics
+	// Settings are the live runtime settings: GET and PATCH /v1/admin/settings,
+	// GET /v1/admin/settings/export and GET /v1/admin/processes. Nil leaves
+	// the four routes out. The one Live of the process: never build a second.
+	Settings *settings.Live
 	// Collect serves the connection, OAuth callback and notification routes.
 	// Nil leaves them out.
 	Collect *collect.Handlers
@@ -352,7 +357,7 @@ func (s *server) instrument(next http.Handler) http.Handler {
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(semconv.HTTPRequestMethodKey.String(method), attribute.String(tracing.AttrRequestID, id)))
 		ctx, slot := auth.WithSlot(reqid.With(ctx, id))
-		r = r.WithContext(s.sealedReads(ctx))
+		r = r.WithContext(s.sealedReads(withAuditNotes(ctx)))
 		slot.OnFailure(func(auth.Failure) (time.Duration, bool) { return s.refused(r) })
 		slot.RequireScope(routeScope)
 		sw := &statusWriter{ResponseWriter: w}

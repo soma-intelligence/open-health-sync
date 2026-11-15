@@ -435,8 +435,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			Raw:       raw,
 			Vault:     keyVault,
 			Providers: providers,
-			Metrics:   cfg.Metrics,
-			Console:   cfg.Console,
+			// The one live settings of the process, and the routes that edit them.
+			Settings: live,
+			Metrics:  cfg.Metrics,
+			Console:  cfg.Console,
 			// read-only hides the console's write actions.
 			ConsoleReadOnly: cfg.ConsoleReadOnly,
 			Collect:         collect.NewHandlers(collectDeps),

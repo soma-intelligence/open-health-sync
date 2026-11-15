@@ -366,6 +366,86 @@ export interface AdminProviderKey {
   value: string | null;
 }
 
+export interface AdminSetting {
+  name: string;
+  label: string;
+  section: string;
+  help: string;
+  type: "bool" | "int" | "duration" | "enum" | "url" | "list" | "rate" | "string";
+  /** The lower bound of an `int`, else null. */
+  min: number | null;
+  /** The upper bound of an `int`, else null. */
+  max: number | null;
+  /** The choices of an `enum`, else null. */
+  values: string[] | null;
+  /** The default as a string; empty when it is derived (see `default_note`). */
+  default: string;
+  /** How a derived default is computed. */
+  default_note: string | null;
+  /** Write only; its value is never served. */
+  secret: boolean;
+  /**
+   * `live` is applied by every process within moments, `restart` when a process next starts,
+   * `bootstrap` is read from the environment before the database opens and cannot be edited here.
+   */
+  apply: "live" | "restart" | "bootstrap";
+  source: "env" | "console" | "default";
+  /** The effective value; for a secret `"set"`, or null when it is not set. */
+  value: string | null;
+  /** The value saved in the console while `source` is `env` (`"set"` for a secret), else null. */
+  stored_value: string | null;
+  /** Why the saved value is skipped, else null. */
+  invalid: string | null;
+}
+
+export interface AdminSettings {
+  revision: number;
+  /** Every setting, in registry order. */
+  data: AdminSetting[];
+}
+
+/** Setting name to its new value, or null to go back to the default. */
+export type AdminSettingsPatch = Record<string, string | null>;
+
+/** A refused settings change, with one entry per setting at fault. */
+export interface AdminSettingsProblem {
+  type: string;
+  title: string;
+  status: number;
+  detail?: string;
+  /** The X-Request-Id of the response, to quote when reporting the error. */
+  request_id?: string;
+  settings: AdminSettingsProblemSetting[];
+}
+
+export interface AdminSettingsProblemSetting {
+  name: string;
+  message: string;
+}
+
+export interface AdminProcess {
+  id: string;
+  host: string;
+  roles: string[];
+  version: string;
+  started_at: string;
+  seen_at: string;
+  start_revision: number;
+  live_revision: number;
+  /** Saved settings this process did not use (names only). */
+  skipped: string[];
+  reload_error: string | null;
+  /** It started before the last change to a `restart` setting. */
+  behind: boolean;
+  /** Its live revision trails the stored one for over a minute. */
+  stale: boolean;
+}
+
+export interface AdminProcesses {
+  revision: number;
+  data: AdminProcess[];
+}
+
 export interface AdminProviderPatch {
   /** Key name to its new value; null removes the key. */
   keys?: Record<string, string | null>;
@@ -2403,6 +2483,14 @@ export interface RetryParkedETLJobsRequest {
 
 export interface RetryParkedETLJobsResponse {
   retried: number;
+}
+
+export interface UpdateAdminSettingsResponse {
+  revision: number;
+  /** The names saved or reset, sorted. */
+  changed: string[];
+  /** The names of `changed` that apply at the next start of each process, sorted. */
+  restart_required: string[];
 }
 
 export interface RetryAdminTenantFailedSyncRunsResponse {

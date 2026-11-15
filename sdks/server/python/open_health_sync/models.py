@@ -22,6 +22,9 @@ KeyScope = Literal["*", "tenant:read", "users:read", "users:write", "tokens:writ
 # What the key may do. `["*"]` is everything; never empty.
 KeyScopes = List[KeyScope]
 
+# Setting name to its new value, or null to go back to the default.
+AdminSettingsPatch = Dict[str, Optional[str]]
+
 # `data.written`: a sync wrote new or changed records. `data.deleted`: records the
 # provider deleted were removed. `data.erased`: everything a user held from one provider
 # was erased on your request. `user.deleted`: a user and all their data were erased.
@@ -408,6 +411,85 @@ class AdminProviderKey(TypedDict):
     set: bool
     # The saved value of a key that is not a secret. Secrets are never served.
     value: Optional[str]
+
+
+class AdminSetting(TypedDict):
+    name: str
+    label: str
+    section: str
+    help: str
+    type: Literal["bool", "int", "duration", "enum", "url", "list", "rate", "string"]
+    # The lower bound of an `int`, else null.
+    min: Optional[int]
+    # The upper bound of an `int`, else null.
+    max: Optional[int]
+    # The choices of an `enum`, else null.
+    values: Optional[List[str]]
+    # The default as a string; empty when it is derived (see `default_note`).
+    default: str
+    # How a derived default is computed.
+    default_note: Optional[str]
+    # Write only; its value is never served.
+    secret: bool
+    # `live` is applied by every process within moments, `restart` when a process next starts,
+    # `bootstrap` is read from the environment before the database opens and cannot be edited here.
+    apply: Literal["live", "restart", "bootstrap"]
+    source: Literal["env", "console", "default"]
+    # The effective value; for a secret `"set"`, or null when it is not set.
+    value: Optional[str]
+    # The value saved in the console while `source` is `env` (`"set"` for a secret), else null.
+    stored_value: Optional[str]
+    # Why the saved value is skipped, else null.
+    invalid: Optional[str]
+
+
+class AdminSettings(TypedDict):
+    revision: int
+    # Every setting, in registry order.
+    data: List[AdminSetting]
+
+
+class _AdminSettingsProblemRequired(TypedDict):
+    type: str
+    title: str
+    status: int
+    settings: List[AdminSettingsProblemSetting]
+
+
+class AdminSettingsProblem(_AdminSettingsProblemRequired, total=False):
+    """A refused settings change, with one entry per setting at fault."""
+
+    detail: str
+    # The X-Request-Id of the response, to quote when reporting the error.
+    request_id: str
+
+
+class AdminSettingsProblemSetting(TypedDict):
+    name: str
+    message: str
+
+
+class AdminProcess(TypedDict):
+    id: str
+    host: str
+    roles: List[str]
+    version: str
+    started_at: str
+    seen_at: str
+    start_revision: int
+    live_revision: int
+    # Saved settings this process did not use (names only).
+    skipped: List[str]
+    reload_error: Optional[str]
+    # It started before the last change to a `restart` setting.
+    behind: bool
+    # Its live revision trails the stored one for over a minute.
+    stale: bool
+
+
+class AdminProcesses(TypedDict):
+    revision: int
+    data: List[AdminProcess]
 
 
 class AdminProviderPatch(TypedDict, total=False):
@@ -2481,6 +2563,14 @@ class RetryParkedETLJobsResponse(TypedDict):
     retried: int
 
 
+class UpdateAdminSettingsResponse(TypedDict):
+    revision: int
+    # The names saved or reset, sorted.
+    changed: List[str]
+    # The names of `changed` that apply at the next start of each process, sorted.
+    restart_required: List[str]
+
+
 class RetryAdminTenantFailedSyncRunsResponse(TypedDict):
     retried: int
 
@@ -2501,11 +2591,18 @@ class ReadyzResponse(TypedDict, total=False):
 
 __all__ = [
     "APIKey",
+    "AdminProcess",
+    "AdminProcesses",
     "AdminProvider",
     "AdminProviderKey",
     "AdminProviderPatch",
     "AdminProviderSync",
     "AdminProviderUrl",
+    "AdminSetting",
+    "AdminSettings",
+    "AdminSettingsPatch",
+    "AdminSettingsProblem",
+    "AdminSettingsProblemSetting",
     "AdminTenant",
     "AdminTenantProvider",
     "AdminTenantProviderKeys",
@@ -2708,6 +2805,7 @@ __all__ = [
     "TimeTagKind",
     "TimeTagPage",
     "TimeTagTime",
+    "UpdateAdminSettingsResponse",
     "UpdateTimeTagRequest",
     "UpdateUserRequest",
     "UpdateWebhookRequest",
