@@ -89,6 +89,12 @@ export function makeApi(fetchImpl, csrf, { readOnly = false } = {}) {
       body = await readBody(res);
       if (method !== "GET" && res.status === 403 && body && body.detail === CSRF_REFUSED) {
         const fresh = await send(SESSION_PATH, "GET", {}, false);
+        if (fresh.status === 401) {
+          // The session is gone: the page shows sign in, not a reload toast.
+          const lost = await readBody(fresh);
+          const detail = lost && typeof lost === "object" ? lost.detail || lost.title || "" : "";
+          throw new ApiError(401, String(detail));
+        }
         const session = fresh.ok ? await readBody(fresh) : null;
         if (session && typeof session.csrf_token === "string" && session.csrf_token) {
           csrf.set(session.csrf_token);

@@ -843,10 +843,20 @@ function main() {
     setTimeout(drop, cls === "bad" ? 12000 : 5000);
   }
 
-  // lostSession handles a 401: the session is gone or its key was revoked.
-  function lostSession() {
+  // reset forgets everything held for the signed in session: the CSRF token,
+  // the session, the page cursors, the provider names and the tenant.
+  function reset() {
     csrf.set("");
     session = null;
+    tenant = null;
+    cursors.users = [null];
+    cursors.audit = [null];
+    names = {};
+  }
+
+  // lostSession handles a 401: the session is gone or its key was revoked.
+  function lostSession() {
+    reset();
     showSignin("The session ended. Sign in again.");
   }
 
@@ -1081,10 +1091,7 @@ function main() {
     } catch {
       // The token is forgotten either way; the server ends the session by its clock.
     }
-    session = null;
-    cursors.users = [null];
-    cursors.audit = [null];
-    names = {};
+    reset();
     keyInput.value = "";
     showSignin("");
   }
@@ -1107,12 +1114,22 @@ function main() {
     const key = keyInput.value.trim();
     keyInput.value = "";
     if (!key) return;
+    let signedIn = false;
     try {
       session = await signIn(api, csrf, key);
+      signedIn = true;
       await loadTenant();
     } catch (err) {
-      session = null;
-      csrf.set("");
+      // A session opened but the page could not load: close it, so none stays
+      // behind with no page to use it.
+      if (signedIn) {
+        try {
+          await endSession(api, csrf);
+        } catch {
+          // The server ends it by its clock.
+        }
+      }
+      reset();
       showSignin(
         err instanceof ApiError && (err.status === 401 || err.status === 403)
           ? "This key was refused. A tenant API key is needed, not a user token."

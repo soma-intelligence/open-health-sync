@@ -623,6 +623,19 @@ test("api retries a write once after a stale CSRF token", async () => {
   assert.equal(g.calls.length, 3);
 });
 
+test("api turns a 401 on the CSRF refresh into a 401, not a reload toast", async () => {
+  const f = queueFetch([
+    { status: 403, body: { detail: CSRF_REFUSED } },
+    { status: 401, body: { title: "Unauthorized", detail: "no session" } },
+  ]);
+  await assert.rejects(makeApi(f.impl, memCsrf("old"))("/v1/users", { method: "POST", body: {} }), (err) => {
+    assert.ok(err instanceof ApiError);
+    assert.equal(err.status, 401);
+    return true;
+  });
+  assert.equal(f.calls.length, 2, "the write is not retried");
+});
+
 test("api in read-only mode still signs in and out", async () => {
   const f = fakeFetch(200, { csrf_token: "t" });
   const api = makeApi(f.impl, memCsrf(), { readOnly: true });
