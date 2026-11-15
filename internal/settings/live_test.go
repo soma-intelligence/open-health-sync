@@ -3,8 +3,10 @@
 package settings
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"sort"
 	"testing"
 	"time"
@@ -143,4 +145,52 @@ func TestLiveRunReloads(t *testing.T) {
 	require.Eventually(t, func() bool { return l.WebhookPauseAfter() == 9 }, time.Second, 5*time.Millisecond)
 	cancel()
 	require.NoError(t, <-done)
+}
+
+func TestLiveSkipsBadStoredValues(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+
+	st := &fakeStore{rev: 4, rows: map[string]Row{
+		"OHS_WEBHOOK_PAUSE_AFTER": {Value: "abc"},
+		"OHS_METRICS_TOKEN":       {Value: "short-secret"},
+		"OHS_NOT_A_SETTING":       {Value: "zzz-unknown-value"},
+		"OHS_RETENTION_DAYS":      {OpenErr: errors.New("open failed: sealed-bytes")},
+	}}
+	l := liveEnv(t, st)
+	require.NoError(t, l.Reload(context.Background()))
+	require.Equal(t, 5, l.WebhookPauseAfter())
+	require.Equal(t, 0, l.RetentionDays())
+	s := l.Status()
+	require.Equal(t, int64(4), s.LiveRevision)
+	require.Empty(t, s.ReloadError)
+	require.ElementsMatch(t, []string{"OHS_WEBHOOK_PAUSE_AFTER", "OHS_METRICS_TOKEN", "OHS_NOT_A_SETTING", "OHS_RETENTION_DAYS"}, s.Skipped)
+	log := buf.String()
+	for _, n := range s.Skipped {
+		require.Contains(t, log, n)
+	}
+	for _, v := range []string{"short-secret", "zzz-unknown-value", "sealed-bytes"} {
+		require.NotContains(t, log, v)
+	}
+}
+
+func TestLiveSubscriberMayCallBack(t *testing.T) {
+	st := &fakeStore{rev: 1}
+	l := liveEnv(t, st)
+	got := make(chan Status, 1)
+	l.Subscribe(func(Snapshot) {
+		l.Subscribe(func(Snapshot) {})
+		got <- l.Status()
+	})
+	done := make(chan error, 1)
+	go func() { done <- l.Reload(context.Background()) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock")
+	}
+	require.Equal(t, int64(1), (<-got).LiveRevision)
 }

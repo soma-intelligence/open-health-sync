@@ -109,10 +109,11 @@ type Live struct {
 	env     func(string) (string, bool)
 	environ []string
 
-	mu     sync.Mutex // serializes reloads and guards subs and status
-	subs   []func(Snapshot)
-	status Status
-	cur    atomic.Pointer[Snapshot]
+	reloadMu sync.Mutex // serializes reloads, held across the database reads
+	mu       sync.Mutex // guards subs and status, never held across I/O or a callback
+	subs     []func(Snapshot)
+	status   Status
+	cur      atomic.Pointer[Snapshot]
 }
 
 // NewLive returns the live settings, holding the start configuration.
@@ -160,25 +161,31 @@ func (l *Live) Subscribe(fn func(Snapshot)) {
 // good snapshot and is recorded in Status. The process that saves calls it
 // at once; Run calls it every interval for the other processes' saves.
 func (l *Live) Reload(ctx context.Context) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.reloadMu.Lock()
+	defer l.reloadMu.Unlock()
 	snap, skipped, moved, err := l.load(ctx)
 	if err != nil {
+		l.mu.Lock()
 		l.status.ReloadError = err.Error()
+		l.mu.Unlock()
 		return err
 	}
+	old := *l.cur.Load()
+	l.mu.Lock()
 	l.status.ReloadError = ""
 	if !moved {
+		l.mu.Unlock()
 		return nil
 	}
-	old := *l.cur.Load()
 	l.cur.Store(&snap)
 	l.status.LiveRevision = snap.Revision
 	l.status.Skipped = skipped
+	subs := slices.Clone(l.subs)
+	l.mu.Unlock()
 	if changed := changedNames(old, snap); len(changed) > 0 {
 		slog.Info("settings: live settings changed", "revision", snap.Revision, "settings", strings.Join(changed, ","))
 	}
-	for _, fn := range l.subs {
+	for _, fn := range subs {
 		fn(snap)
 	}
 	return nil
@@ -201,6 +208,7 @@ func (l *Live) load(ctx context.Context) (snap Snapshot, skipped []string, moved
 		if r.OpenErr != nil {
 			if s, ok := config.LookupSetting(name); ok && s.Apply != config.ApplyBootstrap && !config.EnvSet(l.env, name) {
 				skipped = append(skipped, name)
+				slog.Warn("stored setting skipped", "setting", name, "error", openErrMessage)
 			}
 			continue
 		}
