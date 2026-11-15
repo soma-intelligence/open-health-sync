@@ -76,9 +76,9 @@ Where the event is stored depends on the route:
   `actor_tenant_id` set to the session's tenant. A tenant sees what an admin did in its data, and who.
 - A request to an instance admin route (`/v1/admin/...`) is recorded on the session's own tenant,
   never on the tenant the console is viewing.
-- `session.create` and `session.tenant` are recorded on the session's own tenant.
-  `session.read` and `session.delete` go through the request audit like a tenant route, so they are
-  recorded on the acting tenant. `session.read` is a buffered event.
+- All four `session.*` events (`session.create`, `session.read`, `session.delete` and
+  `session.tenant`) are recorded on the session's own tenant, even while it views another one.
+  `session.read` is a buffered event.
 
 Filter the log by `actor_tenant_id` in the result to see what sessions of another tenant did.
 

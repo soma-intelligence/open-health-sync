@@ -23,7 +23,7 @@ OHS_CONSOLE=true
 |---|---|
 | `false` (default) | Not mounted: `/console` answers 404 |
 | `true` | The management console, with its actions |
-| `read-only` | The same pages without any action: every session the console opens is read only, and the server refuses every request of such a session but `GET`, `HEAD` and `OPTIONS` (see [Read only](#read-only)). For a wall screen. A bearer key keeps all its rights, so it is not a way to take a key's rights away |
+| `read-only` | The same pages without any action: every session the console opens is read only, and the server refuses every request of such a session but `GET` and `HEAD` (see [Read only](#read-only)). For a wall screen. A bearer key keeps all its rights, so it is not a way to take a key's rights away |
 
 Then open `https://your-host/console` and paste a tenant API key (`ohs_sk_...`, from
 `ohs admin tenant create`, `ohs admin key create`, the bootstrap tenant or the
@@ -44,7 +44,8 @@ Pasting a key opens a **console session**: the page sends the key once, in the b
 anywhere after that, not in the page, `sessionStorage`, `localStorage` or a cookie.
 
 - **The cookie** is named `ohs_console`: `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure`
-  unless the public URL is `http://localhost` or `http://127.0.0.1`. It has no `Max-Age`, so the
+  unless the public URL is `http://localhost`, `http://127.0.0.1` or `http://[::1]`, or there is no
+  public URL and the request is plain http to this machine. It has no `Max-Age`, so the
   browser drops it when it closes; the server enforces the lifetime. It holds a random token of 32
   bytes (43 characters, base64url); the database stores only its SHA-256 hash.
 - **The CSRF token** is another random token. The page keeps it in memory only, and sends it in
@@ -59,7 +60,8 @@ anywhere after that, not in the page, `sessionStorage`, `localStorage` or a cook
   refused.
 - **Plain http** is allowed only on `localhost`, `127.0.0.1` and `[::1]`. Elsewhere, sign in is
   refused (403) until `OHS_PUBLIC_URL` is the `https` address of the instance, so the cookie never
-  travels in the clear.
+  travels in the clear. An `OHS_PUBLIC_URL` that is plain `http` on a remote host is refused the
+  same way: browsers drop the `Secure` cookie it would get.
 - **Bearer wins.** A request with an `Authorization` header is authenticated by it, unchanged, and
   its cookie is ignored. `curl` with a key works as before. The session routes exist only when
   `OHS_CONSOLE` is `true` or `read-only`; with the console off the cookie is never read.
@@ -69,15 +71,17 @@ anywhere after that, not in the page, `sessionStorage`, `localStorage` or a cook
 A session of an instance admin tenant can act on another tenant: `PUT /console/session/tenant` with
 `{"tenant_id": "..."}` (the key needs `admin:read`; 404 for an unknown tenant). The session then
 answers every tenant route for that tenant, with the admin key's own rights, while the tenant the
-admin signed in with stays the session's tenant. `GET /console/session` returns both as `tenant` and
-`acting_tenant`. This release adds the route; the console pages have no tenant picker yet. A session
-of any other tenant cannot switch (403). Deleting the tenant a session acts on ends that session. The audit log records the
-switch and what you do after it; see [audit-log.md](audit-log.md).
+admin signed in with stays the session's tenant. `GET /console/session` returns both as `tenant`
+and `acting_tenant`. This release adds the route; the console pages have no tenant picker yet. A
+session of any other tenant cannot switch (403). Deleting the tenant a session acts on ends that
+session, and so does `ohs admin tenant admin --off` on the tenant it signed in with, once it
+views another tenant. A token a session mints for a user of another tenant is tied to no key. The
+audit log records the switch and what you do after it; see [audit-log.md](audit-log.md).
 
 ## Read only
 
 With `OHS_CONSOLE=read-only`, every new session is read only. The server enforces it, not the page:
-a request of such a session with any method but `GET`, `HEAD` or `OPTIONS` answers 403 with "this
+a request of such a session with any method but `GET` or `HEAD` answers 403 with "this
 console session is read-only (OHS_CONSOLE=read-only)". It can still sign out and switch tenant.
 A bearer key is not affected. Sessions opened before the setting changed keep the mode they were
 created with.
@@ -260,7 +264,7 @@ one message per invalid value. See [api.md](api.md#admin-settings). Each `PATCH`
 - **One way to the server.** Every request goes through one wrapper that refuses a URL that is not
   a path on the same server and follows no redirect. It sends the cookie and the CSRF header to
   this server only. In `read-only` mode the server, not the wrapper, refuses every method but
-  `GET`, `HEAD` and `OPTIONS` of a session.
+  `GET` and `HEAD` of a session.
 - **Writes ask first.** Every action asks for a confirmation. Deleting a user or a webhook
   endpoint, revoking a key and forgetting a provider's keys ask you to type the name of what
   goes. A secret the API returns once (a new API key, a webhook signing secret) is shown once

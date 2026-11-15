@@ -170,7 +170,7 @@ converts them, and `ohs vault status --check` exits non-zero while anything is l
 - **Read only is the server's.** With `OHS_CONSOLE=read-only` a session refuses every write with
   403, whatever the page does. A bearer key keeps its rights.
 - **No cookie over plain http.** Sign in is refused on a remote host unless `OHS_PUBLIC_URL` is the
-  `https` address. A bearer key is authenticated by its header and the cookie is then ignored.
+  `https` address (a plain `http` public URL on a remote host is refused too). A bearer key is authenticated by its header and the cookie is then ignored.
 - **Attribution.** What a session does is in the [audit log](audit-log.md#console-sessions) with the
   key as actor and `actor_tenant_id` set.
 

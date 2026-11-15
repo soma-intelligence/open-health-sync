@@ -30,7 +30,7 @@ release may change the API, the configuration or the database schema.
 - The console signs in with a server session instead of keeping the key in the browser tab and sending it as a
   bearer header. The key is sent once and never stored; the cookie is `HttpOnly` and requests need the CSRF
   token. Plain http works only on `localhost`, `127.0.0.1` and `[::1]`; elsewhere sign in is refused until
-  `OHS_PUBLIC_URL` is the `https` address.
+  `OHS_PUBLIC_URL` is the `https` address (a plain `http` public URL on a remote host is refused too).
 - The first-run setup page no longer passes the key to the console: paste it on the console sign in page.
 
 ## [0.3.0] - 2026-11-11
