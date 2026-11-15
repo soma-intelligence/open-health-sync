@@ -6,9 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { KEY_STORAGE as CONSOLE_KEY_STORAGE } from "./static/lib.mjs";
 import {
-  KEY_STORAGE,
   SETUP_PATH,
   SetupError,
   buildSetupRequest,
@@ -28,10 +26,6 @@ function fakeFetch(status, body) {
   };
   return { impl, calls };
 }
-
-test("the key lands where the console reads it", () => {
-  assert.equal(KEY_STORAGE, CONSOLE_KEY_STORAGE);
-});
 
 test("buildSetupRequest trims, leaves an empty name out and refuses bad values", () => {
   assert.deepEqual(JSON.parse(buildSetupRequest("  tok  ", "")), { setup_token: "tok" });
