@@ -48,8 +48,20 @@ const (
 	DefaultVaultCacheTTL   = 10 * time.Minute
 )
 
-// ErrVault is wrapped by every Load error about an OHS_VAULT_ variable.
+// ErrVault matches (errors.Is) every Load error about an OHS_VAULT_ variable.
+// Those errors start with the name of the variable, not with this text.
 var ErrVault = errors.New("vault configuration")
+
+// vaultError is an error that reads as its own message and matches ErrVault.
+type vaultError struct{ err error }
+
+func (e *vaultError) Error() string        { return e.err.Error() }
+func (e *vaultError) Unwrap() error        { return e.err }
+func (e *vaultError) Is(target error) bool { return target == ErrVault }
+
+func vaultErr(format string, a ...any) error {
+	return &vaultError{fmt.Errorf(format, a...)}
+}
 
 // VaultRootInfo is the HKDF info string that derives the local root key from
 // OHS_ENCRYPTION_KEY.
@@ -78,18 +90,18 @@ func DerivedVault(encKey []byte, prevEnc ...[]byte) (Vault, error) {
 // deriveRoot sets the root keys derived from the encryption keys.
 func (v *Vault) deriveRoot(encKey []byte, prevEnc [][]byte) error {
 	if len(encKey) != 32 {
-		return fmt.Errorf("%w: the root key is derived from OHS_ENCRYPTION_KEY, which must be 32 bytes, got %d", ErrVault, len(encKey))
+		return vaultErr("OHS_ENCRYPTION_KEY: the vault root key is derived from it, so it must be 32 bytes, got %d", len(encKey))
 	}
 	var err error
 	v.RootDerived = true
 	if v.RootKey, err = DeriveVaultRootKey(encKey); err != nil {
-		return fmt.Errorf("%w: deriving the root key: %w", ErrVault, err)
+		return vaultErr("OHS_ENCRYPTION_KEY: deriving the vault root key: %w", err)
 	}
 	v.RootKeyPrevious = nil
 	for _, k := range prevEnc {
 		d, err := DeriveVaultRootKey(k)
 		if err != nil {
-			return fmt.Errorf("%w: deriving a previous root key: %w", ErrVault, err)
+			return vaultErr("OHS_PREVIOUS_ENCRYPTION_KEYS: deriving a previous vault root key: %w", err)
 		}
 		v.RootKeyPrevious = append(v.RootKeyPrevious, d)
 	}
@@ -110,7 +122,7 @@ func loadVault(get func(string, string) string, encKey []byte, prevEnc [][]byte)
 	}
 	required := func(name, value string) error {
 		if value == "" {
-			return fmt.Errorf("%w: %s is required with OHS_VAULT_KEY_PROVIDER=%s", ErrVault, name, v.Provider)
+			return vaultErr("%s is required with OHS_VAULT_KEY_PROVIDER=%s", name, v.Provider)
 		}
 		return nil
 	}
@@ -127,7 +139,7 @@ func loadVault(get func(string, string) string, encKey []byte, prevEnc [][]byte)
 	case "awskms":
 		err = required("OHS_VAULT_AWS_KEY_ARN", v.AWSKeyARN)
 	default:
-		err = fmt.Errorf("%w: OHS_VAULT_KEY_PROVIDER %q is not one of local, hashicorp, azurekv, awskms", ErrVault, v.Provider)
+		err = vaultErr("OHS_VAULT_KEY_PROVIDER: %q is not one of local, hashicorp, azurekv, awskms", v.Provider)
 	}
 	if err != nil {
 		return Vault{}, err
@@ -135,14 +147,14 @@ func loadVault(get func(string, string) string, encKey []byte, prevEnc [][]byte)
 	if s := get("OHS_VAULT_CACHE_USERS", ""); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil || n < 1 {
-			return Vault{}, fmt.Errorf("%w: OHS_VAULT_CACHE_USERS %q is not a positive integer", ErrVault, s)
+			return Vault{}, vaultErr("OHS_VAULT_CACHE_USERS: %q is not a positive integer", s)
 		}
 		v.CacheUsers = n
 	}
 	if s := get("OHS_VAULT_CACHE_TTL", ""); s != "" {
 		d, err := time.ParseDuration(s)
 		if err != nil || d <= 0 {
-			return Vault{}, fmt.Errorf("%w: OHS_VAULT_CACHE_TTL %q is not a positive duration (for example 10m)", ErrVault, s)
+			return Vault{}, vaultErr("OHS_VAULT_CACHE_TTL: %q is not a positive duration (for example 10m)", s)
 		}
 		v.CacheTTL = d
 	}
@@ -159,25 +171,25 @@ func loadVaultRoot(v *Vault, get func(string, string) string, encKey []byte, pre
 	}
 	raw, _, err := secret(get, "OHS_VAULT_ROOT_KEY", noGen)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrVault, err)
+		return vaultErr("OHS_VAULT_ROOT_KEY: %w", err)
 	}
 	if raw == "" {
 		if get("OHS_VAULT_ROOT_KEY_PREVIOUS", "") != "" {
-			return fmt.Errorf("%w: OHS_VAULT_ROOT_KEY_PREVIOUS needs OHS_VAULT_ROOT_KEY or OHS_VAULT_ROOT_KEY_FILE", ErrVault)
+			return vaultErr("OHS_VAULT_ROOT_KEY_PREVIOUS: needs OHS_VAULT_ROOT_KEY or OHS_VAULT_ROOT_KEY_FILE")
 		}
 		return v.deriveRoot(encKey, prevEnc)
 	}
 	key, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return fmt.Errorf("%w: OHS_VAULT_ROOT_KEY is not valid base64 (32 random bytes: `openssl rand -base64 32`)", ErrVault)
+		return vaultErr("OHS_VAULT_ROOT_KEY: not valid base64 (32 random bytes: `openssl rand -base64 32`)")
 	}
 	if len(key) != 32 {
-		return fmt.Errorf("%w: OHS_VAULT_ROOT_KEY must decode to 32 bytes, got %d", ErrVault, len(key))
+		return vaultErr("OHS_VAULT_ROOT_KEY: must decode to 32 bytes, got %d", len(key))
 	}
 	v.RootKey = key
 	v.RootKeyPrevious, err = keyList(get("OHS_VAULT_ROOT_KEY_PREVIOUS", ""), key, ErrVault, "OHS_VAULT_ROOT_KEY")
 	if err != nil {
-		return fmt.Errorf("OHS_VAULT_ROOT_KEY_PREVIOUS: %w", err)
+		return &vaultError{fmt.Errorf("OHS_VAULT_ROOT_KEY_PREVIOUS: %w", err)}
 	}
 	return nil
 }

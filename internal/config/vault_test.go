@@ -168,3 +168,43 @@ func TestDerivedVaultIsWhatLoadGives(t *testing.T) {
 		t.Fatalf("no encryption key: %v", err)
 	}
 }
+
+// Every Load error about a vault variable starts with the name of the
+// variable it refuses and still matches ErrVault.
+func TestVaultErrorsStartWithTheName(t *testing.T) {
+	short := b64(1)[:20]
+	cases := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"OHS_VAULT_KEY_PROVIDER", map[string]string{"OHS_VAULT_KEY_PROVIDER": "nope"}},
+		{"OHS_VAULT_CACHE_USERS", map[string]string{"OHS_VAULT_CACHE_USERS": "0"}},
+		{"OHS_VAULT_CACHE_TTL", map[string]string{"OHS_VAULT_CACHE_TTL": "abc"}},
+		{"OHS_VAULT_ROOT_KEY", map[string]string{"OHS_VAULT_ROOT_KEY": "!!"}},
+		{"OHS_VAULT_ROOT_KEY", map[string]string{"OHS_VAULT_ROOT_KEY": short}},
+		{"OHS_VAULT_ROOT_KEY", map[string]string{"OHS_VAULT_ROOT_KEY": b64(2), "OHS_VAULT_ROOT_KEY_FILE": "/x"}},
+		{"OHS_VAULT_ROOT_KEY_PREVIOUS", map[string]string{"OHS_VAULT_ROOT_KEY_PREVIOUS": b64(3)}},
+		{"OHS_VAULT_ROOT_KEY_PREVIOUS", map[string]string{"OHS_VAULT_ROOT_KEY": b64(2), "OHS_VAULT_ROOT_KEY_PREVIOUS": "!!"}},
+		{"OHS_VAULT_HASHICORP_ADDR", map[string]string{"OHS_VAULT_KEY_PROVIDER": "hashicorp"}},
+		{"OHS_VAULT_HASHICORP_KEY", map[string]string{"OHS_VAULT_KEY_PROVIDER": "hashicorp", "OHS_VAULT_HASHICORP_ADDR": "https://v"}},
+		{"OHS_VAULT_AZURE_KEY_ID", map[string]string{"OHS_VAULT_KEY_PROVIDER": "azurekv"}},
+		{"OHS_VAULT_AWS_KEY_ARN", map[string]string{"OHS_VAULT_KEY_PROVIDER": "awskms"}},
+	}
+	for _, tc := range cases {
+		_, err := load(t, withBase(tc.env))
+		if err == nil {
+			t.Errorf("%s %v: no error", tc.name, tc.env)
+			continue
+		}
+		if !strings.HasPrefix(err.Error(), tc.name) {
+			t.Errorf("%s: error %q does not start with the name", tc.name, err)
+		}
+		if !errors.Is(err, ErrVault) {
+			t.Errorf("%s: error %q does not match ErrVault", tc.name, err)
+		}
+	}
+	// A root key derived from an encryption key of the wrong size.
+	if _, err := DerivedVault([]byte("short")); err == nil || !strings.HasPrefix(err.Error(), "OHS_ENCRYPTION_KEY") || !errors.Is(err, ErrVault) {
+		t.Errorf("DerivedVault: %v", err)
+	}
+}
