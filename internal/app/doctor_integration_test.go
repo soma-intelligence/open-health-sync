@@ -131,7 +131,7 @@ func TestDoctorListsStoredSettings(t *testing.T) {
 	require.NoError(t, err, out) // warnings never fail the doctor
 	require.Contains(t, out, "warn  settings: stored values no release setting reads any more: OHS_GONE "+
 		`(remove them with PATCH /v1/admin/settings {"OHS_GONE": null})`)
-	require.Contains(t, out, `warn  settings: stored value skipped: OHS_WEBHOOK_PAUSE_AFTER: "abc" is not a non-negative integer`)
+	require.Contains(t, out, `warn  settings: stored value skipped: OHS_WEBHOOK_PAUSE_AFTER: "abc" is not an integer from 0 to `)
 	require.NotContains(t, out, "OHS_WEBHOOK_PAUSE_AFTER: OHS_WEBHOOK_PAUSE_AFTER")
 }
 
