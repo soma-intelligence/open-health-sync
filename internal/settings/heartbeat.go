@@ -184,12 +184,3 @@ func PruneHeartbeats(ctx context.Context, db *pgxpool.Pool) (int64, error) {
 	}
 	return tag.RowsAffected(), nil
 }
-
-// Processes lists the running processes through the pool the store uses.
-func (l *Live) Processes(ctx context.Context) ([]Process, int64, error) {
-	pg, ok := l.store.(*PG)
-	if !ok {
-		return nil, 0, fmt.Errorf("settings: processes need the Postgres store")
-	}
-	return ListProcesses(ctx, pg.pool)
-}

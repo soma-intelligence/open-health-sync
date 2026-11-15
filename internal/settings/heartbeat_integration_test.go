@@ -186,11 +186,6 @@ func TestProcessesHideAndPrune(t *testing.T) {
 	var gone bool
 	require.NoError(t, e.pool.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM ohs_core.process_heartbeats WHERE process_id = $1)`, ids["old"]).Scan(&gone))
 	require.True(t, gone)
-
-	via, rev, err := live.Processes(ctx)
-	require.NoError(t, err)
-	require.Len(t, via, 1)
-	require.EqualValues(t, 0, rev)
 }
 
 func TestHeartbeatGoneOnStop(t *testing.T) {
