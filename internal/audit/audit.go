@@ -101,6 +101,16 @@ const (
 	// VaultUserShredded is a user's keys deleted at the start of their
 	// erasure; detail has the deletion job id, never key material.
 	VaultUserShredded = "vault.user_shredded"
+	// SessionCreate is a console sign in; detail has the key's key_prefix,
+	// never the key or a token.
+	SessionCreate = "session.create"
+	// SessionRead is GET /console/session.
+	SessionRead = "session.read"
+	// SessionDelete is a console sign out.
+	SessionDelete = "session.delete"
+	// SessionTenant is the acting tenant of a console session changed; detail
+	// has from_tenant_id and to_tenant_id.
+	SessionTenant = "session.tenant"
 )
 
 // Event is one entry to record.
@@ -117,6 +127,9 @@ type Event struct {
 	// Detail holds identifiers only (a job id, a provider slug), never a
 	// value read or written.
 	Detail map[string]any
+	// ActorTenant is the tenant of the console session behind the request
+	// (the acting tenant); nil otherwise.
+	ActorTenant *uuid.UUID
 	// At is when the event happened. Zero means the time of the write; the
 	// buffered Writer sets it when an event is queued.
 	At time.Time
@@ -125,14 +138,14 @@ type Event struct {
 // Buffered reports whether an event of this action may wait in the buffered
 // Writer: reads, device uploads, immediate pulls and failed authentication,
 // the high volume events. Every other action (keys, tokens, deletion,
-// exports, consent, shares, tenants, connections made or removed, webhooks
+// exports, consent, shares, session sign in and out, tenants, connections made or removed, webhooks
 // and settings changed) is written before the response is over, so it is
 // never lost with the queue. An action added later is synchronous until it
 // is listed here.
 func Buffered(action string) bool {
 	switch action {
 	case DataRead, DataWrite, UserRead, ConnectionRead, ConnectionSync, ConsentRead,
-		WebhookRead, AuditRead, ConfigRead, ShareRead, AuthFailed:
+		WebhookRead, AuditRead, ConfigRead, ShareRead, AuthFailed, SessionRead:
 		return true
 	}
 	return false
@@ -167,8 +180,8 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 	}
 	_, err := db.Exec(ctx, `
 		INSERT INTO ohs_core.audit_events
-		    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail, at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, coalesce($11::timestamptz, now()))`,
+		    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail, at, actor_tenant_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, coalesce($11::timestamptz, now()), $12)`,
 		eventArgs(ev, detail)...)
 	if err != nil {
 		return fmt.Errorf("audit: record: %w", err)
@@ -177,7 +190,7 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 }
 
 // eventColumns is how many columns eventArgs fills.
-const eventColumns = 11
+const eventColumns = 12
 
 // eventArgs are the values of one row, in the column order of Record.
 func eventArgs(ev Event, detail []byte) []any {
@@ -190,7 +203,7 @@ func eventArgs(ev Event, detail []byte) []any {
 		at = &ev.At
 	}
 	return []any{ev.Tenant, ev.User, string(ev.ActorType), pgtext.Clean(ev.ActorID), ev.Action, ev.Method,
-		pgtext.Clean(ev.Route), status, pgtext.Clean(ev.RequestID), detail, at}
+		pgtext.Clean(ev.Route), status, pgtext.Clean(ev.RequestID), detail, at, ev.ActorTenant}
 }
 
 // detailJSON encodes d with every string, member names included, as Postgres
@@ -255,6 +268,16 @@ func Classify(method, pattern string) string {
 		}
 	}
 	switch {
+	case strings.HasPrefix(path, "/console/session"):
+		switch {
+		case path == "/console/session/tenant":
+			return SessionTenant
+		case method == "POST":
+			return SessionCreate
+		case method == "DELETE":
+			return SessionDelete
+		}
+		return SessionRead
 	case path == "/mcp":
 		return DataRead // the MCP server is read only
 	case strings.HasPrefix(path, "/v1/ingest/"):
@@ -368,6 +391,9 @@ type Entry struct {
 	Status    *int           `json:"status"`
 	RequestID string         `json:"request_id,omitempty"`
 	Detail    map[string]any `json:"detail"`
+	// ActorTenantID is the acting tenant of the console session behind the
+	// event; null when there was none.
+	ActorTenantID *uuid.UUID `json:"actor_tenant_id"`
 }
 
 // Filter selects entries of one tenant, newest first.
@@ -391,7 +417,7 @@ func List(ctx context.Context, db Querier, tenant uuid.UUID, f Filter) ([]Entry,
 	if f.Limit <= 0 {
 		f.Limit = 100
 	}
-	q := `SELECT id, at, actor_type, actor_id, action, user_id, method, route, status, request_id, detail
+	q := `SELECT id, at, actor_type, actor_id, action, user_id, method, route, status, request_id, detail, actor_tenant_id
 	      FROM ohs_core.audit_events WHERE tenant_id = $1`
 	args := []any{tenant}
 	add := func(cond string, v any) {
@@ -431,7 +457,7 @@ func List(ctx context.Context, db Querier, tenant uuid.UUID, f Filter) ([]Entry,
 			detail []byte
 		)
 		if err := rows.Scan(&e.ID, &e.At, &actor, &e.Actor.ID, &e.Action, &e.UserID, &e.Method, &e.Route,
-			&e.Status, &e.RequestID, &detail); err != nil {
+			&e.Status, &e.RequestID, &detail, &e.ActorTenantID); err != nil {
 			return nil, 0, fmt.Errorf("audit: scan: %w", err)
 		}
 		e.Actor.Type = ActorType(actor)

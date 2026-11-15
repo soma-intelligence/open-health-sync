@@ -248,7 +248,7 @@ func (w *Writer) try(events []Event) ([]Event, error) {
 func insertBatch(ctx context.Context, db Execer, events []Event) error {
 	var q strings.Builder
 	q.WriteString(`INSERT INTO ohs_core.audit_events
-	    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail, at)
+	    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail, at, actor_tenant_id)
 	VALUES `)
 	args := make([]any, 0, len(events)*eventColumns)
 	for i, ev := range events {
@@ -263,8 +263,8 @@ func insertBatch(ctx context.Context, db Execer, events []Event) error {
 			q.WriteString(", ")
 		}
 		n := i * eventColumns
-		fmt.Fprintf(&q, "($%d::uuid, $%d::uuid, $%d::text, $%d::text, $%d::text, $%d::text, $%d::text, $%d::integer, $%d::text, $%d::jsonb, coalesce($%d::timestamptz, now()))",
-			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11)
+		fmt.Fprintf(&q, "($%d::uuid, $%d::uuid, $%d::text, $%d::text, $%d::text, $%d::text, $%d::text, $%d::integer, $%d::text, $%d::jsonb, coalesce($%d::timestamptz, now()), $%d::uuid)",
+			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11, n+12)
 		args = append(args, eventArgs(ev, detail)...)
 	}
 	if _, err := db.Exec(ctx, q.String(), args...); err != nil {
