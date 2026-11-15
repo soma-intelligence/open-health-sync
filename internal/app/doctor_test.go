@@ -210,3 +210,12 @@ func TestDoctorWarnsWhenVaultRootKeyIsDerived(t *testing.T) {
 	out, _ = runDoctorT(t, base, true, nil)
 	require.NotContains(t, out, "vault root key is derived")
 }
+
+func TestDoctorQuickDoesNotReadSettings(t *testing.T) {
+	out, _ := runDoctorT(t, map[string]string{
+		"OHS_DATABASE_URL":   "postgres://ohs@127.0.0.1:1/ohs",
+		"OHS_ENCRYPTION_KEY": goodKey(),
+		"OHS_RAW_STORE":      "file://" + t.TempDir(),
+	}, true, nil)
+	require.NotContains(t, out, "settings:")
+}

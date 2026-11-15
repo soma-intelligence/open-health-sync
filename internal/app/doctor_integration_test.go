@@ -105,3 +105,60 @@ func TestDoctorReportsSealingKeys(t *testing.T) {
 	require.NoError(t, err, out)
 	require.NotContains(t, out, "encryption keys")
 }
+
+func storeSettingRows(t *testing.T, url string, rows map[string]string) {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := db.Open(ctx, url)
+	require.NoError(t, err)
+	defer pool.Close()
+	for name, value := range rows {
+		_, err := pool.Exec(ctx, `INSERT INTO ohs_core.instance_settings (name, value, updated_by) VALUES ($1, $2, $3)`,
+			name, value, uuid.New())
+		require.NoError(t, err)
+	}
+}
+
+func TestDoctorListsStoredSettings(t *testing.T) {
+	url := db.TestDB(t)
+	storeSettingRows(t, url, map[string]string{"OHS_GONE": "1", "OHS_WEBHOOK_PAUSE_AFTER": "abc"})
+	out, err := runDoctorT(t, map[string]string{
+		"OHS_DATABASE_URL":   url,
+		"OHS_ENCRYPTION_KEY": goodKey(),
+		"OHS_RAW_STORE":      "file://" + t.TempDir(),
+	}, false, nil)
+	require.NoError(t, err, out) // warnings never fail the doctor
+	require.Contains(t, out, "warn  settings: stored values no release setting reads any more: OHS_GONE "+
+		`(remove them with PATCH /v1/admin/settings {"OHS_GONE": null})`)
+	require.Contains(t, out, "warn  settings: stored value skipped: OHS_WEBHOOK_PAUSE_AFTER")
+	require.NotContains(t, out, "abc")
+}
+
+func TestDoctorSettingsQuietWhenClean(t *testing.T) {
+	url := db.TestDB(t)
+	storeSettingRows(t, url, map[string]string{"OHS_WEBHOOK_PAUSE_AFTER": "5"})
+	out, err := runDoctorT(t, map[string]string{
+		"OHS_DATABASE_URL":   url,
+		"OHS_ENCRYPTION_KEY": goodKey(),
+		"OHS_RAW_STORE":      "file://" + t.TempDir(),
+	}, false, nil)
+	require.NoError(t, err, out)
+	require.NotContains(t, out, "settings:")
+}
+
+func TestDoctorSettingsSkippedBeforeMigration(t *testing.T) {
+	url := db.TestDB(t)
+	ctx := context.Background()
+	pool, err := db.Open(ctx, url)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `DROP TABLE ohs_core.instance_settings, ohs_core.instance_settings_revision`)
+	pool.Close()
+	require.NoError(t, err)
+	out, err := runDoctorT(t, map[string]string{
+		"OHS_DATABASE_URL":   url,
+		"OHS_ENCRYPTION_KEY": goodKey(),
+		"OHS_RAW_STORE":      "file://" + t.TempDir(),
+	}, false, nil)
+	require.NoError(t, err, out)
+	require.Contains(t, out, "skip  settings: the database is not migrated yet")
+}
