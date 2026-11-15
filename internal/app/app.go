@@ -138,6 +138,7 @@ func run(ctx context.Context, cfg config.Config, logOut io.Writer) error {
 }
 
 func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts options) error {
+	startedAt := time.Now().UTC()
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
 		return fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", cfg.LogLevel)
@@ -308,6 +309,24 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		goRole("vault", func() error { return keyVault.Listen(ctx) })
 	}
 
+	// The live settings, reloaded every 30 s, and the row this process keeps
+	// in process_heartbeats so the console shows what each process runs.
+	live := settings.NewLive(settings.LiveOptions{
+		Store: settings.NewPG(pool, box), Env: opts.lookup, Environ: opts.environ, Config: cfg, Start: opts.start,
+	})
+	goRole("settings", func() error { return live.Run(ctx, settings.ReloadEvery) })
+	host, _ := os.Hostname()
+	var roles []string
+	for r, on := range cfg.Roles {
+		if on {
+			roles = append(roles, r)
+		}
+	}
+	heartbeat := settings.NewHeartbeatWriter(pool, live, settings.Heartbeat{
+		ID: uuid.New(), Host: host, Roles: roles, Version: Version, StartedAt: startedAt,
+	})
+	goRole("heartbeat", func() error { return heartbeat.Run(ctx, settings.HeartbeatEvery) })
+
 	etlMetrics := &automation.Metrics{}
 	// The heartbeats of the loops below and the worker metrics, served on
 	// the ops listener (OHS_OPS_LISTEN).
@@ -370,6 +389,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 				AuditRetentionDays: cfg.AuditRetentionDays,
 				// Zero means the default, negative keeps the rows for ever.
 				TrackingRetentionDays: cfg.TrackingRetentionDays,
+				PruneHeartbeats:       func(ctx context.Context) (int64, error) { return settings.PruneHeartbeats(ctx, pool) },
 				OnTick:                loops.Task,
 			})
 		})

@@ -40,6 +40,7 @@ const (
 	DefaultAuditPruneEvery  = 24 * time.Hour
 	DefaultSharesEvery      = time.Hour
 	DefaultTrackingEvery    = 24 * time.Hour
+	DefaultHeartbeatsEvery  = 24 * time.Hour
 
 	defaultRunTimeout  = 5 * time.Minute
 	defaultLongTimeout = time.Hour
@@ -48,7 +49,7 @@ const (
 
 // Intervals sets how often each job runs. A zero value means the default.
 type Intervals struct {
-	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune, Shares, Tracking time.Duration
+	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune, Shares, Tracking, Heartbeats time.Duration
 }
 
 // Deps is everything Start needs.
@@ -67,6 +68,9 @@ type Deps struct {
 	// under MinTrackingRetentionDays is raised to it.
 	TrackingRetentionDays int
 	Intervals             Intervals
+	// PruneHeartbeats deletes the process heartbeats not seen for a while
+	// and returns how many. Nil leaves the heartbeats task unscheduled.
+	PruneHeartbeats func(context.Context) (int64, error)
 	// RunTimeout bounds one run of any job except files and retention (default 5 minutes;
 	// retention gets an hour unless this is set).
 	RunTimeout time.Duration
@@ -189,6 +193,15 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 		track := &TrackingPruner{Pool: deps.Pool, Days: days, Metrics: m, Now: deps.now}
 		s.Add("tracking", or(deps.Intervals.Tracking, DefaultTrackingEvery), longTimeout, counted(func(ctx context.Context) error {
 			_, err := track.Run(ctx)
+			return err
+		}))
+	}
+	if prune := deps.PruneHeartbeats; prune != nil {
+		s.Add("heartbeats", or(deps.Intervals.Heartbeats, DefaultHeartbeatsEvery), timeout, counted(func(ctx context.Context) error {
+			n, err := prune(ctx)
+			if n > 0 {
+				slog.InfoContext(ctx, "stale process heartbeats removed", "rows", n)
+			}
 			return err
 		}))
 	}
