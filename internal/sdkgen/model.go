@@ -35,6 +35,11 @@ var skipped = map[string]string{
 	"shareViewer":            "the reader's browser opens the viewer",
 	"shareViewerAsset":       "the viewer page loads its script and stylesheet",
 
+	"createConsoleSession": "the console's own sign in, see docs/console.md",
+	"getConsoleSession":    "the console's own sign in, see docs/console.md",
+	"deleteConsoleSession": "the console's own sign in, see docs/console.md",
+	"switchConsoleTenant":  "the console's own sign in, see docs/console.md",
+
 	"listAdminProviders":  "the instance admin sets providers up in the console, see docs/console.md",
 	"getAdminProvider":    "the instance admin sets providers up in the console, see docs/console.md",
 	"updateAdminProvider": "the instance admin sets providers up in the console, see docs/console.md",

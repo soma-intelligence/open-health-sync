@@ -261,3 +261,19 @@ func TestDatabaseDownIs503(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
 	assert.Equal(t, http.StatusOK, rec.Code, "liveness does not need the database")
 }
+
+func TestConsoleSessionRoutesOffWithConsole(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	off := NewRouter(Deps{Pool: pool, Store: tenant.New(pool)})
+	rec := httptest.NewRecorder()
+	off.ServeHTTP(rec, httptest.NewRequest("POST", "/console/session", strings.NewReader(`{}`)))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	on := NewRouter(Deps{Pool: pool, Store: tenant.New(pool), Console: true})
+	rec = httptest.NewRecorder()
+	on.ServeHTTP(rec, httptest.NewRequest("GET", "/console/app.mjs", nil))
+	assert.Equal(t, http.StatusOK, rec.Code, "the exact session patterns leave the assets alone")
+}

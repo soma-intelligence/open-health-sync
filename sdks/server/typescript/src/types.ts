@@ -549,11 +549,17 @@ export interface AuditEvent {
    * connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
    * config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
    * key.revoke, share.create,
-   * share.read, share.revoke, share.access (more may be added).
+   * share.read, share.revoke, share.access, session.create, session.read,
+   * session.delete, session.tenant (more may be added).
    */
   action: string;
   /** The end user the action concerns. */
   user_id: string | null;
+  /**
+   * The tenant of the console session behind the request, which differs from the tenant
+   * of the event when an admin session views another tenant. Null for a key or token.
+   */
+  actor_tenant_id: string | null;
   /** The HTTP method, absent outside a request. */
   method?: string;
   /** The route pattern, absent outside a request. */
@@ -574,6 +580,41 @@ export interface AuditEventActor {
    * for a share link used by its reader.
    */
   id: string;
+}
+
+export interface ConsoleSignIn {
+  /** A tenant API key (`ohs_sk_`) with the `tenant:read` scope. Never stored or logged. */
+  key: string;
+}
+
+export interface ConsoleTenantSwitch {
+  tenant_id: string;
+}
+
+export interface ConsoleTenant {
+  id: string;
+  name: string;
+  /** True for the instance admin tenant. */
+  admin: boolean;
+}
+
+export interface ConsoleSession {
+  /**
+   * Sent for the `X-OHS-CSRF` header of every write. Present after sign in and on
+   * `GET /console/session` (which replaces the token); absent after a tenant switch.
+   */
+  csrf_token?: string;
+  /** The tenant of the key that signed in. */
+  tenant: ConsoleTenant;
+  /** The tenant requests of the session run as. */
+  acting_tenant: ConsoleTenant;
+  /** The first 12 characters of the key, as `/v1/keys` shows them. */
+  key_prefix: string;
+  key_scopes: string[];
+  /** True when the server runs with OHS_CONSOLE=read-only. */
+  read_only: boolean;
+  /** Seven days after sign in. Twelve hours without a request ends it sooner. */
+  expires_at: string;
 }
 
 export interface Provider {

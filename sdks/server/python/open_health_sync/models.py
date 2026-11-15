@@ -585,10 +585,14 @@ class _AuditEventRequired(TypedDict):
     # connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
     # config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
     # key.revoke, share.create,
-    # share.read, share.revoke, share.access (more may be added).
+    # share.read, share.revoke, share.access, session.create, session.read,
+    # session.delete, session.tenant (more may be added).
     action: str
     # The end user the action concerns.
     user_id: Optional[str]
+    # The tenant of the console session behind the request, which differs from the tenant
+    # of the event when an admin session views another tenant. Null for a key or token.
+    actor_tenant_id: Optional[str]
     # The HTTP status, null outside a request.
     status: Optional[int]
     # Identifiers only, such as a job id or a key prefix.
@@ -610,6 +614,42 @@ class AuditEventActor(TypedDict):
     # hash, the command or worker for admin and system events, or the share's id
     # for a share link used by its reader.
     id: str
+
+
+class ConsoleSignIn(TypedDict):
+    # A tenant API key (`ohs_sk_`) with the `tenant:read` scope. Never stored or logged.
+    key: str
+
+
+class ConsoleTenantSwitch(TypedDict):
+    tenant_id: str
+
+
+class ConsoleTenant(TypedDict):
+    id: str
+    name: str
+    # True for the instance admin tenant.
+    admin: bool
+
+
+class _ConsoleSessionRequired(TypedDict):
+    # The tenant of the key that signed in.
+    tenant: ConsoleTenant
+    # The tenant requests of the session run as.
+    acting_tenant: ConsoleTenant
+    # The first 12 characters of the key, as `/v1/keys` shows them.
+    key_prefix: str
+    key_scopes: List[str]
+    # True when the server runs with OHS_CONSOLE=read-only.
+    read_only: bool
+    # Seven days after sign in. Twelve hours without a request ends it sooner.
+    expires_at: str
+
+
+class ConsoleSession(_ConsoleSessionRequired, total=False):
+    # Sent for the `X-OHS-CSRF` header of every write. Present after sign in and on
+    # `GET /console/session` (which replaces the token); absent after a tenant switch.
+    csrf_token: str
 
 
 class _ProviderRequired(TypedDict):
@@ -2622,6 +2662,10 @@ __all__ = [
     "ConsentCategoryName",
     "ConsentEvent",
     "ConsentSource",
+    "ConsoleSession",
+    "ConsoleSignIn",
+    "ConsoleTenant",
+    "ConsoleTenantSwitch",
     "Coverage",
     "CoverageDay",
     "CreateAdminTenantRequest",

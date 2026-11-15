@@ -100,6 +100,7 @@ tags:
   - name: pipeline
   - name: admin
   - name: audit
+  - name: console
   - name: ops
 security:
   - tenantKey: []
@@ -5643,6 +5644,96 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /console/session:
+    post:
+      tags: [console]
+      operationId: createConsoleSession
+      security: []
+      summary: Sign in to the console with a tenant API key
+      description: |
+        The console's own sign in, served only when `OHS_CONSOLE` is on. The key is in the body,
+        so no credential is sent. Answers with the session cookie (`ohs_console`, HttpOnly,
+        SameSite=Strict, Secure unless the public URL is on this machine) and a CSRF token.
+        Refused over plain http to a remote host unless `OHS_PUBLIC_URL` says https. Wrong keys
+        count against the authentication failure limit like any other.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsoleSignIn" }
+      responses:
+        "201":
+          description: The session.
+          headers:
+            Set-Cookie: { description: "The ohs_console session cookie.", schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsoleSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    get:
+      tags: [console]
+      operationId: getConsoleSession
+      security: [{ consoleSession: [] }]
+      x-required-scope: "tenant:read"
+      summary: The current console session, with a fresh CSRF token
+      description: The CSRF token returned replaces the previous one, which stops working.
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsoleSession" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [console]
+      operationId: deleteConsoleSession
+      security: [{ consoleSession: [] }]
+      x-required-scope: "tenant:read"
+      summary: Sign out of the console
+      description: Deletes the session and clears the cookie. A read-only session may sign out.
+      parameters:
+        - $ref: "#/components/parameters/ConsoleCSRF"
+      responses:
+        "204":
+          description: Signed out.
+          headers:
+            Set-Cookie: { description: "The ohs_console cookie, cleared (Max-Age=0).", schema: { type: string } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /console/session/tenant:
+    put:
+      tags: [console]
+      operationId: switchConsoleTenant
+      security: [{ consoleSession: [] }]
+      x-required-scope: "admin:read"
+      summary: Make the console act as another tenant
+      description: |
+        Only a session of the instance admin tenant. Later requests of the session run as the
+        chosen tenant; the audit log still names the admin tenant (`actor_tenant_id`). A
+        read-only session may switch: nothing is written.
+      parameters:
+        - $ref: "#/components/parameters/ConsoleCSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsoleTenantSwitch" }
+      responses:
+        "200":
+          description: The session, without a CSRF token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsoleSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/setup:
     get:
       tags: [ops]
@@ -5800,6 +5891,14 @@ components:
       type: http
       scheme: bearer
       description: The instance's `OHS_METRICS_TOKEN`, for Prometheus scrapes of `/metrics`.
+    consoleSession:
+      type: apiKey
+      in: cookie
+      name: ohs_console
+      description: |
+        The console's session cookie, set by `POST /console/session`. HttpOnly and
+        SameSite=Strict. A request that is not a GET, HEAD or OPTIONS also sends the
+        `X-OHS-CSRF` header. Only the console uses it; the SDKs use API keys.
 
   headers:
     IdempotentReplayed:
@@ -5807,6 +5906,12 @@ components:
       schema: { type: string, const: "true" }
 
   parameters:
+    ConsoleCSRF:
+      name: X-OHS-CSRF
+      in: header
+      required: true
+      description: The `csrf_token` of the console session, from the last sign in or `GET /console/session`.
+      schema: { type: string }
     StreamTypes:
       name: types
       in: query
@@ -6697,7 +6802,7 @@ components:
 
     AuditEvent:
       type: object
-      required: [id, at, actor, action, user_id, status, detail]
+      required: [id, at, actor, action, user_id, actor_tenant_id, status, detail]
       properties:
         id: { type: integer, description: "Increasing; the cursor of the next page." }
         at: { type: string, format: date-time }
@@ -6722,13 +6827,63 @@ components:
             connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
             config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
             key.revoke, share.create,
-            share.read, share.revoke, share.access (more may be added).
+            share.read, share.revoke, share.access, session.create, session.read,
+            session.delete, session.tenant (more may be added).
         user_id: { type: [string, "null"], format: uuid, description: "The end user the action concerns." }
+        actor_tenant_id:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The tenant of the console session behind the request, which differs from the tenant
+            of the event when an admin session views another tenant. Null for a key or token.
         method: { type: string, description: "The HTTP method, absent outside a request." }
         route: { type: string, description: "The route pattern, absent outside a request." }
         status: { type: [integer, "null"], description: "The HTTP status, null outside a request." }
         request_id: { type: string, description: "The X-Request-Id of the request." }
         detail: { type: object, description: "Identifiers only, such as a job id or a key prefix." }
+
+    ConsoleSignIn:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key:
+          type: string
+          description: A tenant API key (`ohs_sk_`) with the `tenant:read` scope. Never stored or logged.
+
+    ConsoleTenantSwitch:
+      type: object
+      additionalProperties: false
+      required: [tenant_id]
+      properties:
+        tenant_id: { type: string, format: uuid }
+
+    ConsoleTenant:
+      type: object
+      required: [id, name, admin]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        admin: { type: boolean, description: "True for the instance admin tenant." }
+
+    ConsoleSession:
+      type: object
+      required: [tenant, acting_tenant, key_prefix, key_scopes, read_only, expires_at]
+      properties:
+        csrf_token:
+          type: string
+          description: |
+            Sent for the `X-OHS-CSRF` header of every write. Present after sign in and on
+            `GET /console/session` (which replaces the token); absent after a tenant switch.
+        tenant: { $ref: "#/components/schemas/ConsoleTenant", description: "The tenant of the key that signed in." }
+        acting_tenant: { $ref: "#/components/schemas/ConsoleTenant", description: "The tenant requests of the session run as." }
+        key_prefix: { type: string, description: "The first 12 characters of the key, as `/v1/keys` shows them." }
+        key_scopes: { type: array, items: { type: string } }
+        read_only: { type: boolean, description: "True when the server runs with OHS_CONSOLE=read-only." }
+        expires_at:
+          type: string
+          format: date-time
+          description: Seven days after sign in. Twelve hours without a request ends it sooner.
 
     Provider:
       type: object

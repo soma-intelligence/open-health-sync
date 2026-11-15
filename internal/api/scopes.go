@@ -23,6 +23,10 @@ var routeScopes = map[string]string{
 
 	"GET /v1/audit": auth.ScopeAuditRead,
 
+	"GET /console/session":        auth.ScopeTenantRead,
+	"DELETE /console/session":     auth.ScopeTenantRead,
+	"PUT /console/session/tenant": auth.ScopeAdminRead,
+
 	"GET /v1/users":                                            auth.ScopeUsersRead,
 	"GET /v1/users/{id}":                                       auth.ScopeUsersRead,
 	"POST /v1/users":                                           auth.ScopeUsersWrite,

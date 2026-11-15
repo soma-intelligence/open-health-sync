@@ -292,6 +292,7 @@ func (s *server) handler() http.Handler {
 	s.mountSetup(mux)
 	if d.Console {
 		console.Mount(mux, d.ConsoleReadOnly)
+		s.mountConsoleSession(mux)
 	}
 	s.mountAudit(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

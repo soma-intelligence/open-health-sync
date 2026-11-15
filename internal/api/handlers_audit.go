@@ -58,13 +58,18 @@ func (s *server) mountAudit(mux *http.ServeMux) {
 // that fails is logged and counted, never turned into an error for the
 // caller, who already has the response.
 func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope string) {
-	if sessionOwnEvent[r.Pattern] {
-		return // the handler writes its own event
+	// The handler of a session route writes its own event when it succeeds;
+	// a request refused before that (a scope, a bad body, an unknown tenant)
+	// is recorded here.
+	ownEvent := sessionOwnEvent[r.Pattern]
+	if ownEvent && code < http.StatusBadRequest {
+		return
 	}
 	// An instance admin route is the admin's own business: it is recorded on
 	// the tenant that acts, never on a tenant the console session is viewing.
+	// So is a session route.
 	tenantID := p.TenantID
-	if isAdminRoute(r.Pattern) {
+	if isAdminRoute(r.Pattern) || ownEvent {
 		tenantID = p.Actor()
 	}
 	ev := audit.Event{
