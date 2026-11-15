@@ -40,8 +40,8 @@ func (s *server) mountCollect(mux *http.ServeMux) {
 	mux.Handle("POST /connect/{provider}", h.ConnectStart())
 	// The provider-facing routes are rate limited, the notification routes
 	// (both methods share the buckets) also per provider.
-	callback := newRateLimiter(s.d.RateLimitOAuth, RateLimit{})
-	inbound := newRateLimiter(s.d.RateLimitInbound, s.d.RateLimitInboundProvider)
+	callback := s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.OAuth, RateLimit{} })
+	inbound := s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.Inbound, r.InboundProvider })
 	// Every registered connector has its bucket, enabled now or not: a
 	// provider turned on later is limited on its own.
 	known := map[string]bool{}

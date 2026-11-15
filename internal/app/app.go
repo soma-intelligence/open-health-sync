@@ -462,7 +462,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			TrustedProxies:           cfg.TrustedProxies,
 			Audit:                    auditWriter,
 		}
-		apiTuning(cfg, &deps)
+		apiTuning(cfg, &deps, live)
 		if cfg.Roles["etl"] {
 			deps.ETLMetrics = etlMetrics
 		}

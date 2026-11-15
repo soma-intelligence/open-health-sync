@@ -10,6 +10,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -19,12 +20,23 @@ import (
 // is no limit.
 
 // apiTuning sets the rate limits per credential and the compression of d.
-func apiTuning(cfg config.Config, d *api.Deps) {
+func apiTuning(cfg config.Config, d *api.Deps, live *settings.Live) {
 	d.RateLimitAPI = api.RateLimit(cfg.RateLimitAPI)
 	d.RateLimitAPIOff = cfg.RateLimitAPI == config.RateLimit{}
 	d.RateLimitAuthFailures = api.RateLimit(cfg.RateLimitAuthFailures)
 	d.RateLimitAuthFailuresOff = cfg.RateLimitAuthFailures == config.RateLimit{}
 	d.CompressionOff = cfg.CompressionOff
+	// Live wins: a limit saved in the console applies without a restart.
+	if live != nil {
+		d.RateLimits = func() api.RateLimits {
+			r := live.RateLimits()
+			return api.RateLimits{
+				API: api.RateLimit(r.API), AuthFailures: api.RateLimit(r.AuthFailures),
+				Inbound: api.RateLimit(r.Inbound), InboundProvider: api.RateLimit(r.InboundProvider),
+				OAuth: api.RateLimit(r.OAuth),
+			}
+		}
+	}
 }
 
 // etlConcurrency is how many jobs each ETL tier runs at once.

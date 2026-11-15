@@ -128,6 +128,11 @@ type Deps struct {
 	// SetupToken (OHS_SETUP_TOKEN) mounts the first-run setup, GET and POST
 	// /v1/setup. Empty leaves the routes out.
 	SetupToken string
+	// RateLimits, when set, wins over the RateLimit fields below and is read
+	// per request: a limiter is rebuilt (counters full) when its limit
+	// changes, and the zero RateLimit turns one off, with no default
+	// standing in. Nil keeps the fixed fields.
+	RateLimits func() RateLimits
 	// RateLimitInbound bounds POST and GET /inbound/{provider} per client
 	// address and RateLimitInboundProvider per provider, RateLimitOAuth the
 	// OAuth callback and POST /v1/setup per client address, each route its
@@ -176,6 +181,9 @@ type server struct {
 	// authFail throttles refused credentials, unless that is turned off,
 	// and bounds the audit events they leave.
 	authFail *authFailures
+	// staticLimits are the limits of the fixed Deps fields, used without
+	// Deps.RateLimits.
+	staticLimits RateLimits
 	// whyRefused resolves a refused credential for the audit log.
 	whyRefused func(ctx context.Context, hash string) (tenant.Refused, error)
 	// sink, when set, takes every audit event instead of the database
@@ -195,28 +203,47 @@ func newServer(d Deps) *server {
 	if d.Pool == nil || d.Store == nil {
 		panic("api: NewRouter needs Pool and Store")
 	}
-	s := &server{d: d, metrics: newHTTPMetrics(), lookup: d.Lookup, whyRefused: d.Store.WhyRefused}
+	s := &server{d: d, metrics: newHTTPMetrics(), lookup: d.Lookup, whyRefused: d.Store.WhyRefused, staticLimits: staticLimitsOf(d)}
 	if s.lookup == nil {
 		s.lookup = d.Store.LookupKey
 	}
-	if !d.RateLimitAPIOff {
-		l := d.RateLimitAPI
-		if !l.on() {
-			l = DefaultRateLimitAPI
-		}
-		s.lookup = s.limitedLookup(s.lookup, newRateLimiter(l, RateLimit{}))
-	}
-	var failures RateLimit // the zero value throttles nothing
-	if !d.RateLimitAuthFailuresOff {
-		if failures = d.RateLimitAuthFailures; !failures.on() {
-			failures = DefaultRateLimitAuthFailures
-		}
-	}
-	s.authFail = newAuthFailures(failures)
+	s.lookup = s.limitedLookup(s.lookup, s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.API, RateLimit{} }))
+	s.authFail = newLiveAuthFailures(func() RateLimit { return s.limits().AuthFailures })
 	if d.Audit != nil {
 		s.metrics.auditDropped = d.Audit.Dropped
 	}
 	return s
+}
+
+// limits are the rate limits in force: the live ones, or the fixed fields
+// of Deps with their defaults.
+func (s *server) limits() RateLimits {
+	if s.d.RateLimits != nil {
+		return s.d.RateLimits()
+	}
+	return s.staticLimits
+}
+
+// liveLimiter is the limiter of one bucket of the limits, following them.
+func (s *server) liveLimiter(pick func(RateLimits) (perAddr, global RateLimit)) *liveLimiter {
+	return newLiveLimiter(func() (RateLimit, RateLimit) { return pick(s.limits()) })
+}
+
+// staticLimitsOf are the limits of the fixed fields: the zero API and
+// auth failure limits are the defaults unless turned off.
+func staticLimitsOf(d Deps) RateLimits {
+	r := RateLimits{Inbound: d.RateLimitInbound, InboundProvider: d.RateLimitInboundProvider, OAuth: d.RateLimitOAuth}
+	if !d.RateLimitAPIOff {
+		if r.API = d.RateLimitAPI; !r.API.on() {
+			r.API = DefaultRateLimitAPI
+		}
+	}
+	if !d.RateLimitAuthFailuresOff {
+		if r.AuthFailures = d.RateLimitAuthFailures; !r.AuthFailures.on() {
+			r.AuthFailures = DefaultRateLimitAuthFailures
+		}
+	}
+	return r
 }
 
 // handler mounts every route. It is called once.

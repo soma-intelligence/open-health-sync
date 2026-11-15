@@ -14,6 +14,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -52,7 +53,7 @@ func TestConfigDefaultsMatchThePackages(t *testing.T) {
 func TestAPITuning(t *testing.T) {
 	// Defaults: both limits on at their default, responses compressed.
 	var d api.Deps
-	apiTuning(loaded(t, nil), &d)
+	apiTuning(loaded(t, nil), &d, nil)
 	require.Equal(t, api.DefaultRateLimitAPI, d.RateLimitAPI)
 	require.Equal(t, api.DefaultRateLimitAuthFailures, d.RateLimitAuthFailures)
 	require.False(t, d.RateLimitAPIOff)
@@ -62,20 +63,20 @@ func TestAPITuning(t *testing.T) {
 	d = api.Deps{}
 	apiTuning(loaded(t, map[string]string{
 		"OHS_RATE_LIMIT_API": "50/100", "OHS_RATE_LIMIT_AUTH_FAILURES": "0", "OHS_COMPRESSION": "false",
-	}), &d)
+	}), &d, nil)
 	require.Equal(t, api.RateLimit{Rate: 50, Burst: 100}, d.RateLimitAPI)
 	require.False(t, d.RateLimitAPIOff)
 	require.True(t, d.RateLimitAuthFailuresOff)
 	require.True(t, d.CompressionOff)
 
 	d = api.Deps{}
-	apiTuning(loaded(t, map[string]string{"OHS_RATE_LIMIT_API": "0"}), &d)
+	apiTuning(loaded(t, map[string]string{"OHS_RATE_LIMIT_API": "0"}), &d, nil)
 	require.True(t, d.RateLimitAPIOff)
 	require.False(t, d.RateLimitAuthFailuresOff)
 
 	// A Config not built by Load has no limit, like the other rate limits.
 	d = api.Deps{}
-	apiTuning(config.Config{}, &d)
+	apiTuning(config.Config{}, &d, nil)
 	require.True(t, d.RateLimitAPIOff)
 	require.True(t, d.RateLimitAuthFailuresOff)
 	require.False(t, d.CompressionOff)
@@ -133,4 +134,19 @@ func TestUntrustedProxyWarning(t *testing.T) {
 		require.Empty(t, untrustedProxyWarning(listen, trusted), listen+" with a trusted proxy")
 	}
 	require.Contains(t, untrustedProxyWarning(":8080", nil), "OHS_TRUSTED_PROXIES")
+}
+
+func TestAPITuningLiveRateLimits(t *testing.T) {
+	var d api.Deps
+	apiTuning(config.Config{}, &d, nil)
+	require.Nil(t, d.RateLimits, "no live settings, fixed fields only")
+
+	cfg := loaded(t, map[string]string{"OHS_RATE_LIMIT_OAUTH": "3/7", "OHS_RATE_LIMIT_API": "0"})
+	live := settings.NewLive(settings.LiveOptions{Config: cfg})
+	apiTuning(cfg, &d, live)
+	require.NotNil(t, d.RateLimits)
+	got := d.RateLimits()
+	require.Equal(t, api.RateLimit{Rate: 3, Burst: 7}, got.OAuth)
+	require.Equal(t, api.RateLimit{}, got.API, "zero is off")
+	require.Equal(t, api.RateLimit(cfg.RateLimitInbound), got.Inbound)
 }
