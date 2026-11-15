@@ -263,10 +263,23 @@ func LookupSetting(name string) (Setting, bool) {
 	return Setting{}, false
 }
 
-// EnvSet reports whether the environment sets the setting: its variable or
-// its _FILE twin, set and not empty.
+// fileTwin lists the settings Load reads through secret(), the only ones
+// whose _FILE twin means anything. A test keeps it equal to the secret()
+// calls in the package.
+var fileTwin = map[string]bool{
+	"OHS_ENCRYPTION_KEY": true,
+	"OHS_SETUP_TOKEN":    true,
+	"OHS_VAULT_ROOT_KEY": true,
+}
+
+// EnvSet reports whether the environment sets the setting: its variable, or
+// for a setting Load reads through secret() its _FILE twin, set and not empty.
 func EnvSet(env func(string) (string, bool), name string) bool {
-	for _, n := range []string{name, name + "_FILE"} {
+	names := []string{name}
+	if fileTwin[name] {
+		names = append(names, name+"_FILE")
+	}
+	for _, n := range names {
 		if v, ok := env(n); ok && v != "" {
 			return true
 		}

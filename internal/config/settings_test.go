@@ -48,6 +48,7 @@ func TestRegistryMatchesLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := map[string]bool{}
+	secretCalls := map[string]bool{}
 	fset := token.NewFileSet()
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") || f == "settings.go" {
@@ -71,12 +72,16 @@ func TestRegistryMatchesLoad(t *testing.T) {
 					if lit, ok := n.Args[1].(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						if s, err := strconv.Unquote(lit.Value); err == nil {
 							found[s+"_FILE"] = true
+							secretCalls[s] = true
 						}
 					}
 				}
 			}
 			return true
 		})
+	}
+	if !reflect.DeepEqual(secretCalls, fileTwin) {
+		t.Errorf("fileTwin %v must equal the settings Load reads through secret() %v", fileTwin, secretCalls)
 	}
 	reg := map[string]bool{}
 	for _, s := range Registry() {
@@ -219,12 +224,15 @@ func TestStackedPrecedence(t *testing.T) {
 	if v, ok := look(nil, nil, name); v != "" || ok {
 		t.Errorf("nothing set: %q %v", v, ok)
 	}
-	const key = "OHS_METRICS_TOKEN"
+	const key = "OHS_SETUP_TOKEN"
 	if v, ok := look(map[string]string{key + "_FILE": "/run/x"}, map[string]string{key: "stored-token-0123456789"}, key); ok {
 		t.Errorf("_FILE in env must hide the stored value, got %q", v)
 	}
 	if !EnvSet(func(k string) (string, bool) { return "/run/x", k == key+"_FILE" }, key) {
 		t.Error("EnvSet misses the _FILE twin")
+	}
+	if EnvSet(func(k string) (string, bool) { return "/run/x", k == "OHS_METRICS_TOKEN_FILE" }, "OHS_METRICS_TOKEN") {
+		t.Error("a _FILE twin Load never reads must not count as set")
 	}
 	if EnvSet(func(k string) (string, bool) { return "", true }, key) {
 		t.Error("EnvSet counts an empty value")
