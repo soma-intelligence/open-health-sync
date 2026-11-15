@@ -56,20 +56,22 @@ func (s *server) mountAudit(mux *http.ServeMux) {
 // {tenant_id} names another tenant (an admin route): that user is not one of
 // the caller's, and is named on that tenant's log instead (asTenant). A write
 // that fails is logged and counted, never turned into an error for the
-// caller, who already has the response.
+// caller, who already has the response. A console session request carries
+// the tenant of the session as ActorTenant; a session route is recorded on
+// that tenant, and the request event of a session route whose handler
+// recorded its own event is skipped when it succeeded.
 func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope string) {
 	// The handler of a session route writes its own event when it succeeds;
 	// a request refused before that (a scope, a bad body, an unknown tenant)
 	// is recorded here.
-	ownEvent := sessionOwnEvent[r.Pattern]
-	if ownEvent && code < http.StatusBadRequest {
+	if sessionOwnEvent[r.Pattern] && code < http.StatusBadRequest {
 		return
 	}
 	// An instance admin route is the admin's own business: it is recorded on
 	// the tenant that acts, never on a tenant the console session is viewing.
 	// So is a session route.
 	tenantID := p.TenantID
-	if isAdminRoute(r.Pattern) || ownEvent {
+	if isAdminRoute(r.Pattern) || isSessionRoute(r.Pattern) {
 		tenantID = p.Actor()
 	}
 	ev := audit.Event{
@@ -157,6 +159,12 @@ func ownTenant(r *http.Request, tenantID uuid.UUID) bool {
 func isAdminRoute(pattern string) bool {
 	_, path, _ := strings.Cut(pattern, " ")
 	return strings.HasPrefix(path, "/v1/admin/")
+}
+
+// isSessionRoute reports whether pattern is a console session route.
+func isSessionRoute(pattern string) bool {
+	_, path, _ := strings.Cut(pattern, " ")
+	return strings.HasPrefix(path, "/console/session")
 }
 
 // listAudit serves the tenant's audit log, newest first, filtered by

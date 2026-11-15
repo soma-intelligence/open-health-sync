@@ -85,6 +85,10 @@ func (s *server) signInConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if plainHTTP(r, s.d.PublicURL, s.d.TrustedProxies) {
+		if s.d.PublicURL != "" {
+			problem(w, http.StatusForbidden, "OHS_PUBLIC_URL is plain http on a remote host; the console needs its https address")
+			return
+		}
 		problem(w, http.StatusForbidden, "the console signs in over https, or on localhost; set OHS_PUBLIC_URL to the https address")
 		return
 	}

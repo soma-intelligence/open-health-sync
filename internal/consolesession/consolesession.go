@@ -72,7 +72,11 @@ func NewSecret() (string, error) {
 func interval(d time.Duration) string { return fmt.Sprintf("%d microseconds", d.Microseconds()) }
 
 // live is the condition of a session that has not ended, on aliases s and k.
+// A session that views another tenant than its own ends when its tenant stops
+// being the instance admin.
 const live = `k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now())
+	AND (s.acting_tenant_id = s.tenant_id
+		OR EXISTS (SELECT 1 FROM ohs_core.tenants st WHERE st.id = s.tenant_id AND st.admin))
 	AND s.last_seen_at > now() - $2::interval AND s.created_at > now() - $3::interval`
 
 const selectSession = `SELECT s.id, s.tenant_id, s.api_key_id, s.acting_tenant_id, s.read_only, s.csrf_hash,

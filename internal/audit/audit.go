@@ -128,7 +128,7 @@ type Event struct {
 	// value read or written.
 	Detail map[string]any
 	// ActorTenant is the tenant of the console session behind the request
-	// (the acting tenant); nil otherwise.
+	// (Principal.Actor); nil otherwise.
 	ActorTenant *uuid.UUID
 	// At is when the event happened. Zero means the time of the write; the
 	// buffered Writer sets it when an event is queued.
@@ -391,8 +391,8 @@ type Entry struct {
 	Status    *int           `json:"status"`
 	RequestID string         `json:"request_id,omitempty"`
 	Detail    map[string]any `json:"detail"`
-	// ActorTenantID is the acting tenant of the console session behind the
-	// event; null when there was none.
+	// ActorTenantID is the tenant of the console session behind the event
+	// (Principal.Actor); null when there was none.
 	ActorTenantID *uuid.UUID `json:"actor_tenant_id"`
 }
 

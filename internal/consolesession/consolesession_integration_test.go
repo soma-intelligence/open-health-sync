@@ -233,13 +233,12 @@ func TestPurgeEnded(t *testing.T) {
 	liveTok, _ := e.open(t)
 	_, idle := e.open(t)
 	_, old := e.open(t)
-	_, _, revoked, err := e.cs.Create(ctx, e.b.ID, revokedKey, false)
+	_, _, _, err = e.cs.Create(ctx, e.b.ID, revokedKey, false)
 	require.NoError(t, err)
 
 	e.exec(t, `UPDATE ohs_core.console_sessions SET last_seen_at = now() - interval '13 hours' WHERE id = $1`, idle.ID)
 	e.exec(t, `UPDATE ohs_core.console_sessions SET created_at = now() - interval '8 days' WHERE id = $1`, old.ID)
 	require.NoError(t, e.ts.RevokeKeyByID(ctx, e.b.ID, revokedKey))
-	_ = revoked
 
 	n, err := e.cs.PurgeEnded(ctx)
 	require.NoError(t, err)

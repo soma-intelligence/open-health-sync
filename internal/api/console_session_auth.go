@@ -48,26 +48,28 @@ func (s *server) sessionAuth(r *http.Request, token string) (auth.Principal, err
 	if sess.ReadOnly && !safe && !sessionExempt[r.Pattern] {
 		return auth.Principal{}, &auth.ForbiddenError{Detail: auth.DetailReadOnly}
 	}
-	keyID := sess.APIKeyID.String()
+	p := auth.Principal{
+		TenantID:      sess.ActingTenantID,
+		KeyID:         sess.APIKeyID.String(),
+		Admin:         sess.TenantAdmin,
+		KeyScopes:     sess.KeyScopes,
+		ActorTenantID: sess.TenantID,
+		SessionID:     sess.ID,
+	}
+	// The cookie request draws on the bucket of its key, as a bearer
+	// request of that key does.
 	if l := s.apiLimit.current(); l.perAddr.on() {
-		if ok, wait, _ := l.allow("k:"+keyID, ""); !ok {
+		if ok, wait, _ := l.allow(limitKey(p), ""); !ok {
 			s.metrics.rateLimited[groupAPI].Add(1)
 			slog.DebugContext(r.Context(), "api: rate limited", "route_group", groupAPI)
 			return auth.Principal{}, &auth.LimitedError{RetryAfter: wait}
 		}
 	}
-	return auth.Principal{
-		TenantID:      sess.ActingTenantID,
-		KeyID:         keyID,
-		Admin:         sess.TenantAdmin,
-		KeyScopes:     sess.KeyScopes,
-		ActorTenantID: sess.TenantID,
-		SessionID:     sess.ID,
-	}, nil
+	return p, nil
 }
 
 // originOf is scheme://host of a URL, lower case, with the default port of
-// the scheme dropped. ok is false for a value that is not an origin.
+// the scheme dropped.
 func originOf(scheme, host string) string {
 	scheme, host = strings.ToLower(scheme), strings.ToLower(host)
 	switch {
@@ -138,14 +140,22 @@ func cookieSecure(r *http.Request, publicURL string, trusted []netip.Prefix) boo
 		if err != nil {
 			return true
 		}
-		return !(strings.EqualFold(p.Scheme, "http") && localHost(p.Host))
+		return !strings.EqualFold(p.Scheme, "http") || !localHost(p.Host)
 	}
 	return requestHTTPS(r, trusted) || !localHost(r.Host)
 }
 
 // plainHTTP reports whether the console is served over plain http to a
-// remote host with no public URL to say otherwise: the session cookie would
-// be refused by browsers or travel in the clear.
+// remote host: the session cookie would be refused by browsers or travel in
+// the clear. With a public URL it is the public URL that says so (plain http
+// on a remote host, or one that does not parse); without one, the request.
 func plainHTTP(r *http.Request, publicURL string, trusted []netip.Prefix) bool {
-	return publicURL == "" && !requestHTTPS(r, trusted) && !localHost(r.Host)
+	if publicURL != "" {
+		p, err := url.Parse(publicURL)
+		if err != nil {
+			return true
+		}
+		return strings.EqualFold(p.Scheme, "http") && !localHost(p.Host)
+	}
+	return !requestHTTPS(r, trusted) && !localHost(r.Host)
 }

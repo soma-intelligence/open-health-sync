@@ -107,9 +107,10 @@ func (s *server) mintToken(w http.ResponseWriter, r *http.Request) {
 	}
 	// The token remembers the key that minted it: revoking the key revokes
 	// the token. An admin serving another tenant mints with a key that is
-	// not this tenant's; such a token is tied to no key.
+	// not this tenant's, and so does a console session acting on another
+	// tenant; such a token is tied to no key.
 	var mintedBy *uuid.UUID
-	if k, err := uuid.Parse(p.KeyID); err == nil && ownTenant(r, p.TenantID) {
+	if k, err := uuid.Parse(p.KeyID); err == nil && ownTenant(r, p.TenantID) && p.TenantID == p.Actor() {
 		mintedBy = &k
 	}
 	token, exp, err := s.d.Store.MintUserTokenBy(r.Context(), p.TenantID, id, req.Scopes, time.Duration(req.TTLSeconds)*time.Second, mintedBy)

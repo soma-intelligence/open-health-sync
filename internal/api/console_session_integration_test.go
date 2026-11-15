@@ -494,6 +494,24 @@ func TestConsoleTenantSwitch(t *testing.T) {
 	assert.Equal(t, e.tenantA.String(), detail["from_tenant_id"])
 	assert.Equal(t, e.tenantB.String(), detail["to_tenant_id"])
 
+	// Every session event lands on the session's own tenant, even while
+	// the session views another one.
+	r = e.do("GET", "/console/session", "", nil, "Cookie", ck(cookie))
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	r.json(t, &body)
+	csrf = body.CSRF // a read rotates the CSRF token
+	n, ten, actor, _ = e.auditRows(audit.SessionRead)
+	assert.Equal(t, 1, n)
+	assert.Equal(t, e.tenantA, ten, "session.read is on the session tenant")
+	assert.Equal(t, e.tenantA, actor)
+	r = e.do("DELETE", "/console/session", "", nil, "Cookie", ck(cookie), auth.CSRFHeader, csrf)
+	require.Equal(t, http.StatusNoContent, r.code, string(r.body))
+	n, ten, actor, _ = e.auditRows(audit.SessionDelete)
+	assert.Equal(t, 1, n)
+	assert.Equal(t, e.tenantA, ten, "session.delete is on the session tenant")
+	assert.Equal(t, e.tenantA, actor)
+
+	cookie, csrf = e.session(e.keyA)
 	r = put(map[string]any{"tenant_id": e.tenantA})
 	require.Equal(t, http.StatusOK, r.code, string(r.body))
 	r.json(t, &body)
@@ -533,4 +551,64 @@ func TestConsoleSessionRoutesNeedASession(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, r.code, c.method)
 		assert.Contains(t, string(r.body), "this route needs a console session")
 	}
+}
+
+// Demoting the admin tenant ends the reach of a session that switched to
+// another tenant: the session stops resolving at all.
+func TestConsoleSwitchedSessionEndsWithAdminDemotion(t *testing.T) {
+	e := newEnv(t, withConsole)
+	cookie, csrf := e.session(e.keyA)
+	r := e.do("PUT", "/console/session/tenant", "", map[string]any{"tenant_id": e.tenantB}, "Cookie", ck(cookie), auth.CSRFHeader, csrf)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	require.Equal(t, http.StatusOK, e.do("GET", "/v1/users", "", nil, "Cookie", ck(cookie)).code)
+	require.NoError(t, e.store.SetAdmin(context.Background(), e.tenantA, false))
+	assert.Equal(t, http.StatusUnauthorized, e.do("GET", "/v1/users", "", nil, "Cookie", ck(cookie)).code)
+}
+
+// A session acting on another tenant mints user tokens tied to no key.
+func TestConsoleSwitchedSessionMintsUntiedToken(t *testing.T) {
+	e := newEnv(t, withConsole)
+	ub := e.user(e.tenantB, "b-1")
+	cookie, csrf := e.session(e.keyA)
+	r := e.do("PUT", "/console/session/tenant", "", map[string]any{"tenant_id": e.tenantB}, "Cookie", ck(cookie), auth.CSRFHeader, csrf)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	r = e.do("POST", "/v1/users/"+ub.String()+"/tokens", "", map[string]any{"scopes": []string{"read"}, "ttl_seconds": 3600},
+		"Cookie", ck(cookie), auth.CSRFHeader, csrf)
+	require.Equal(t, http.StatusCreated, r.code, string(r.body))
+	var tied, total int
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT count(*), count(minted_by_key) FROM ohs_core.user_tokens WHERE user_id = $1`, ub).Scan(&total, &tied))
+	assert.Equal(t, 1, total)
+	assert.Zero(t, tied, "minted_by_key is NULL")
+
+	// The same session on its own tenant still ties the token to its key.
+	ua := e.user(e.tenantA, "a-1")
+	r = e.do("PUT", "/console/session/tenant", "", map[string]any{"tenant_id": e.tenantA}, "Cookie", ck(cookie), auth.CSRFHeader, csrf)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	r = e.do("POST", "/v1/users/"+ua.String()+"/tokens", "", map[string]any{"scopes": []string{"read"}, "ttl_seconds": 3600},
+		"Cookie", ck(cookie), auth.CSRFHeader, csrf)
+	require.Equal(t, http.StatusCreated, r.code, string(r.body))
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT count(minted_by_key) FROM ohs_core.user_tokens WHERE user_id = $1`, ua).Scan(&tied))
+	assert.Equal(t, 1, tied)
+}
+
+// A cookie request and a bearer request of one key draw on one API bucket.
+func TestConsoleSessionSharesKeyBucket(t *testing.T) {
+	e := newEnv(t, withConsole, func(d *api.Deps) { d.RateLimitAPI = api.RateLimit{Rate: 1.0 / 60, Burst: 3} })
+	cookie, _ := e.session(e.keyA) // the sign in is the first request of the key
+	require.Equal(t, http.StatusOK, e.do("GET", "/v1/users", e.keyA, nil).code)
+	require.Equal(t, http.StatusOK, e.do("GET", "/v1/users", "", nil, "Cookie", ck(cookie)).code)
+	r := e.do("GET", "/v1/users", e.keyA, nil)
+	assert.Equal(t, http.StatusTooManyRequests, r.code, "the cookie request used the key's bucket")
+}
+
+func TestConsoleSignInRefusedWithPlainRemotePublicURL(t *testing.T) {
+	e := newEnv(t, withConsole, func(d *api.Deps) { d.PublicURL = "http://192.168.1.10:8080" })
+	req := httptest.NewRequest("POST", "/console/session", strings.NewReader(`{"key": "`+e.keyA+`"}`))
+	req.Host = "192.168.1.10:8080"
+	r := e.serve(req)
+	require.Equal(t, http.StatusForbidden, r.code, string(r.body))
+	assert.Contains(t, string(r.body), "OHS_PUBLIC_URL is plain http on a remote host")
+	assert.Zero(t, e.sessionCount())
 }
