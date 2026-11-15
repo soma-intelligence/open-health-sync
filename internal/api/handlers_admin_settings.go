@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/settings"
