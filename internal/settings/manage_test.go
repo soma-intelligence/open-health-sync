@@ -250,3 +250,26 @@ func TestExportFormat(t *testing.T) {
 	require.Contains(t, text, "# Retention\n")
 	require.False(t, strings.Contains(text, "\r"))
 }
+
+func TestPatchStillSkippedPutIsRefused(t *testing.T) {
+	l, st := manageLive(t, map[string]string{"OHS_WEBHOOK_CONCURRENCY": "2"}, map[string]Row{
+		"OHS_WEBHOOK_PER_TENANT": {Name: "OHS_WEBHOOK_PER_TENANT", Value: "9"},
+	})
+	_, err := l.Patch(context.Background(), 0, map[string]*string{"OHS_WEBHOOK_PER_TENANT": sp("8")}, uuid.New())
+	var ie *InvalidError
+	require.ErrorAs(t, err, &ie)
+	require.Len(t, ie.Settings, 1)
+	require.Equal(t, "OHS_WEBHOOK_PER_TENANT", ie.Settings[0].Name)
+	require.Empty(t, st.applies)
+}
+
+func TestViewEnvSetUnopenableStored(t *testing.T) {
+	l, _ := manageLive(t, map[string]string{"OHS_LOG_LEVEL": "debug", "OHS_METRICS_TOKEN": "0123456789abcdefENV"}, map[string]Row{
+		"OHS_LOG_LEVEL":     {Name: "OHS_LOG_LEVEL", OpenErr: errors.New("x")},
+		"OHS_METRICS_TOKEN": {Name: "OHS_METRICS_TOKEN", Sealed: true, OpenErr: errors.New("x")},
+	})
+	v, err := l.View(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, entryOf(t, v, "OHS_LOG_LEVEL").StoredValue)
+	require.Equal(t, "set", *entryOf(t, v, "OHS_METRICS_TOKEN").StoredValue)
+}

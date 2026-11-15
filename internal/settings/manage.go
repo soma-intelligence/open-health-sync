@@ -138,11 +138,14 @@ func (l *Live) View(ctx context.Context) (View, error) {
 			e.Source = SourceEnv
 			e.Value = l.envValue(s)
 			if stored && s.Apply != config.ApplyBootstrap {
-				sv := row.Value
-				if s.Secret || row.OpenErr != nil {
-					sv = secretSet
+				switch {
+				case s.Secret:
+					sv := secretSet
+					e.StoredValue = &sv
+				case row.OpenErr == nil:
+					sv := row.Value
+					e.StoredValue = &sv
 				}
-				e.StoredValue = &sv
 			}
 		case s.Apply == config.ApplyBootstrap:
 			e.Source = SourceDefault
@@ -323,7 +326,7 @@ func (l *Live) dryRun(st State, put map[string]string, del []string) error {
 	}
 	var out []SettingError
 	for _, inv := range after {
-		if skipped[inv.Name] {
+		if _, touched := put[inv.Name]; skipped[inv.Name] && !touched {
 			continue
 		}
 		msg := inv.Message
