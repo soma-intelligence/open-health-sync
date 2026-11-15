@@ -309,7 +309,7 @@ func doctorSettings(ctx context.Context, out io.Writer, o DoctorOptions, cfg con
 			name, strings.Join(unknown, ", "), unknown[0])
 	}
 	for _, inv := range invalid {
-		fmt.Fprintf(out, "warn  %s: stored value skipped: %s: %s\n", name, inv.Name, inv.Message)
+		fmt.Fprintf(out, "warn  %s: stored value skipped: %s: %s\n", name, inv.Name, strings.TrimPrefix(inv.Message, inv.Name+": "))
 	}
 }
 

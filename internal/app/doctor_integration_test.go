@@ -16,6 +16,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 )
 
 func TestDoctorAllOK(t *testing.T) {
@@ -130,8 +131,33 @@ func TestDoctorListsStoredSettings(t *testing.T) {
 	require.NoError(t, err, out) // warnings never fail the doctor
 	require.Contains(t, out, "warn  settings: stored values no release setting reads any more: OHS_GONE "+
 		`(remove them with PATCH /v1/admin/settings {"OHS_GONE": null})`)
-	require.Contains(t, out, "warn  settings: stored value skipped: OHS_WEBHOOK_PAUSE_AFTER")
-	require.NotContains(t, out, "abc")
+	require.Contains(t, out, `warn  settings: stored value skipped: OHS_WEBHOOK_PAUSE_AFTER: "abc" is not a non-negative integer`)
+	require.NotContains(t, out, "OHS_WEBHOOK_PAUSE_AFTER: OHS_WEBHOOK_PAUSE_AFTER")
+}
+
+// A sealed secret no configured key opens is reported by name; its value
+// never reaches the output.
+func TestDoctorSettingsNeverPrintsASecret(t *testing.T) {
+	url := db.TestDB(t)
+	ctx := context.Background()
+	other, err := crypto.NewBox(bytes.Repeat([]byte{9}, 32))
+	require.NoError(t, err)
+	sealed, err := other.SealFor([]byte("super-secret-token"), settings.SealAAD("OHS_METRICS_TOKEN"))
+	require.NoError(t, err)
+	pool, err := db.Open(ctx, url)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO ohs_core.instance_settings (name, sealed, updated_by) VALUES ('OHS_METRICS_TOKEN', $1, $2)`,
+		sealed, uuid.New())
+	pool.Close()
+	require.NoError(t, err)
+	out, err := runDoctorT(t, map[string]string{
+		"OHS_DATABASE_URL":   url,
+		"OHS_ENCRYPTION_KEY": goodKey(),
+		"OHS_RAW_STORE":      "file://" + t.TempDir(),
+	}, false, nil)
+	require.NoError(t, err, out)
+	require.Contains(t, out, "warn  settings: stored value skipped: OHS_METRICS_TOKEN: the stored value does not open with OHS_ENCRYPTION_KEY")
+	require.NotContains(t, out, "super-secret-token")
 }
 
 func TestDoctorSettingsQuietWhenClean(t *testing.T) {
