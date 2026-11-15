@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
@@ -170,8 +169,8 @@ func (s *server) patchAdminSettings(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "the body changes nothing: give at least one setting, a string or null")
 		return
 	}
-	by, _ := uuid.Parse(p.KeyID) // a key id is a uuid; anything else is left unnamed
-	res, err := s.d.Settings.Patch(r.Context(), rev, req, by)
+	// updated_by is the admin tenant, per spec 1.4, not the key.
+	res, err := s.d.Settings.Patch(r.Context(), rev, req, p.TenantID)
 	if err != nil {
 		patchError(w, r, err, func() (int64, error) {
 			v, err := s.d.Settings.View(r.Context())

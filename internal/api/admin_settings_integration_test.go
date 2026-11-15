@@ -130,8 +130,12 @@ func TestAdminSettingsGet(t *testing.T) {
 		if s.Type != config.TypeEnum {
 			assert.Nil(t, got.Values, s.Name)
 		}
-		if s.Secret {
+		if s.Secret && got.Source != "env" {
 			assert.Nil(t, got.Value, "a secret that is not set has no value: "+s.Name)
+		}
+		if s.Secret && got.Source == "env" {
+			require.NotNil(t, got.Value, s.Name)
+			assert.Equal(t, "set", *got.Value, "an env secret shows only that it is set: "+s.Name)
 		}
 	}
 	var raw map[string]any
@@ -158,6 +162,12 @@ func TestAdminSettingsPatch(t *testing.T) {
 	assert.Equal(t, []string{}, p.RestartRequired, "an empty list, not null")
 	assert.Equal(t, etag(rev+1), r.header.Get("ETag"))
 	assert.JSONEq(t, `[]`, string(mustSub(t, r.body, "restart_required")))
+
+	// updated_by is the admin tenant, not the key.
+	var by uuid.UUID
+	require.NoError(t, e.pool.QueryRow(context.Background(),
+		`SELECT updated_by FROM ohs_core.instance_settings WHERE name = 'OHS_WEBHOOK_PAUSE_AFTER'`).Scan(&by))
+	assert.Equal(t, e.tenantA, by)
 
 	// The old ETag is stale: 412 with the current one.
 	r = e.patchSettings(t, rev, `{"OHS_WEBHOOK_PAUSE_AFTER": "8"}`)
