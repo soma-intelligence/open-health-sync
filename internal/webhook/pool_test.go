@@ -193,3 +193,29 @@ func TestPauseSchedule(t *testing.T) {
 	assert.Equal(t, []float64{1}, pauseSchedule(10*time.Second, time.Second), "the maximum wins")
 	assert.Equal(t, []float64{0}, pauseSchedule(0, 0))
 }
+
+func TestPauseAfterFuncUnit(t *testing.T) {
+	n := 5
+	w := NewWorker(nil, nil, WorkerConfig{PauseAfter: 9, PauseAfterFunc: func() int { return n }})
+	assert.Equal(t, 5, w.pauseAfterNow())
+	n = 2
+	assert.Equal(t, 2, w.pauseAfterNow(), "read per call")
+	n = 0
+	assert.Equal(t, DefaultPauseAfter, w.pauseAfterNow(), "zero is the default")
+	n = -1
+	assert.Zero(t, w.pauseAfterNow(), "negative turns the pause off")
+	assert.Equal(t, 9, NewWorker(nil, nil, WorkerConfig{PauseAfter: 9}).pauseAfterNow(), "static without a getter")
+}
+
+func TestRotationGraceFuncUnit(t *testing.T) {
+	g := time.Hour
+	s := NewStore(nil, nil, WithRotationGrace(2*time.Hour), WithRotationGraceFunc(func() time.Duration { return g }))
+	assert.Equal(t, time.Hour, s.rotationGrace())
+	g = 3 * time.Hour
+	assert.Equal(t, 3*time.Hour, s.rotationGrace(), "read per rotation")
+	g = 0
+	assert.Equal(t, RotationGrace, s.rotationGrace(), "zero means the default")
+	g = -time.Hour
+	assert.Zero(t, s.rotationGrace(), "negative ends the replaced secret at once")
+	assert.Equal(t, 2*time.Hour, NewStore(nil, nil, WithRotationGrace(2*time.Hour)).rotationGrace())
+}

@@ -100,7 +100,7 @@ var Version = "dev"
 // newLogger is the process logger: JSON lines, durations as text ("10m0s")
 // rather than nanoseconds, and the request id and trace id of the context on
 // each line.
-func newLogger(w io.Writer, level slog.Level) *slog.Logger {
+func newLogger(w io.Writer, level slog.Leveler) *slog.Logger {
 	return slog.New(tracing.LogHandler(reqid.Handler(slog.NewJSONHandler(w, &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
@@ -131,6 +131,9 @@ type options struct {
 	start   settings.Start
 	lookup  func(string) (string, bool)
 	environ []string
+	// reloadEvery is how often the live settings are read; zero means
+	// settings.ReloadEvery.
+	reloadEvery time.Duration
 }
 
 func run(ctx context.Context, cfg config.Config, logOut io.Writer) error {
@@ -143,7 +146,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
 		return fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", cfg.LogLevel)
 	}
-	logger := newLogger(logOut, level)
+	// The level follows the live settings (OHS_LOG_LEVEL saved in the console).
+	levelVar := new(slog.LevelVar)
+	levelVar.Set(level)
+	logger := newLogger(logOut, levelVar)
 	slog.SetDefault(logger)
 	if opts.memLimit {
 		switch n, src := memlimit.Apply(os.LookupEnv, memlimit.DefaultCgroupRoot); src {
@@ -242,6 +248,13 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	// The provider keys tenants brought for themselves, read the same way.
 	// Removing them sets the connections made with them needs_reauth.
 	tenantKeys := tenantkeys.New(ctx, tenantkeys.Options{Store: tenantkeys.NewPG(pool, box, collect.RetireTenantKeys)})
+	// The live settings, one per process: every consumer below reads them
+	// through a getter, so a value saved in the console applies without a
+	// restart. Run reloads them (goRole "settings" below).
+	live := settings.NewLive(settings.LiveOptions{
+		Store: settings.NewPG(pool, box), Env: opts.lookup, Environ: opts.environ, Config: cfg, Start: opts.start,
+	})
+	live.Subscribe(func(s settings.Snapshot) { levelVar.Set(s.LogLevel) })
 	collectDeps := collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: store,
 		Lookup:     providers.Lookup,
@@ -249,7 +262,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		TenantKeys: tenantKeys,
 		PublicURL:  cfg.PublicURL,
 		// Zero leaves each provider its own backfill window.
-		BackfillWindow: backfillWindow(cfg),
+		BackfillWindowFunc: func() time.Duration { return backfillWindowOf(live.BackfillDays()) },
 		// Raw objects are sealed to public keys: collect alone can.
 		Vault: keyVault,
 	}
@@ -309,12 +322,9 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		goRole("vault", func() error { return keyVault.Listen(ctx) })
 	}
 
-	// The live settings, reloaded every 30 s, and the row this process keeps
-	// in process_heartbeats so the console shows what each process runs.
-	live := settings.NewLive(settings.LiveOptions{
-		Store: settings.NewPG(pool, box), Env: opts.lookup, Environ: opts.environ, Config: cfg, Start: opts.start,
-	})
-	goRole("settings", func() error { return live.Run(ctx, settings.ReloadEvery) })
+	// The row this process keeps in process_heartbeats so the console shows
+	// what each process runs.
+	goRole("settings", func() error { return live.Run(ctx, cmp.Or(opts.reloadEvery, settings.ReloadEvery)) })
 	host, _ := os.Hostname()
 	var roles []string
 	for r, on := range cfg.Roles {
@@ -363,7 +373,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		q.Hooks = etlHooks(loops, workerMetrics, cmp.Or(opts.jobLimit, jobBusyLimit))
 		for _, tier := range []string{queue.TierStandard, queue.TierHighFreq} {
 			w := etl.NewWorkerWith(pool, raw, q, tier, etlConcurrency(cfg), etl.WithShutdownGrace(opts.grace),
-				etl.WithConsentRequired(cfg.ConsentRequired), etl.WithVault(keyVault),
+				etl.WithConsentRequiredFunc(live.ConsentRequired), etl.WithVault(keyVault),
 				etl.WithRowsWritten(workerMetrics.ETLRows))
 			goRole("etl "+tier, func() error { return w.Run(ctx) })
 		}
@@ -380,17 +390,19 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		// Outgoing webhooks: deliveries are written with the change they
 		// announce, posted from here.
 		wcfg := webhookWorkerConfig(cfg)
+		wcfg.PauseAfterFunc = live.WebhookPauseAfter
 		wcfg.Loop, wcfg.Observe = loops.Loop(loopWebhooks, webhookPollEvery), workerMetrics.WebhookDone
 		ww := webhook.NewWorker(pool, box, wcfg)
 		goRole("webhooks", func() error { return ww.Run(ctx) })
 		goRole("automation", func() error {
 			return automation.Start(ctx, automation.Deps{
-				Pool: pool, Store: raw, RetentionDays: cfg.RetentionDays, Metrics: etlMetrics,
-				AuditRetentionDays: cfg.AuditRetentionDays,
+				Pool: pool, Store: raw, Metrics: etlMetrics,
+				RetentionDaysFunc:      live.RetentionDays,
+				AuditRetentionDaysFunc: live.AuditRetentionDays,
 				// Zero means the default, negative keeps the rows for ever.
-				TrackingRetentionDays: cfg.TrackingRetentionDays,
-				PruneHeartbeats:       func(ctx context.Context) (int64, error) { return settings.PruneHeartbeats(ctx, pool) },
-				OnTick:                loops.Task,
+				TrackingRetentionDaysFunc: live.TrackingRetentionDays,
+				PruneHeartbeats:           func(ctx context.Context) (int64, error) { return settings.PruneHeartbeats(ctx, pool) },
+				OnTick:                    loops.Task,
 			})
 		})
 	}
@@ -433,7 +445,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			// Provider keys of one tenant, and their admin routes.
 			TenantKeys: tenantKeys,
 			PublicURL:  cfg.PublicURL,
-			Webhooks:   webhook.NewStore(pool, box, webhookStoreOptions(cfg)...),
+			Webhooks:   webhook.NewStore(pool, box, webhook.WithRotationGraceFunc(live.WebhookRotationGrace)),
 			// WebhookAllowPrivate relaxes the endpoint URL checks.
 			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.

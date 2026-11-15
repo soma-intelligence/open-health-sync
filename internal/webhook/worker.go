@@ -110,6 +110,9 @@ type WorkerConfig struct {
 	// nothing until its pause ends, then one delivery at a time until one
 	// succeeds. A negative value turns the pause off.
 	PauseAfter int
+	// PauseAfterFunc, when set, is read at every claim and every failure and
+	// wins over PauseAfter; it means the same (0 default, negative off).
+	PauseAfterFunc func() int
 	// PauseBase is the first pause; each further failure doubles it, up to
 	// PauseMax (defaults DefaultPauseBase and DefaultPauseMax).
 	PauseBase time.Duration
@@ -140,8 +143,10 @@ type Worker struct {
 	concurrency int
 	perEndpoint int
 	perTenant   int
-	pauseAfter  int       // 0: endpoints are never paused
-	pauses      []float64 // seconds, see pauseSchedule
+	pauseAfter  int // 0: endpoints are never paused
+	// pauseAfterFn, when set, replaces pauseAfter (WorkerConfig.PauseAfterFunc).
+	pauseAfterFn func() int
+	pauses       []float64 // seconds, see pauseSchedule
 
 	loop    *ops.Loop
 	observe func(outcome string, took time.Duration)
@@ -150,6 +155,26 @@ type Worker struct {
 	// slot pool.
 	claimFn   func(ctx context.Context, n int) ([]job, error)
 	deliverFn func(ctx context.Context, j job) error
+}
+
+// resolvePauseAfter maps a configured value to the worker's: 0 is the
+// default, negative never pauses (stored as 0).
+func resolvePauseAfter(n int) int {
+	switch {
+	case n == 0:
+		return DefaultPauseAfter
+	case n > 0:
+		return n
+	}
+	return 0
+}
+
+// pauseAfterNow is the number of failures in a row that pauses an endpoint.
+func (w *Worker) pauseAfterNow() int {
+	if w.pauseAfterFn != nil {
+		return w.pauseAfterFn()
+	}
+	return w.pauseAfter
 }
 
 // NewWorker returns a delivery worker.
@@ -182,11 +207,9 @@ func NewWorker(pool *pgxpool.Pool, box *crypto.Box, cfg WorkerConfig) *Worker {
 		w.perTenant = max(w.concurrency/DefaultPerTenantDivisor, 1)
 	}
 	w.perTenant = min(w.perTenant, w.concurrency)
-	switch {
-	case cfg.PauseAfter == 0:
-		w.pauseAfter = DefaultPauseAfter
-	case cfg.PauseAfter > 0:
-		w.pauseAfter = cfg.PauseAfter
+	w.pauseAfter = resolvePauseAfter(cfg.PauseAfter)
+	if f := cfg.PauseAfterFunc; f != nil {
+		w.pauseAfterFn = func() int { return resolvePauseAfter(f()) }
 	}
 	base, longest := cfg.PauseBase, cfg.PauseMax
 	if base <= 0 && longest <= 0 {
@@ -473,7 +496,7 @@ func (w *Worker) claim(ctx context.Context, n int) ([]job, error) {
 	if len(endpoints) == 0 {
 		return nil, nil
 	}
-	rows, err = tx.Query(ctx, claimSQL, n, visibility.Seconds(), w.perEndpoint, w.pauseAfter, endpoints, w.perTenant)
+	rows, err = tx.Query(ctx, claimSQL, n, visibility.Seconds(), w.perEndpoint, w.pauseAfterNow(), endpoints, w.perTenant)
 	if err != nil {
 		return nil, fmt.Errorf("claim deliveries: %w", err)
 	}
@@ -688,6 +711,7 @@ func (w *Worker) fail(ctx context.Context, j job, o outcome, cause error) error 
 	// endpoint, longer each time.
 	var failures int
 	var pausedUntil *time.Time
+	pauseAfter := w.pauseAfterNow()
 	if err := tx.QueryRow(ctx, `UPDATE ohs_core.webhook_endpoints SET
 			failing_since = COALESCE(failing_since, now()),
 			consecutive_failures = consecutive_failures + 1,
@@ -696,11 +720,11 @@ func (w *Worker) fail(ctx context.Context, j job, o outcome, cause error) error 
 					least(consecutive_failures + 2 - $2::int, cardinality($3::double precision[]))])
 				ELSE paused_until END
 		WHERE id = $1
-		RETURNING consecutive_failures, paused_until`, j.endpoint, w.pauseAfter, w.pauses).Scan(&failures, &pausedUntil); err != nil {
+		RETURNING consecutive_failures, paused_until`, j.endpoint, pauseAfter, w.pauses).Scan(&failures, &pausedUntil); err != nil {
 		return fmt.Errorf("mark endpoint failing: %w", err)
 	}
-	tripped := w.pauseAfter > 0 && failures >= w.pauseAfter
-	if tripped && failures == w.pauseAfter {
+	tripped := pauseAfter > 0 && failures >= pauseAfter
+	if tripped && failures == pauseAfter {
 		slog.WarnContext(ctx, "webhook: endpoint paused after consecutive failures", "endpoint_id", j.endpoint,
 			"failures", failures, "paused_until", pausedUntil)
 	}

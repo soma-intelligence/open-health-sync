@@ -376,7 +376,11 @@ func enqueueBackfill(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID,
 // allows few calls), the configured window for every other provider.
 func (d Deps) backfillPolicy(slug string) connector.SyncPolicy {
 	p := d.syncPolicy(slug)
-	w := min(d.BackfillWindow, MaxBackfillWindow)
+	window := d.BackfillWindow
+	if d.BackfillWindowFunc != nil {
+		window = d.BackfillWindowFunc()
+	}
+	w := min(window, MaxBackfillWindow)
 	if w <= 0 {
 		return p
 	}

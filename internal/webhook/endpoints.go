@@ -82,6 +82,8 @@ type Store struct {
 	pool  *pgxpool.Pool
 	box   *crypto.Box
 	grace time.Duration
+	// graceFn, when set, is read at every rotation (WithRotationGraceFunc).
+	graceFn func() time.Duration
 }
 
 // StoreOption tunes a Store.
@@ -92,6 +94,28 @@ type StoreOption func(*Store)
 // replaced secret stops at once.
 func WithRotationGrace(d time.Duration) StoreOption {
 	return func(s *Store) { s.grace = max(d, 0) }
+}
+
+// WithRotationGraceFunc is WithRotationGrace with a getter read at every
+// rotation, so a change applies without a restart. The getter's zero means
+// RotationGrace; a negative value ends the replaced secret at once.
+func WithRotationGraceFunc(f func() time.Duration) StoreOption {
+	return func(s *Store) { s.graceFn = f }
+}
+
+// rotationGrace is the grace period in force now.
+func (s *Store) rotationGrace() time.Duration {
+	if s.graceFn == nil {
+		return s.grace
+	}
+	switch d := s.graceFn(); {
+	case d == 0:
+		return RotationGrace
+	case d < 0:
+		return 0
+	default:
+		return d
+	}
 }
 
 // NewStore returns a Store. box seals the signing secrets.
@@ -305,7 +329,7 @@ func (s *Store) Delete(ctx context.Context, tenant, id uuid.UUID) error {
 // time, retries of earlier events included, verifies with either secret and
 // the receiver can switch without dropping an event.
 func (s *Store) RotateSecret(ctx context.Context, tenant, id uuid.UUID) (string, error) {
-	secret, _, err := s.RotateSecretWithGrace(ctx, tenant, id, s.grace)
+	secret, _, err := s.RotateSecretWithGrace(ctx, tenant, id, s.rotationGrace())
 	return secret, err
 }
 

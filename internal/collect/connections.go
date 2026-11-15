@@ -72,6 +72,9 @@ type Deps struct {
 	// less than the default keeps its own value. The window is walked in
 	// jobs of the provider's BackfillChunk, the most recent first.
 	BackfillWindow time.Duration
+	// BackfillWindowFunc, when set, wins over BackfillWindow and is read for
+	// every new connection.
+	BackfillWindowFunc func() time.Duration
 	// Vault seals every raw object to its owner's public key. Nil stores
 	// the gzip bytes as they are, as before the vault.
 	Vault *vault.Vault

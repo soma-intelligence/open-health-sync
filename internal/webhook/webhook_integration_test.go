@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -515,6 +516,62 @@ func TestEndpointPausedAfterConsecutiveFailures(t *testing.T) {
 		_, err = e.store.Update(ctx, e.tenant, ep.ID, webhook.Patch{URL: &same})
 		require.NoError(t, err)
 	}
+}
+
+// The claim and the failure count read PauseAfterFunc as it is now: changed
+// from 5 to 2, the endpoint is paused at its second failure.
+func TestPauseAfterFunc(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	rcv := newReceiver(t, 500, 500, 500)
+	ep, _, err := e.store.Create(ctx, e.tenant, rcv.srv.URL, "", []string{})
+	require.NoError(t, err)
+	for range 4 {
+		e.enqueue(webhook.DataWritten)
+	}
+	var after atomic.Int64
+	after.Store(5)
+	w := e.workerWith(webhook.WorkerConfig{PerEndpoint: 1, PauseBase: time.Hour, PauseMax: 4 * time.Hour,
+		PauseAfterFunc: func() int { return int(after.Load()) }})
+	pass(t, w)
+	got, err := e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.ConsecutiveFailures)
+	assert.Nil(t, got.PausedUntil)
+
+	after.Store(2)
+	pass(t, w)
+	got, err = e.store.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.ConsecutiveFailures)
+	require.NotNil(t, got.PausedUntil, "paused at the second failure")
+	assert.Equal(t, 0, pass(t, w), "nothing is sent to a paused endpoint")
+}
+
+// A rotation after the getter changed uses the new grace.
+func TestRotationGraceFunc(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	ep, _, err := e.store.Create(ctx, e.tenant, "https://example.com/hook", "", []string{})
+	require.NoError(t, err)
+	var grace atomic.Int64
+	grace.Store(int64(time.Hour))
+	s := webhook.NewStore(e.pool, e.box, webhook.WithRotationGraceFunc(func() time.Duration { return time.Duration(grace.Load()) }))
+
+	_, err = s.RotateSecret(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	got, err := s.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.PreviousSecretExpiresAt)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), *got.PreviousSecretExpiresAt, time.Minute)
+
+	grace.Store(int64(48 * time.Hour))
+	_, err = s.RotateSecret(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	got, err = s.Get(ctx, e.tenant, ep.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.PreviousSecretExpiresAt)
+	assert.WithinDuration(t, time.Now().Add(48*time.Hour), *got.PreviousSecretExpiresAt, time.Minute)
 }
 
 // A paused endpoint with a backlog is still disabled after DisableAfter: a
