@@ -20,8 +20,8 @@ With docker compose, put both in `.env` (next to `OHS_ENCRYPTION_KEY`), run
 `docker compose -f deploy/docker-compose.yml up -d`, then open
 `http://localhost:8080/console/setup` (or your https address). Type the token and, optionally, a
 tenant name (default `default`). The page shows the tenant id and its API key with a copy button.
-**Store the key at once: it is not shown again.** The same browser tab is then signed in to the
-[console](console.md) with it until the tab closes. The first tenant is the
+**Store the key at once: it is not shown again.** The page does not hand the key to the console:
+open `/console` and paste the key on the sign in page. The first tenant is the
 [instance admin](console.md#the-instance-admin): from the console, its key turns providers on and
 saves their keys.
 

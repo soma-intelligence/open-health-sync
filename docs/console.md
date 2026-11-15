@@ -23,18 +23,64 @@ OHS_CONSOLE=true
 |---|---|
 | `false` (default) | Not mounted: `/console` answers 404 |
 | `true` | The management console, with its actions |
-| `read-only` | The same pages without any action: the page refuses every request but `GET`. For a wall screen. It is not a security boundary, since the key it holds can call every route with `curl` |
+| `read-only` | The same pages without any action: every session the console opens is read only, and the server refuses every request of such a session but `GET`, `HEAD` and `OPTIONS` (see [Read only](#read-only)). For a wall screen. A bearer key keeps all its rights, so it is not a way to take a key's rights away |
 
 Then open `https://your-host/console` and paste a tenant API key (`ohs_sk_...`, from
 `ohs admin tenant create`, `ohs admin key create`, the bootstrap tenant or the
-[first-run setup](setup.md)).
+[first-run setup](setup.md)). The console signs you in with it: see [Sign in](#sign-in).
 
 No key yet and no terminal? With `OHS_SETUP_TOKEN` set, the sign-in screen of an instance that
 has no tenant links to `/console/setup`, a separate page that creates the first tenant and shows
 its key once; see [setup.md](setup.md). It writes nothing once a tenant exists.
 
-The console sees what that key sees: one tenant. To look at another tenant, sign out and use its
-key.
+The console sees what that key sees: one tenant. An instance admin can switch to another tenant
+without another key, through the session route (see [Switching tenant](#switching-tenant)); any other key sees its own tenant, and
+to look at another one you sign out and use its key.
+
+## Sign in
+
+Pasting a key opens a **console session**: the page sends the key once, in the body of
+`POST /console/session`, and the server answers with a cookie and a CSRF token. The key is not kept
+anywhere after that, not in the page, `sessionStorage`, `localStorage` or a cookie.
+
+- **The cookie** is named `ohs_console`: `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure`
+  unless the public URL is `http://localhost` or `http://127.0.0.1`. It has no `Max-Age`, so the
+  browser drops it when it closes; the server enforces the lifetime. It holds a random token of 32
+  bytes (43 characters, base64url); the database stores only its SHA-256 hash.
+- **The CSRF token** is another random token. The page keeps it in memory only, and sends it in
+  the `X-OHS-CSRF` header on every request but `GET`, `HEAD` and `OPTIONS`. Reloading the page
+  reads `GET /console/session`, which answers a new token and ends the old one; a second open tab
+  refreshes its token once and retries.
+- **Lifetime.** A session ends after 12 hours without a request, or 7 days after it was created,
+  or when its API key is revoked or expires, or its tenant is deleted. Sign out
+  (`DELETE /console/session`) ends it at once. Ended sessions are deleted by a daily `etl` job.
+- **A failed sign in** counts against `OHS_RATE_LIMIT_AUTH_FAILURES` like any bad key, and is an
+  `auth.failed` event. The key needs the `tenant:read` scope, and a user token (`ohs_ut_...`) is
+  refused.
+- **Plain http** is allowed only on `localhost`, `127.0.0.1` and `[::1]`. Elsewhere, sign in is
+  refused (403) until `OHS_PUBLIC_URL` is the `https` address of the instance, so the cookie never
+  travels in the clear.
+- **Bearer wins.** A request with an `Authorization` header is authenticated by it, unchanged, and
+  its cookie is ignored. `curl` with a key works as before. The session routes exist only when
+  `OHS_CONSOLE` is `true` or `read-only`; with the console off the cookie is never read.
+
+## Switching tenant
+
+A session of an instance admin tenant can act on another tenant: `PUT /console/session/tenant` with
+`{"tenant_id": "..."}` (the key needs `admin:read`; 404 for an unknown tenant). The session then
+answers every tenant route for that tenant, with the admin key's own rights, while the tenant the
+admin signed in with stays the session's tenant. `GET /console/session` returns both as `tenant` and
+`acting_tenant`. This release adds the route; the console pages have no tenant picker yet. A session
+of any other tenant cannot switch (403). Deleting the tenant a session acts on ends that session. The audit log records the
+switch and what you do after it; see [audit-log.md](audit-log.md).
+
+## Read only
+
+With `OHS_CONSOLE=read-only`, every new session is read only. The server enforces it, not the page:
+a request of such a session with any method but `GET`, `HEAD` or `OPTIONS` answers 403 with "this
+console session is read-only (OHS_CONSOLE=read-only)". It can still sign out and switch tenant.
+A bearer key is not affected. Sessions opened before the setting changed keep the mode they were
+created with.
 
 ## The instance admin
 
@@ -55,7 +101,7 @@ A key of a tenant that is not an admin sees the providers enabled on the instanc
 
 Admin keys also manage the instance's tenants over HTTP: create one per team, create and revoke
 its keys, read its pipeline, fill a demo user. The console itself stays on the tenant of the key
-signed in; see [admin-api.md](admin-api.md) for those routes.
+signed in, or the tenant an admin session switched to; see [admin-api.md](admin-api.md) for those routes.
 
 ## Pages
 
@@ -203,15 +249,18 @@ one message per invalid value. See [api.md](api.md#admin-settings). Each `PATCH`
 
 ## Security model
 
-- **No new credential and no server-side session.** The page is static. It calls the API with
-  `Authorization: Bearer <key>`, so the API's own key checks apply. A user token (`ohs_ut_...`)
-  is refused.
-- **The key stays in the browser tab.** It is kept in `sessionStorage`, which the browser clears
-  when the tab closes; "Sign out" clears it at once. It is never put in a cookie, a URL or
-  `localStorage`, and never sent to any other origin.
+- **A server session, not the key.** The page is static. The key is sent once to sign in
+  ([Sign in](#sign-in)) and the browser holds only an `HttpOnly` cookie from then on; the key is
+  never stored, logged, returned or written to an audit event. The API's own key checks still
+  apply to every request, through the key behind the session. A user token (`ohs_ut_...`) is
+  refused.
+- **Cookie and CSRF.** The cookie is `SameSite=Strict` and a request with it needs the
+  `X-OHS-CSRF` header, kept in the page's memory only. A request with a cookie and a foreign
+  `Origin` is refused, and so is a sign in with one.
 - **One way to the server.** Every request goes through one wrapper that refuses a URL that is not
-  a path on the same server, sends no cookie and follows no redirect. In `read-only` mode it
-  refuses every method but `GET`.
+  a path on the same server and follows no redirect. It sends the cookie and the CSRF header to
+  this server only. In `read-only` mode the server, not the wrapper, refuses every method but
+  `GET`, `HEAD` and `OPTIONS` of a session.
 - **Writes ask first.** Every action asks for a confirmation. Deleting a user or a webhook
   endpoint, revoking a key and forgetting a provider's keys ask you to type the name of what
   goes. A secret the API returns once (a new API key, a webhook signing secret) is shown once
