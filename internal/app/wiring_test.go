@@ -12,6 +12,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
@@ -40,6 +41,7 @@ func TestConfigDefaultsMatchThePackages(t *testing.T) {
 	require.Equal(t, collect.DefaultPullConcurrency, config.DefaultPullConcurrency)
 	require.Equal(t, collect.DefaultScheduleBatch, config.DefaultScheduleBatch)
 	require.Equal(t, collect.MaxBackfillWindow, time.Duration(config.MaxBackfillDays)*24*time.Hour)
+	require.Equal(t, automation.DefaultTrackingRetentionDays, config.DefaultTrackingRetentionDays)
 	require.Equal(t, webhook.DefaultConcurrency, config.DefaultWebhookConcurrency)
 	require.Equal(t, webhook.DefaultPerEndpoint, config.DefaultWebhookPerEndpoint)
 	require.Equal(t, webhook.DefaultPerTenantDivisor, config.DefaultWebhookPerTenantDivisor)

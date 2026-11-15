@@ -2,10 +2,7 @@
 
 package config
 
-import (
-	"fmt"
-	"strconv"
-)
+import "fmt"
 
 // The event stream settings when unset, and the largest OHS_STREAM_MAX.
 const (
@@ -20,9 +17,9 @@ const (
 func loadStream(get func(name, def string) string, c *Config) error {
 	c.StreamMax = DefaultStreamMax
 	if v := get("OHS_STREAM_MAX", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > MaxStreamMax {
-			return fmt.Errorf("OHS_STREAM_MAX: %q is not an integer from 0 to %d", v, MaxStreamMax)
+		n, err := intIn("OHS_STREAM_MAX", 0, MaxStreamMax)(v)
+		if err != nil {
+			return err
 		}
 		c.StreamMax = n
 		if n == 0 {
@@ -35,9 +32,12 @@ func loadStream(get func(name, def string) string, c *Config) error {
 	}
 	if v := get("OHS_STREAM_MAX_PER_TENANT", ""); v != "" {
 		// With the stream off, any positive value is accepted and unused.
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || (c.StreamMax > 0 && n > c.StreamMax) {
-			return fmt.Errorf("OHS_STREAM_MAX_PER_TENANT: %q is not an integer from 1 to OHS_STREAM_MAX (%d)", v, c.StreamMax)
+		n, err := intIn("OHS_STREAM_MAX_PER_TENANT", 1, MaxStreamMax)(v)
+		if err == nil && c.StreamMax > 0 && n > c.StreamMax {
+			err = fmt.Errorf("OHS_STREAM_MAX_PER_TENANT: %q is not an integer from 1 to OHS_STREAM_MAX (%d)", v, c.StreamMax)
+		}
+		if err != nil {
+			return err
 		}
 		c.StreamMaxPerTenant = n
 	}

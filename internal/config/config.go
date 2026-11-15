@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,8 +122,8 @@ type Config struct {
 	// the default.
 	ETLJobsPerUser int
 	// TrackingRetentionDays is how long sync log rows and finished ETL jobs
-	// are kept (OHS_TRACKING_RETENTION_DAYS). 0 means the default of 90
-	// days, a negative value keeps them for ever.
+	// are kept (OHS_TRACKING_RETENTION_DAYS, default 90). 0 in a Config not
+	// built by Load means the default, a negative value keeps them for ever.
 	TrackingRetentionDays int
 	// PullConcurrency is how many pulls one collect process runs at once
 	// (OHS_PULL_CONCURRENCY, default 4), and ScheduleBatch how many pulls
@@ -263,12 +264,15 @@ const (
 	DefaultETLConcurrency = 4
 	MaxETLConcurrency     = 64
 	DefaultETLJobsPerUser = 1
-	// MaxTrackingRetentionDays bounds OHS_TRACKING_RETENTION_DAYS: a century.
-	MaxTrackingRetentionDays = 36500
-	DefaultPullConcurrency   = 4
-	MaxPullConcurrency       = 256
-	DefaultScheduleBatch     = 1000
-	MaxScheduleBatch         = 100_000
+	// DefaultTrackingRetentionDays is OHS_TRACKING_RETENTION_DAYS when unset
+	// (internal/app checks it agrees with the scheduler's), and
+	// MaxTrackingRetentionDays its largest value: a century.
+	DefaultTrackingRetentionDays = 90
+	MaxTrackingRetentionDays     = 36500
+	DefaultPullConcurrency       = 4
+	MaxPullConcurrency           = 256
+	DefaultScheduleBatch         = 1000
+	MaxScheduleBatch             = 100_000
 	// MaxBackfillDays bounds OHS_BACKFILL_DAYS: five years.
 	MaxBackfillDays                  = 5 * 365
 	DefaultWebhookConcurrency        = 8
@@ -283,72 +287,17 @@ const (
 	MaxWebhookRotationGraceHours = 7 * 24
 )
 
-// reserved are the OHS_ variables (without prefix) that are never provider settings.
-var reserved = map[string]bool{
-	"DATABASE_URL":                 true,
-	"ENCRYPTION_KEY":               true,
-	"ENCRYPTION_KEY_FILE":          true,
-	"PREVIOUS_ENCRYPTION_KEYS":     true,
-	"PUBLIC_URL":                   true,
-	"RAW_STORE":                    true,
-	"ROLES":                        true,
-	"BOOTSTRAP_TENANT":             true,
-	"LISTEN":                       true,
-	"LOG_LEVEL":                    true,
-	"METRICS":                      true,
-	"CONSOLE":                      true,
-	"METRICS_TOKEN":                true,
-	"METRICS_LISTEN":               true,
-	"OPS_LISTEN":                   true,
-	"SETUP_TOKEN":                  true,
-	"SETUP_TOKEN_FILE":             true,
-	"RETENTION_DAYS":               true,
-	"AUDIT_RETENTION_DAYS":         true,
-	"INGEST_CONCURRENCY":           true,
-	"INGEST_TENANT_CONCURRENCY":    true,
-	"INGEST_MAX_DECOMPRESSED_MIB":  true,
-	"MAX_CONNECTIONS":              true,
-	"PULLS_PER_PROVIDER":           true,
-	"BACKFILLS_PER_PROVIDER":       true,
-	"WEBHOOK_ALLOW_PRIVATE":        true,
-	"RATE_LIMIT_INBOUND":           true,
-	"RATE_LIMIT_INBOUND_PROVIDER":  true,
-	"RATE_LIMIT_OAUTH":             true,
-	"RATE_LIMIT_API":               true,
-	"RATE_LIMIT_AUTH_FAILURES":     true,
-	"COMPRESSION":                  true,
-	"ETL_CONCURRENCY":              true,
-	"ETL_JOBS_PER_USER":            true,
-	"TRACKING_RETENTION_DAYS":      true,
-	"PULL_CONCURRENCY":             true,
-	"SCHEDULE_BATCH":               true,
-	"BACKFILL_DAYS":                true,
-	"WEBHOOK_CONCURRENCY":          true,
-	"WEBHOOK_PER_ENDPOINT":         true,
-	"WEBHOOK_PER_TENANT":           true,
-	"WEBHOOK_PAUSE_AFTER":          true,
-	"WEBHOOK_ROTATION_GRACE_HOURS": true,
-	"STREAM_MAX":                   true,
-	"STREAM_MAX_PER_TENANT":        true,
-	"TRUSTED_PROXIES":              true,
-	"CONSENT_REQUIRED":             true,
-	"MCP_URL":                      true, // client side settings of `ohs mcp`
-	"MCP_KEY":                      true,
-	"HTTP_PORT":                    true, // read by docker compose only (host port)
-	"HTTP_BIND":                    true, // read by docker compose only (host address)
-	"VERSION":                      true, // read by docker compose only (image tag)
-	"VAULT_KEY_PROVIDER":           true,
-	"VAULT_ROOT_KEY":               true,
-	"VAULT_ROOT_KEY_FILE":          true,
-	"VAULT_ROOT_KEY_PREVIOUS":      true,
-	"VAULT_HASHICORP_ADDR":         true,
-	"VAULT_HASHICORP_MOUNT":        true,
-	"VAULT_HASHICORP_KEY":          true,
-	"VAULT_HASHICORP_TOKEN_FILE":   true,
-	"VAULT_AZURE_KEY_ID":           true,
-	"VAULT_AWS_KEY_ARN":            true,
-	"VAULT_CACHE_USERS":            true,
-	"VAULT_CACHE_TTL":              true,
+// notServer are the OHS_ variables the server never reads and that are no
+// provider settings either: those of the CLI and the MCP server, and those of
+// docker compose. Every other server variable is in the registry (Registry).
+var notServer = map[string]bool{
+	"OHS_URL":       true, // read by `ohs import` and `ohs seed`
+	"OHS_TOKEN":     true,
+	"OHS_MCP_URL":   true, // client side settings of `ohs mcp`
+	"OHS_MCP_KEY":   true,
+	"OHS_VERSION":   true, // read by docker compose only (image tag)
+	"OHS_HTTP_BIND": true, // read by docker compose only (host address)
+	"OHS_HTTP_PORT": true, // read by docker compose only (host port)
 }
 
 // ErrEncryptionKey is wrapped by every Load error about OHS_ENCRYPTION_KEY
@@ -386,6 +335,161 @@ func CheckPublicURL(raw string) error {
 }
 
 var validRoles = map[string]bool{"api": true, "collect": true, "etl": true}
+
+// defaultRoles is OHS_ROLES when unset.
+const defaultRoles = "api,collect,etl"
+
+// noLowerBound is the lo of intIn for a setting that takes any negative value.
+const noLowerBound = math.MinInt32
+
+// The single-value checks of the settings. Load runs them on the value it
+// reads and the registry (Setting.Validate) on the value a caller offers, so
+// both refuse the same things with the same message, which starts with the
+// name of the variable.
+
+// intIn checks an integer from lo to hi. lo of noLowerBound and hi of
+// math.MaxInt leave that side open.
+func intIn(name string, lo, hi int) func(string) (int, error) {
+	var want string
+	switch {
+	case lo == noLowerBound:
+		want = fmt.Sprintf("an integer, at most %d", hi)
+	case hi == math.MaxInt && lo == 1:
+		want = "a positive integer"
+	case hi == math.MaxInt && lo == 0:
+		want = "a non-negative integer"
+	case hi == math.MaxInt:
+		want = fmt.Sprintf("an integer of at least %d", lo)
+	default:
+		want = fmt.Sprintf("an integer from %d to %d", lo, hi)
+	}
+	return func(v string) (int, error) {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < lo || n > hi {
+			return 0, fmt.Errorf("%s: %q is not %s", name, v, want)
+		}
+		return n, nil
+	}
+}
+
+// setInt sets *dst to the variable's integer value, or def when unset.
+func setInt(get func(name, def string) string, name string, dst *int, def, lo, hi int) error {
+	*dst = def
+	v := get(name, "")
+	if v == "" {
+		return nil
+	}
+	n, err := intIn(name, lo, hi)(v)
+	if err != nil {
+		return err
+	}
+	*dst = n
+	return nil
+}
+
+// boolValue checks true or false (any strconv.ParseBool spelling).
+func boolValue(name string) func(string) (bool, error) {
+	return func(v string) (bool, error) {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return false, fmt.Errorf("%s: %q is not a boolean", name, v)
+		}
+		return b, nil
+	}
+}
+
+// rateValue checks "rate/burst", or 0 for no limit.
+func rateValue(name string) func(string) (RateLimit, error) {
+	return func(v string) (RateLimit, error) {
+		rl, err := parseRateLimit(v)
+		if err != nil {
+			return RateLimit{}, fmt.Errorf("%s: %w", name, err)
+		}
+		return rl, nil
+	}
+}
+
+// enumValue checks one of values.
+func enumValue(name string, values ...string) func(string) (string, error) {
+	return func(v string) (string, error) {
+		if !slices.Contains(values, v) {
+			return "", fmt.Errorf("%s: %q is not one of %s", name, v, strings.Join(values, ", "))
+		}
+		return v, nil
+	}
+}
+
+// proxyList checks comma separated IP addresses or CIDRs and returns them.
+func proxyList(name string) func(string) ([]netip.Prefix, error) {
+	return func(v string) ([]netip.Prefix, error) {
+		var out []netip.Prefix
+		for _, s := range strings.Split(v, ",") {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			p, err := parseProxy(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %q is not an IP address or CIDR (for example 10.0.0.0/8)", name, s)
+			}
+			out = append(out, p)
+		}
+		return out, nil
+	}
+}
+
+// roleSet checks comma separated roles, at least one.
+func roleSet(name string) func(string) (map[string]bool, error) {
+	return func(v string) (map[string]bool, error) {
+		roles := map[string]bool{}
+		for _, r := range strings.Split(v, ",") {
+			r = strings.TrimSpace(r)
+			if r == "" {
+				continue
+			}
+			if !validRoles[r] {
+				return nil, fmt.Errorf("%s: unknown role %q (want api, collect, etl)", name, r)
+			}
+			roles[r] = true
+		}
+		if len(roles) == 0 {
+			return nil, fmt.Errorf("%s: no role selected", name)
+		}
+		return roles, nil
+	}
+}
+
+// consoleValue checks true, false or read-only, and returns whether the
+// console is on and whether it is read only.
+func consoleValue(name string) func(string) (on, readOnly bool, err error) {
+	return func(v string) (bool, bool, error) {
+		if strings.EqualFold(v, ConsoleReadOnly) {
+			return true, true, nil
+		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return false, false, fmt.Errorf("%s: %q is not true, false or %s", name, v, ConsoleReadOnly)
+		}
+		return b, false, nil
+	}
+}
+
+// logLevel checks a level slog reads (debug, info, warn, error).
+func logLevel(v string) (slog.Level, error) {
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(v)); err != nil {
+		return 0, fmt.Errorf("%w: %q is not one of debug, info, warn, error", ErrLogLevel, v)
+	}
+	return level, nil
+}
+
+// metricsToken checks the length of a bearer token for /metrics.
+func metricsToken(v string) error {
+	if len(v) < MinMetricsToken {
+		return fmt.Errorf("OHS_METRICS_TOKEN must be at least %d characters (generate one with `openssl rand -hex 32`)", MinMetricsToken)
+	}
+	return nil
+}
 
 // Load builds a Config. env looks up one variable; environ is the full
 // "KEY=value" list used to discover OHS_<SLUG>_<FIELD> provider settings.
@@ -435,36 +539,28 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	if err := CheckPublicURL(c.PublicURL); err != nil {
 		return Config{}, err
 	}
-	var level slog.Level
-	if err := level.UnmarshalText([]byte(c.LogLevel)); err != nil {
-		return Config{}, fmt.Errorf("%w: %q is not one of debug, info, warn, error", ErrLogLevel, c.LogLevel)
+	if _, err := logLevel(c.LogLevel); err != nil {
+		return Config{}, err
 	}
 
-	for _, r := range strings.Split(get("OHS_ROLES", "api,collect,etl"), ",") {
-		r = strings.TrimSpace(r)
-		if r == "" {
-			continue
-		}
-		if !validRoles[r] {
-			return Config{}, fmt.Errorf("OHS_ROLES: unknown role %q (want api, collect, etl)", r)
-		}
-		c.Roles[r] = true
+	roles, err := roleSet("OHS_ROLES")(get("OHS_ROLES", defaultRoles))
+	if err != nil {
+		return Config{}, err
 	}
-	if len(c.Roles) == 0 {
-		return Config{}, fmt.Errorf("OHS_ROLES: no role selected")
-	}
+	c.Roles = roles
 
 	c.Metrics = true
 	if v := get("OHS_METRICS", ""); v != "" {
-		b, err := strconv.ParseBool(v)
+		b, err := boolValue("OHS_METRICS")(v)
 		if err != nil {
-			return Config{}, fmt.Errorf("OHS_METRICS: %q is not a boolean", v)
+			return Config{}, err
 		}
 		c.Metrics = b
 	}
-	c.MetricsToken = get("OHS_METRICS_TOKEN", "")
-	if c.MetricsToken != "" && len(c.MetricsToken) < MinMetricsToken {
-		return Config{}, fmt.Errorf("OHS_METRICS_TOKEN must be at least %d characters (generate one with `openssl rand -hex 32`)", MinMetricsToken)
+	if c.MetricsToken = get("OHS_METRICS_TOKEN", ""); c.MetricsToken != "" {
+		if err := metricsToken(c.MetricsToken); err != nil {
+			return Config{}, err
+		}
 	}
 	c.MetricsListen = get("OHS_METRICS_LISTEN", "")
 	if c.MetricsListen != "" && c.MetricsListen == c.Listen {
@@ -480,93 +576,69 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	}
 
 	if c.SetupToken, c.SetupTokenSource, err = secret(get, "OHS_SETUP_TOKEN", newToken); err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("OHS_SETUP_TOKEN: %w", err)
 	}
 	if c.SetupToken != "" && len(c.SetupToken) < MinSetupToken {
 		return Config{}, fmt.Errorf("OHS_SETUP_TOKEN must be at least %d characters (generate one with `openssl rand -hex 32`)", MinSetupToken)
 	}
 
 	if v := get("OHS_CONSOLE", ""); v != "" {
-		if strings.EqualFold(v, ConsoleReadOnly) {
-			c.Console, c.ConsoleReadOnly = true, true
-		} else {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return Config{}, fmt.Errorf("OHS_CONSOLE: %q is not true, false or %s", v, ConsoleReadOnly)
-			}
-			c.Console = b
+		on, readOnly, err := consoleValue("OHS_CONSOLE")(v)
+		if err != nil {
+			return Config{}, err
 		}
+		c.Console, c.ConsoleReadOnly = on, readOnly
 	}
 
-	if v := get("OHS_RETENTION_DAYS", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
-			return Config{}, fmt.Errorf("OHS_RETENTION_DAYS: %q is not a non-negative integer", v)
-		}
-		c.RetentionDays = n
-	}
-
-	c.AuditRetentionDays = DefaultAuditRetentionDays
-	if v := get("OHS_AUDIT_RETENTION_DAYS", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
-			return Config{}, fmt.Errorf("OHS_AUDIT_RETENTION_DAYS: %q is not a non-negative integer", v)
-		}
-		c.AuditRetentionDays = n
-	}
-
-	c.IngestConcurrency = DefaultIngestConcurrency
-	if v := get("OHS_INGEST_CONCURRENCY", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			return Config{}, fmt.Errorf("OHS_INGEST_CONCURRENCY: %q is not a positive integer", v)
-		}
-		c.IngestConcurrency = n
-	}
-	c.IngestTenantConcurrency = max(1, (c.IngestConcurrency+1)/2)
-	if v := get("OHS_INGEST_TENANT_CONCURRENCY", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > c.IngestConcurrency {
-			return Config{}, fmt.Errorf("OHS_INGEST_TENANT_CONCURRENCY: %q is not an integer from 1 to OHS_INGEST_CONCURRENCY (%d)", v, c.IngestConcurrency)
-		}
-		c.IngestTenantConcurrency = n
-	}
-	c.IngestMaxDecompressedMiB = DefaultIngestMaxDecompressedMiB
-	if v := get("OHS_INGEST_MAX_DECOMPRESSED_MIB", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > MaxIngestMaxDecompressedMiB {
-			return Config{}, fmt.Errorf("OHS_INGEST_MAX_DECOMPRESSED_MIB: %q is not an integer from 1 to %d", v, MaxIngestMaxDecompressedMiB)
-		}
-		c.IngestMaxDecompressedMiB = n
-	}
-
-	c.MaxConnections = DefaultMaxConnections
-	if v := get("OHS_MAX_CONNECTIONS", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			return Config{}, fmt.Errorf("OHS_MAX_CONNECTIONS: %q is not a positive integer", v)
-		}
-		c.MaxConnections = n
-	}
-
-	c.PullsPerProvider, c.BackfillsPerProvider = 4, 2
 	for _, x := range []struct {
 		name string
 		dst  *int
-	}{{"OHS_PULLS_PER_PROVIDER", &c.PullsPerProvider}, {"OHS_BACKFILLS_PER_PROVIDER", &c.BackfillsPerProvider}} {
-		if v := get(x.name, ""); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return Config{}, fmt.Errorf("%s: %q is not a positive integer", x.name, v)
-			}
-			*x.dst = n
+		def  int
+		lo   int
+		hi   int
+	}{
+		{"OHS_RETENTION_DAYS", &c.RetentionDays, 0, 0, math.MaxInt},
+		{"OHS_AUDIT_RETENTION_DAYS", &c.AuditRetentionDays, DefaultAuditRetentionDays, 0, math.MaxInt},
+		{"OHS_INGEST_CONCURRENCY", &c.IngestConcurrency, DefaultIngestConcurrency, 1, math.MaxInt},
+	} {
+		if err := setInt(get, x.name, x.dst, x.def, x.lo, x.hi); err != nil {
+			return Config{}, err
+		}
+	}
+	// The share of the uploads one tenant is sure to get: half of them
+	// unless set, and never more than the process takes in all.
+	c.IngestTenantConcurrency = max(1, (c.IngestConcurrency+1)/2)
+	if v := get("OHS_INGEST_TENANT_CONCURRENCY", ""); v != "" {
+		n, err := intIn("OHS_INGEST_TENANT_CONCURRENCY", 1, math.MaxInt)(v)
+		if err == nil && n > c.IngestConcurrency {
+			err = fmt.Errorf("OHS_INGEST_TENANT_CONCURRENCY: %q is not an integer from 1 to OHS_INGEST_CONCURRENCY (%d)", v, c.IngestConcurrency)
+		}
+		if err != nil {
+			return Config{}, err
+		}
+		c.IngestTenantConcurrency = n
+	}
+	for _, x := range []struct {
+		name string
+		dst  *int
+		def  int
+		lo   int
+		hi   int
+	}{
+		{"OHS_INGEST_MAX_DECOMPRESSED_MIB", &c.IngestMaxDecompressedMiB, DefaultIngestMaxDecompressedMiB, 1, MaxIngestMaxDecompressedMiB},
+		{"OHS_MAX_CONNECTIONS", &c.MaxConnections, DefaultMaxConnections, 1, math.MaxInt},
+		{"OHS_PULLS_PER_PROVIDER", &c.PullsPerProvider, 4, 1, math.MaxInt},
+		{"OHS_BACKFILLS_PER_PROVIDER", &c.BackfillsPerProvider, 2, 1, math.MaxInt},
+	} {
+		if err := setInt(get, x.name, x.dst, x.def, x.lo, x.hi); err != nil {
+			return Config{}, err
 		}
 	}
 
 	if v := get("OHS_WEBHOOK_ALLOW_PRIVATE", ""); v != "" {
-		b, err := strconv.ParseBool(v)
+		b, err := boolValue("OHS_WEBHOOK_ALLOW_PRIVATE")(v)
 		if err != nil {
-			return Config{}, fmt.Errorf("OHS_WEBHOOK_ALLOW_PRIVATE: %q is not a boolean", v)
+			return Config{}, err
 		}
 		c.WebhookAllowPrivate = b
 	}
@@ -575,9 +647,9 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		return Config{}, err
 	}
 	if v := get("OHS_CONSENT_REQUIRED", ""); v != "" {
-		b, err := strconv.ParseBool(v)
+		b, err := boolValue("OHS_CONSENT_REQUIRED")(v)
 		if err != nil {
-			return Config{}, fmt.Errorf("OHS_CONSENT_REQUIRED: %q is not a boolean", v)
+			return Config{}, err
 		}
 		c.ConsentRequired = b
 	}
@@ -595,18 +667,18 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	} {
 		*l.dst = l.def
 		if v := get(l.name, ""); v != "" {
-			rl, err := parseRateLimit(v)
+			rl, err := rateValue(l.name)(v)
 			if err != nil {
-				return Config{}, fmt.Errorf("%s: %w", l.name, err)
+				return Config{}, err
 			}
 			*l.dst = rl
 		}
 	}
 
 	if v := get("OHS_COMPRESSION", ""); v != "" {
-		b, err := strconv.ParseBool(v)
+		b, err := boolValue("OHS_COMPRESSION")(v)
 		if err != nil {
-			return Config{}, fmt.Errorf("OHS_COMPRESSION: %q is not a boolean", v)
+			return Config{}, err
 		}
 		c.CompressionOff = !b
 	}
@@ -618,16 +690,10 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		return Config{}, err
 	}
 
-	for _, s := range strings.Split(get("OHS_TRUSTED_PROXIES", ""), ",") {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
+	if v := get("OHS_TRUSTED_PROXIES", ""); v != "" {
+		if c.TrustedProxies, err = proxyList("OHS_TRUSTED_PROXIES")(v); err != nil {
+			return Config{}, err
 		}
-		p, err := parseProxy(s)
-		if err != nil {
-			return Config{}, fmt.Errorf("OHS_TRUSTED_PROXIES: %q is not an IP address or CIDR (for example 10.0.0.0/8)", s)
-		}
-		c.TrustedProxies = append(c.TrustedProxies, p)
 	}
 
 	for _, kv := range environ {
@@ -636,7 +702,7 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			continue
 		}
 		rest := strings.TrimPrefix(k, "OHS_")
-		if reserved[rest] {
+		if _, ok := LookupSetting(k); ok || notServer[k] {
 			continue
 		}
 		slug, field, ok := splitProviderKey(rest)
@@ -666,7 +732,7 @@ func loadWorkers(get func(name, def string) string, c *Config) error {
 	}{
 		{"OHS_ETL_CONCURRENCY", &c.ETLConcurrency, DefaultETLConcurrency, 1, MaxETLConcurrency, false},
 		{"OHS_ETL_JOBS_PER_USER", &c.ETLJobsPerUser, DefaultETLJobsPerUser, 0, MaxETLConcurrency, true},
-		{"OHS_TRACKING_RETENTION_DAYS", &c.TrackingRetentionDays, 0, math.MinInt32, MaxTrackingRetentionDays, false},
+		{"OHS_TRACKING_RETENTION_DAYS", &c.TrackingRetentionDays, DefaultTrackingRetentionDays, noLowerBound, MaxTrackingRetentionDays, false},
 		{"OHS_PULL_CONCURRENCY", &c.PullConcurrency, DefaultPullConcurrency, 1, MaxPullConcurrency, false},
 		{"OHS_SCHEDULE_BATCH", &c.ScheduleBatch, DefaultScheduleBatch, 1, MaxScheduleBatch, false},
 		{"OHS_BACKFILL_DAYS", &c.BackfillDays, 0, 1, MaxBackfillDays, false},
@@ -679,14 +745,9 @@ func loadWorkers(get func(name, def string) string, c *Config) error {
 		if v == "" {
 			continue
 		}
-		n, err := strconv.Atoi(v)
-		switch {
-		case err != nil && x.lo < 0:
-			return fmt.Errorf("%s: %q is not an integer", x.name, v)
-		case x.lo < 0 && n > x.hi:
-			return fmt.Errorf("%s: %q is over %d", x.name, v, x.hi)
-		case err != nil || n < x.lo || n > x.hi:
-			return fmt.Errorf("%s: %q is not an integer from %d to %d", x.name, v, x.lo, x.hi)
+		n, err := intIn(x.name, x.lo, x.hi)(v)
+		if err != nil {
+			return err
 		}
 		if n == 0 && x.zeroTurnsOff {
 			n = off
@@ -699,18 +760,24 @@ func loadWorkers(get func(name, def string) string, c *Config) error {
 	// than the process posts in all.
 	c.WebhookPerEndpoint = min(DefaultWebhookPerEndpoint, c.WebhookConcurrency)
 	if v := get("OHS_WEBHOOK_PER_ENDPOINT", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > c.WebhookConcurrency {
-			return fmt.Errorf("OHS_WEBHOOK_PER_ENDPOINT: %q is not an integer from 1 to OHS_WEBHOOK_CONCURRENCY (%d)", v, c.WebhookConcurrency)
+		n, err := intIn("OHS_WEBHOOK_PER_ENDPOINT", 1, MaxWebhookConcurrency)(v)
+		if err == nil && n > c.WebhookConcurrency {
+			err = fmt.Errorf("OHS_WEBHOOK_PER_ENDPOINT: %q is not an integer from 1 to OHS_WEBHOOK_CONCURRENCY (%d)", v, c.WebhookConcurrency)
+		}
+		if err != nil {
+			return err
 		}
 		c.WebhookPerEndpoint = n
 	}
 	// And those to all the endpoints of one tenant: half of them unless set.
 	c.WebhookPerTenant = max(c.WebhookConcurrency/DefaultWebhookPerTenantDivisor, 1)
 	if v := get("OHS_WEBHOOK_PER_TENANT", ""); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > c.WebhookConcurrency {
-			return fmt.Errorf("OHS_WEBHOOK_PER_TENANT: %q is not an integer from 1 to OHS_WEBHOOK_CONCURRENCY (%d)", v, c.WebhookConcurrency)
+		n, err := intIn("OHS_WEBHOOK_PER_TENANT", 1, MaxWebhookConcurrency)(v)
+		if err == nil && n > c.WebhookConcurrency {
+			err = fmt.Errorf("OHS_WEBHOOK_PER_TENANT: %q is not an integer from 1 to OHS_WEBHOOK_CONCURRENCY (%d)", v, c.WebhookConcurrency)
+		}
+		if err != nil {
+			return err
 		}
 		c.WebhookPerTenant = n
 	}
