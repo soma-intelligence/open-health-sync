@@ -7,6 +7,16 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- Server settings can be saved from the console, and applied without a restart for the live ones
+  ([console.md](docs/console.md#settings-saved-from-the-console)). For each setting the environment wins, then
+  the console, then the default. Migration `0056` adds `ohs_core.instance_settings`; migration `0057` adds
+  `ohs_core.process_heartbeats`, which show which processes are behind or stale.
+- `GET` and `PATCH /v1/admin/settings` (the `PATCH` needs `If-Match`), `GET /v1/admin/settings/export` and
+  `GET /v1/admin/processes`.
+- `ohs doctor` lists stored settings no release setting reads any more, and stored values a process skips.
+
 ## [0.3.0] - 2026-11-11
 
 Health data is sealed per user at rest (the vault), API keys take scopes, events stream over

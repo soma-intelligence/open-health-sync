@@ -99,6 +99,12 @@ a probe object in the raw store; a host folder bind mounted at `/var/lib/ohs/raw
 writable by the container user (`chown -R 65532:65532 <folder>`). `ohs serve` runs the same
 write check at start and stops if it fails.
 
+The doctor also reads the settings saved from the console. A `warn` line lists stored names no release setting reads
+any more (`warn  settings: stored values no release setting reads any more: OHS_X (remove them with PATCH
+/v1/admin/settings {"OHS_X": null})`), and one line per stored value a process would skip as invalid
+(`warn  settings: stored value skipped: OHS_X: ...`). Neither fails the run. Before migration `0056` it prints
+`skip  settings`.
+
 ## Images and architectures
 
 Each release publishes `ghcr.io/soma-intelligence/open-health-sync` for `linux/amd64` and
@@ -186,7 +192,19 @@ they had.
 
 ## Configuration
 
-Environment variables only, documented line by line in `.env.example`.
+Environment variables, documented line by line in `.env.example`. Most settings can also be saved from the
+[console](console.md#settings-saved-from-the-console), and for each setting a process runs with the first of: its
+environment variable (or `_FILE` twin), the value saved in the console, the default. The environment wins.
+
+A setting applies in one of three ways. **Live** settings reach every process within 30 seconds, without a restart:
+`OHS_LOG_LEVEL`, `OHS_RETENTION_DAYS`, `OHS_AUDIT_RETENTION_DAYS`, `OHS_TRACKING_RETENTION_DAYS`,
+`OHS_CONSENT_REQUIRED`, `OHS_BACKFILL_DAYS`, `OHS_WEBHOOK_PAUSE_AFTER`, `OHS_WEBHOOK_ROTATION_GRACE_HOURS`,
+`OHS_RATE_LIMIT_API`, `OHS_RATE_LIMIT_AUTH_FAILURES`, `OHS_RATE_LIMIT_INBOUND`,
+`OHS_RATE_LIMIT_INBOUND_PROVIDER` and `OHS_RATE_LIMIT_OAUTH`. **Restart** settings (all the others) are stored at once
+and apply when each process next starts. **Bootstrap** settings are only read from the environment, never stored:
+`OHS_DATABASE_URL`, `OHS_ENCRYPTION_KEY`, `OHS_ENCRYPTION_KEY_FILE`, `OHS_PREVIOUS_ENCRYPTION_KEYS`, every
+`OHS_VAULT_*` variable, `OHS_RAW_STORE`, `OHS_LISTEN`, `OHS_OPS_LISTEN`, `OHS_METRICS_LISTEN`, `OHS_ROLES`,
+`OHS_CONSOLE`, `OHS_SETUP_TOKEN`, `OHS_SETUP_TOKEN_FILE` and `OHS_BOOTSTRAP_TENANT`.
 
 | Variable | Default | Meaning |
 |---|---|---|
