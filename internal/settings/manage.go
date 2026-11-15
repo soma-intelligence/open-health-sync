@@ -103,6 +103,15 @@ func (l *Live) envValue(s config.Setting) *string {
 // derived from the value.
 func secretInvalid(s config.Setting) string { return s.Name + ": invalid value" }
 
+// SafeMessage is err's text for a problem with a stored value of s, safe to
+// log: a Secret always gets the fixed message, whatever err quotes.
+func SafeMessage(s config.Setting, err error) string {
+	if s.Secret {
+		return secretInvalid(s)
+	}
+	return err.Error()
+}
+
 // storedMap is the rows a process can use: the ones that opened.
 func storedMap(st State) map[string]string {
 	m := make(map[string]string, len(st.Rows))
@@ -197,6 +206,7 @@ func (l *Live) Patch(ctx context.Context, ifRevision int64, changes map[string]*
 	if st.Revision != ifRevision {
 		return PatchResult{}, ErrRevisionMoved
 	}
+	var skipped map[string]bool // filled when a re-sent value needs it
 	names := make([]string, 0, len(changes))
 	for n := range changes {
 		names = append(names, n)
@@ -245,14 +255,19 @@ func (l *Live) Patch(ctx context.Context, ifRevision int64, changes map[string]*
 			continue
 		}
 		if stored && row.OpenErr == nil && row.Value == *val {
-			continue // the store bumps the revision on a re-save, so drop it here
+			// The store bumps the revision on a re-save, so drop it here, unless
+			// the current rows skip it: then it is checked like a new value.
+			if skipped == nil {
+				if skipped, err = l.skippedNow(st); err != nil {
+					return PatchResult{}, err
+				}
+			}
+			if !skipped[n] {
+				continue
+			}
 		}
 		if err := s.Validate(*val); err != nil {
-			if s.Secret {
-				bad(n, secretInvalid(s))
-			} else {
-				bad(n, SafeMessage(s, *val, err))
-			}
+			bad(n, SafeMessage(s, err))
 			continue
 		}
 		put[n] = *val
@@ -296,6 +311,19 @@ func (l *Live) Patch(ctx context.Context, ifRevision int64, changes map[string]*
 		slog.Warn("settings: reload after a save failed", "error", err)
 	}
 	return res, nil
+}
+
+// skippedNow is the names the current rows make a process skip.
+func (l *Live) skippedNow(st State) (map[string]bool, error) {
+	_, inv, _, err := Resolve(l.env, l.environ, storedMap(st))
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]bool, len(inv))
+	for _, i := range inv {
+		m[i.Name] = true
+	}
+	return m, nil
 }
 
 // dryRun resolves the proposed state and refuses it when it makes a setting

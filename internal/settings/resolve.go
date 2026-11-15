@@ -13,16 +13,6 @@ import (
 // value of a secret.
 type Invalid struct{ Name, Message string }
 
-// SafeMessage is err's text for a stored value of s, safe to log: for a
-// Secret whose message holds the value it is "<Name>: invalid value".
-func SafeMessage(s config.Setting, value string, err error) string {
-	msg := err.Error()
-	if s.Secret && value != "" && strings.Contains(msg, value) {
-		return s.Name + ": invalid value"
-	}
-	return msg
-}
-
 // Resolve runs config.Load on env, then stored, then defaults. Stored names
 // not in the registry go to unknown; bootstrap names and names the
 // environment sets are left out; a value failing Validate, or named first by
@@ -44,7 +34,7 @@ func Resolve(env func(string) (string, bool), environ []string, stored map[strin
 		case s.Apply == config.ApplyBootstrap, config.EnvSet(env, n):
 		default:
 			if verr := s.Validate(stored[n]); verr != nil {
-				invalid = append(invalid, Invalid{Name: n, Message: SafeMessage(s, stored[n], verr)})
+				invalid = append(invalid, Invalid{Name: n, Message: SafeMessage(s, verr)})
 				continue
 			}
 			use[n] = stored[n]
@@ -60,7 +50,7 @@ func Resolve(env func(string) (string, bool), environ []string, stored map[strin
 			return config.Config{}, invalid, unknown, err
 		}
 		s, _ := config.LookupSetting(name)
-		invalid = append(invalid, Invalid{Name: name, Message: SafeMessage(s, use[name], err)})
+		invalid = append(invalid, Invalid{Name: name, Message: SafeMessage(s, err)})
 		delete(use, name)
 	}
 }

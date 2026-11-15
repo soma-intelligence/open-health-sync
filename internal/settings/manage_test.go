@@ -5,6 +5,7 @@ package settings
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -272,4 +273,27 @@ func TestViewEnvSetUnopenableStored(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, entryOf(t, v, "OHS_LOG_LEVEL").StoredValue)
 	require.Equal(t, "set", *entryOf(t, v, "OHS_METRICS_TOKEN").StoredValue)
+}
+
+func TestPatchResentSkippedValueIsRefused(t *testing.T) {
+	l, st := manageLive(t, map[string]string{"OHS_WEBHOOK_CONCURRENCY": "2"}, map[string]Row{
+		"OHS_WEBHOOK_PER_TENANT": {Name: "OHS_WEBHOOK_PER_TENANT", Value: "9"},
+	})
+	_, err := l.Patch(context.Background(), 0, map[string]*string{"OHS_WEBHOOK_PER_TENANT": sp("9")}, uuid.New())
+	var ie *InvalidError
+	require.ErrorAs(t, err, &ie, "the same value the rows already skip is not unchanged")
+	require.Len(t, ie.Settings, 1)
+	require.Equal(t, "OHS_WEBHOOK_PER_TENANT", ie.Settings[0].Name)
+	require.Empty(t, st.applies)
+}
+
+func TestSafeMessageNeverQuotesASecret(t *testing.T) {
+	const value = `pa"ss\word`
+	err := fmt.Errorf("OHS_X: bad value %q", value)
+	secret := config.Setting{Name: "OHS_X", Secret: true}
+	got := SafeMessage(secret, err)
+	require.Equal(t, "OHS_X: invalid value", got)
+	require.NotContains(t, got, "pa")
+	plain := config.Setting{Name: "OHS_X"}
+	require.Equal(t, err.Error(), SafeMessage(plain, err))
 }
