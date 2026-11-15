@@ -461,7 +461,10 @@ func TestLiveSettingsApplyWithoutRestart(t *testing.T) {
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-done:
+		case err := <-done:
+			if err != nil {
+				t.Logf("run stopped: %v", err)
+			}
 		case <-time.After(10 * time.Second):
 			t.Error("run did not stop")
 		}

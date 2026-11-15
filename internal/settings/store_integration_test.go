@@ -152,14 +152,13 @@ func TestPGStoreConcurrentApply(t *testing.T) {
 	wg.Wait()
 	won, lost := 0, 0
 	for i := range errs {
-		switch {
-		case errs[i] == nil:
+		if errs[i] == nil {
 			won++
 			require.EqualValues(t, 2, revs[i])
-		default:
-			lost++
-			require.ErrorIs(t, errs[i], settings.ErrRevisionMoved)
+			continue
 		}
+		lost++
+		require.ErrorIs(t, errs[i], settings.ErrRevisionMoved)
 	}
 	require.Equal(t, 1, won)
 	require.Equal(t, 1, lost)
