@@ -11,6 +11,7 @@ import "./styles/shell.css";
 import "./styles/inspector.css";
 import "./styles/overview.css";
 import "./styles/table.css";
+import "./styles/user.css";
 
 const root = document.getElementById("root");
 if (!root) {

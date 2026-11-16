@@ -37,3 +37,17 @@ export type SettingsList = Schemas["AdminSettings"];
 export type SettingsProblem = Schemas["AdminSettingsProblem"];
 export type ProcessHeartbeat = Schemas["AdminProcess"];
 export type ProcessList = Schemas["AdminProcesses"];
+
+export type UserConnections = JsonOf<"/v1/users/{id}/connections", "get", 200>;
+export type UserConnection = Schemas["Connection"];
+export type UserFreshness = JsonOf<"/v1/users/{id}/freshness", "get", 200>;
+export type SourceFreshness = Schemas["SourceFreshness"];
+export type UserCoverage = Schemas["Coverage"];
+export type ConnectSession = Schemas["ConnectSession"];
+export type UserConsents = JsonOf<"/v1/users/{id}/consents", "get", 200>;
+export type ConsentHistory = JsonOf<"/v1/users/{id}/consents/history", "get", 200>;
+export type ConsentEvent = Schemas["ConsentEvent"];
+export type UserSyncRuns = JsonOf<"/v1/users/{id}/sync-runs", "get", 200>;
+export type SyncRun = Schemas["SyncRun"];
+export type UserShares = JsonOf<"/v1/users/{id}/shares", "get", 200>;
+export type Share = Schemas["Share"];

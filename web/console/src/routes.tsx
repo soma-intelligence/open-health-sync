@@ -3,6 +3,7 @@ import { Navigate, createBrowserRouter, useLocation, type RouteObject } from "re
 import { BASENAME } from "./lib/basename";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
+import { UserPage } from "./pages/user/UserPage";
 import { UsersPage } from "./pages/users/UsersPage";
 import { AppShell } from "./shell/AppShell";
 import { RequireSession } from "./session/RequireSession";
@@ -32,8 +33,8 @@ export const routes: RouteObject[] = [
           { index: true, element: <Navigate to="/overview" replace /> },
           { path: "overview", element: <OverviewPage /> },
           { path: "users", element: <UsersPage /> },
-          // The user page comes with its own task; the id route lands on the placeholder until then.
-          { path: "users/*", element: <Placeholder /> },
+          { path: "users/:userId", element: <UserPage /> },
+          { path: "users/:userId/:tab", element: <UserPage /> },
           ...PAGE_PATHS.map((path) => ({ path: `${path}/*`, element: <Placeholder /> })),
           { path: "*", element: <NotFoundPage /> },
         ],
