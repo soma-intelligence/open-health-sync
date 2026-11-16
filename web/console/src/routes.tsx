@@ -2,6 +2,7 @@ import { Navigate, createBrowserRouter, useLocation, type RouteObject } from "re
 
 import { BASENAME } from "./lib/basename";
 import { JobsPage } from "./pages/jobs/JobsPage";
+import { KeysPage } from "./pages/keys/KeysPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
 import { ProviderPage } from "./pages/providers/ProviderPage";
@@ -25,7 +26,7 @@ function Placeholder() {
   );
 }
 
-const PAGE_PATHS = ["keys", "audit", "settings"];
+const PAGE_PATHS = ["audit", "settings"];
 
 export const routes: RouteObject[] = [
   { path: "sign-in", element: <SignInPage /> },
@@ -45,6 +46,7 @@ export const routes: RouteObject[] = [
           { path: "jobs", element: <JobsPage /> },
           { path: "webhooks", element: <WebhooksPage /> },
           { path: "webhooks/:webhookId", element: <WebhookPage /> },
+          { path: "keys", element: <KeysPage /> },
           ...PAGE_PATHS.map((path) => ({ path: `${path}/*`, element: <Placeholder /> })),
           { path: "*", element: <NotFoundPage /> },
         ],

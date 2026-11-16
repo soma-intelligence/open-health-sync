@@ -30,6 +30,8 @@ export type Delivery = Schemas["WebhookDelivery"];
 export type APIKey = Schemas["APIKey"];
 export type CreatedAPIKey = Schemas["CreatedAPIKey"];
 export type KeyScope = Schemas["KeyScope"];
+export type CreateKeyRequest = Schemas["CreateKeyRequest"];
+export type KeyList = JsonOf<"/v1/keys", "get", 200>;
 export type AuditEvent = Schemas["AuditEvent"];
 
 export type Setting = Schemas["AdminSetting"];

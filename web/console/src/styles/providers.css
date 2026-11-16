@@ -127,3 +127,46 @@
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 0 12px;
 }
+
+/* ---------- api keys ---------- */
+.key-form,
+.scope-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scope-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.scope-picker legend {
+  padding: 0;
+  font-weight: 500;
+}
+
+.scope-group {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 4px 12px;
+  align-items: start;
+}
+
+.scope-resource {
+  padding-top: 8px;
+  color: var(--muted);
+}
+
+.scope-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0 12px;
+}
+
+.named {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}

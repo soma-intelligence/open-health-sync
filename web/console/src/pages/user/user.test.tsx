@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import type { QueryClient } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 
 import type { ConsoleSession, User } from "../../api/types";
@@ -69,6 +70,13 @@ function view(routes: Record<string, FakeHandler>, tab = "", s: ConsoleSession =
   const api: FakeApi = fakeApi({ ...base, ...routes });
   const out = renderWithApp(null, { session: s, api, route: `/console/users/${ID}${tab}` });
   return { ...out, api };
+}
+
+function mutationsHold(queryClient: QueryClient, secret: string): boolean {
+  return queryClient
+    .getMutationCache()
+    .getAll()
+    .some((m) => JSON.stringify(m.state.data ?? null).includes(secret));
 }
 
 function files(): { urls: Blob[]; saved: string[] } {
@@ -182,13 +190,16 @@ describe("user page", () => {
 
   it("Connection link creates a connect session and shows the link once with Copy", async () => {
     const link = "https://ohs.example.com/connect/one-time-value";
-    const { api } = view({ [`POST ${BASE}/connect-sessions`]: { status: 201, body: { url: link, expires_at: "2030-01-01T00:00:00Z" } } });
+    const { api, queryClient } = view({ [`POST ${BASE}/connect-sessions`]: { status: 201, body: { url: link, expires_at: "2030-01-01T00:00:00Z" } } });
     await userEvent.click(await screen.findByRole("button", { name: "Connection link" }));
     const ask = screen.getByRole("dialog", { name: "Create a connection link?" });
     expect(api.callsTo(`POST ${BASE}/connect-sessions`)).toHaveLength(0);
     await userEvent.click(within(ask).getByRole("button", { name: "Create link" }));
     const dialog = await screen.findByRole("dialog", { name: "Connection link" });
     expect(within(dialog).getByDisplayValue(link)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mutationsHold(queryClient, link)).toBe(false);
+    });
     expect(within(dialog).getByRole("button", { name: /Copy/ })).toBeInTheDocument();
     expect(api.callsTo(`POST ${BASE}/connect-sessions`)[0]?.body).toEqual({});
     await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
@@ -196,6 +207,7 @@ describe("user page", () => {
       expect(screen.queryByDisplayValue(link)).not.toBeInTheDocument();
     });
     expect(document.body.textContent).not.toContain(link);
+    expect(mutationsHold(queryClient, link)).toBe(false);
   });
 
   it("Sync now on a connection", async () => {

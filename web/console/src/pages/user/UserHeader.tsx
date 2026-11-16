@@ -70,7 +70,10 @@ export function UserHeader({ user }: { user: User }) {
           body="The link lets the user connect a source to this account. It works once."
           confirmLabel="Create link"
           onConfirm={async () => {
-            setLink(await createLink.mutateAsync());
+            const made = await createLink.mutateAsync();
+            // Keep the one-time link out of the mutation state: only this component holds it.
+            createLink.reset();
+            setLink(made);
           }}
           onClose={() => {
             setLinking(false);
