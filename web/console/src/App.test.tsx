@@ -1,10 +1,15 @@
 import { render, screen } from "@testing-library/react";
 
-import { App } from "./App";
-
 describe("App", () => {
-  it("renders the console root", () => {
+  it("lands on sign in when there is no session", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response('{"title":"Unauthorized","detail":"no session"}', { status: 401 }))),
+    );
+    window.history.replaceState(null, "", "/console/users");
+    const { App } = await import("./App");
     render(<App />);
-    expect(screen.getByText("Open Health Sync")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 });
