@@ -65,7 +65,7 @@ func TestOpenAPIServed(t *testing.T) {
 
 func TestConsoleOffByDefault(t *testing.T) {
 	h := offlineRouter(t)
-	for _, p := range []string{"/console", "/console/", "/console/app.mjs"} {
+	for _, p := range []string{"/console", "/console/", "/console/overview"} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
 		assert.Equal(t, http.StatusNotFound, rec.Code, p)
@@ -82,19 +82,19 @@ func TestConsoleMountedWithFlag(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/console", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "text/html; charset=utf-8", rec.Header().Get("Content-Type"))
-	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
 	assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'")
 	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
 	assert.NotEmpty(t, rec.Header().Get("X-Request-Id"), "console requests go through the instrumented router")
 
-	for _, p := range []string{"/console/", "/console/app.mjs", "/console/console.css", "/console/setup", "/console/setup.mjs"} {
+	for _, p := range []string{"/console/", "/console/overview", "/console/favicon.svg", "/console/setup", "/console/setup.mjs"} {
 		rec = httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
 		assert.Equal(t, http.StatusOK, rec.Code, p)
 	}
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/console/missing.js", nil))
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/console/assets/missing-12345678.js", nil))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	rec = httptest.NewRecorder()
@@ -274,6 +274,21 @@ func TestConsoleSessionRoutesOffWithConsole(t *testing.T) {
 
 	on := NewRouter(Deps{Pool: pool, Store: tenant.New(pool), Console: true})
 	rec = httptest.NewRecorder()
-	on.ServeHTTP(rec, httptest.NewRequest("GET", "/console/app.mjs", nil))
+	on.ServeHTTP(rec, httptest.NewRequest("GET", "/console/favicon.svg", nil))
 	assert.Equal(t, http.StatusOK, rec.Code, "the exact session patterns leave the assets alone")
+}
+
+// The SPA catch-all GET /console/{path...} must not shadow the session
+// routes: the more specific pattern wins.
+func TestConsoleSessionNotShadowedBySPA(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://nobody@127.0.0.1:1/none?connect_timeout=1")
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	h := NewRouter(Deps{Pool: pool, Store: tenant.New(pool), Console: true})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/console/session", nil))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/problem+json")
+	assert.NotContains(t, rec.Body.String(), "<html")
 }

@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test test-race released-migrations compose-image-check test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test
+.PHONY: setup build image test test-race released-migrations compose-image-check test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test console console-dev console-e2e
 
 setup:
 	git config core.hooksPath .githooks
@@ -138,3 +138,19 @@ release-check: build
 		echo "release-check: gitleaks not installed, skipping secret scan" >&2; \
 	fi
 	go test -count=1 -run TestCommittedDocIsCurrent ./internal/model/cmd/gendocs/
+
+# The React admin console (web/console): installs the pinned packages, writes
+# src/api/schema.ts from api/openapi.yaml and builds into internal/console/dist,
+# which is committed and embedded. Needs Node.js 22. CI fails when the committed
+# build or schema differ from what this writes.
+console:
+	cd web/console && npm ci && npm run schema && npm run build
+
+# The console's dev server on port 5173, proxying the API to OHS_DEV_TARGET
+# (default http://localhost:8080).
+console-dev:
+	cd web/console && npm run dev
+
+# The console's browser tests (Playwright). Needs OHS_E2E_DATABASE_URL.
+console-e2e:
+	cd web/console && npx playwright test

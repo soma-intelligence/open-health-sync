@@ -34,6 +34,34 @@ jobs:
       - name: Integration and API contract (Docker available on the runner)
         run: make integration
 
+  console:
+    # The React console: lint, types, unit tests, and a build that must match
+    # the committed internal/console/dist and src/api/schema.ts.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web/console
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/console/package-lock.json
+      - run: npm ci
+      - run: npm run schema
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Committed build and schema are current
+        working-directory: .
+        run: |
+          git diff --exit-code -- internal/console/dist web/console/src/api/schema.ts
+          # git diff does not see a new hashed file
+          test -z "$(git status --porcelain -- internal/console/dist web/console/src/api/schema.ts)"
+
   race:
     # The unit tests again under the race detector, in their own job so the
     # test job stays as fast as it was.
