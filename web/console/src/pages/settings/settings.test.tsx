@@ -444,6 +444,30 @@ describe("settings", () => {
     expect(within(field("Webhook timeout")).getByLabelText("Webhook timeout")).toHaveValue("20s");
   });
 
+  it("the 422 marks survive a click on the sub-navigation", async () => {
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: () => undefined });
+    const user = userEvent.setup();
+    const { path } = view({
+      "PATCH /v1/admin/settings": {
+        status: 422,
+        body: {
+          title: "Unprocessable Entity",
+          detail: "these settings were refused",
+          settings: [{ name: "OHS_WEBHOOK_TIMEOUT", message: 'OHS_WEBHOOK_TIMEOUT: "20s" is longer than 15s' }],
+        },
+      },
+    });
+    await editTwo(user);
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Review changes" })).getByRole("button", { name: "Apply" }));
+    expect(await within(field("Webhook timeout")).findByText('OHS_WEBHOOK_TIMEOUT: "20s" is longer than 15s')).toBeInTheDocument();
+    await user.click(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: "Webhooks" }));
+    await waitFor(() => {
+      expect(path()).toBe("/console/settings/webhooks");
+    });
+    expect(within(field("Webhook timeout")).getByText('OHS_WEBHOOK_TIMEOUT: "20s" is longer than 15s')).toBeInTheDocument();
+  });
+
   it("409 names the locked settings", async () => {
     const user = userEvent.setup();
     view({

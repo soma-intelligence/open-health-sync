@@ -31,7 +31,8 @@ function Crumbs() {
 
 export function ProviderPage() {
   const { slug = "" } = useParams();
-  return useIsAdmin() ? <AdminProviderView slug={slug} /> : <TenantProvider slug={slug} />;
+  // Another provider is a fresh page: no typed key carries over.
+  return useIsAdmin() ? <AdminProviderView key={slug} slug={slug} /> : <TenantProvider key={slug} slug={slug} />;
 }
 
 function Facts({ rows }: { rows: [string, React.ReactNode][] }) {

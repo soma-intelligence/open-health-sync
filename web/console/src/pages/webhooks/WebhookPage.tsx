@@ -52,7 +52,13 @@ function when(iso: string | null, none: string): ReactNode {
   return iso ? <span title={absTime(iso)}>{relTime(iso)}</span> : <span className="muted">{none}</span>;
 }
 
+/** Another endpoint is a fresh page: nothing local carries over. */
 export function WebhookPage() {
+  const { webhookId = "" } = useParams();
+  return <WebhookView key={webhookId} />;
+}
+
+function WebhookView() {
   const { webhookId = "" } = useParams();
   const query = useWebhookQuery(webhookId);
   const hook = query.data;

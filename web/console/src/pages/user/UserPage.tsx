@@ -27,7 +27,13 @@ export function parseTab(value: string | undefined): UserTab {
   return TABS.find(([id]) => id === value)?.[0] ?? "data";
 }
 
+/** Another user is a fresh page: nothing local (a Preview result) carries over. A tab change keeps it. */
 export function UserPage() {
+  const { userId = "" } = useParams();
+  return <UserView key={userId} />;
+}
+
+function UserView() {
   const { userId = "", tab: tabParam } = useParams();
   const tab = parseTab(tabParam);
   const user = useUserQuery(userId);
