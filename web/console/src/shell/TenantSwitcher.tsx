@@ -2,13 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { ApiError } from "../api/client";
-import type { AdminTenant } from "../api/types";
+import type { AdminTenant, AdminTenantList } from "../api/types";
 import { useApi, useSession } from "../session/SessionProvider";
 import { useToast } from "../ui/Toast";
-
-interface TenantPage {
-  data?: AdminTenant[];
-}
 
 /** Instance admin only: acts as another tenant. The list is not cached, so a switch leaves the cache with the session alone. */
 export function TenantSwitcher() {
@@ -22,9 +18,9 @@ export function TenantSwitcher() {
   useEffect(() => {
     let live = true;
     api
-      .get<TenantPage>("/v1/admin/tenants")
+      .get<AdminTenantList>("/v1/admin/tenants")
       .then((page) => {
-        if (live) setTenants(page.data ?? []);
+        if (live) setTenants(page.data);
       })
       .catch((e: unknown) => {
         if (live) toast(e instanceof ApiError ? e.detail || e.message : "The tenants could not be loaded.", "bad");
