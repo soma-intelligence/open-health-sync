@@ -92,7 +92,7 @@ describe("shell", () => {
 
   it("switching tenant clears every cached query and opens the overview", async () => {
     const api = adminApi();
-    const view = renderWithApp(null, { session: adminSession, api, route: "/console/users" });
+    const view = renderWithApp(null, { session: adminSession, api, route: "/console/providers" });
     view.queryClient.setQueryData(["users"], [{ id: "u1" }]);
     await screen.findByRole("option", { name: "Clinic B" });
     await userEvent.setup().selectOptions(screen.getByLabelText("Acting tenant"), "Clinic B");

@@ -3,6 +3,7 @@ import { Navigate, createBrowserRouter, useLocation, type RouteObject } from "re
 import { BASENAME } from "./lib/basename";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
+import { UsersPage } from "./pages/users/UsersPage";
 import { AppShell } from "./shell/AppShell";
 import { RequireSession } from "./session/RequireSession";
 import { SignInPage } from "./session/SignInPage";
@@ -18,7 +19,7 @@ function Placeholder() {
   );
 }
 
-const PAGE_PATHS = ["users", "providers", "jobs", "webhooks", "keys", "audit", "settings"];
+const PAGE_PATHS = ["providers", "jobs", "webhooks", "keys", "audit", "settings"];
 
 export const routes: RouteObject[] = [
   { path: "sign-in", element: <SignInPage /> },
@@ -30,6 +31,9 @@ export const routes: RouteObject[] = [
         children: [
           { index: true, element: <Navigate to="/overview" replace /> },
           { path: "overview", element: <OverviewPage /> },
+          { path: "users", element: <UsersPage /> },
+          // The user page comes with its own task; the id route lands on the placeholder until then.
+          { path: "users/*", element: <Placeholder /> },
           ...PAGE_PATHS.map((path) => ({ path: `${path}/*`, element: <Placeholder /> })),
           { path: "*", element: <NotFoundPage /> },
         ],
