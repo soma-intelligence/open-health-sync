@@ -4,7 +4,7 @@ import { Link, Navigate, useLocation } from "react-router";
 
 import { ApiError } from "../api/client";
 import { BASENAME } from "../lib/basename";
-import { isApiKey } from "./isApiKey";
+import { isApiKey } from "../pages/setup/setup";
 import { safeReturnPath } from "./returnPath";
 import { useApi, useSession } from "./SessionProvider";
 

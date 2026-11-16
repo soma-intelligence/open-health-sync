@@ -30,11 +30,6 @@ import (
 //go:embed all:dist
 var dist embed.FS
 
-// static holds the old setup page, served until the React console replaces it.
-//
-//go:embed static/setup.html static/setup.mjs
-var static embed.FS
-
 // CSP is the Content-Security-Policy of every console response: no inline
 // script or style, no third-party origin, no framing, no form submission.
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; " +
@@ -54,6 +49,11 @@ var contentTypes = map[string]string{
 	".svg":   "image/svg+xml",
 	".html":  "text/html; charset=utf-8",
 }
+
+// missingAsset lists the extensions of a file the page could load as code or
+// style: when dist lacks it, the answer is a 404 and never the index, so a
+// stale or foreign script path never gets HTML back.
+var missingAsset = map[string]bool{".js": true, ".mjs": true, ".css": true, ".woff2": true}
 
 // Mount registers GET /console and GET /console/{path...} on mux (HEAD follows
 // GET). The more specific /console/session routes keep their own handlers.
@@ -76,14 +76,6 @@ func serve(w http.ResponseWriter, name string) {
 		notFound(w)
 		return
 	}
-	switch name {
-	case "setup": // temporary: the old setup page, removed with its replacement
-		writeFrom(w, static, "static/setup.html", contentTypes[".html"], "no-store")
-		return
-	case "setup.mjs":
-		writeFrom(w, static, "static/setup.mjs", contentTypes[".js"], cacheRevalidate)
-		return
-	}
 	if name != "" {
 		if info, err := fs.Stat(dist, path.Join("dist", name)); err == nil && !info.IsDir() {
 			ct, ok := contentTypes[path.Ext(name)]
@@ -98,7 +90,7 @@ func serve(w http.ResponseWriter, name string) {
 			writeFrom(w, dist, path.Join("dist", name), ct, cache)
 			return
 		}
-		if name == "assets" || strings.HasPrefix(name, "assets/") {
+		if name == "assets" || strings.HasPrefix(name, "assets/") || missingAsset[path.Ext(name)] {
 			notFound(w)
 			return
 		}

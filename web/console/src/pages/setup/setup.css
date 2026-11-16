@@ -1,0 +1,47 @@
+.setup-page {
+  min-height: 100%;
+  display: grid;
+  place-items: start center;
+  padding: 10vh 16px 32px;
+}
+
+.setup-panel {
+  width: min(480px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+.setup-panel h1 {
+  margin: 4px 0 16px;
+  font-size: 20px;
+}
+
+.setup-form,
+.setup-result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.setup-panel p {
+  margin: 0;
+}
+
+.setup-warn {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  color: var(--warn);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.setup-panel .muted {
+  color: var(--muted);
+}
+
+.setup-panel .form-error {
+  color: var(--danger);
+}

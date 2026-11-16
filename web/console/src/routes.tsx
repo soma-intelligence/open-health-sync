@@ -8,6 +8,7 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
 import { ProviderPage } from "./pages/providers/ProviderPage";
 import { ProvidersPage } from "./pages/providers/ProvidersPage";
+import { SetupPage } from "./pages/setup/SetupPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
 import { UserPage } from "./pages/user/UserPage";
 import { UsersPage } from "./pages/users/UsersPage";
@@ -19,6 +20,7 @@ import { SignInPage } from "./session/SignInPage";
 
 export const routes: RouteObject[] = [
   { path: "sign-in", element: <SignInPage /> },
+  { path: "setup", element: <SetupPage /> },
   {
     element: <RequireSession />,
     children: [

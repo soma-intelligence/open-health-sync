@@ -195,7 +195,8 @@ func TestOnlyGetIsServed(t *testing.T) {
 	}
 }
 
-func TestSetupPageServed(t *testing.T) {
+// /console/setup is the React app's index; the old script path is gone.
+func TestSetupRouteServesTheApp(t *testing.T) {
 	rec := serveConsole(t, "GET", "/console/setup")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/console/setup: %d", rec.Code)
@@ -204,44 +205,20 @@ func TestSetupPageServed(t *testing.T) {
 	if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 		t.Errorf("Content-Type %q", got)
 	}
-	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Errorf("Cache-Control %q", got)
 	}
-	if !strings.Contains(rec.Body.String(), `src="/console/setup.mjs"`) {
-		t.Error("setup page lacks its script")
+	if rec.Body.String() != string(distFile(t, "index.html")) {
+		t.Error("/console/setup is not dist/index.html")
 	}
 	rec = serveConsole(t, "GET", "/console/setup.mjs")
-	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/javascript; charset=utf-8" {
-		t.Fatalf("/console/setup.mjs: %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("/console/setup.mjs: %d, want 404", rec.Code)
 	}
-	assertSecurityHeaders(t, rec)
+	if strings.Contains(rec.Body.String(), "<html") {
+		t.Error("/console/setup.mjs answered the index")
+	}
 	if rec := serveConsole(t, "POST", "/console/setup"); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /console/setup: %d", rec.Code)
-	}
-}
-
-// The setup script shows the key with textContent only and makes one kind
-// of request: to /v1/setup on this origin, without cookies.
-func TestSetupScriptAvoidsUnsafeSinks(t *testing.T) {
-	js, err := static.ReadFile("static/setup.mjs")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(js)
-	for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "sessionStorage", "Authorization", "XMLHttpRequest", "console.log"} {
-		if strings.Contains(src, bad) {
-			t.Errorf("setup.mjs uses %s", bad)
-		}
-	}
-	if n := strings.Count(src, "fetch("); n != 1 {
-		t.Errorf("setup.mjs calls fetch %d times; every request goes through makeSetupClient", n)
-	}
-	if !strings.Contains(src, `SETUP_PATH = "/v1/setup"`) || !strings.Contains(src, `credentials: "omit"`) || !strings.Contains(src, `redirect: "error"`) {
-		t.Error("setup.mjs does not pin its path, cookies and redirects")
-	}
-	for _, m := range []string{`"PUT"`, `"PATCH"`, `"DELETE"`} {
-		if strings.Contains(src, m) {
-			t.Errorf("setup.mjs mentions method %s", m)
-		}
 	}
 }

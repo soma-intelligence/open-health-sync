@@ -16,6 +16,7 @@ type Schemas = components["schemas"];
 export type ConsoleSession = Schemas["ConsoleSession"];
 export type ConsoleTenant = Schemas["ConsoleTenant"];
 export type Problem = Schemas["Problem"];
+export type SetupResult = Schemas["SetupResult"];
 export type Tenant = Schemas["Tenant"];
 export type AdminTenant = Schemas["AdminTenant"];
 export type AdminTenantList = JsonOf<"/v1/admin/tenants", "get", 200>;
