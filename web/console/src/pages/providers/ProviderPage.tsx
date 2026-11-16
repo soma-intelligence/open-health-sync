@@ -85,6 +85,11 @@ function AdminProviderView({ slug }: { slug: string }) {
   return <AdminDetail provider={p} />;
 }
 
+/** Changes whenever the keys the server holds change, so the form starts again from them. */
+function keysSignature(p: AdminProvider): string {
+  return `${p.updated_at ?? "none"}|${p.keys.map((k) => `${k.name}:${String(k.set)}:${k.value ?? ""}`).join(",")}`;
+}
+
 function AdminDetail({ provider: p }: { provider: AdminProvider }) {
   const builtIn = p.status === "built_in";
   const schedule = syncSchedule(p.sync, p.kinds.includes("push"));
@@ -135,7 +140,7 @@ function AdminDetail({ provider: p }: { provider: AdminProvider }) {
         ) : (
           <>
             <RegisterUrls provider={p} />
-            <ProviderKeysForm provider={p} />
+            <ProviderKeysForm key={keysSignature(p)} provider={p} />
             <ProviderSwitch provider={p} />
           </>
         )}

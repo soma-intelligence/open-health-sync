@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { ApiError } from "../../api/client";
-import type { AdminProvider, AdminTenantProvider } from "../../api/types";
+import type { AdminProvider, AdminTenantProvider, ProviderListItem } from "../../api/types";
 import { useInspect, type InspectorEntry } from "../../inspector/InspectorProvider";
 import { isCloud } from "../../lib/classify";
 import { useIsAdmin, useSession } from "../../session/SessionProvider";
@@ -52,7 +52,7 @@ function AdminProviders() {
   const all = data?.data ?? [];
   const cloud = all.filter(isCloud);
   const uploads = all.filter((p) => !isCloud(p));
-  const on = all.filter((p) => p.status === "active" || p.status === "built_in").length;
+  const on = cloud.filter((p) => p.status === "active").length;
 
   return (
     <div className="page">
@@ -60,7 +60,7 @@ function AdminProviders() {
         <div>
           <h1 className="page-title">Providers</h1>
           <p className="page-sub">
-            {data ? `${String(on)} of ${String(all.length)} on. ` : ""}
+            {data ? `${String(on)} of ${String(cloud.length)} on. ` : ""}
             {SUBTITLE}
           </p>
         </div>
@@ -99,7 +99,7 @@ function AdminProviders() {
   );
 }
 
-const readOnlyColumns: Column<{ slug: string; name?: string | undefined; kinds: readonly string[] }>[] = [
+const readOnlyColumns: Column<ProviderListItem>[] = [
   { key: "provider", header: "Provider", cell: (p) => <strong>{p.name ?? p.slug}</strong> },
   { key: "kinds", header: "Kind", cell: (p) => p.kinds.map((k) => <Pill key={k} tone="off">{k}</Pill>) },
 ];

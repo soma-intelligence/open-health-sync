@@ -61,6 +61,7 @@ export type AdminProviderList = JsonOf<"/v1/admin/providers", "get", 200>;
 export type AdminProviderKey = Schemas["AdminProviderKey"];
 export type AdminProviderPatch = Schemas["AdminProviderPatch"];
 export type ProviderList = JsonOf<"/v1/providers", "get", 200>;
+export type ProviderListItem = ProviderList["data"][number];
 export type AdminTenantProvider = Schemas["AdminTenantProvider"];
 export type AdminTenantProviderList = JsonOf<"/v1/admin/tenants/{tenant_id}/providers", "get", 200>;
 export type AdminTenantProviderPatch = Schemas["AdminTenantProviderPatch"];

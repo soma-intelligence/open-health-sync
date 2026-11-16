@@ -78,7 +78,7 @@ describe("providers list", () => {
   it("an admin sees every connector from GET /v1/admin/providers, grouped", async () => {
     view({}, "/console/providers");
     expect(await screen.findByRole("heading", { name: "Providers", level: 1 })).toBeInTheDocument();
-    expect(await screen.findByText("2 of 3 on. Keys saved here are sealed with the instance encryption key.")).toBeInTheDocument();
+    expect(await screen.findByText("1 of 2 on. Keys saved here are sealed with the instance encryption key.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Cloud providers" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "App uploads" })).toBeInTheDocument();
     const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
@@ -222,6 +222,39 @@ describe("provider page", () => {
     await waitFor(() => {
       expect(api.callsTo("DELETE /v1/admin/providers/oura")).toHaveLength(1);
     });
+  });
+
+  it("follows the server after forget: the field is empty and Save keys is disabled", async () => {
+    let forgotten = false;
+    const cleared = provider("oura", {
+      status: "not_configured",
+      source: null,
+      updated_at: null,
+      updated_by: null,
+      keys: [
+        { name: "CLIENT_ID", env: "OHS_OURA_CLIENT_ID", required: true, secret: false, set: false, value: null },
+        { name: "CLIENT_SECRET", env: "OHS_OURA_CLIENT_SECRET", required: true, secret: true, set: false, value: null },
+      ],
+    });
+    view(
+      {
+        "GET /v1/admin/providers/oura": () => ({ body: forgotten ? cleared : oura }),
+        "DELETE /v1/admin/providers/oura": () => {
+          forgotten = true;
+          return { body: cleared };
+        },
+      },
+      "/console/providers/oura",
+    );
+    expect(await screen.findByLabelText("CLIENT_ID")).toHaveValue("abc123");
+    await userEvent.click(screen.getByRole("button", { name: "Forget saved settings" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/Type/), "oura");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Forget settings" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("CLIENT_ID")).toHaveValue("");
+    });
+    expect(screen.getByRole("button", { name: "Save keys" })).toBeDisabled();
   });
 
   it("shows the URLs to register, each with Copy, and the sync schedule", async () => {
