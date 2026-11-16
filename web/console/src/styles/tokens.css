@@ -1,0 +1,86 @@
+/* Theme tokens. Light on :root; dark follows the system unless the page pins light,
+   and again when the page pins dark. */
+:root {
+  --page: #f6faf7;
+  --panel: #ffffff;
+  --raised: #f1f6f3;
+  --hover: rgb(11 21 16 / 4%);
+  --line: rgb(11 21 16 / 8%);
+  --line-2: rgb(11 21 16 / 14%);
+  --ink: #0b1510;
+  --ink-2: #26332c;
+  --muted: #4b5a53;
+  --faint: #7d8a84;
+  --accent: #17a865;
+  --on-accent: #04140c;
+  --accent-text: #0d7a47;
+  --mint: #d7f5e3;
+  --mint-line: #a9e6c4;
+  --warn: #9a5b00;
+  --warn-soft: #fdf1dc;
+  --warn-line: #f0d39c;
+  --danger: #b4322e;
+  --danger-soft: #fce9e7;
+  --danger-line: #f1c2bd;
+  --shadow: 0 1px 2px rgb(11 21 16 / 5%), 0 0 0 1px var(--line);
+  --shadow-pop: 0 12px 32px rgb(11 21 16 / 14%), 0 0 0 1px var(--line-2);
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #070a09;
+    --panel: #0e1311;
+    --raised: #121916;
+    --hover: rgb(238 244 240 / 4%);
+    --line: rgb(238 244 240 / 8%);
+    --line-2: rgb(238 244 240 / 14%);
+    --ink: #eef4f0;
+    --ink-2: #d3ddd7;
+    --muted: #8fa39a;
+    --faint: #66766e;
+    --accent: #3ddc8e;
+    --on-accent: #04140c;
+    --accent-text: #3ddc8e;
+    --mint: rgb(61 220 142 / 12%);
+    --mint-line: rgb(61 220 142 / 30%);
+    --warn: #f0b552;
+    --warn-soft: rgb(240 181 82 / 10%);
+    --warn-line: rgb(240 181 82 / 28%);
+    --danger: #f2796f;
+    --danger-soft: rgb(242 121 111 / 10%);
+    --danger-line: rgb(242 121 111 / 28%);
+    --shadow: 0 0 0 1px var(--line);
+    --shadow-pop: 0 16px 40px rgb(0 0 0 / 50%), 0 0 0 1px var(--line-2);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --page: #070a09;
+  --panel: #0e1311;
+  --raised: #121916;
+  --hover: rgb(238 244 240 / 4%);
+  --line: rgb(238 244 240 / 8%);
+  --line-2: rgb(238 244 240 / 14%);
+  --ink: #eef4f0;
+  --ink-2: #d3ddd7;
+  --muted: #8fa39a;
+  --faint: #66766e;
+  --accent: #3ddc8e;
+  --on-accent: #04140c;
+  --accent-text: #3ddc8e;
+  --mint: rgb(61 220 142 / 12%);
+  --mint-line: rgb(61 220 142 / 30%);
+  --warn: #f0b552;
+  --warn-soft: rgb(240 181 82 / 10%);
+  --warn-line: rgb(240 181 82 / 28%);
+  --danger: #f2796f;
+  --danger-soft: rgb(242 121 111 / 10%);
+  --danger-line: rgb(242 121 111 / 28%);
+  --shadow: 0 0 0 1px var(--line);
+  --shadow-pop: 0 16px 40px rgb(0 0 0 / 50%), 0 0 0 1px var(--line-2);
+  color-scheme: dark;
+}

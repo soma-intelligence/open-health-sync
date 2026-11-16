@@ -90,7 +90,7 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
         // The answer carries no token: the session keeps the one it has.
         const csrf = current(queryClient)?.csrf_token;
         queryClient.setQueryData(SESSION_KEY, csrf ? { ...next, csrf_token: csrf } : next);
-        await queryClient.resetQueries({ predicate: (q) => !isSessionKey(q.queryKey) });
+        queryClient.removeQueries({ predicate: (q) => !isSessionKey(q.queryKey) });
       },
     }),
     [api, queryClient, rebind, session, status],

@@ -3,11 +3,10 @@ import { useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation } from "react-router";
 
 import { ApiError } from "../api/client";
+import { BASENAME } from "../lib/basename";
 import { isApiKey } from "./isApiKey";
 import { safeReturnPath } from "./returnPath";
 import { useApi, useSession } from "./SessionProvider";
-
-const BASENAME = "/console";
 
 export function SignInPage() {
   const { status, signIn } = useSession();

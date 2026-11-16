@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { RouterProvider, createMemoryRouter, type RouteObject } from "react-router";
 
 import type { ConsoleSession } from "../api/types";
+import { BASENAME } from "../lib/basename";
 import { routes } from "../routes";
 import { RequireSession } from "../session/RequireSession";
 import { SESSION_KEY, SessionProvider } from "../session/SessionProvider";
@@ -24,8 +25,6 @@ export interface Rendered extends RenderResult {
   /** The current address, basename included. */
   path: () => string;
 }
-
-const BASENAME = "/console";
 
 /**
  * Renders ui behind the session provider and the sign in route. Pass null to

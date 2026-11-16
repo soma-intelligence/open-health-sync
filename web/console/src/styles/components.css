@@ -1,0 +1,246 @@
+/* ---------- buttons ---------- */
+.btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.btn:hover {
+  background: var(--raised);
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+.btn.primary:hover {
+  filter: brightness(1.05);
+}
+
+.btn.danger {
+  color: var(--danger);
+}
+
+.btn.danger:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.btn.ghost:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.btn.sm {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- pills ---------- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--raised);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.pill.ok {
+  background: var(--mint);
+  color: var(--accent-text);
+  border-color: var(--mint-line);
+}
+
+.pill.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: var(--warn-line);
+}
+
+.pill.bad {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger-line);
+}
+
+/* ---------- cards ---------- */
+.card {
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.card-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card-h h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.card-r {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.card-b {
+  padding: 16px;
+}
+
+/* ---------- empty and error states ---------- */
+.empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.empty h4 {
+  margin: 10px 0 4px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.error-panel {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  color: var(--danger);
+}
+
+.error-panel p {
+  margin: 0;
+}
+
+.error-id {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- toasts ---------- */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 60;
+}
+
+.toast {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--page);
+  box-shadow: var(--shadow-pop);
+  max-width: 360px;
+}
+
+.toast.bad {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ---------- dialog ---------- */
+.dialog {
+  border: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+  width: min(480px, calc(100vw - 32px));
+}
+
+.dialog::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+
+.dialog-body {
+  padding: 20px;
+}
+
+.dialog-body h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+/* ---------- segmented control ---------- */
+.segmented {
+  display: flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+}
+
+.segmented button {
+  flex: 1;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.segmented button.on {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
