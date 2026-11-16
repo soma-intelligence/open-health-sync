@@ -72,6 +72,8 @@ const PATHS = {
       <path d="M8 11V8a4 4 0 0 1 8 0v3" />
     </>
   ),
+  refresh: <path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" />,
+  chevron: <path d="M9 6l6 6-6 6" />,
   out: <path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 8l4 4-4 4M19 12H9" />,
 } satisfies Record<string, ReactNode>;
 

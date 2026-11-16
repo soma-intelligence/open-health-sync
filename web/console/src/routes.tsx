@@ -2,6 +2,7 @@ import { Navigate, createBrowserRouter, useLocation, type RouteObject } from "re
 
 import { BASENAME } from "./lib/basename";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { OverviewPage } from "./pages/overview/OverviewPage";
 import { AppShell } from "./shell/AppShell";
 import { RequireSession } from "./session/RequireSession";
 import { SignInPage } from "./session/SignInPage";
@@ -17,7 +18,7 @@ function Placeholder() {
   );
 }
 
-const PAGE_PATHS = ["overview", "users", "providers", "jobs", "webhooks", "keys", "audit", "settings"];
+const PAGE_PATHS = ["users", "providers", "jobs", "webhooks", "keys", "audit", "settings"];
 
 export const routes: RouteObject[] = [
   { path: "sign-in", element: <SignInPage /> },
@@ -28,6 +29,7 @@ export const routes: RouteObject[] = [
         element: <AppShell />,
         children: [
           { index: true, element: <Navigate to="/overview" replace /> },
+          { path: "overview", element: <OverviewPage /> },
           ...PAGE_PATHS.map((path) => ({ path: `${path}/*`, element: <Placeholder /> })),
           { path: "*", element: <NotFoundPage /> },
         ],

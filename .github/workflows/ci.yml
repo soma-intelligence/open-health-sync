@@ -39,11 +39,29 @@ jobs:
     # the committed internal/console/dist and src/api/schema.ts.
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      # The end to end run needs an empty database of its own; same image as deploy/docker-compose.yml.
+      postgres:
+        image: timescale/timescaledb:latest-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538
+        env:
+          POSTGRES_USER: ohs
+          POSTGRES_PASSWORD: ohs
+          POSTGRES_DB: ohs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ohs -d ohs"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     defaults:
       run:
         working-directory: web/console
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
@@ -61,6 +79,19 @@ jobs:
           git diff --exit-code -- internal/console/dist web/console/src/api/schema.ts
           # git diff does not see a new hashed file
           test -z "$(git status --porcelain -- internal/console/dist web/console/src/api/schema.ts)"
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+      - name: End to end
+        run: npm run e2e
+        env:
+          OHS_E2E_DATABASE_URL: postgres://ohs:ohs@localhost:5432/ohs?sslmode=disable
+      - name: Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: web/console/playwright-report
+          retention-days: 7
 
   race:
     # The unit tests again under the race detector, in their own job so the
