@@ -1,6 +1,7 @@
 import { Navigate, createBrowserRouter, useLocation, type RouteObject } from "react-router";
 
 import { BASENAME } from "./lib/basename";
+import { JobsPage } from "./pages/jobs/JobsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
 import { ProviderPage } from "./pages/providers/ProviderPage";
@@ -22,7 +23,7 @@ function Placeholder() {
   );
 }
 
-const PAGE_PATHS = ["jobs", "webhooks", "keys", "audit", "settings"];
+const PAGE_PATHS = ["webhooks", "keys", "audit", "settings"];
 
 export const routes: RouteObject[] = [
   { path: "sign-in", element: <SignInPage /> },
@@ -39,6 +40,7 @@ export const routes: RouteObject[] = [
           { path: "users/:userId/:tab", element: <UserPage /> },
           { path: "providers", element: <ProvidersPage /> },
           { path: "providers/:slug", element: <ProviderPage /> },
+          { path: "jobs", element: <JobsPage /> },
           ...PAGE_PATHS.map((path) => ({ path: `${path}/*`, element: <Placeholder /> })),
           { path: "*", element: <NotFoundPage /> },
         ],

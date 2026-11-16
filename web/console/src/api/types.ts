@@ -65,3 +65,9 @@ export type ProviderListItem = ProviderList["data"][number];
 export type AdminTenantProvider = Schemas["AdminTenantProvider"];
 export type AdminTenantProviderList = JsonOf<"/v1/admin/tenants/{tenant_id}/providers", "get", 200>;
 export type AdminTenantProviderPatch = Schemas["AdminTenantProviderPatch"];
+
+export type TenantSyncRunList = JsonOf<"/v1/pipeline/sync-runs", "get", 200>;
+export type TenantSyncRun = Schemas["TenantSyncRun"];
+export type EtlJobList = JsonOf<"/v1/pipeline/etl-jobs", "get", 200>;
+export type EtlJob = Schemas["ETLJob"];
+export type RetryParkedJobs = JsonOf<"/v1/pipeline/etl-jobs/retry", "post", 200>;
