@@ -16,8 +16,10 @@ articles 30 and 32 and comparable health data rules expect one).
 | The deletion worker | `user.erased` when a user's data is gone, with the job id, actor `system` |
 | A [share link](share-links.md) opened by its reader | `share.access` for each manifest request on a known link and each file download, actor `share_link`, the outcome in `detail` |
 
-A request without a valid credential (401) is not an audit event: `/metrics` counts those by
-route. Provider-facing routes (`/oauth/...`, `/inbound/...`) take no tenant credential and are
+A request with no credential, or one that is not shaped like a key or a token, is not an audit
+event: `/metrics` counts those by route. A well formed key or token that is refused (unknown,
+revoked or expired, or a token of a user being deleted) is recorded as `auth.failed`, see below. A request refused with 429 by a
+rate limit is not recorded. Provider-facing routes (`/oauth/...`, `/inbound/...`) take no tenant credential and are
 not recorded either. The share link routes (`/shl/...`) take none either, but a request on a
 known link is recorded under the link's own actor (above); one on an unknown link names no
 tenant and is not.
@@ -32,10 +34,11 @@ Each event holds:
 | `user_id` | The end user the action concerns: the user of a user token, the `{id}` of the route, or the demo user an admin key filled |
 | `method`, `route`, `status` | The HTTP method, the route **pattern** (`GET /v1/users/{id}/samples`) and the status code |
 | `request_id` | The request's `X-Request-Id`, to match the event with your own logs |
-| `detail` | Identifiers only, such as a deletion job id or a key prefix. For a route that names a tenant, a provider, an API key or a processing job in its path, its `tenant_id`, `provider`, `key_id` or `job_id`. A NUL character is removed and invalid UTF-8 replaced by U+FFFD, so such a value never stops the event from being written |
+| `detail` | Identifiers only, such as a deletion job id or a key prefix. For a route that names a tenant, a provider, an API key or a processing job in its path, its `tenant_id`, `provider`, `key_id` or `job_id`. For a request refused with 403 because the key lacks the [scope](api.md#key-scopes) of the route, `missing_scope`; for `key.create`, the `scopes` of the new key. A NUL character is removed and invalid UTF-8 replaced by U+FFFD, so such a value never stops the event from being written |
 
 An event never holds a health value, a request or response body, a query string (which may hold
-dates or provider codes), a token, a key or an IP address.
+dates or provider codes), a token or a key. Only `auth.failed` events hold an IP address, the
+one the refused credential came from.
 
 ### Actions
 
@@ -44,8 +47,10 @@ dates or provider codes), a token, a key or an IP address.
 | `data.read` | Lists, FHIR, Open mHealth, coverage, freshness, MCP |
 | `data.export` | CSV and Parquet exports, the user archive |
 | `data.write` | Device uploads (`/v1/ingest/...`), and a demo user filled with synthetic data through the admin API (`POST /v1/admin/tenants/{tenant_id}/demo-user`) |
-| `user.create`, `user.read`, `user.delete` | The user routes; `user.delete` is the request, `user.erased` the completed erasure |
+| `user.create`, `user.read`, `user.update`, `user.delete` | The user routes; `user.update` sets or clears the user's time zone, `user.delete` is the request, `user.erased` the completed erasure |
 | `token.create` | Minting a user token |
+| `token.revoke` | Revoking one token of a user (`token_id` in `detail`) or all of them |
+| `auth.failed` | A well formed API key or user token refused with 401. `detail` holds `client_address`, `reason` (`unknown`, `revoked`, `expired`, or `user_inactive` for a token whose user is being deleted), for a key its `key_prefix` (and `key_id` when the key is known), and `suppressed`, the failures of that address (for a revoked, expired or `user_inactive` credential: of that credential) that were not written since its last event. Actor `api_key` with the key's id or prefix, or `user_token` with the token id. A revoked or expired credential is recorded on its tenant, so `GET /v1/audit?action=auth.failed` shows a retired key that is still used; an unknown credential names no tenant and is stored under the nil tenant id (`00000000-0000-0000-0000-000000000000`), which only the instance operator reads, in the database. At most one event per client address and minute for unknown credentials, one per credential and minute for the others, and 600 a minute per server process, 150 of which are kept for credentials that are not unknown. A failure answered 429 (the address used up its failures) is counted in `suppressed`, not written. With `OHS_RATE_LIMIT_AUTH_FAILURES=0` nothing is answered 429 and the events are written within the same bounds |
 | `connection.read`, `connection.create`, `connection.delete` | The provider connection routes and sync history (`sync-runs`), and creating a hosted connection page link (`connect-sessions`) |
 | `connection.sync` | Asking for an immediate pull (`POST .../connections/{provider}/sync`) |
 | `webhook.read`, `webhook.write` | The webhook endpoint routes |
@@ -110,8 +115,25 @@ A user token cannot read the log. Reading it is itself recorded (`audit.read`).
   proof the erasure happened (`user.erased`).
 - **Retention.** Events older than `OHS_AUDIT_RETENTION_DAYS` (default 365) are deleted once a
   day by the `etl` role; `0` keeps every event. Set it to what your legal basis requires.
-- **Best effort on a database failure.** An event is written after the response, on the same
-  request. If the write fails (the database went away mid-request), the response stands, the
+- **Buffered for reads and uploads.** When the instance runs the buffered writer, the events
+  of the high volume actions (`data.read`, `data.write`, `user.read`, `connection.read`,
+  `connection.sync`, `consent.read`, `webhook.read`, `audit.read`, `config.read`, `share.read`
+  and `auth.failed`) are queued in memory and written in batches, at most a second later, so a
+  request does not wait for its audit row; `at` is still the time of the request. The queue
+  holds 4,096 events: with it full, an event is written before its request ends instead, like a
+  synchronous one, so a flood slows requests down and loses nothing. A batch the database does
+  not take is tried again, each of its events alone, then twice more after 250 and 500 ms; the
+  events still not written are dropped, logged and counted in `ohs_audit_dropped_total`. When
+  the process stops, the queue is written out, within 10 seconds. What stays best effort: the
+  events in memory when the process is killed (`kill -9`, an out of memory kill, a power loss)
+  rather than stopped, at most about one second of reads and uploads while the database
+  answers; the events of a batch the database refused three times; and the events still queued
+  if the database does not take them within the 10 seconds of a stop. Every
+  other action (key and token changes, user creation and deletion, exports, consent changes,
+  share links made, revoked or opened, connections made or removed, webhook and settings
+  changes, tenant changes) is written before the request ends, as described next.
+- **Best effort on a database failure.** A synchronous event is written after the response, on
+  the same request. If the write fails (the database went away mid-request), the response stands, the
   failure is logged and counted in `ohs_audit_write_failures_total` on `/metrics`. Alert on that
   counter. Erasures, admin commands and the tenant and key changes of the admin API are recorded
   in the same transaction as the change, so they are never lost; the admin API's demo user is

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!--
+  No permission is declared here: your app declares the android.permission.health.READ_*
+  permissions of the types it syncs (docs/sdks/react-native.md), so it never asks for more
+  than it uses.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!--
+          Runs at every process start, before any activity: a background sync job starts in
+          a process where React Native has not run, and must know how to build the sync.
+        -->
+        <provider
+            android:name="org.openhealthsync.reactnative.OpenHealthSyncInitProvider"
+            android:authorities="${applicationId}.openhealthsync-init"
+            android:exported="false" />
+    </application>
+</manifest>

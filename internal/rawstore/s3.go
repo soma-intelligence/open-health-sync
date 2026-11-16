@@ -29,6 +29,35 @@ const maxPart = 64 << 20
 type s3Store struct {
 	client *s3.Client
 	bucket string
+	// sse and sseKMSKey ask the server to encrypt every object written
+	// (the sse and sse_kms_key_id URL parameters). Empty: no header is sent
+	// and the bucket's own default applies.
+	sse       types.ServerSideEncryption
+	sseKMSKey string
+}
+
+// s3Encryption reads the server-side encryption asked for in the store URL:
+// sse=AES256 (keys managed by S3) or sse=aws:kms, with sse_kms_key_id naming
+// the KMS key (without it the account's default KMS key is used). No sse
+// parameter sends no header, which every S3-compatible server accepts.
+func s3Encryption(q url.Values) (types.ServerSideEncryption, string, error) {
+	keyID := q.Get("sse_kms_key_id")
+	switch v := q.Get("sse"); v {
+	case "":
+		if keyID != "" {
+			return "", "", fmt.Errorf("rawstore: sse_kms_key_id needs sse=aws:kms")
+		}
+		return "", "", nil
+	case string(types.ServerSideEncryptionAes256):
+		if keyID != "" {
+			return "", "", fmt.Errorf("rawstore: sse_kms_key_id needs sse=aws:kms, not sse=AES256")
+		}
+		return types.ServerSideEncryptionAes256, "", nil
+	case string(types.ServerSideEncryptionAwsKms):
+		return types.ServerSideEncryptionAwsKms, keyID, nil
+	default:
+		return "", "", fmt.Errorf("rawstore: bad sse %q (want AES256 or aws:kms)", v)
+	}
 }
 
 func openS3(u *url.URL) (Store, error) {
@@ -43,6 +72,10 @@ func openS3(u *url.URL) (Store, error) {
 			return nil, fmt.Errorf("rawstore: bad path_style %q", v)
 		}
 		pathStyle = b
+	}
+	sse, sseKMSKey, err := s3Encryption(q)
+	if err != nil {
+		return nil, err
 	}
 	opts := []func(*awsconfig.LoadOptions) error{}
 	if r := q.Get("region"); r != "" {
@@ -59,7 +92,7 @@ func openS3(u *url.URL) (Store, error) {
 		}
 		o.UsePathStyle = pathStyle
 	})
-	return &s3Store{client: client, bucket: u.Host}, nil
+	return &s3Store{client: client, bucket: u.Host, sse: sse, sseKMSKey: sseKMSKey}, nil
 }
 
 // Put reads the whole part into memory (parts are capped at 64 MiB upstream),
@@ -76,13 +109,20 @@ func (s *s3Store) Put(ctx context.Context, key string, r io.Reader) error {
 	if len(data) > maxPart {
 		return fmt.Errorf("rawstore: part exceeds %d bytes", maxPart)
 	}
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+	in := &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader(data),
 		ContentType: aws.String("application/gzip"),
 		IfNoneMatch: aws.String("*"),
-	})
+	}
+	if s.sse != "" {
+		in.ServerSideEncryption = s.sse
+		if s.sseKMSKey != "" {
+			in.SSEKMSKeyId = aws.String(s.sseKMSKey)
+		}
+	}
+	_, err = s.client.PutObject(ctx, in)
 	if err != nil {
 		if isExistsErr(err) {
 			return ErrExists

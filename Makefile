@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test
+.PHONY: setup build image test test-race released-migrations compose-image-check test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test
 
 setup:
 	git config core.hooksPath .githooks
@@ -20,6 +20,27 @@ image:
 
 test:
 	go test ./...
+
+# The unit tests under the race detector (needs cgo: a C compiler). CI runs it
+# as its own job.
+test-race:
+	go test -race ./...
+
+# Rewrites internal/db/released_migrations.txt from the migrations on disk,
+# keeping its comment header. The release pull request runs it with the tag
+# to come, so the next cycle cannot add a migration below this release's:
+#   make released-migrations RELEASE_TAG=v0.3.0
+released-migrations:
+	@test -n "$(RELEASE_TAG)" || { echo "released-migrations: set RELEASE_TAG=vX.Y.Z" >&2; exit 2; }
+	@f=internal/db/released_migrations.txt; \
+	{ grep '^#' $$f | grep -v '^# release '; echo "# release $(RELEASE_TAG)"; \
+	  ls internal/db/migrations/*.up.sql | sed 's|.*/||; s|_.*||' | sort -u; } > $$f.tmp && mv $$f.tmp $$f
+	go test -count=1 -run 'TestMigrationFiles|TestCheckMigrationFiles' ./internal/db/
+
+# The image deploy/docker-compose.yml runs by default exists in the registry
+# (needs curl and the network). CI runs it every day on main.
+compose-image-check:
+	scripts/check-compose-image.sh
 
 # The admin console's and the setup page's pure JavaScript helpers (Node 22+, no
 # npm install).
@@ -99,7 +120,8 @@ fhir-validate:
 
 # Checks to run before tagging a release, with the tag to come:
 #   make release-check RELEASE_TAG=v0.3.0
-# The tag's release notes and the compose default version, build, vet, unit
+# The tag's release notes, the compose default version and the list of
+# released migrations (make released-migrations), build, vet, unit
 # tests, the forbidden-terms guard (set OHS_TERMS_FILE or
 # OHS_FORBIDDEN_TERMS), a secret scan when gitleaks is installed, and the
 # generated data model doc. Docker suites (integration, e2e, reliability)

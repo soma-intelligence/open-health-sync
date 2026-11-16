@@ -40,7 +40,7 @@ const (
 
 func (e *env) requestProviderDelete(t *testing.T, userID uuid.UUID, provider string) *httptest.ResponseRecorder {
 	t.Helper()
-	known := []string{target, other, applehealth.Slug}
+	known := []string{target, other, applehealth.Slug, "labs"}
 	mux := http.NewServeMux()
 	mux.Handle("DELETE /v1/users/{id}/data/{provider}", auth.Middleware(e.store.LookupKey, auth.TenantKey)(
 		deletion.NewProviderDeleteHandler(deletion.Deps{Pool: e.pool, KnownProvider: func(s string) bool {
@@ -109,6 +109,8 @@ func (e *env) seed(t *testing.T, user uuid.UUID, provider, connStatus string) []
 
 	e.exec(t, `INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
 		VALUES ($1, $2, $3, 'heart_rate', 61, $4, $5)`, ten, user, provider, at, h("qs"))
+	e.exec(t, `INSERT INTO ohs_data.quantity_hourly_sealed (tenant_id, user_id, quantity_type, provider, source_key, slug, worn, unit, bucket, sealed)
+		VALUES ($1, $2, 'heart_rate', $3, '\x01', $3, true, 'bpm', $4, '\x02')`, ten, user, provider, at)
 	e.exec(t, `INSERT INTO ohs_data.category_samples (tenant_id, user_id, provider, category_type, value_int, start_date, content_hash)
 		VALUES ($1, $2, $3, 'mindful_session', 0, $4, $5)`, ten, user, provider, at, h("cs"))
 	sleep := e.id(t, `INSERT INTO ohs_data.sleep_sessions (tenant_id, user_id, provider, bedtime_start, content_hash)
@@ -130,6 +132,10 @@ func (e *env) seed(t *testing.T, user uuid.UUID, provider, connStatus string) []
 		VALUES ($1, $2, $3, $4, 0, 12.5, $5)`, ten, user, ecg, at, h("volt"))
 	e.exec(t, `INSERT INTO ohs_data.heartbeat_samples (tenant_id, user_id, provider, series_id, "timestamp", rr_ms, content_hash)
 		VALUES ($1, $2, $3, 'series', $4, 900, $5)`, ten, user, provider, at, h("beat"))
+	// The workout's route as a series blob: it carries the provider of its
+	// workout. (One row, as for every table here.)
+	e.exec(t, `INSERT INTO ohs_data.series_blobs (tenant_id, user_id, kind, provider, parent, format, start_at, end_at, point_count, points)
+		VALUES ($1, $2, 2, $3, $4::bigint::text, 1, $5, $5, 1, '\x01')`, ten, user, provider, workout, at)
 	e.exec(t, `INSERT INTO ohs_data.daily_summaries (tenant_id, user_id, provider, summary_date, step_count, content_hash)
 		VALUES ($1, $2, $3, $4, 4000, $5)`, ten, user, provider, at, h("daily"))
 	e.exec(t, `INSERT INTO ohs_data.observations (tenant_id, user_id, provider, ts, canonical_code, value_num, content_hash)
@@ -151,7 +157,7 @@ func (e *env) seed(t *testing.T, user uuid.UUID, provider, connStatus string) []
 		"ohs_data.category_samples", "ohs_data.daily_summaries", "ohs_data.deleted_records",
 		"ohs_data.ecg_recordings", "ohs_data.ecg_samples", "ohs_data.failed_records",
 		"ohs_data.heartbeat_samples", "ohs_data.nutrition_logs", "ohs_data.observations",
-		"ohs_data.quantity_samples", "ohs_data.record_aliases", "ohs_data.route_points", "ohs_data.sleep_phases",
+		"ohs_data.quantity_hourly_sealed", "ohs_data.quantity_samples", "ohs_data.record_aliases", "ohs_data.route_points", "ohs_data.series_blobs", "ohs_data.sleep_phases",
 		"ohs_data.sleep_sessions", "ohs_data.workout_tracks", "ohs_data.workouts",
 		"ohs_sync.connections", "ohs_sync.consent_events", "ohs_sync.consent_purges", "ohs_sync.consents",
 		"ohs_sync.etl_jobs", "ohs_sync.inbound_subscriptions",

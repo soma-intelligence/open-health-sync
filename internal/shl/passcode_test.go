@@ -41,14 +41,14 @@ func TestPasscodeHash(t *testing.T) {
 	parts := strings.Split(h, "$")
 	require.Len(t, parts, 4)
 	assert.Equal(t, "pbkdf2-sha256", parts[0])
-	assert.Equal(t, "100000", parts[1])
+	assert.Equal(t, "600000", parts[1])
 	salt, err := base64.RawStdEncoding.DecodeString(parts[2])
 	require.NoError(t, err)
 	assert.Len(t, salt, 16)
 	dk, err := base64.RawStdEncoding.DecodeString(parts[3])
 	require.NoError(t, err)
 	// PBKDF2-SHA256 with the stated parameters, nothing else.
-	want, err := pbkdf2.Key(sha256.New, pass, salt, 100000, 32)
+	want, err := pbkdf2.Key(sha256.New, pass, salt, 600000, 32)
 	require.NoError(t, err)
 	assert.Equal(t, want, dk)
 
@@ -81,4 +81,19 @@ func TestRemainingAttempts(t *testing.T) {
 	assert.Equal(t, 1, RemainingAttempts(9))
 	assert.Equal(t, 0, RemainingAttempts(10))
 	assert.Equal(t, 0, RemainingAttempts(11))
+}
+
+// A passcode hashed by a release that used 100 000 iterations still
+// verifies: the count is read from the stored hash.
+func TestPasscodeVerifiesOlderIterationCount(t *testing.T) {
+	const pass = "invented-passcode"
+	salt := []byte("0123456789abcdef")
+	dk, err := pbkdf2.Key(sha256.New, pass, salt, 100000, 32)
+	require.NoError(t, err)
+	enc := base64.RawStdEncoding
+	stored := "pbkdf2-sha256$100000$" + enc.EncodeToString(salt) + "$" + enc.EncodeToString(dk)
+	assert.True(t, VerifyPasscode(stored, pass))
+	assert.False(t, VerifyPasscode(stored, pass+"x"))
+	// The same key filed under another count does not.
+	assert.False(t, VerifyPasscode("pbkdf2-sha256$600000$"+enc.EncodeToString(salt)+"$"+enc.EncodeToString(dk), pass))
 }

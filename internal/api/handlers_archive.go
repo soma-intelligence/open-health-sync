@@ -4,7 +4,10 @@ package api
 
 import (
 	"archive/zip"
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
@@ -22,6 +26,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/omh"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // archiveVersion is the layout version the manifest states; it changes when
@@ -35,14 +40,14 @@ var archiveFolders = map[string]string{
 		"Tokens and sealed values are never included.",
 	"canonical/": "Every record of each list of the REST API, one JSON object per line (NDJSON), " +
 		"the same JSON as the list items: samples, category-samples, sleep, sleep-phases, workouts, " +
-		"workout-routes, nutrition, daily, and ecg (each ECG recording with its voltage samples, as " +
+		"workout-routes, nutrition, daily, labs, and ecg (each ECG recording with its voltage samples, as " +
 		"GET /v1/users/{id}/ecg/{ecg_id} returns it). Times are RFC 3339 in UTC, values in canonical units.",
 	"fhir/": "bundle.json: a FHIR R4 Bundle of type collection holding every Observation the FHIR " +
 		"endpoints serve for the user (quantity samples, blood pressure panels, sleep sessions, " +
-		"workouts, daily summaries, ECG recordings, nutrition logs).",
+		"workouts, daily summaries, ECG recordings, nutrition logs, lab results).",
 	"omh/": "data-points.ndjson: the records that have an Open mHealth schema, as Open mHealth data " +
 		"points, one per line.",
-	"raw/": "Every raw payload providers and devices sent for the user, byte for byte as stored, " +
+	"raw/": "Every raw payload providers and devices sent for the user, byte for byte as received, " +
 		"under its path in the raw store below the user (<provider>/<day>/<file>).",
 }
 
@@ -62,6 +67,7 @@ var archiveLists = []struct {
 	{"workout-routes", archiveChildren(read.Workouts, func(w read.Workout) int64 { return w.ID }, read.WorkoutRoute)},
 	{"nutrition", archiveList(read.Nutrition)},
 	{"daily", archiveList(read.Daily)},
+	{"labs", archiveList(read.AllLabs)},
 	{"ecg", archiveChildren(read.ECGRecordings, func(e read.ECGRecording) int64 { return e.ID }, ecgDetail)},
 }
 
@@ -138,6 +144,15 @@ func (s *server) userArchive(w http.ResponseWriter, r *http.Request) {
 		readError(w, r, err, "user")
 		return
 	}
+	// The user's keys open the sealed raw objects. A user without keys
+	// gets no archive: it would hold payloads they cannot read.
+	var keys *vault.UserVault
+	if s.d.Vault != nil {
+		if keys, err = s.d.Vault.ForUser(r.Context(), p.TenantID, id); err != nil {
+			internalError(w, r, "api: archive keys", err)
+			return
+		}
+	}
 	generated := time.Now().UTC().Truncate(time.Second)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="ohs-user-`+id.String()+"-"+
@@ -145,7 +160,7 @@ func (s *server) userArchive(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	a := &archive{z: zip.NewWriter(w), modified: generated}
-	err = s.writeArchive(r, a, p.TenantID, u, conns)
+	err = s.writeArchive(r, a, p.TenantID, u, conns, keys)
 	if err == nil {
 		err = a.z.Close()
 	}
@@ -160,7 +175,7 @@ func (s *server) userArchive(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeArchive writes every entry, the manifest last (it holds the counts).
-func (s *server) writeArchive(r *http.Request, a *archive, tenantID uuid.UUID, u tenant.User, conns []read.ConnectionDetail) error {
+func (s *server) writeArchive(r *http.Request, a *archive, tenantID uuid.UUID, u tenant.User, conns []read.ConnectionDetail, keys *vault.UserVault) error {
 	ctx := r.Context()
 	uj := toUserJSON(u)
 	if err := a.json("user.json", archiveUser{userJSON: uj, Connections: conns}); err != nil {
@@ -191,7 +206,7 @@ func (s *server) writeArchive(r *http.Request, a *archive, tenantID uuid.UUID, u
 	if err != nil {
 		return fmt.Errorf("omh: %w", err)
 	}
-	raw, err := s.archiveRaw(ctx, a, tenantID, u.ID)
+	raw, err := s.archiveRaw(ctx, a, tenantID, u.ID, keys)
 	if err != nil {
 		return fmt.Errorf("raw: %w", err)
 	}
@@ -256,8 +271,10 @@ func (s *server) archiveFHIR(r *http.Request, a *archive, tenantID, user uuid.UU
 
 // archiveRaw copies every raw object of the user under raw/, keeping its
 // path below raw/<tenant>/<user>/. An object removed since the listing (raw
-// retention) is left out.
-func (s *server) archiveRaw(ctx context.Context, a *archive, tenantID, user uuid.UUID) (archiveRaw, error) {
+// retention) is left out. A sealed object is opened with uv and its
+// payload written, the gzip bytes ingestion sealed; a legacy one is copied
+// as it is. No sealed byte reaches the archive.
+func (s *server) archiveRaw(ctx context.Context, a *archive, tenantID, user uuid.UUID, uv *vault.UserVault) (archiveRaw, error) {
 	var out archiveRaw
 	if s.d.Raw == nil {
 		return out, nil
@@ -276,12 +293,15 @@ func (s *server) archiveRaw(ctx context.Context, a *archive, tenantID, user uuid
 			if err != nil {
 				return err
 			}
-			// A gzip part is stored as is: compressing it again gains nothing.
-			w, err := a.create("raw/"+rel, !strings.HasSuffix(rel, ".gz"))
+			src, err := s.rawPayload(ctx, tenantID, user, k, rc, uv)
 			if err == nil {
-				var n int64
-				n, err = io.Copy(w, rc)
-				out.Bytes += n
+				// A gzip part is stored as is: compressing it again gains nothing.
+				var w io.Writer
+				if w, err = a.create("raw/"+rel, !strings.HasSuffix(rel, ".gz")); err == nil {
+					var n int64
+					n, err = io.Copy(w, src)
+					out.Bytes += n
+				}
 			}
 			_ = rc.Close()
 			if err != nil {
@@ -292,6 +312,56 @@ func (s *server) archiveRaw(ctx context.Context, a *archive, tenantID, user uuid
 		return nil
 	})
 	return out, err
+}
+
+// rawPayload is what the archive holds of the raw object key: a legacy
+// object as it is, a sealed one opened with keys. The payload of a sealed
+// object must match its digest, the one in its header and the
+// content_hash it is registered with (an unregistered file has only the
+// header's).
+func (s *server) rawPayload(ctx context.Context, tenantID, user uuid.UUID, key string, rc io.Reader, keys *vault.UserVault) (io.Reader, error) {
+	// bufio's default buffer holds a whole header: ReadObjectHeader peeks.
+	br := bufio.NewReader(rc)
+	_, sealed, err := vault.ReadObjectHeader(br)
+	if err != nil {
+		return nil, fmt.Errorf("raw object %s: %w", key, err)
+	}
+	if !sealed {
+		return br, nil
+	}
+	if keys == nil {
+		return nil, fmt.Errorf("raw object %s is sealed and no keys are at hand", key)
+	}
+	h, plain, err := vault.OpenObject(br, keys.Keys)
+	if err != nil {
+		return nil, fmt.Errorf("open raw object %s: %w", key, err)
+	}
+	body, err := io.ReadAll(plain)
+	if err != nil {
+		return nil, fmt.Errorf("open raw object %s: %w", key, err)
+	}
+	uk, err := keys.Keys(h.Version)
+	if err != nil {
+		return nil, err
+	}
+	pub, err := uk.Public()
+	if err != nil {
+		return nil, err
+	}
+	digest := vault.RawDigest(pub, body)
+	if digest != h.Digest {
+		return nil, fmt.Errorf("raw object %s: the payload does not match its digest", key)
+	}
+	var hash string
+	err = s.d.Pool.QueryRow(ctx, `SELECT content_hash FROM ohs_sync.raw_objects
+		WHERE tenant_id = $1 AND user_id = $2 AND key = $3`, tenantID, user, key).Scan(&hash)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("raw object %s: %w", key, err)
+	}
+	if err == nil && hash != hex.EncodeToString(digest[:]) {
+		return nil, fmt.Errorf("raw object %s: the payload does not match its content_hash", key)
+	}
+	return bytes.NewReader(body), nil
 }
 
 // archive writes the zip entries and keeps the record counts of the

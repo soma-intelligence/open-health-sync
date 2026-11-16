@@ -1,0 +1,37 @@
+{
+  "data": [
+    {
+      "average_heart_rate": 64,
+      "classification": "sinus_rhythm",
+      "classification_value": 1,
+      "device": null,
+      "end_date": "2026-09-28T08:00:00.390625Z",
+      "metadata": {
+        "synthetic": true
+      },
+      "number_of_measurements": 200,
+      "provider": "apple_health",
+      "sampling_frequency_hz": 512,
+      "source": "apple_health",
+      "start_date": "2026-09-28T08:00:00Z",
+      "symptoms_status": "not_set"
+    },
+    {
+      "average_heart_rate": 64,
+      "classification": "negative",
+      "classification_value": 0,
+      "device": null,
+      "end_date": "2026-09-29T08:00:00.4Z",
+      "metadata": {
+        "synthetic": true
+      },
+      "number_of_measurements": 120,
+      "provider": "withings",
+      "sampling_frequency_hz": 300,
+      "source": "withings",
+      "start_date": "2026-09-29T08:00:00Z",
+      "symptoms_status": "not_set"
+    }
+  ],
+  "next_cursor": null
+}

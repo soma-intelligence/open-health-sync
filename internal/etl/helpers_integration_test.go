@@ -12,6 +12,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,23 +24,30 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // env is one migrated database, one raw store and one tenant with one active
-// user, which is what nearly every ETL test needs.
+// user, which is what nearly every ETL test needs. Every user it creates has
+// keys and every job it runs takes the vault, as in production, so the rows
+// are written sealed; e.read() reads them back opened.
 type env struct {
 	t      *testing.T
 	pool   *pgxpool.Pool
 	rs     rawstore.Store
+	v      *vault.Vault
 	tenant uuid.UUID
 	user   uuid.UUID
 	reg    *connector.Registry
 	now    func() time.Time // validation clock; nil means time.Now
+	clear  bool             // writeAt writes clear rows, as a job without keys does
 }
 
 func newEnv(t *testing.T) *env {
@@ -47,10 +57,190 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(pool.Close)
 	rs, err := rawstore.Open("file://" + t.TempDir())
 	require.NoError(t, err)
-	e := &env{t: t, pool: pool, rs: rs, reg: connector.NewRegistry()}
+	p, err := vault.OpenProvider(context.Background(), config.Vault{Provider: "local", RootKey: bytes.Repeat([]byte{7}, 32)})
+	require.NoError(t, err)
+	e := &env{t: t, pool: pool, rs: rs, reg: connector.NewRegistry(), v: vault.New(pool, p, vault.Options{CanOpen: true})}
 	e.tenant = e.newTenant()
 	e.user = e.newUser(e.tenant)
 	return e
+}
+
+// keys returns the keys of a user of the env.
+func (e *env) keys(tenant, user uuid.UUID) *vault.UserVault {
+	e.t.Helper()
+	uv, err := e.v.ForUser(context.Background(), tenant, user)
+	require.NoError(e.t, err)
+	return uv
+}
+
+// hash is the stored content_hash of a record of the env's user whose plain
+// hash is plain.
+func (e *env) hash(plain string) string {
+	return scope{uv: e.keys(e.tenant, e.user)}.hash(plain)
+}
+
+// read is the database as the tests read it: each query runs in a
+// transaction, rolled back after it, on copies of the sealed tables it names
+// in which every sealed row has its clear columns filled from its opened
+// value (openRows). A query on content_hash compares the stored, keyed hash
+// (e.hash).
+func (e *env) read() openedDB { return openedDB{e} }
+
+type openedDB struct{ e *env }
+
+// begin opens the view's transaction and returns sql reading the copies.
+func (o openedDB) begin(ctx context.Context, sql string) (pgx.Tx, string) {
+	o.e.t.Helper()
+	tx, err := o.e.pool.Begin(ctx)
+	require.NoError(o.e.t, err)
+	for name := range vault.Schema {
+		if name == "quantity_hourly_sealed" || !namesTable(sql, name) {
+			continue
+		}
+		if err := o.e.unseal(ctx, tx, name); err != nil {
+			_ = tx.Rollback(ctx)
+			require.NoError(o.e.t, err, "unseal %s", name)
+		}
+		sql = renameTable(sql, name)
+	}
+	return tx, sql
+}
+
+// tableAt returns the index of the next reference to ohs_data.<table> in sql
+// at or after from, or -1.
+func tableAt(sql, table string, from int) int {
+	q := "ohs_data." + table
+	for i := from; ; {
+		j := strings.Index(sql[i:], q)
+		if j < 0 {
+			return -1
+		}
+		end := i + j + len(q)
+		if end == len(sql) || !(sql[end] == '_' || sql[end] >= 'a' && sql[end] <= 'z') {
+			return i + j
+		}
+		i = end
+	}
+}
+
+// namesTable reports whether sql reads ohs_data.<table>.
+func namesTable(sql, table string) bool { return tableAt(sql, table, 0) >= 0 }
+
+// renameTable points every reference to ohs_data.<table> at its opened copy.
+func renameTable(sql, table string) string {
+	for i := tableAt(sql, table, 0); i >= 0; i = tableAt(sql, table, i) {
+		sql = sql[:i] + "_open_" + table + sql[i+len("ohs_data."+table):]
+	}
+	return sql
+}
+
+// unseal copies table into the temporary table _open_<table> and fills, in
+// the copy, the clear columns of every sealed row from its opened value.
+func (e *env) unseal(ctx context.Context, tx pgx.Tx, table string) error {
+	t := vault.Schema[table]
+	if _, err := tx.Exec(ctx, `CREATE TEMPORARY TABLE _open_`+table+` ON COMMIT DROP AS SELECT * FROM `+qualified(table)); err != nil {
+		return err
+	}
+	owners, err := pgx.CollectRows(must(tx.Query(ctx, `SELECT DISTINCT tenant_id, user_id FROM _open_`+table+` WHERE sealed IS NOT NULL`)),
+		func(r pgx.CollectableRow) ([2]uuid.UUID, error) {
+			var o [2]uuid.UUID
+			return o, r.Scan(&o[0], &o[1])
+		})
+	if err != nil || len(owners) == 0 {
+		return err
+	}
+	cols := append([]string{"tenant_id", "user_id"}, t.Identity...)
+	for _, c := range t.Sealed {
+		cols = append(cols, c.Name)
+	}
+	var rows [][]any
+	for _, o := range owners {
+		uv, err := e.v.ForUser(ctx, o[0], o[1])
+		if err != nil {
+			return err
+		}
+		opened, err := collectRows(openRows(ctx, tx, uv, table,
+			`SELECT * FROM _open_`+table+` WHERE tenant_id = $1 AND user_id = $2 AND sealed IS NOT NULL`, []any{o[0], o[1]}))
+		if err != nil {
+			return err
+		}
+		for _, r := range opened {
+			row := make([]any, len(cols))
+			for i, c := range cols {
+				row[i] = r[c]
+			}
+			rows = append(rows, row)
+		}
+	}
+	temp, _, err := stage(ctx, tx, table, cols, pgx.CopyFromRows(rows))
+	if err != nil {
+		return err
+	}
+	set := make([]string, 0, len(t.Sealed))
+	for _, c := range t.Sealed {
+		set = append(set, c.Name+" = o."+c.Name)
+	}
+	match := []string{"r.tenant_id = o.tenant_id", "r.user_id = o.user_id", "r.sealed IS NOT NULL"}
+	for _, c := range t.Identity {
+		id := pgx.Identifier{c}.Sanitize()
+		match = append(match, "r."+id+" = o."+id)
+	}
+	_, err = tx.Exec(ctx, `UPDATE _open_`+table+` r SET `+strings.Join(set, ", ")+` FROM `+temp+` o WHERE `+strings.Join(match, " AND "))
+	return err
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// QueryRow runs sql on the opened view.
+func (o openedDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	tx, sql := o.begin(ctx, sql)
+	return openedRow{tx.QueryRow(ctx, sql, args...), tx, ctx}
+}
+
+// Query runs sql on the opened view; closing the rows ends the view.
+func (o openedDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	tx, sql := o.begin(ctx, sql)
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, err
+	}
+	return &openedRows{Rows: rows, tx: tx, ctx: ctx}, nil
+}
+
+type openedRow struct {
+	row pgx.Row
+	tx  pgx.Tx
+	ctx context.Context
+}
+
+func (r openedRow) Scan(dest ...any) error {
+	defer func() { _ = r.tx.Rollback(r.ctx) }()
+	return r.row.Scan(dest...)
+}
+
+type openedRows struct {
+	pgx.Rows
+	tx  pgx.Tx
+	ctx context.Context
+}
+
+func (r *openedRows) Close() {
+	r.Rows.Close()
+	_ = r.tx.Rollback(r.ctx)
+}
+
+func (r *openedRows) Next() bool {
+	if r.Rows.Next() {
+		return true
+	}
+	r.Close()
+	return false
 }
 
 func (e *env) exec(sql string, args ...any) {
@@ -67,11 +257,18 @@ func (e *env) newTenant() uuid.UUID {
 	return id
 }
 
+// newUser creates an active user of tenant, with keys as the API gives them.
 func (e *env) newUser(tenant uuid.UUID) uuid.UUID {
 	e.t.Helper()
+	ctx := context.Background()
+	tx, err := e.pool.Begin(ctx)
+	require.NoError(e.t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
 	var id uuid.UUID
-	require.NoError(e.t, e.pool.QueryRow(context.Background(),
+	require.NoError(e.t, tx.QueryRow(ctx,
 		`INSERT INTO ohs_core.end_users (tenant_id) VALUES ($1) RETURNING id`, tenant).Scan(&id))
+	require.NoError(e.t, e.v.EnsureUser(ctx, tx, tenant, id))
+	require.NoError(e.t, tx.Commit(ctx))
 	return id
 }
 
@@ -81,13 +278,60 @@ func (e *env) count(table string) int {
 	return e.countFor(table, e.tenant, e.user)
 }
 
+// countFor counts the rows of table for tenant and user. For a per-point
+// table (vault.PerPoint) it counts the points: the rows still stored one per
+// point plus the points of the series blobs of its kind.
 func (e *env) countFor(table string, tenant, user uuid.UUID) int {
 	e.t.Helper()
 	var n int
 	require.NoError(e.t, e.pool.QueryRow(context.Background(),
 		fmt.Sprintf(`SELECT count(*) FROM ohs_data.%s WHERE tenant_id = $1 AND user_id = $2`, pgx.Identifier{table}.Sanitize()),
 		tenant, user).Scan(&n))
+	if k, ok := perPointKind[table]; ok {
+		var pts int
+		require.NoError(e.t, e.pool.QueryRow(context.Background(), `SELECT coalesce(sum(point_count), 0)
+			FROM ohs_data.series_blobs WHERE tenant_id = $1 AND user_id = $2 AND kind = $3`, tenant, user, int16(k)).Scan(&pts))
+		n += pts
+	}
 	return n
+}
+
+// perPointKind is the series kind of each per-point table.
+var perPointKind = map[string]series.Kind{
+	"ecg_samples": series.ECG, "route_points": series.Route, "heartbeat_samples": series.Heartbeat,
+}
+
+// blobPoints opens and decodes the series blobs of kind k of the env's user,
+// keyed by parent (and, for heartbeat series, "provider/series id").
+func (e *env) blobPoints(k series.Kind) map[string][]series.Point {
+	e.t.Helper()
+	return e.blobPointsOf(e.tenant, e.user, k)
+}
+
+func (e *env) blobPointsOf(tenant, user uuid.UUID, k series.Kind) map[string][]series.Point {
+	e.t.Helper()
+	ctx := context.Background()
+	sel := vault.Select(tSeries, `provider, parent, points`)
+	rows, err := e.pool.Query(ctx, `SELECT `+sel.List("")+` FROM ohs_data.series_blobs
+		WHERE tenant_id = $1 AND user_id = $2 AND kind = $3`, tenant, user, int16(k))
+	require.NoError(e.t, err)
+	defer rows.Close()
+	rd := vault.ReaderFor(vault.NewContext(ctx, e.v), tenant, user)
+	out := map[string][]series.Point{}
+	for rows.Next() {
+		var provider, parent string
+		var blob []byte
+		require.NoError(e.t, sel.Scan(ctx, rd, rows, []any{&provider, &parent, &blob}))
+		pts, err := series.Decode(k, blob)
+		require.NoError(e.t, err)
+		key := parent
+		if k == series.Heartbeat {
+			key = provider + "/" + parent
+		}
+		out[key] = pts
+	}
+	require.NoError(e.t, rows.Err())
+	return out
 }
 
 var batchSeq atomic.Int64
@@ -121,7 +365,23 @@ func (e *env) register(slug string, mapFn func(connector.RawRecord) (model.MapRe
 	e.reg.Register(&fakeConnector{slug: slug, mapFn: mapFn})
 }
 
-func (e *env) opts() Options { return Options{Lookup: e.reg.Get, Now: e.now} }
+func (e *env) opts() Options {
+	return Options{Lookup: e.reg.Get, Now: e.now, Vault: e.v, Writer: testWriterConfig()}
+}
+
+// clearOpts are the options of a process with no vault configured.
+func (e *env) clearOpts() Options {
+	return Options{Lookup: e.reg.Get, Now: e.now, Writer: testWriterConfig()}
+}
+
+// testWriterConfig is the writer configuration of the jobs the tests run.
+// OHS_ETL_TEST_CHUNK sets the size of a write chunk: with 1 or 2 nearly every
+// object of the suite is larger than a chunk and goes through the streamed
+// write (stream.go), which must give what the single batch gives.
+func testWriterConfig() WriterConfig {
+	n, _ := strconv.Atoi(os.Getenv("OHS_ETL_TEST_CHUNK"))
+	return WriterConfig{ChunkRecords: n}
+}
 
 func (e *env) process(job queue.ETLJob) Counts {
 	e.t.Helper()

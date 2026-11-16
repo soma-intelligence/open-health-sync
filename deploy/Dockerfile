@@ -18,7 +18,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" \
+    go build -trimpath -tags azurekv,awskms -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" \
     -o /out/ohs ./cmd/ohs
 RUN mkdir -p /out/raw
 

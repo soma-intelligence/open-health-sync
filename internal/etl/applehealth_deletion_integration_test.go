@@ -35,7 +35,7 @@ func hkDeleted(uuid string) string { return fmt.Sprintf(`{"deletedUuid":%q}`, uu
 
 func (e *env) weights() []float64 {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(), `SELECT value FROM ohs_data.quantity_samples
+	rows, err := e.read().Query(context.Background(), `SELECT value FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND quantity_type = 'body_mass' ORDER BY value`, e.tenant, e.user)
 	require.NoError(e.t, err)
 	var out []float64
@@ -56,7 +56,7 @@ func TestAppleHealthEditReplacesTheStoredSample(t *testing.T) {
 	e.process(e.upload(e.tenant, e.user, applehealth.Slug, "HKQuantityTypeIdentifierBodyMass", hkWeight(hkWeightOld, 78.4)))
 	require.Equal(t, []float64{78.4}, e.weights())
 	var id string
-	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT external_id FROM ohs_data.quantity_samples
+	require.NoError(t, e.read().QueryRow(context.Background(), `SELECT external_id FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&id))
 	assert.Equal(t, hkWeightOld, id, "the HealthKit UUID is the sample's external id")
 

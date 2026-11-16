@@ -43,7 +43,7 @@ func TestWriteSyntheticIdempotent(t *testing.T) {
 	ctx := context.Background()
 	day := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
 
-	c, err := WriteSynthetic(ctx, e.pool, e.tenant, e.user, "fitbit", syntheticBatch(day))
+	c, err := WriteSynthetic(ctx, e.pool, e.v, e.tenant, e.user, "fitbit", syntheticBatch(day))
 	require.NoError(t, err)
 	require.Equal(t, 4, c[tQuantity].Written)
 	require.Equal(t, 1, c[tSleep].Written)
@@ -53,16 +53,16 @@ func TestWriteSyntheticIdempotent(t *testing.T) {
 	require.Equal(t, 1, e.count(tDaily))
 
 	var steps int
-	require.NoError(t, e.pool.QueryRow(ctx, `SELECT step_count FROM ohs_data.daily_summaries
+	require.NoError(t, e.read().QueryRow(ctx, `SELECT step_count FROM ohs_data.daily_summaries
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'fitbit'`, e.tenant, e.user).Scan(&steps))
 	require.Equal(t, 4000, steps)
 	var coverage int
-	require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_sync.pull_coverage
+	require.NoError(t, e.read().QueryRow(ctx, `SELECT count(*) FROM ohs_sync.pull_coverage
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'fitbit'`, e.tenant, e.user).Scan(&coverage))
 	require.Positive(t, coverage)
 
 	// The same records again: nothing new.
-	c, err = WriteSynthetic(ctx, e.pool, e.tenant, e.user, "fitbit", syntheticBatch(day))
+	c, err = WriteSynthetic(ctx, e.pool, e.v, e.tenant, e.user, "fitbit", syntheticBatch(day))
 	require.NoError(t, err)
 	require.Zero(t, c.TotalWritten(), "second write: %v", c)
 	require.Equal(t, 4, e.count(tQuantity))
@@ -78,8 +78,31 @@ func TestWriteSyntheticIdempotent(t *testing.T) {
 func TestWriteSyntheticRefusesInactiveUser(t *testing.T) {
 	e := newEnv(t)
 	e.exec(`UPDATE ohs_core.end_users SET status = 'deleting' WHERE id = $1`, e.user)
-	_, err := WriteSynthetic(context.Background(), e.pool, e.tenant, e.user, "fitbit",
+	_, err := WriteSynthetic(context.Background(), e.pool, e.v, e.tenant, e.user, "fitbit",
 		syntheticBatch(time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)))
 	require.True(t, errors.Is(err, ErrUserNotActive), "got %v", err)
 	require.Zero(t, e.count(tQuantity))
+}
+
+// With the vault, a synthetic write for a user with keys stores sealed rows
+// only, and it can follow a sealed job of the same user: the derived daily row
+// sums the job's sealed samples with its own.
+func TestWriteSyntheticSealsAfterASealedJob(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	day := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	e.register("fitbit", quantityMap)
+	e.process(e.upload(e.tenant, e.user, "fitbit", "step_count", q(model.QTStepCount, 500, "count", day.Add(6*time.Hour))))
+
+	_, err := WriteSynthetic(ctx, e.pool, e.v, e.tenant, e.user, "fitbit", syntheticBatch(day))
+	require.NoError(t, err)
+	for _, table := range []string{tQuantity, tSleep, tPhases, tDaily} {
+		var clear int
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_data.`+table+`
+			WHERE tenant_id = $1 AND user_id = $2 AND sealed IS NULL`, e.tenant, e.user).Scan(&clear))
+		require.Zero(t, clear, table)
+	}
+	require.Equal(t, 5, e.count(tQuantity))
+	require.EqualValues(t, 4500, e.scalar(`SELECT step_count FROM ohs_data.daily_summaries
+		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'fitbit'`, e.tenant, e.user))
 }

@@ -1,0 +1,71 @@
+{
+  "data": [
+    {
+      "cycle_length_days": 28,
+      "end_date": "2026-09-28",
+      "flow_days": [
+        {
+          "date": "2026-09-01",
+          "flow": "medium",
+          "providers": [
+            "apple_health"
+          ]
+        },
+        {
+          "date": "2026-09-02",
+          "flow": "medium",
+          "providers": [
+            "apple_health"
+          ]
+        },
+        {
+          "date": "2026-09-03",
+          "flow": "medium",
+          "providers": [
+            "apple_health"
+          ]
+        },
+        {
+          "date": "2026-09-04",
+          "flow": "medium",
+          "providers": [
+            "apple_health"
+          ]
+        }
+      ],
+      "period_end_date": "2026-09-04",
+      "period_length_days": 4,
+      "providers": [
+        "apple_health"
+      ],
+      "start_date": "2026-09-01"
+    },
+    {
+      "cycle_length_days": null,
+      "end_date": null,
+      "flow_days": [
+        {
+          "date": "2026-09-29",
+          "flow": "medium",
+          "providers": [
+            "apple_health"
+          ]
+        },
+        {
+          "date": "2026-09-30",
+          "flow": "medium",
+          "providers": [
+            "apple_health"
+          ]
+        }
+      ],
+      "period_end_date": "2026-09-30",
+      "period_length_days": 2,
+      "providers": [
+        "apple_health"
+      ],
+      "start_date": "2026-09-29"
+    }
+  ],
+  "next_cursor": null
+}

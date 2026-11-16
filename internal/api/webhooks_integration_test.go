@@ -84,7 +84,8 @@ func TestWebhookEndpointsCRUD(t *testing.T) {
 	// The secret is never shown again.
 	g := e.do("GET", path, e.keyA, nil)
 	require.Equal(t, http.StatusOK, g.code)
-	assert.NotContains(t, string(g.body), "secret")
+	assert.NotContains(t, string(g.body), `"secret"`)
+	assert.NotContains(t, string(g.body), created.Secret)
 	l := e.do("GET", "/v1/webhooks", e.keyA, nil)
 	require.Equal(t, http.StatusOK, l.code)
 	var list page[webhookJSON]

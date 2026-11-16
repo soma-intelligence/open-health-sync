@@ -82,7 +82,7 @@ public struct LineProvenance: Sendable, Equatable {
     }
 }
 
-private func commonFields(
+func commonFields(
     startDate: Date, endDate: Date, provenance: LineProvenance, metadata: JSONObject
 ) -> JSONObject {
     var line: JSONObject = [:]

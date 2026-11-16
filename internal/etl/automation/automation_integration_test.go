@@ -232,6 +232,11 @@ func TestRetentionDeletesOldDataAndFilesPerUser(t *testing.T) {
 	e.exec(`INSERT INTO ohs_data.workout_tracks (tenant_id, user_id, workout_id, length_m, point_count, started_at, ended_at)
 		VALUES ($1, $2, 1, 1, 1, $3, $3), ($1, $2, 2, 1, 1, $4, $4)`,
 		e.tenant, e.user, now.AddDate(0, 0, -200), now.AddDate(0, 0, -1))
+	// Series blobs: one whose last point is past the cutoff goes whole; one
+	// that started before the cutoff and ends after it stays whole.
+	e.exec(`INSERT INTO ohs_data.series_blobs (tenant_id, user_id, kind, provider, parent, format, start_at, end_at, point_count, points)
+		VALUES ($1, $2, 3, 'withings', 'old', 1, $3, $3, 1, '\x01'), ($1, $2, 3, 'withings', 'across', 1, $3, $4, 2, '\x01')`,
+		e.tenant, e.user, now.AddDate(0, 0, -200), now.AddDate(0, 0, -1))
 
 	// A second user (other tenant): old data and old files go, recent data and files stay.
 	t2 := e.newTenant()
@@ -240,9 +245,13 @@ func TestRetentionDeletesOldDataAndFilesPerUser(t *testing.T) {
 	insertSample(t2, u2, now.AddDate(0, 0, -2), "new2")
 	oldKey2 := rawstore.Key(t2, u2, "withings", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), "b", 0)
 	newKey2 := rawstore.Key(t2, u2, "withings", time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), "b", 0)
-	for _, k := range []string{oldKey2, newKey2} {
+	for i, k := range []string{oldKey2, newKey2} {
 		require.NoError(t, e.rs.Put(ctx, k, strings.NewReader("x")))
+		e.exec(`INSERT INTO ohs_sync.raw_objects (tenant_id, user_id, provider, key, content_hash, size_bytes, batch, part)
+			VALUES ($1, $2, 'withings', $3, $4, 1, 'b', 0)`, t2, u2, k, fmt.Sprintf("u2-%d", i))
 	}
+	// A job whose raw_objects row is already gone (an earlier run died half way).
+	e.job(rawstore.Key(e.tenant, e.user, "withings", time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC), "gone", 0), "done")
 
 	// Zero days is a no-op.
 	res, err := (&Retention{Pool: e.pool, Store: e.rs, Days: 0, Now: func() time.Time { return now }}).Run(ctx)
@@ -255,22 +264,93 @@ func TestRetentionDeletesOldDataAndFilesPerUser(t *testing.T) {
 	res, err = (&Retention{Pool: e.pool, Store: e.rs, Days: 90, Metrics: m, Now: func() time.Time { return now }}).Run(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 2, res.Prefixes)
-	require.EqualValues(t, 4, res.Rows) // 2 samples + 1 summary + 1 track
+	require.EqualValues(t, 5, res.Rows) // 2 samples + 1 summary + 1 track + 1 series
+	require.Equal(t, 2, res.Chunks, "the old samples' chunk and the old summary's chunk are dropped whole")
 	require.Equal(t, 2, res.Users)
 
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples WHERE content_hash = 'new'`))
 	require.Equal(t, 2, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples WHERE content_hash = 'new2'`))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.workout_tracks`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.series_blobs WHERE parent = 'across'`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.series_blobs`))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.daily_summaries`))
 	require.Equal(t, 0, e.scalar(`SELECT count(*) FROM ohs_sync.raw_objects WHERE key = $1`, oldKey))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_sync.raw_objects WHERE key = $1`, newKey))
 	require.Equal(t, 0, e.jobs(oldKey))
 	require.Equal(t, 1, e.jobs(newKey))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_sync.etl_jobs`))
+	require.Equal(t, 2, e.scalar(`SELECT count(*) FROM ohs_sync.raw_objects`))
 	keys, err := e.rs.List(ctx, "raw/")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{newKey, newKey2}, keys)
-	require.EqualValues(t, 4, m.RetentionRows.Load())
+	require.EqualValues(t, 5, m.RetentionRows.Load())
+
+	// Deleting row by row reports the same rows as dropping chunks.
+	insertSample(e.tenant, e.user, now.AddDate(0, 0, -200), "old-again")
+	insertSample(t2, u2, now.AddDate(0, 0, -300), "older-again")
+	res, err = (&Retention{Pool: e.pool, Store: e.rs, Days: 90, KeepChunks: true, Now: func() time.Time { return now }}).Run(ctx)
+	require.NoError(t, err)
+	require.Equal(t, RetentionResult{Rows: 2}, res)
+	insertSample(e.tenant, e.user, now.AddDate(0, 0, -200), "old-again")
+	insertSample(t2, u2, now.AddDate(0, 0, -300), "older-again")
+	res, err = (&Retention{Pool: e.pool, Store: e.rs, Days: 90, Now: func() time.Time { return now }}).Run(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, res.Rows)
+	require.Equal(t, 2, res.Chunks)
+	require.Equal(t, 2, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`))
+}
+
+// The rows are deleted in batches, each its own transaction: one chunk of a
+// hypertable at a time, a bounded number of rows of a plain table at a time.
+// A delete that fails half way keeps what the earlier batches removed, and
+// the count says so.
+func TestRetentionDeletesRowsInBatches(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	bound := now.AddDate(0, 0, -90)
+	old := retentionDeleteBatch
+	retentionDeleteBatch = 2
+	t.Cleanup(func() { retentionDeleteBatch = old })
+
+	// A plain table: five old rows go in three batches.
+	for i, days := range []int{-300, -250, -200, -150, -100, -1} {
+		e.exec(`INSERT INTO ohs_data.workout_tracks (tenant_id, user_id, workout_id, length_m, point_count, started_at, ended_at)
+			VALUES ($1, $2, $3, 1, 1, $4, $4)`, e.tenant, e.user, i+1, now.AddDate(0, 0, days))
+	}
+	n, err := pruneTable(ctx, e.pool, "workout_tracks", "started_at", false, bound, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 5, n)
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.workout_tracks`))
+
+	// A hypertable: three old chunks, and the delete of the newest of them fails.
+	for hash, days := range map[string]int{"a": -300, "b": -200, "boom": -100, "new": -1} {
+		e.exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+			VALUES ($1, $2, 'withings', 'heart_rate', 60, $3, $4)`, e.tenant, e.user, now.AddDate(0, 0, days), hash)
+	}
+	e.exec(`CREATE FUNCTION ohs_data.test_refuse_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'refused'; END $$`)
+	e.exec(`CREATE TRIGGER test_refuse BEFORE DELETE ON ohs_data.quantity_samples
+		FOR EACH ROW WHEN (OLD.content_hash = 'boom') EXECUTE FUNCTION ohs_data.test_refuse_delete()`)
+	n, err = pruneTable(ctx, e.pool, "quantity_samples", "start_date", false, bound, true)
+	require.ErrorContains(t, err, "refused")
+	require.EqualValues(t, 2, n, "the chunks deleted before the failure are counted")
+	require.Equal(t, 2, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`), "and stay deleted")
+
+	e.exec(`DROP TRIGGER test_refuse ON ohs_data.quantity_samples`)
+	n, err = pruneTable(ctx, e.pool, "quantity_samples", "start_date", false, bound, true)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples WHERE content_hash = 'new'`))
+
+	// A date column: whole days before the cutoff day, chunk by chunk.
+	e.exec(`INSERT INTO ohs_data.daily_summaries (tenant_id, user_id, provider, summary_date, content_hash)
+		VALUES ($1, $2, 'withings', '2026-01-01', 'd1'), ($1, $2, 'withings', '2026-07-11', 'd2'),
+		       ($1, $2, 'withings', '2026-07-12', 'd3')`, e.tenant, e.user)
+	n, err = pruneTable(ctx, e.pool, "daily_summaries", "summary_date", true, time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC), true)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, n)
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.daily_summaries WHERE content_hash = 'd3'`))
 }
 
 // The record aliases of HealthKit samples (one per sample) used to stay after
@@ -293,6 +373,29 @@ func TestRetentionPrunesRecordAliases(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, e.scalar(`SELECT count(*) FROM ohs_data.record_aliases WHERE external_id = 'OLD-UUID'`))
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.record_aliases WHERE external_id = 'NEW-UUID'`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`))
+}
+
+// The sealed hourly buckets go by their hour, cut on the same whole hour as
+// the samples they count: a bucket goes exactly when all of its samples do.
+func TestRetentionPrunesHourlyBuckets(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 10, 12, 40, 0, 0, time.UTC)
+	cutHour := now.AddDate(0, 0, -90).Truncate(time.Hour)
+	for i, at := range []time.Time{cutHour.Add(-time.Hour), cutHour} {
+		e.exec(`INSERT INTO ohs_data.quantity_hourly_sealed (tenant_id, user_id, quantity_type, provider, source_key, slug, worn, unit, bucket, sealed)
+			VALUES ($1, $2, 'heart_rate', 'withings', '\x01', 'withings', false, 'bpm', $3, '\x02')`, e.tenant, e.user, at)
+		// One sample at the end of each hour, after the cutoff minute of
+		// the day.
+		e.exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+			VALUES ($1, $2, 'withings', 'heart_rate', 60, $3, $4)`, e.tenant, e.user, at.Add(50*time.Minute), fmt.Sprintf("h%d", i))
+	}
+	_, err := (&Retention{Pool: e.pool, Store: e.rs, Days: 90, Now: func() time.Time { return now }}).Run(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_hourly_sealed WHERE bucket = $1`, cutHour))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_hourly_sealed`))
+	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples WHERE content_hash = 'h1'`), "the samples of the kept hour stay")
 	require.Equal(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.quantity_samples`))
 }
 
@@ -335,8 +438,13 @@ func TestStartRegistersRetentionOnlyWhenEnabled(t *testing.T) {
 		}
 		return out
 	}
-	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files"}, names(0))
-	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "retention"}, names(30))
+	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "tracking"}, names(0))
+	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "tracking", "retention"}, names(30))
+	off, err := newScheduler(Deps{Pool: e.pool, Store: e.rs, TrackingRetentionDays: -1})
+	require.NoError(t, err)
+	for _, tk := range off.tasks {
+		require.NotEqual(t, "tracking", tk.name, "a negative TrackingRetentionDays keeps the tracking rows")
+	}
 
 	s, err := newScheduler(Deps{Pool: e.pool, Store: e.rs, RetentionDays: 30})
 	require.NoError(t, err)

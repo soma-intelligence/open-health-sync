@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: open_health_sync_health
+description: >-
+  Flutter plugin that reads HealthKit on iOS and Health Connect on Android and
+  uploads what changed to an Open Health Sync server. License AGPL-3.0-only.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/soma-intelligence/open-health-sync
+
+# The iOS side is a Swift package that depends on FlutterFramework, which needs
+# Flutter 3.41. The Dart lower bound stays the client's (3.4), so both packages
+# are formatted and analysed with the same language version.
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.41.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ">=4.0.0 <7.0.0"
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: org.openhealthsync.flutter.health
+        pluginClass: OpenHealthSyncHealthPlugin
+      ios:
+        pluginClass: OpenHealthSyncHealthPlugin

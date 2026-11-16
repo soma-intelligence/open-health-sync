@@ -19,6 +19,8 @@ Category samples, sleep phases, routes and the other resources are
 |---|---|
 | `GET /v1/users/{id}/fhir/Observation` | a `searchset` Bundle of Observations, one page |
 | `GET /v1/users/{id}/fhir/Observation/{observation_id}` | one Observation, the one an entry's `fullUrl` points to |
+| `GET /v1/users/{id}/fhir/DiagnosticReport` | a `searchset` Bundle of the user's [lab reports](#lab-results), one page |
+| `GET /v1/users/{id}/fhir/DiagnosticReport/{report_id}` | one DiagnosticReport |
 | `GET /v1/users/{id}/fhir/Patient/{id}` | the user as a [Patient](#patient) |
 | `GET /v1/users/{id}/fhir/Patient/{id}/$everything` | a `searchset` Bundle of the Patient, the Observations, their Devices and Provenance, one page ([`$everything`](#everything)) |
 | `GET /v1/users/{id}/fhir/Device` | a `searchset` Bundle of the [Devices](#devices) of the user's records, in one page |
@@ -40,7 +42,7 @@ OperationOutcome).
 
 The search returns every kind of record in one list, so a client gets everything with one paged
 search. Observations come in time order, then by kind (quantity sample, sleep session, workout,
-daily summary, ECG recording, nutrition log), then by id:
+daily summary, ECG recording, nutrition log, lab result), then by id:
 
 | Record | Its time in the list |
 |---|---|
@@ -50,11 +52,12 @@ daily summary, ECG recording, nutrition log), then by id:
 | daily summary | the day at midnight UTC (the Observation itself covers the local day) |
 | ECG recording | start |
 | nutrition log | start |
+| lab result | the specimen's collection time |
 
 The cursor in the `next` link is the last Observation's time, kind and id, so a page never
 skips or repeats one even when records of different kinds share a time. A REST list cursor is
 not a valid FHIR cursor (400). The merged list is read in two steps: one query takes the ids of
-the page from the six tables (each branch ordered and limited on its own index, then merged),
+the page from the six tables and the lab results (each branch ordered and limited on its own index, then merged),
 a second reads those rows (and the samples of the page's ECG recordings).
 
 The search takes these parameters, all optional. They combine: an Observation is listed when it
@@ -80,13 +83,14 @@ for a filtered one: use `start` and `end` where FHIR has `date`, and `limit` whe
 | `http://loinc.org\|93832-4` | the sleep sessions |
 | `http://loinc.org\|55411-3` | the workouts |
 | `http://loinc.org\|11524-6` | the ECG recordings |
+| `http://loinc.org\|2093-3` (any LOINC code) | also the [lab results](#lab-results) of that test |
 | `.../CodeSystem/quantity-type\|heart_rate` | the same as `type=heart_rate` |
 | `.../CodeSystem/record-type\|blood_pressure` | the blood pressure panels; `sleep_session`, `workout`, `daily_summary`, `ecg_recording` and `nutrition_log` likewise |
 
 | `category` | Finds |
 |---|---|
 | `vital-signs` | the vital sign quantity samples and the blood pressure panels |
-| `laboratory` | blood glucose and blood alcohol samples |
+| `laboratory` | blood glucose and blood alcohol samples, and the [lab results](#lab-results) |
 | `activity` | the activity quantity samples, the workouts and the daily summaries |
 | `survey` | the [self reports](self-reports.md) |
 
@@ -427,6 +431,44 @@ hold extended nutrients in the unit the line gave rather than the table's
 ([api.md](api.md#nutrition-logs) says how to rewrite them). Like ECG
 recordings, nutrition logs have no merged view: two apps logging one meal are two entries.
 
+### Lab results
+
+A [lab result](labs.md) is one Observation of category `laboratory`; its report is a
+DiagnosticReport. Lab results have no merged view: each is the lab's own record.
+
+| Observation | From the result |
+|---|---|
+| `id` | `lab-` and the row id |
+| `identifier` | the source's result id |
+| `status` | the result's: `preliminary`, `final`, `amended`, `corrected` or `cancelled` |
+| `code` | the LOINC coding when there is one, then the source's own coding, `text` the test's name |
+| `effectiveDateTime` or `effectivePeriod` | the collection time (and the end of a collection period) |
+| `issued` | when the lab issued it, when known |
+| `performer` | the lab, as a display |
+| `valueQuantity` | a numeric result, with its `comparator` and its unit as UCUM |
+| `valueString`, `valueCodeableConcept` | a text or coded result |
+| `dataAbsentReason` | a result without a value: the reason sent, `not-performed` for a cancelled result, else `unknown` |
+| `interpretation` | the flag in v3 ObservationInterpretation (`H`, `L`, `N`, `A`, `HH`, `LL`, `AA`), or its text |
+| `specimen` | the specimen, as a display |
+| `referenceRange` | `low`, `high` (in the value's unit) and `text` |
+
+The normalized value of [labs.md](labs.md#unit-normalization) has no element and is left out.
+
+| DiagnosticReport | From the report |
+|---|---|
+| `id` | `labreport-` and the first 40 hex digits of the SHA-256 of the source's report id |
+| `identifier` | the source's report id, system `.../provider/labs/report-id` |
+| `status` | the report's status, `unknown` when none |
+| `category` | v2-0074 `LAB` |
+| `code` | the panel's LOINC and source codings, else `text` `Laboratory report` |
+| `effectiveDateTime`, `issued`, `performer` | the report's collection time, issued time and lab |
+| `result` | a reference to the Observation of each of its results |
+
+`GET .../fhir/DiagnosticReport` lists the reports by their earliest collection time, paged like
+the Observation search, and takes `category` (`LAB` or `laboratory`; another code of those
+systems finds nothing), `start`, `end`, `limit` and `cursor`. Results sent without a report have
+no DiagnosticReport.
+
 ### Units
 
 `valueQuantity.code` is UCUM. For a quantity sample it is the catalog's UCUM unit when the type
@@ -525,6 +567,7 @@ all their resources, paged like the Observation search: follow `next` until ther
 |---|---|---|
 | the Patient | `match` | the first (no `cursor`) |
 | the Observations | `match` | the page of the [Observation search](#one-list-for-every-kind-of-record) with the same `start`, `end`, `limit`, `cursor` and `view` (merged by default) |
+| the DiagnosticReports of the page's lab results | `match` | the page of their first result |
 | the Devices those Observations reference | `include` | each page that references it, once per page |
 | the Provenance of each Observation | `include` | the Observation's page |
 
@@ -540,7 +583,7 @@ of the user. `type`, `code` and `category` are not taken (`type` is a 400); the 
 
 `GET /v1/users/{id}/fhir/metadata` describes these routes as a `CapabilityStatement` of kind
 `instance`, for the user's FHIR base (`implementation.url`): `read` and `search-type` on
-Observation, Device and Provenance with their parameters, `read` and the `everything` operation
+Observation, DiagnosticReport, Device and Provenance with their parameters, `read` and the `everything` operation
 on Patient. It needs a tenant key like every route.
 
 ## Identifiers Open Health Sync defines
@@ -561,6 +604,7 @@ are identifiers, documented here; nothing is served at them.
 | `.../CodeSystem/source` | `meta.tag`: the vendor that produced the record |
 | `.../provider/{provider}` | `meta.source`: the provider the record came through |
 | `.../provider/{provider}/external-id` | `identifier.system`: the provider's own record ids |
+| `.../provider/labs/report-id` | `DiagnosticReport.identifier.system`: the source's lab report ids |
 | `.../provider/{provider}/device-id` | `Device.identifier.system`: the provider's own device names or ids |
 | `.../provider` | `Provenance.agent.who.identifier.system`: the provider integrations (`apple_health`, `withings`...) |
 | `.../tenant/{tenant id}/external-ref` | `Patient.identifier.system`: the tenant's own references to its users |

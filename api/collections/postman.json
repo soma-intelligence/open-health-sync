@@ -63,7 +63,7 @@
     {
       "key": "observationId",
       "value": "qs-1234",
-      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id."
+      "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-`, `nutrition-` or `lab-`, then the stored\nrow id."
     },
     {
       "key": "patientId",
@@ -79,6 +79,11 @@
       "key": "provider",
       "value": "withings",
       "description": "Connector slug, see GET /v1/providers."
+    },
+    {
+      "key": "reportId",
+      "value": "",
+      "description": "The source's report id."
     },
     {
       "key": "runId",
@@ -99,6 +104,16 @@
       "key": "tagId",
       "value": "",
       "description": "The `id` of a time tag of this user."
+    },
+    {
+      "key": "tenantId",
+      "value": "",
+      "description": "The `id` of a tenant; any other value is a 404."
+    },
+    {
+      "key": "tokenId",
+      "value": "",
+      "description": "The `id` the mint response gave: the first 16 hex characters of the token's SHA-256\nhash, which is also how the audit log names the token (`actor.id`)."
     },
     {
       "key": "userId",
@@ -172,7 +187,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"external_ref\": \"example\"\n}",
+              "raw": "{\n  \"external_ref\": \"example\",\n  \"timezone\": \"example\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -234,6 +249,45 @@
                   "value": "{{userId}}"
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Set or clear an end user's time zone",
+          "request": {
+            "method": "PATCH",
+            "description": "Set or clear an end user's time zone.\n\n`PATCH /v1/users/{id}`\n\n`timezone` is the zone of the local day of a sample that carries no zone of its own\n(a cloud source that reports instants only): the ETL takes the sample's zone, then the\nuser's, then UTC. Setting it here makes it the developer's explicit choice\n(`timezone_source` `explicit`), which a device upload never replaces; `null` clears\nit, and the zone may then be learnt again from the user's device uploads.\n\nThe zone applies to what is written from then on. A stored sample keeps the day it\nwas attributed to, and the daily summaries already derived are not recomputed.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"timezone\": \"example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         },
@@ -329,7 +383,7 @@
           "name": "Mint a user token",
           "request": {
             "method": "POST",
-            "description": "Mint a user token.\n\n`POST /v1/users/{id}/tokens`\n\nReturns an opaque `ohs_ut_` token for one active user, shown only in this response\n(`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token\nwhose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI\nagent configuration (MCP). `Idempotency-Key` is ignored here.",
+            "description": "Mint a user token.\n\n`POST /v1/users/{id}/tokens`\n\nReturns an opaque `ohs_ut_` token for one active user, shown only in this response\n(`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token\nwhose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI\nagent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working\nwhen it expires, when it is revoked (`id` names it), when its user is deleted, or when\nthe API key that minted it is revoked or expires. The key must hold the key scope each\ntoken scope stands for (`data:write` for `upload`, `connections:write` for `connect`,\n`data:read` for `read`), else 403; each call made with the token is then checked against\nthe scopes of that key.",
             "header": [
               {
                 "key": "Content-Type",
@@ -362,6 +416,64 @@
                   "language": "json"
                 }
               }
+            }
+          }
+        },
+        {
+          "name": "Revoke every token of a user",
+          "request": {
+            "method": "DELETE",
+            "description": "Revoke every token of a user.\n\n`DELETE /v1/users/{id}/tokens`\n\nEvery token of the user that is still valid is refused from now on. Recorded in the audit\nlog as `token.revoke`.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/tokens",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "tokens"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Revoke one token of a user",
+          "request": {
+            "method": "DELETE",
+            "description": "Revoke one token of a user.\n\n`DELETE /v1/users/{id}/tokens/{token_id}`\n\nThe token is refused from now on. Revoking a revoked or expired token changes nothing. An\nid of no token of this user is a 404. Recorded in the audit log as `token.revoke`, with\n`token_id` in `detail`.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/tokens/:token_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "tokens",
+                ":token_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "token_id",
+                  "value": "{{tokenId}}",
+                  "description": "The `id` the mint response gave: the first 16 hex characters of the token's SHA-256\nhash, which is also how the audit log names the token (`actor.id`)."
+                }
+              ]
             }
           }
         }
@@ -513,8 +625,13 @@
           "name": "Replace the signing secret",
           "request": {
             "method": "POST",
-            "description": "Replace the signing secret.\n\n`POST /v1/webhooks/{webhook_id}/rotate-secret`\n\nThe new secret signs every request from now on, retries of earlier events included.\nShown only in this response.",
-            "header": [],
+            "description": "Replace the signing secret.\n\n`POST /v1/webhooks/{webhook_id}/rotate-secret`\n\nThe new secret signs every request from now on, retries of earlier events included.\nShown only in this response. The secret it replaces also signs for the instance's grace\nperiod (24 hours unless `OHS_WEBHOOK_ROTATION_GRACE_HOURS` says otherwise), so a receiver\ncan switch without refusing a request; `previous_secret_expires_at` says until when.\nWith `expire_previous` true the replaced secret stops at once: the rotation after a leak.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/v1/webhooks/:webhook_id/rotate-secret",
               "host": [
@@ -532,6 +649,15 @@
                   "value": "{{webhookId}}"
                 }
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expire_previous\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         },
@@ -945,6 +1071,40 @@
           }
         },
         {
+          "name": "Retry the failed sync runs of a connection",
+          "request": {
+            "method": "POST",
+            "description": "Retry the failed sync runs of a connection.\n\n`POST /v1/users/{id}/connections/{provider}/sync-runs/retry`\n\nQueues again every `failed` run of the user's connection to the provider, with fresh\nattempts, and answers with how many. Runs cancelled because the connection stopped are\nleft alone, and so is a run whose window another queued or running run already covers.\nOf several failed runs for one window only the latest is queued. 0 when nothing failed.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/connections/:provider/sync-runs/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "connections",
+                ":provider",
+                "sync-runs",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}",
+                  "description": "Connector slug, see GET /v1/providers."
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "The user's sync history",
           "request": {
             "method": "GET",
@@ -1006,6 +1166,38 @@
                 ":id",
                 "sync-runs",
                 ":run_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "run_id",
+                  "value": "{{runId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retry a failed sync run",
+          "request": {
+            "method": "POST",
+            "description": "Retry a failed sync run.\n\n`POST /v1/users/{id}/sync-runs/{run_id}/retry`\n\nQueues a `failed` or `cancelled` run again with fresh attempts and answers with it; follow\nit at the `Location` header. A pull gives up after 5 attempts, or after about three days\nof a provider that is down. 409 when the run is queued, running or succeeded, or when\nanother queued or running run already covers its window. A run whose connection no longer\nsyncs is cancelled again.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/sync-runs/:run_id/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "sync-runs",
+                ":run_id",
+                "retry"
               ],
               "variable": [
                 {
@@ -2353,6 +2545,153 @@
       ]
     },
     {
+      "name": "labs",
+      "item": [
+        {
+          "name": "Upload lab results",
+          "request": {
+            "method": "POST",
+            "description": "Upload lab results.\n\n`POST /v1/users/{id}/labs`\n\nLab results as FHIR R4 or as the simple JSON form (docs/labs.md). A body with a\n`resourceType` is read as FHIR: a Bundle, a DiagnosticReport or an Observation, with\ncategory laboratory (a DiagnosticReport of another diagnostic service section, or an\nObservation of another category, is a 400 naming it). Any other body is the simple\nform, `{\"reports\": [...]}`. At most 100 reports, 500 results per report and 2000\nresults in all, in at most 1 MiB.\n\nEach result is stored once per `id`: a result sent again with the same `id` (an\namended or corrected copy) replaces the stored one when its upload is newer, so the\nlatest upload wins. The body goes through the same processing as an upload, so the\nanswer is 202 and the results show once it is processed. The same body sent again is\na duplicate and is stored once. A tenant key uploads for any user of the tenant; a\nuser token with scope `upload` only for its own user, and another user is a 404.\nValues are health data: never logged, never quoted in an error. While the user's lab\nresults are being deleted the answer is 409 and nothing is kept.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "createLabs-0001",
+                "description": "Optional. A retry with the same key and the same request gets the first response back.",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/labs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "labs"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reports\": [\n    {\n      \"code\": \"example\",\n      \"collected_at\": \"2026-01-01T00:00:00Z\",\n      \"display\": \"example\",\n      \"id\": \"example\",\n      \"issued_at\": \"2026-01-01T00:00:00Z\",\n      \"loinc\": \"example\",\n      \"orderer\": \"example\",\n      \"performer\": \"example\",\n      \"results\": [\n        {\n          \"absent\": \"example\",\n          \"code\": \"example\",\n          \"collected_at\": \"2026-01-01T00:00:00Z\",\n          \"collected_end\": \"2026-01-01T00:00:00Z\",\n          \"comparator\": \"\\u003c\",\n          \"display\": \"example\",\n          \"id\": \"example\",\n          \"interpretation\": \"H\",\n          \"issued_at\": \"2026-01-01T00:00:00Z\",\n          \"loinc\": \"example\",\n          \"performer\": \"example\",\n          \"reference_high\": 1,\n          \"reference_low\": 1,\n          \"reference_text\": \"example\",\n          \"specimen\": \"example\",\n          \"status\": \"preliminary\",\n          \"system\": \"example\",\n          \"unit\": \"example\",\n          \"value\": 1,\n          \"value_code\": \"example\",\n          \"value_string\": \"example\",\n          \"value_system\": \"example\"\n        }\n      ],\n      \"status\": \"preliminary\",\n      \"system\": \"example\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "The user's lab results",
+          "request": {
+            "method": "GET",
+            "description": "The user's lab results.\n\n`GET /v1/users/{id}/labs`\n\nOne result per test, as last uploaded, by collection time then id. `start` and `end`\nbound the collection time. Any other query parameter is a 400.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/labs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "labs"
+              ],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "2093-3",
+                  "description": "A LOINC code (2093-3), or the source's own code for a result without one.",
+                  "disabled": true
+                },
+                {
+                  "key": "report",
+                  "value": "",
+                  "description": "The source's report id.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One lab report with its results",
+          "request": {
+            "method": "GET",
+            "description": "One lab report with its results.\n\n`GET /v1/users/{id}/labs/reports/{report_id}`\n\nThe report's fields come from its most recently uploaded result. A report id the user\nhas no result of is a 404.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/labs/reports/:report_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "labs",
+                "reports",
+                ":report_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "report_id",
+                  "value": "{{reportId}}",
+                  "description": "The source's report id."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "shares",
       "item": [
         {
@@ -2507,7 +2846,7 @@
           "name": "The user's records as FHIR R4 Observations",
           "request": {
             "method": "GET",
-            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`), daily summaries (`daily-`), ECG recordings with their\nvoltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a\nsample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or\na meal's start), then by kind and id.\nPaged like every list: the Bundle's `next` link carries the cursor, and there is no\n`next` link on the last page; `total` is left out. A blood pressure pair is never\nsplit across pages, and its two samples are not listed on their own. A page holds at\nmost 100 ECG recordings: one that reaches them ends there, with a `next` link.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
+            "description": "The user's records as FHIR R4 Observations.\n\n`GET /v1/users/{id}/fhir/Observation`\n\nThe user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,\n`Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure\npanels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),\nworkouts (`workout-`), daily summaries (`daily-`), ECG recordings with their\nvoltage samples (`ecg-`), nutrition logs (`nutrition-`) and lab results (`lab-`),\nmerged in time order (a sample's start, a bedtime, a workout's start, a day at\nmidnight UTC, a recording's or a meal's start, a specimen's collection), then by kind\nand id.\nPaged like every list: the Bundle's `next` link carries the cursor, and there is no\n`next` link on the last page; `total` is left out. A blood pressure pair is never\nsplit across pages, and its two samples are not listed on their own. A page holds at\nmost 100 ECG recordings: one that reaches them ends there, with a `next` link.\nVital signs meet the R4 vital signs profiles they claim in `meta.profile`. The\nmapping (codes, units, categories, provenance and limits) is in docs/fhir.md. In the\nmerged view (the default) a record another source covers better is left out, and a\ndaily summary keeps only the figures it owns (see `view`). The\nfilters below combine: a record is listed when it matches all of them. Errors are\n`application/problem+json` like the rest of the API.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/users/:id/fhir/Observation",
@@ -2531,13 +2870,13 @@
                 {
                   "key": "code",
                   "value": "http://loinc.org|8867-4",
-                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG\nrecordings), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
+                  "description": "A FHIR token `system|code` matched against `Observation.code`: a LOINC code\n(`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure\npanels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG\nrecordings; any LOINC code also finds the lab results of that test), a quantity type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,\nlike `type`), or a record type\n(`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`\n`blood_pressure`, `sleep_session`, `workout`, `daily_summary`, `ecg_recording` or `nutrition_log`). One value; other\nsystems are a 400. A code no Observation carries is an empty Bundle.",
                   "disabled": true
                 },
                 {
                   "key": "category",
                   "value": "vital-signs",
-                  "description": "An HL7 observation category code, bare or as\n`http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,\n`laboratory`, `activity` (activity samples, workouts and daily summaries) or `survey`\n(self reports). One value. Another code of that system is an empty Bundle; anything\nelse is a 400.",
+                  "description": "An HL7 observation category code, bare or as\n`http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,\n`laboratory` (lab results, and the samples of laboratory types), `activity`\n(activity samples, workouts and daily summaries) or `survey` (self reports). One\nvalue. Another code of that system is an empty Bundle; anything\nelse is a 400.",
                   "disabled": true
                 },
                 {
@@ -2614,7 +2953,98 @@
                 {
                   "key": "observation_id",
                   "value": "{{observationId}}",
-                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id."
+                  "description": "The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's\nid), `sleep-`, `workout-`, `daily-`, `ecg-`, `nutrition-` or `lab-`, then the stored\nrow id."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The user's lab reports as FHIR R4 DiagnosticReports",
+          "request": {
+            "method": "GET",
+            "description": "The user's lab reports as FHIR R4 DiagnosticReports.\n\n`GET /v1/users/{id}/fhir/DiagnosticReport`\n\nOne `searchset` Bundle of DiagnosticReports, one per lab report, each referencing the\nObservations (`lab-` ids) of its results, by the report's earliest collection time\nthen id. Results sent without a report have no DiagnosticReport. Paged like the\nObservation search. See docs/labs.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/DiagnosticReport",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "DiagnosticReport"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "LAB",
+                  "description": "`LAB` (bare or with the system `http://terminology.hl7.org/CodeSystem/v2-0074`) or\n`laboratory` (bare or with the observation category system). Another code of\nthose systems is an empty Bundle; another system is a 400. One value.",
+                  "disabled": true
+                },
+                {
+                  "key": "start",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Inclusive lower bound, RFC 3339 or YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "end",
+                  "value": "2026-01-01T00:00:00Z",
+                  "description": "Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start.",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "The next_cursor of the previous page.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One FHIR R4 DiagnosticReport",
+          "request": {
+            "method": "GET",
+            "description": "One FHIR R4 DiagnosticReport.\n\n`GET /v1/users/{id}/fhir/DiagnosticReport/{report_id}`",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/users/:id/fhir/DiagnosticReport/:report_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "users",
+                ":id",
+                "fhir",
+                "DiagnosticReport",
+                ":report_id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "report_id",
+                  "value": "{{reportId}}",
+                  "description": "The DiagnosticReport id, as the Bundle gives it: `labreport-` then the first 40 hex\ndigits of the SHA-256 of the source's report id."
                 }
               ]
             }
@@ -2657,7 +3087,7 @@
           "name": "The Patient and all their records, as FHIR R4 resources",
           "request": {
             "method": "GET",
-            "description": "The Patient and all their records, as FHIR R4 resources.\n\n`GET /v1/users/{id}/fhir/Patient/{patient_id}/$everything`\n\nOne page of a `searchset` Bundle: on the first page the Patient, then the page's\nObservations (`search.mode` `match`, the list and the cursor of the Observation\nsearch), then the Devices they reference (each once per page) and the Provenance of\neach Observation (`include`). Follow the `next` link until there is none: no\nObservation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.",
+            "description": "The Patient and all their records, as FHIR R4 resources.\n\n`GET /v1/users/{id}/fhir/Patient/{patient_id}/$everything`\n\nOne page of a `searchset` Bundle: on the first page the Patient, then the page's\nObservations (`search.mode` `match`, the list and the cursor of the Observation\nsearch), the DiagnosticReports of the page's lab results (`match`), then the Devices\nthey reference (each once per page) and the Provenance of each Observation\n(`include`). Follow the `next` link until there is none: no\nObservation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/users/:id/fhir/Patient/:patient_id/$everything",
@@ -3382,7 +3812,7 @@
           "name": "Create an API key for the tenant",
           "request": {
             "method": "POST",
-            "description": "Create an API key for the tenant.\n\n`POST /v1/keys`\n\nA new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in\nthis answer only. To rotate: deploy the new key, then revoke the old one. Recorded in the\naudit log as `key.create`.",
+            "description": "Create an API key for the tenant.\n\n`POST /v1/keys`\n\nA new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in\nthis answer only. To rotate: deploy the new key, then revoke the old one. With\n`expires_at` the key stops working by itself at that time; without, it lives until it is\nrevoked. With `scopes` the key does only what they allow; without, what the calling key\ndoes. A key never creates a key holding a scope it lacks itself: that is a 403 naming\nthe scope. Recorded in the audit log as `key.create`.",
             "header": [
               {
                 "key": "Content-Type",
@@ -3401,7 +3831,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{}",
+              "raw": "{\n  \"expires_at\": \"2026-01-01T00:00:00Z\",\n  \"scopes\": [\n    \"*\"\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3414,7 +3844,7 @@
           "name": "Revoke an API key",
           "request": {
             "method": "DELETE",
-            "description": "Revoke an API key.\n\n`DELETE /v1/keys/{key_id}`\n\nEvery call with the key is refused from now on. A key cannot revoke itself (409): revoke it\nwith another key of the tenant. Revoking a revoked key changes nothing. Recorded in the\naudit log as `key.revoke`.",
+            "description": "Revoke an API key.\n\n`DELETE /v1/keys/{key_id}`\n\nEvery call with the key is refused from now on, and so is every user token the key minted.\nA key cannot revoke itself (409): revoke it with another key of the tenant. Revoking a\nrevoked key changes nothing. Recorded in the audit log as `key.revoke`.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/keys/:key_id",
@@ -3608,6 +4038,93 @@
       ]
     },
     {
+      "name": "admin",
+      "item": [
+        {
+          "name": "Retry a failed sync run (instance admin, one tenant)",
+          "request": {
+            "method": "POST",
+            "description": "Retry a failed sync run (instance admin, one tenant).\n\n`POST /v1/admin/tenants/{tenant_id}/users/{id}/sync-runs/{run_id}/retry`\n\n`POST /v1/users/{id}/sync-runs/{run_id}/retry` (`retrySyncRun`) for the tenant of `tenant_id`, run with an\ninstance admin key: the same body, parameters and answer as the tenant's own key\ngets; a `Location` points at the admin route. Recorded in the caller's audit log\nand, actor `admin`, in the tenant's.\nSee docs/admin-api.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/tenants/:tenant_id/users/:id/sync-runs/:run_id/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "tenants",
+                ":tenant_id",
+                "users",
+                ":id",
+                "sync-runs",
+                ":run_id",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "tenant_id",
+                  "value": "{{tenantId}}",
+                  "description": "The `id` of a tenant; any other value is a 404."
+                },
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "run_id",
+                  "value": "{{runId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retry the failed sync runs of a connection (instance admin, one tenant)",
+          "request": {
+            "method": "POST",
+            "description": "Retry the failed sync runs of a connection (instance admin, one tenant).\n\n`POST /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}/sync-runs/retry`\n\n`POST /v1/users/{id}/connections/{provider}/sync-runs/retry` (`retryFailedSyncRuns`) for the tenant of `tenant_id`, run with an\ninstance admin key: the same body, parameters and answer as the tenant's own key\ngets; a `Location` points at the admin route. Recorded in the caller's audit log\nand, actor `admin`, in the tenant's.\nSee docs/admin-api.md.",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/tenants/:tenant_id/users/:id/connections/:provider/sync-runs/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "tenants",
+                ":tenant_id",
+                "users",
+                ":id",
+                "connections",
+                ":provider",
+                "sync-runs",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "tenant_id",
+                  "value": "{{tenantId}}",
+                  "description": "The `id` of a tenant; any other value is a 404."
+                },
+                {
+                  "key": "id",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}",
+                  "description": "Connector slug, see GET /v1/providers."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "audit",
       "item": [
         {
@@ -3747,10 +4264,10 @@
           }
         },
         {
-          "name": "Readiness (database ping and raw store check)",
+          "name": "Readiness (database ping, schema version and raw store check)",
           "request": {
             "method": "GET",
-            "description": "Readiness (database ping and raw store check).\n\n`GET /readyz`",
+            "description": "Readiness (database ping, schema version and raw store check).\n\n`GET /readyz`",
             "auth": {
               "type": "noauth"
             },

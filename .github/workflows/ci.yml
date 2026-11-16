@@ -18,6 +18,10 @@ jobs:
           go-version: "1.26"
       - run: go vet ./...
       - run: go test ./...
+      - name: Cloud key providers (azurekv, awskms build tags, as the release builds them)
+        run: |
+          go vet -tags azurekv,awskms ./internal/vault/
+          go test -tags azurekv,awskms ./internal/vault/
       - name: Release tag check self-test
         run: scripts/check-release-tag_test.sh
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -29,6 +33,18 @@ jobs:
       # deterministically. Coverage-guided fuzzing runs nightly (fuzz.yml).
       - name: Integration and API contract (Docker available on the runner)
         run: make integration
+
+  race:
+    # The unit tests again under the race detector, in their own job so the
+    # test job stays as fast as it was.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Unit tests under the race detector
+        run: make test-race
 
   sdks-server:
     # The server-side SDKs generated from api/openapi.yaml. That they match the
@@ -237,3 +253,12 @@ jobs:
           tar -xzf "$tarball" gitleaks
           sudo mv gitleaks /usr/local/bin/
       - run: gitleaks detect --redact --config .gitleaks.toml
+
+  deploy-render:
+    # deploy/: chart, Caddyfile and compose files rendered and validated.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Render and validate deploy/
+        run: scripts/check-deploy-render.sh

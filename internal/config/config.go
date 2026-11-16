@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ProviderKeys holds the OHS_<SLUG>_<FIELD> values of one provider, keyed by FIELD
@@ -37,6 +38,13 @@ type Config struct {
 	// /metrics presents. MetricsListen (OHS_METRICS_LISTEN) serves /metrics
 	// on an address of its own instead of the API listener.
 	MetricsToken, MetricsListen string
+	// OpsListen (OHS_OPS_LISTEN) serves /healthz, /readyz and /metrics on an
+	// address of its own, without a credential: the only HTTP a process
+	// without the api role has. Empty is off. Load sets DefaultOpsListen for
+	// a process without the api role when the variable is unset, and
+	// OpsListenDefault with it, so a taken port there is not fatal.
+	OpsListen        string
+	OpsListenDefault bool
 	// SetupToken (OHS_SETUP_TOKEN) opens the browser first run: POST
 	// /v1/setup creates the first tenant and its API key for whoever
 	// presents it, once, while the instance has no tenant. Empty (the
@@ -91,10 +99,68 @@ type Config struct {
 	// (OHS_RATE_LIMIT_INBOUND, OHS_RATE_LIMIT_INBOUND_PROVIDER,
 	// OHS_RATE_LIMIT_OAUTH). The zero value disables a limit.
 	RateLimitInbound, RateLimitInboundProvider, RateLimitOAuth RateLimit
+	// RateLimitAPI bounds the requests of one credential on every
+	// authenticated route (OHS_RATE_LIMIT_API, default 200/2000), and
+	// RateLimitAuthFailures the refused credentials of one client address
+	// (OHS_RATE_LIMIT_AUTH_FAILURES, default 1/60). The zero value disables
+	// a limit.
+	RateLimitAPI, RateLimitAuthFailures RateLimit
+	// CompressionOff leaves every response uncompressed (OHS_COMPRESSION
+	// false), for an instance behind a proxy that compresses.
+	CompressionOff bool
 	// TrustedProxies are the reverse proxies whose X-Forwarded-For names the
 	// client address (OHS_TRUSTED_PROXIES, default none).
 	TrustedProxies []netip.Prefix
-	Providers      map[string]ProviderKeys // key = lower-case slug
+	// ETLConcurrency is how many jobs each ETL tier of one etl process runs
+	// at once (OHS_ETL_CONCURRENCY, default 4). 0 in a Config not built by
+	// Load means the default.
+	ETLConcurrency int
+	// ETLJobsPerUser caps the ETL jobs of one user and tier running at once
+	// across every instance (OHS_ETL_JOBS_PER_USER, default 1). Negative
+	// means no cap (the setting's 0); 0 in a Config not built by Load means
+	// the default.
+	ETLJobsPerUser int
+	// TrackingRetentionDays is how long sync log rows and finished ETL jobs
+	// are kept (OHS_TRACKING_RETENTION_DAYS). 0 means the default of 90
+	// days, a negative value keeps them for ever.
+	TrackingRetentionDays int
+	// PullConcurrency is how many pulls one collect process runs at once
+	// (OHS_PULL_CONCURRENCY, default 4), and ScheduleBatch how many pulls
+	// one scheduling pass queues (OHS_SCHEDULE_BATCH, default 1000). 0 in a
+	// Config not built by Load means the default.
+	PullConcurrency, ScheduleBatch int
+	// BackfillDays is how far back a new connection is pulled, in days
+	// (OHS_BACKFILL_DAYS, at most MaxBackfillDays). 0, the default, leaves
+	// each provider its own window.
+	BackfillDays int
+	// WebhookConcurrency is how many webhook deliveries one etl process
+	// posts at once (OHS_WEBHOOK_CONCURRENCY, default 8), and
+	// WebhookPerEndpoint how many of them go to one endpoint, across every
+	// instance (OHS_WEBHOOK_PER_ENDPOINT, default 2), and WebhookPerTenant
+	// how many go to all the endpoints of one tenant, across every instance
+	// (OHS_WEBHOOK_PER_TENANT, default half of WebhookConcurrency, at least
+	// 1). 0 in a Config not built by Load means the default.
+	WebhookConcurrency, WebhookPerEndpoint, WebhookPerTenant int
+	// WebhookPauseAfter is how many attempts in a row an endpoint may fail
+	// before it is paused (OHS_WEBHOOK_PAUSE_AFTER, default 5). Negative
+	// means never (the setting's 0); 0 in a Config not built by Load means
+	// the default.
+	WebhookPauseAfter int
+	// WebhookRotationGrace is how long the secret a rotation replaced keeps
+	// signing next to the new one (OHS_WEBHOOK_ROTATION_GRACE_HOURS, default
+	// 24). Negative means it stops at once (the setting's 0); 0 in a Config
+	// not built by Load means the default.
+	WebhookRotationGrace time.Duration
+	// StreamMax caps the event streams one api process holds open at once
+	// (OHS_STREAM_MAX, default 1000), and StreamMaxPerTenant those of one
+	// tenant (OHS_STREAM_MAX_PER_TENANT, default 10, at most StreamMax).
+	// Negative StreamMax turns the event stream off (the setting's 0); 0 in
+	// a Config not built by Load means the default.
+	StreamMax, StreamMaxPerTenant int
+	Providers                     map[string]ProviderKeys // key = lower-case slug
+	// Vault holds the key provider and key cache settings of the health data
+	// vault (the OHS_VAULT_ variables).
+	Vault Vault
 }
 
 // OTLP protocols, as OTEL_EXPORTER_OTLP_PROTOCOL names them.
@@ -146,6 +212,11 @@ type RateLimit struct {
 // actions.
 const ConsoleReadOnly = "read-only"
 
+// DefaultOpsListen is OHS_OPS_LISTEN for a process without the api role:
+// the loopback interface, because the listener asks for no credential, and
+// the port next to the API's 8080 (9090 is Prometheus' own).
+const DefaultOpsListen = "127.0.0.1:8081"
+
 // MinMetricsToken is the shortest OHS_METRICS_TOKEN accepted.
 const MinMetricsToken = 16
 
@@ -178,42 +249,106 @@ var (
 	DefaultRateLimitInbound         = RateLimit{Rate: 30, Burst: 120}
 	DefaultRateLimitInboundProvider = RateLimit{Rate: 300, Burst: 600}
 	DefaultRateLimitOAuth           = RateLimit{Rate: 2, Burst: 20}
+	// One credential (an API key, the tokens of one user): far above what a
+	// backend or a device sends. Refused credentials per client address: a
+	// burst covers a deploy with a stale key, then one a second.
+	DefaultRateLimitAPI          = RateLimit{Rate: 200, Burst: 2000}
+	DefaultRateLimitAuthFailures = RateLimit{Rate: 1, Burst: 60}
+)
+
+// The worker settings when unset, and their largest values. The defaults
+// are those of the packages that run the work (internal/app checks they
+// agree).
+const (
+	DefaultETLConcurrency = 4
+	MaxETLConcurrency     = 64
+	DefaultETLJobsPerUser = 1
+	// MaxTrackingRetentionDays bounds OHS_TRACKING_RETENTION_DAYS: a century.
+	MaxTrackingRetentionDays = 36500
+	DefaultPullConcurrency   = 4
+	MaxPullConcurrency       = 256
+	DefaultScheduleBatch     = 1000
+	MaxScheduleBatch         = 100_000
+	// MaxBackfillDays bounds OHS_BACKFILL_DAYS: five years.
+	MaxBackfillDays                  = 5 * 365
+	DefaultWebhookConcurrency        = 8
+	MaxWebhookConcurrency            = 256
+	DefaultWebhookPerEndpoint        = 2
+	DefaultWebhookPerTenantDivisor   = 2
+	DefaultWebhookPauseAfter         = 5
+	MaxWebhookPauseAfter             = 1000
+	DefaultWebhookRotationGraceHours = 24
+	// MaxWebhookRotationGraceHours bounds OHS_WEBHOOK_ROTATION_GRACE_HOURS:
+	// a week.
+	MaxWebhookRotationGraceHours = 7 * 24
 )
 
 // reserved are the OHS_ variables (without prefix) that are never provider settings.
 var reserved = map[string]bool{
-	"DATABASE_URL":                true,
-	"ENCRYPTION_KEY":              true,
-	"ENCRYPTION_KEY_FILE":         true,
-	"PREVIOUS_ENCRYPTION_KEYS":    true,
-	"PUBLIC_URL":                  true,
-	"RAW_STORE":                   true,
-	"ROLES":                       true,
-	"BOOTSTRAP_TENANT":            true,
-	"LISTEN":                      true,
-	"LOG_LEVEL":                   true,
-	"METRICS":                     true,
-	"CONSOLE":                     true,
-	"METRICS_TOKEN":               true,
-	"METRICS_LISTEN":              true,
-	"SETUP_TOKEN":                 true,
-	"SETUP_TOKEN_FILE":            true,
-	"RETENTION_DAYS":              true,
-	"AUDIT_RETENTION_DAYS":        true,
-	"INGEST_CONCURRENCY":          true,
-	"PULLS_PER_PROVIDER":          true,
-	"BACKFILLS_PER_PROVIDER":      true,
-	"WEBHOOK_ALLOW_PRIVATE":       true,
-	"RATE_LIMIT_INBOUND":          true,
-	"RATE_LIMIT_INBOUND_PROVIDER": true,
-	"RATE_LIMIT_OAUTH":            true,
-	"TRUSTED_PROXIES":             true,
-	"CONSENT_REQUIRED":            true,
-	"MCP_URL":                     true, // client side settings of `ohs mcp`
-	"MCP_KEY":                     true,
-	"HTTP_PORT":                   true, // read by docker compose only (host port)
-	"HTTP_BIND":                   true, // read by docker compose only (host address)
-	"VERSION":                     true, // read by docker compose only (image tag)
+	"DATABASE_URL":                 true,
+	"ENCRYPTION_KEY":               true,
+	"ENCRYPTION_KEY_FILE":          true,
+	"PREVIOUS_ENCRYPTION_KEYS":     true,
+	"PUBLIC_URL":                   true,
+	"RAW_STORE":                    true,
+	"ROLES":                        true,
+	"BOOTSTRAP_TENANT":             true,
+	"LISTEN":                       true,
+	"LOG_LEVEL":                    true,
+	"METRICS":                      true,
+	"CONSOLE":                      true,
+	"METRICS_TOKEN":                true,
+	"METRICS_LISTEN":               true,
+	"OPS_LISTEN":                   true,
+	"SETUP_TOKEN":                  true,
+	"SETUP_TOKEN_FILE":             true,
+	"RETENTION_DAYS":               true,
+	"AUDIT_RETENTION_DAYS":         true,
+	"INGEST_CONCURRENCY":           true,
+	"INGEST_TENANT_CONCURRENCY":    true,
+	"INGEST_MAX_DECOMPRESSED_MIB":  true,
+	"MAX_CONNECTIONS":              true,
+	"PULLS_PER_PROVIDER":           true,
+	"BACKFILLS_PER_PROVIDER":       true,
+	"WEBHOOK_ALLOW_PRIVATE":        true,
+	"RATE_LIMIT_INBOUND":           true,
+	"RATE_LIMIT_INBOUND_PROVIDER":  true,
+	"RATE_LIMIT_OAUTH":             true,
+	"RATE_LIMIT_API":               true,
+	"RATE_LIMIT_AUTH_FAILURES":     true,
+	"COMPRESSION":                  true,
+	"ETL_CONCURRENCY":              true,
+	"ETL_JOBS_PER_USER":            true,
+	"TRACKING_RETENTION_DAYS":      true,
+	"PULL_CONCURRENCY":             true,
+	"SCHEDULE_BATCH":               true,
+	"BACKFILL_DAYS":                true,
+	"WEBHOOK_CONCURRENCY":          true,
+	"WEBHOOK_PER_ENDPOINT":         true,
+	"WEBHOOK_PER_TENANT":           true,
+	"WEBHOOK_PAUSE_AFTER":          true,
+	"WEBHOOK_ROTATION_GRACE_HOURS": true,
+	"STREAM_MAX":                   true,
+	"STREAM_MAX_PER_TENANT":        true,
+	"TRUSTED_PROXIES":              true,
+	"CONSENT_REQUIRED":             true,
+	"MCP_URL":                      true, // client side settings of `ohs mcp`
+	"MCP_KEY":                      true,
+	"HTTP_PORT":                    true, // read by docker compose only (host port)
+	"HTTP_BIND":                    true, // read by docker compose only (host address)
+	"VERSION":                      true, // read by docker compose only (image tag)
+	"VAULT_KEY_PROVIDER":           true,
+	"VAULT_ROOT_KEY":               true,
+	"VAULT_ROOT_KEY_FILE":          true,
+	"VAULT_ROOT_KEY_PREVIOUS":      true,
+	"VAULT_HASHICORP_ADDR":         true,
+	"VAULT_HASHICORP_MOUNT":        true,
+	"VAULT_HASHICORP_KEY":          true,
+	"VAULT_HASHICORP_TOKEN_FILE":   true,
+	"VAULT_AZURE_KEY_ID":           true,
+	"VAULT_AWS_KEY_ARN":            true,
+	"VAULT_CACHE_USERS":            true,
+	"VAULT_CACHE_TTL":              true,
 }
 
 // ErrEncryptionKey is wrapped by every Load error about OHS_ENCRYPTION_KEY
@@ -293,6 +428,9 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	if c.PreviousEncryptionKeys, err = previousKeys(get("OHS_PREVIOUS_ENCRYPTION_KEYS", ""), key); err != nil {
 		return Config{}, err
 	}
+	if c.Vault, err = loadVault(get, c.EncryptionKey, c.PreviousEncryptionKeys); err != nil {
+		return Config{}, err
+	}
 
 	if err := CheckPublicURL(c.PublicURL); err != nil {
 		return Config{}, err
@@ -331,6 +469,14 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 	c.MetricsListen = get("OHS_METRICS_LISTEN", "")
 	if c.MetricsListen != "" && c.MetricsListen == c.Listen {
 		return Config{}, fmt.Errorf("OHS_METRICS_LISTEN %q must differ from OHS_LISTEN", c.MetricsListen)
+	}
+	switch c.OpsListen = get("OHS_OPS_LISTEN", ""); {
+	case c.OpsListen == "off":
+		c.OpsListen = ""
+	case c.OpsListen == "" && !c.Roles["api"]:
+		c.OpsListen, c.OpsListenDefault = DefaultOpsListen, true
+	case c.OpsListen != "" && c.Roles["api"] && (c.OpsListen == c.Listen || c.OpsListen == c.MetricsListen):
+		return Config{}, fmt.Errorf("OHS_OPS_LISTEN %q must differ from OHS_LISTEN and OHS_METRICS_LISTEN", c.OpsListen)
 	}
 
 	if c.SetupToken, c.SetupTokenSource, err = secret(get, "OHS_SETUP_TOKEN", newToken); err != nil {
@@ -444,6 +590,8 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		{"OHS_RATE_LIMIT_INBOUND", &c.RateLimitInbound, DefaultRateLimitInbound},
 		{"OHS_RATE_LIMIT_INBOUND_PROVIDER", &c.RateLimitInboundProvider, DefaultRateLimitInboundProvider},
 		{"OHS_RATE_LIMIT_OAUTH", &c.RateLimitOAuth, DefaultRateLimitOAuth},
+		{"OHS_RATE_LIMIT_API", &c.RateLimitAPI, DefaultRateLimitAPI},
+		{"OHS_RATE_LIMIT_AUTH_FAILURES", &c.RateLimitAuthFailures, DefaultRateLimitAuthFailures},
 	} {
 		*l.dst = l.def
 		if v := get(l.name, ""); v != "" {
@@ -453,6 +601,21 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			}
 			*l.dst = rl
 		}
+	}
+
+	if v := get("OHS_COMPRESSION", ""); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("OHS_COMPRESSION: %q is not a boolean", v)
+		}
+		c.CompressionOff = !b
+	}
+
+	if err := loadWorkers(get, &c); err != nil {
+		return Config{}, err
+	}
+	if err := loadStream(get, &c); err != nil {
+		return Config{}, err
 	}
 
 	for _, s := range strings.Split(get("OHS_TRUSTED_PROXIES", ""), ",") {
@@ -486,6 +649,72 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		c.Providers[slug][field] = v
 	}
 	return c, nil
+}
+
+// loadWorkers reads the settings of the etl and collect workers and of the
+// webhook deliveries.
+func loadWorkers(get func(name, def string) string, c *Config) error {
+	// off is what a setting's 0 becomes where it turns a feature off: the
+	// packages behind these fields read their own zero as the default.
+	const off = -1
+	var graceHours int
+	for _, x := range []struct {
+		name         string
+		dst          *int
+		def, lo, hi  int
+		zeroTurnsOff bool
+	}{
+		{"OHS_ETL_CONCURRENCY", &c.ETLConcurrency, DefaultETLConcurrency, 1, MaxETLConcurrency, false},
+		{"OHS_ETL_JOBS_PER_USER", &c.ETLJobsPerUser, DefaultETLJobsPerUser, 0, MaxETLConcurrency, true},
+		{"OHS_TRACKING_RETENTION_DAYS", &c.TrackingRetentionDays, 0, math.MinInt32, MaxTrackingRetentionDays, false},
+		{"OHS_PULL_CONCURRENCY", &c.PullConcurrency, DefaultPullConcurrency, 1, MaxPullConcurrency, false},
+		{"OHS_SCHEDULE_BATCH", &c.ScheduleBatch, DefaultScheduleBatch, 1, MaxScheduleBatch, false},
+		{"OHS_BACKFILL_DAYS", &c.BackfillDays, 0, 1, MaxBackfillDays, false},
+		{"OHS_WEBHOOK_CONCURRENCY", &c.WebhookConcurrency, DefaultWebhookConcurrency, 1, MaxWebhookConcurrency, false},
+		{"OHS_WEBHOOK_PAUSE_AFTER", &c.WebhookPauseAfter, DefaultWebhookPauseAfter, 0, MaxWebhookPauseAfter, true},
+		{"OHS_WEBHOOK_ROTATION_GRACE_HOURS", &graceHours, DefaultWebhookRotationGraceHours, 0, MaxWebhookRotationGraceHours, true},
+	} {
+		*x.dst = x.def
+		v := get(x.name, "")
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(v)
+		switch {
+		case err != nil && x.lo < 0:
+			return fmt.Errorf("%s: %q is not an integer", x.name, v)
+		case x.lo < 0 && n > x.hi:
+			return fmt.Errorf("%s: %q is over %d", x.name, v, x.hi)
+		case err != nil || n < x.lo || n > x.hi:
+			return fmt.Errorf("%s: %q is not an integer from %d to %d", x.name, v, x.lo, x.hi)
+		}
+		if n == 0 && x.zeroTurnsOff {
+			n = off
+		}
+		*x.dst = n
+	}
+	c.WebhookRotationGrace = time.Duration(graceHours) * time.Hour
+
+	// Of the deliveries one process posts, those to one endpoint: never more
+	// than the process posts in all.
+	c.WebhookPerEndpoint = min(DefaultWebhookPerEndpoint, c.WebhookConcurrency)
+	if v := get("OHS_WEBHOOK_PER_ENDPOINT", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > c.WebhookConcurrency {
+			return fmt.Errorf("OHS_WEBHOOK_PER_ENDPOINT: %q is not an integer from 1 to OHS_WEBHOOK_CONCURRENCY (%d)", v, c.WebhookConcurrency)
+		}
+		c.WebhookPerEndpoint = n
+	}
+	// And those to all the endpoints of one tenant: half of them unless set.
+	c.WebhookPerTenant = max(c.WebhookConcurrency/DefaultWebhookPerTenantDivisor, 1)
+	if v := get("OHS_WEBHOOK_PER_TENANT", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > c.WebhookConcurrency {
+			return fmt.Errorf("OHS_WEBHOOK_PER_TENANT: %q is not an integer from 1 to OHS_WEBHOOK_CONCURRENCY (%d)", v, c.WebhookConcurrency)
+		}
+		c.WebhookPerTenant = n
+	}
+	return nil
 }
 
 // parseRateLimit reads "rate/burst" (requests per second, a positive
@@ -530,6 +759,13 @@ func parseProxy(s string) (netip.Prefix, error) {
 // keys of 32 bytes, none equal to the active key or to another. Errors name
 // the entry by position, never by value.
 func previousKeys(raw string, active []byte) ([][]byte, error) {
+	return keyList(raw, active, ErrPreviousEncryptionKeys, "OHS_ENCRYPTION_KEY")
+}
+
+// keyList decodes a comma separated list of base64 keys of 32 bytes, none
+// equal to the active key (named activeName in errors) or to another. Errors
+// wrap sentinel, name the entry by position and never carry a value.
+func keyList(raw string, active []byte, sentinel error, activeName string) ([][]byte, error) {
 	var keys [][]byte
 	n := 0
 	for _, s := range strings.Split(raw, ",") {
@@ -540,17 +776,17 @@ func previousKeys(raw string, active []byte) ([][]byte, error) {
 		n++
 		k, err := base64.StdEncoding.DecodeString(s)
 		if err != nil {
-			return nil, fmt.Errorf("%w: entry %d is not valid base64 (comma separated keys from `openssl rand -base64 32`)", ErrPreviousEncryptionKeys, n)
+			return nil, fmt.Errorf("%w: entry %d is not valid base64 (comma separated keys from `openssl rand -base64 32`)", sentinel, n)
 		}
 		if len(k) != 32 {
-			return nil, fmt.Errorf("%w: entry %d must decode to 32 bytes, got %d", ErrPreviousEncryptionKeys, n, len(k))
+			return nil, fmt.Errorf("%w: entry %d must decode to 32 bytes, got %d", sentinel, n, len(k))
 		}
 		if string(k) == string(active) {
-			return nil, fmt.Errorf("%w: entry %d is OHS_ENCRYPTION_KEY itself; list only the keys it replaced", ErrPreviousEncryptionKeys, n)
+			return nil, fmt.Errorf("%w: entry %d is %s itself; list only the keys it replaced", sentinel, n, activeName)
 		}
 		for i, o := range keys {
 			if string(o) == string(k) {
-				return nil, fmt.Errorf("%w: entries %d and %d are the same key", ErrPreviousEncryptionKeys, i+1, n)
+				return nil, fmt.Errorf("%w: entries %d and %d are the same key", sentinel, i+1, n)
 			}
 		}
 		keys = append(keys, k)

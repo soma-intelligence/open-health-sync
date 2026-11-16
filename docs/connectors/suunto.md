@@ -216,6 +216,11 @@ are left empty.
 - **24/7 data is raw only.** Sleep, recovery and daily activity are stored but not mapped
   (see section 4).
 - **No samples, laps or routes.** They are only in the FIT export, which is not fetched.
+- **Time zone.** A workout carries a UTC offset (`metadata.utc_offset`) and no zone name, so
+  it names no zone of its own. Where a local day is needed, the day is taken in the user's
+  time zone when the user has one (`timezone` on the user, set through the API or learnt from
+  a device upload; see [api.md](../api.md#users)), else in UTC. What is already stored keeps
+  its day.
 - **Deleted workouts.** Suunto has no deletion notice we know of. A workout deleted in the
   Suunto app stays stored here.
 - **No subscription management.** The notification URL is set once per application in API

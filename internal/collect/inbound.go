@@ -369,7 +369,10 @@ func coalescePull(ctx context.Context, tx pgx.Tx, j queue.PullJob) error {
 		return fmt.Errorf("find covering pull job: %w", err)
 	}
 	if covered {
-		return nil
+		// The job that covers it may be waiting out a failure, for hours
+		// when the provider was down: the provider says there is news now.
+		_, err := queue.ExpediteCoveringPulls(ctx, tx, j)
+		return err
 	}
 	// Widen an overlapping pending job. SKIP LOCKED leaves a job a worker
 	// is claiming alone; the status filter in the UPDATE does the rest. The
@@ -397,7 +400,9 @@ func coalescePull(ctx context.Context, tx pgx.Tx, j queue.PullJob) error {
 	} else if err := sp.Commit(ctx); err != nil {
 		return fmt.Errorf("release savepoint: %w", err)
 	} else if tag.RowsAffected() == 1 {
-		return nil
+		// The widened job now covers the window: the same applies.
+		_, err := queue.ExpediteCoveringPulls(ctx, tx, j)
+		return err
 	}
 	return queue.EnqueuePull(ctx, tx, j)
 }

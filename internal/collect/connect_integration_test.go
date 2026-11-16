@@ -132,6 +132,8 @@ func newConnEnvTweaked(t *testing.T, cfg collect.SchedulerConfig, wrap func(fake
 	e.mux.Handle("POST /v1/users/{id}/connections/{provider}/sync", tk(h.SyncNow()))
 	e.mux.Handle("GET /v1/users/{id}/sync-runs", tk(h.ListSyncRuns()))
 	e.mux.Handle("GET /v1/users/{id}/sync-runs/{run}", tk(h.GetSyncRun()))
+	e.mux.Handle("POST /v1/users/{id}/sync-runs/{run}/retry", tk(h.RetrySyncRun()))
+	e.mux.Handle("POST /v1/users/{id}/connections/{provider}/sync-runs/retry", tk(h.RetryFailedSyncRuns()))
 	e.mux.Handle("GET /oauth/{provider}/callback", h.OAuthCallback())
 	e.mux.Handle("POST /inbound/{provider}", h.Inbound())
 	e.mux.Handle("GET /inbound/{provider}", h.InboundProbe())

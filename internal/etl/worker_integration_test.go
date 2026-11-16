@@ -7,6 +7,7 @@ package etl
 import (
 	"context"
 	"io"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func (e *env) enqueue(j queue.ETLJob) {
 
 func (e *env) jobStates() map[string]int {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(), `SELECT status, attempts FROM ohs_sync.etl_jobs`)
+	rows, err := e.read().Query(context.Background(), `SELECT status, attempts FROM ohs_sync.etl_jobs`)
 	require.NoError(e.t, err)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (struct {
 		s string
@@ -65,7 +66,14 @@ func TestWorker_ProcessesCompletesAndFails(t *testing.T) {
 	// A job for a provider nobody registered fails and is retried later.
 	e.enqueue(e.upload(e.tenant, e.user, "nobody", "x", q("heart_rate", 60, "bpm", at)))
 
-	w := NewWorkerWith(e.pool, e.rs, queue.NewETL(e.pool), queue.TierStandard, 2, WithLookup(e.reg.Get))
+	var mu sync.Mutex
+	rows := map[string]int{}
+	w := NewWorkerWith(e.pool, e.rs, queue.NewETL(e.pool), queue.TierStandard, 2, WithLookup(e.reg.Get),
+		WithRowsWritten(func(table string, n int) {
+			mu.Lock()
+			defer mu.Unlock()
+			rows[table] += n
+		}))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx) }()
@@ -83,6 +91,35 @@ func TestWorker_ProcessesCompletesAndFails(t *testing.T) {
 	}
 	assert.Equal(t, 4, e.count("quantity_samples"))
 	assert.Equal(t, 1, e.jobStates()["pending"], "the failed job waits for its backoff")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 4, rows["quantity_samples"], "the rows each job wrote are reported; the failed job reports none")
+}
+
+// One user's backlog runs one job at a time (DefaultETLPerUser), so the
+// next job becomes claimable only when the previous one ends. The worker
+// claims it at once instead of sleeping its idle interval: 20 small jobs
+// of one user drain in far less than 20 idle intervals (20 to 40 s).
+func TestWorker_OneUsersBacklogDoesNotWaitIdle(t *testing.T) {
+	e := newEnv(t)
+	e.register("apple_health", quantityMap)
+	at := recent()
+	const n = 20
+	for i := range n {
+		e.enqueue(e.upload(e.tenant, e.user, "apple_health", "heart_rate", q("heart_rate", 60+float64(i), "bpm", at.Add(time.Duration(i)*time.Minute))))
+	}
+	w := NewWorkerWith(e.pool, e.rs, queue.NewETL(e.pool), queue.TierStandard, 4, WithLookup(e.reg.Get))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- w.Run(ctx) }()
+	require.Eventually(t, func() bool { return e.jobStates()["done"] == n }, 60*time.Second, 50*time.Millisecond)
+	took := time.Since(start)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Less(t, took, 10*time.Second, "one user's jobs follow each other without the idle sleep")
+	assert.Equal(t, n, e.count("quantity_samples"))
 }
 
 func TestWorker_WaitsForInFlightJobsOnCancel(t *testing.T) {

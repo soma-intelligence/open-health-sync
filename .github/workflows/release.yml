@@ -118,7 +118,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           name="ohs_${version}_${GOOS}_${GOARCH}"
           mkdir -p "dist/$name"
-          go build -trimpath \
+          go build -trimpath -tags azurekv,awskms \
             -ldflags "-s -w -X main.version=${version} -X main.commit=${GITHUB_SHA}" \
             -o "dist/$name/ohs" ./cmd/ohs
           cp LICENSE README.md "dist/$name/"

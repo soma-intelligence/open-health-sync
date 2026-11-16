@@ -64,7 +64,16 @@ func testConfig(t *testing.T, url string) config.Config {
 		Roles:           map[string]bool{"api": true, "etl": true},
 		Metrics:         true,
 		EncryptionKey:   make([]byte, 32),
+		Vault:           testVault(t),
 	}
+}
+
+// testVault is the local provider with the root key Load derives from the
+// zero encryption key of testConfig.
+func testVault(t *testing.T) config.Vault {
+	root, err := config.DeriveVaultRootKey(make([]byte, 32))
+	require.NoError(t, err)
+	return config.Vault{Provider: "local", RootKey: root, RootDerived: true}
 }
 
 // start runs the app until the test ends and waits for /healthz.
@@ -391,4 +400,35 @@ func TestRunDeletesUserThroughWorker(t *testing.T) {
 	require.NoError(t, pool.QueryRow(context.Background(),
 		`SELECT status FROM ohs_core.deletion_jobs WHERE id = $1`, job.JobID).Scan(&status))
 	assert.Equal(t, "done", status)
+}
+
+// A read's audit event waits in the batch writer; stopping the process
+// writes it, after the HTTP server has stopped and before the pool closes.
+func TestRunFlushesAuditAtShutdown(t *testing.T) {
+	url := db.TestDB(t)
+	cfg := testConfig(t, url)
+	logs := &syncBuffer{}
+	stop := start(t, cfg, logs)
+	keys := bootstrapKeys(t, logs.String())
+	require.Len(t, keys, 1)
+	const reads = 5
+	for range reads {
+		req, _ := http.NewRequest("GET", "http://"+cfg.Listen+"/v1/providers", nil)
+		req.Header.Set("Authorization", "Bearer "+keys[0])
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		res.Body.Close()
+		require.Equal(t, http.StatusOK, res.StatusCode)
+	}
+	require.NoError(t, stop(), "graceful shutdown")
+	assert.NotContains(t, logs.String(), "audit: batch not written")
+	assert.NotContains(t, logs.String(), "audit: flush at shutdown")
+
+	pool, err := db.Open(context.Background(), url)
+	require.NoError(t, err)
+	defer pool.Close()
+	var n int
+	require.NoError(t, pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM ohs_core.audit_events WHERE action = 'config.read'`).Scan(&n))
+	assert.Equal(t, reads, n, "every read is in the audit log once the process has stopped")
 }

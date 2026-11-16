@@ -2,7 +2,7 @@
   "name": "open-health-sync-react-native",
   "version": "0.1.0",
   "private": true,
-  "description": "TypeScript client for the Open Health Sync REST API, for React Native, Expo, Node 18+ and browsers.",
+  "description": "TypeScript client for the Open Health Sync REST API (React Native, Expo, Node 18+, browsers), and a native module that syncs HealthKit and Health Connect.",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -20,12 +20,29 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./health": {
+      "types": "./dist/health/index.d.ts",
+      "react-native": "./src/health/index.ts",
+      "import": "./dist/health/index.js",
+      "default": "./dist/health/index.js"
+    },
+    "./app.plugin.js": "./app.plugin.js",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "src",
-    "README.md"
+    "android",
+    "ios",
+    "plugin",
+    "app.plugin.js",
+    "*.podspec",
+    "README.md",
+    "!android/build",
+    "!android/.gradle",
+    "!android/.cxx",
+    "!android/local-maven",
+    "!ios/build"
   ],
   "sideEffects": false,
   "engines": {
@@ -40,8 +57,29 @@
   "dependencies": {
     "fflate": "0.8.3"
   },
+  "peerDependencies": {
+    "react-native": ">=0.80.0"
+  },
+  "peerDependenciesMeta": {
+    "react-native": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "22.10.2",
     "typescript": "5.8.3"
+  },
+  "codegenConfig": {
+    "name": "OpenHealthSyncSpec",
+    "type": "modules",
+    "jsSrcsDir": "src/health",
+    "android": {
+      "javaPackageName": "org.openhealthsync.reactnative"
+    },
+    "ios": {
+      "modulesProvider": {
+        "OpenHealthSync": "OpenHealthSyncModule"
+      }
+    }
   }
 }

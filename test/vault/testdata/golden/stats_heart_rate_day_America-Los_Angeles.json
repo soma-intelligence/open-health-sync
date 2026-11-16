@@ -1,0 +1,88 @@
+{
+  "buckets": [
+    {
+      "avg": 144.23529411764707,
+      "count": 68,
+      "max": 156,
+      "min": 77,
+      "provider": "polar",
+      "source": "Demo Sports Watch",
+      "start": "2026-09-24T00:00:00-07:00",
+      "sum": 9808,
+      "unit": "bpm"
+    },
+    {
+      "avg": 75.13888888888889,
+      "count": 144,
+      "max": 95,
+      "min": 52,
+      "provider": "whoop",
+      "source": "Demo Strap",
+      "start": "2026-09-25T00:00:00-07:00",
+      "sum": 10820,
+      "unit": "bpm"
+    },
+    {
+      "avg": 147.14606741573033,
+      "count": 89,
+      "max": 158,
+      "min": 75,
+      "provider": "polar",
+      "source": "Demo Sports Watch",
+      "start": "2026-09-26T00:00:00-07:00",
+      "sum": 13096,
+      "unit": "bpm"
+    },
+    {
+      "avg": 115.03030303030303,
+      "count": 66,
+      "max": 124,
+      "min": 76,
+      "provider": "polar",
+      "source": "Demo Sports Watch",
+      "start": "2026-09-27T00:00:00-07:00",
+      "sum": 7592,
+      "unit": "bpm"
+    },
+    {
+      "avg": 73.67361111111111,
+      "count": 144,
+      "max": 97,
+      "min": 50,
+      "provider": "whoop",
+      "source": "Demo Strap",
+      "start": "2026-09-28T00:00:00-07:00",
+      "sum": 10609,
+      "unit": "bpm"
+    },
+    {
+      "avg": 73.52777777777777,
+      "count": 144,
+      "max": 93,
+      "min": 51,
+      "provider": "whoop",
+      "source": "Demo Strap",
+      "start": "2026-09-29T00:00:00-07:00",
+      "sum": 10588,
+      "unit": "bpm"
+    },
+    {
+      "avg": 83.81111111111112,
+      "count": 90,
+      "max": 99,
+      "min": 60,
+      "provider": "whoop",
+      "source": "Demo Strap",
+      "start": "2026-09-30T00:00:00-07:00",
+      "sum": 7543,
+      "unit": "bpm"
+    }
+  ],
+  "end": "2026-10-01T00:00:00-07:00",
+  "interval": "day",
+  "start": "2026-09-24T00:00:00-07:00",
+  "truncated": false,
+  "type": "heart_rate",
+  "tz": "America/Los_Angeles",
+  "view": "merged"
+}

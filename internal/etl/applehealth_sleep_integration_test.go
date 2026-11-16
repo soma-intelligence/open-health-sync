@@ -89,7 +89,7 @@ type storedNight struct {
 // nights returns the stored sleep sessions, oldest first, with their phases.
 func (e *env) nights() []storedNight {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(), `
+	rows, err := e.read().Query(context.Background(), `
 		SELECT s.bedtime_start, s.bedtime_end, s.total_sleep_seconds, s.deep_sleep_seconds,
 		       s.rem_sleep_seconds, s.light_sleep_seconds, s.awake_seconds,
 		       (SELECT count(*) FROM ohs_data.sleep_phases p WHERE p.session_id = s.id),

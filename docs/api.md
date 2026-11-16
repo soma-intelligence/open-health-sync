@@ -30,12 +30,112 @@ A user token is minted for one active user with `POST /v1/users/{id}/tokens`:
 ```sh
 curl -s -X POST $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' -d '{"scopes":["upload","connect"],"ttl_seconds":3600}'
-# {"token":"ohs_ut_...","expires_at":"...","scopes":["upload","connect"]}
+# {"id":"3fa1c0d29b7e4a15","token":"ohs_ut_...","expires_at":"...","scopes":["upload","connect"]}
 ```
 
 The lifetime is one hour by default and at most 24 hours. A token whose only scope is `read`
 may live up to 30 days (2592000 seconds) so a person can put it in their own agent
 configuration. The response is `Cache-Control: no-store`; the token is shown once.
+
+A token stops working before its expiry when it is revoked, when its user is deleted, or when
+the API key that minted it is revoked or reaches its own expiry. `id` names the token without revealing it (the first 16
+hex characters of its SHA-256 hash, also the `actor.id` of the audit log):
+
+```sh
+# One token, by the id its mint response gave: 204.
+curl -s -X DELETE $OHS/v1/users/$USER_ID/tokens/3fa1c0d29b7e4a15 -H "Authorization: Bearer $KEY"
+# Every token of the user (a lost phone, a sign out everywhere): {"revoked": 2}
+curl -s -X DELETE $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY"
+```
+
+Tokens minted before version 0.3.0 are tied to no key: they are revoked by these routes or by
+their expiry, not by revoking a key.
+
+An API key lives until it is revoked, unless it was created with an expiry:
+`POST /v1/keys` with `{"expires_at": "2027-01-01T00:00:00Z"}` makes a key that is refused from
+that time on, with the user tokens it minted. Key listings show `expires_at` (null for a key that does not expire).
+
+### Key scopes
+
+An API key holds scopes: what it may do in its tenant. A key created without scopes holds `*`,
+everything, and so does every key created before version 0.3.0. Give a service only what it
+needs:
+
+```sh
+# A key for a dashboard that reads users and their data, nothing else.
+curl -s -X POST $OHS/v1/keys -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -d '{"scopes":["users:read","data:read"]}'
+# {"id":"...","prefix":"ohs_sk_2dybB","scopes":["users:read","data:read"],"key":"ohs_sk_...", ...}
+```
+
+From a shell: `ohs admin key create --tenant <id> --scopes users:read,data:read`.
+
+| Scope | Opens |
+|---|---|
+| `*` | Everything, the scopes added later included |
+| `tenant:read` | `GET /v1/tenant`, `GET /v1/providers` |
+| `users:read` | `GET /v1/users`, `GET /v1/users/{id}`, the user's consents and their history |
+| `users:write` | `POST /v1/users`, `PATCH /v1/users/{id}`, `PUT` and `DELETE /v1/users/{id}/consents/{provider}` |
+| `tokens:write` | Minting and revoking user tokens (`/v1/users/{id}/tokens`) |
+| `data:read` | Every read of health data: the lists, statistics, coverage, ECG, time tags, source priorities, FHIR, Open mHealth, `/mcp`, and one user's event stream (`GET /v1/users/{id}/events/stream`) |
+| `data:write` | Uploads (`/v1/ingest/...` with a user token), self reports, creating, changing and deleting time tags, `PUT /v1/users/{id}/source-priorities` |
+| `data:delete` | `DELETE /v1/users/{id}`, `DELETE /v1/users/{id}/data/{provider}`, `GET /v1/deletions/{job_id}` |
+| `connections:read` | A user's connections, freshness and sync runs, and the tenant's pipeline (`GET /v1/pipeline...`) |
+| `connections:write` | Starting, deleting and syncing a connection, connect sessions, retrying sync runs and processing jobs |
+| `webhooks:read` | Webhook endpoints and their deliveries, and the tenant's event stream (`GET /v1/events/stream`) |
+| `webhooks:write` | Creating, changing, deleting and testing endpoints, rotating secrets, retrying and replaying deliveries |
+| `exports:read` | `GET /v1/users/{id}/exports/{dataset}`, `GET /v1/users/{id}/archive`, listing and reading share links |
+| `exports:write` | Creating and revoking share links |
+| `keys:read` | `GET /v1/keys` |
+| `keys:write` | `POST /v1/keys`, `DELETE /v1/keys/{key_id}` |
+| `audit:read` | `GET /v1/audit` |
+| `admin:read` | Every `GET` under `/v1/admin`, on a key of an instance admin tenant |
+| `admin:write` | Every other route under `/v1/admin`, on a key of an instance admin tenant |
+
+The rules:
+
+- Every route that takes a credential needs exactly one scope. The OpenAPI description names it
+  on each operation as `x-required-scope`.
+- A `:write` scope also grants the `:read` of the same resource: `webhooks:write` lists
+  webhooks. `data:delete` grants nothing else.
+- A key without the scope of a route gets 403 with a `detail` that names it
+  (`this endpoint needs the scope users:read, which this API key does not hold`). The refusal is
+  in the [audit log](audit-log.md) with `missing_scope` in `detail`.
+- `POST /v1/keys` without `scopes` gives the new key the scopes of the calling key. With
+  `scopes`, each one must be granted by the calling key, else 403: `keys:write` alone is not a
+  way to full access. The scopes of a key never change; make a new key and revoke the old one.
+- A user token never does more than the key that minted it. Minting needs `tokens:write`, and
+  `data:write` for the token scope `upload`, `connections:write` for `connect`, `data:read` for
+  `read`. Each call made with the token is checked against that key's scopes as well: a `read`
+  token downloads the user archive only if its key holds `exports:read`. A token tied to no key
+  (minted before version 0.3.0) has no such limit.
+- `/mcp` needs `data:read`. Its tools `list_users` and `list_connections` answer under that
+  scope too.
+- `GET /v1/tenant` shows the scopes of the key in use (`key.scopes`), and key listings show the
+  scopes of each key.
+
+### Rate limit
+
+Every route that takes a credential is rate limited per credential: an API key by itself, the
+user tokens of one user together. The default is 200 requests a second with bursts of 2,000,
+far above what a backend or a device sends; over it the answer is 429 with a problem body and
+`Retry-After` in seconds, and nothing was done. An operator changes or turns off the two
+limits with `OHS_RATE_LIMIT_API` and `OHS_RATE_LIMIT_AUTH_FAILURES`
+([self-hosting.md](self-hosting.md#rate-limits)). The buckets are in memory and per process:
+with several replicas each counts on its own, so the ceiling of a credential is the limit
+times the replicas it reaches. A client address that presents 60 refused keys or tokens in a
+row (then one a second) gets 429 instead of 401 for its next refused ones, until the delay in
+`Retry-After` has passed. A request with a valid key or token is never refused for that,
+whatever else came from its address.
+
+### Caching and compression
+
+Every response to a request that takes a credential carries `Cache-Control: no-store`: health
+data must not sit in a shared cache or a browser cache. JSON, NDJSON, FHIR, CSV and YAML
+responses of 1 KiB and more are gzipped when the request says `Accept-Encoding: gzip`; exports
+keep streaming while compressed. Parquet files and zip archives are sent as they are. Every
+response carries `Vary: Accept-Encoding`. `OHS_COMPRESSION=false` turns compression off, for an
+instance behind a reverse proxy that compresses.
 
 ## Conventions
 
@@ -80,6 +180,23 @@ curl -s -X POST $OHS/v1/users -H "Authorization: Bearer $KEY" \
 `external_ref` is your own identifier, unique per tenant (a second user with the same one is a
 409); it may be omitted. `GET /v1/users` pages through the tenant's users, `GET /v1/users/{id}`
 returns one.
+
+A user has a time zone, `timezone` (an IANA name such as `Europe/Paris`, or null), with
+`timezone_source` saying where it came from. It is the zone of the local day of a sample that
+carries no zone of its own, as the cloud sources that report instants only send them (Eight
+Sleep, Suunto): the daily totals take the sample's zone, then the user's, then UTC.
+
+- Set it when you create the user (`{"external_ref":"customer-42","timezone":"Europe/Paris"}`)
+  or later with `PATCH /v1/users/{id}` and `{"timezone":"Europe/Paris"}`; `{"timezone":null}`
+  clears it. A zone set this way is `explicit`. A name that is not an IANA zone is a 400.
+- Left unset, it is learnt: when an Apple Health or Health Connect upload carries a zone, the
+  zone of its latest record becomes the user's (`learnt`), and later uploads keep it current. A
+  backfill of older records does not move it, and an `explicit` zone is never replaced.
+- It applies to what is written from then on. A stored sample keeps the day it was attributed
+  to (its zone is stored with it), and the daily summaries already derived are not recomputed:
+  after a change, the days written before still follow the zone they were written in.
+- The `tz` parameter of `samples/stats` does not default to it: without `tz` the intervals are
+  UTC days, as before.
 
 `DELETE /v1/users/{id}` answers 202 with a `job_id`. The user's status becomes `deleting` at
 once: reads return 404 and the user's tokens stop working, so uploads get 401 (410 only for an
@@ -165,7 +282,12 @@ with the user's status and starts the same consent flow. See
 and whether the user must `reconnect` or you only `wait`). A connection in `needs_reauth` needs
 the user to go through consent again. `GET /v1/users/{id}/sync-runs` is the history of its pulls,
 with the provider's error when one failed, and `POST /v1/users/{id}/connections/{provider}/sync`
-pulls it now. See [sync history and connection health](sync-health.md). `DELETE /v1/users/{id}/connections/{provider}` revokes the
+pulls it now. A run that gave up is `failed`: `POST /v1/users/{id}/sync-runs/{run_id}/retry`
+queues it again with fresh attempts (202 with the run; 409 when it did not fail or another run
+already covers its window), and `POST /v1/users/{id}/connections/{provider}/sync-runs/retry`
+queues every failed run of the connection (202 with `{"retried": n}`). See
+[background sync](background-sync.md#cloud-providers) and
+[sync history and connection health](sync-health.md). `DELETE /v1/users/{id}/connections/{provider}` revokes the
 grant (best effort) and stops pulling; data already collected is kept, unless you add
 `?delete_data=true`, which also erases it (see [erasing one provider's data](#erasing-one-providers-data)).
 
@@ -210,6 +332,8 @@ All reads are `GET /v1/users/{id}/<resource>` with a tenant key, paged as above.
 | `menstrual-cycles` | `start`, `end` (compared as dates, on the cycle's start) | `start_date` |
 | `ecg` | `start`, `end` | `start_date`, metadata only ([ECG recordings](#ecg-recordings)) |
 | `ecg/{ecg_id}` | none | one recording with its samples, not paged |
+| `labs` | `code`, `report`, `start`, `end` | `collected_at` ([lab results](#lab-results)) |
+| `labs/reports/{report_id}` | none | one lab report with its results, not paged |
 | `coverage` | `provider`, `start`, `end` | not paged |
 
 `view` is `merged` (the default) or `all`; see
@@ -293,7 +417,8 @@ Every record carries its provenance: `provider` (the integration it came through
 vendor that produced it, when known), `device` and `ingested_at`. The quantity names and their
 units are listed in [data-model.md](data-model.md). The ETL derives step, energy and distance
 totals per provider and local day from samples when a provider sends no daily summary of its
-own. `rr-intervals` serves the beat-to-beat intervals of heartbeat series and `hrv` the HRV
+own. The local day is the day in the sample's own time zone, else in the [user's](#users), else
+in UTC. `rr-intervals` serves the beat-to-beat intervals of heartbeat series and `hrv` the HRV
 derived from each series; the rules are in [hrv.md](hrv.md).
 
 ### Several sources of one metric: the merged view
@@ -483,6 +608,23 @@ curl -s -X POST $OHS/v1/users/$USER_ID/self-reports -H "Authorization: Bearer $K
 curl -s "$OHS/v1/users/$USER_ID/samples?type=reported_feeling" -H "Authorization: Bearer $KEY"
 ```
 
+## Lab results
+
+`POST /v1/users/{id}/labs` (`data:write`; tenant key, or the user's own token with scope
+`upload`) takes lab results as FHIR R4 (a Bundle, a DiagnosticReport or an Observation of
+category laboratory) or as a simple JSON form, and answers 202. Each result is stored once per
+`id`: an amended copy replaces it, the latest upload wins. `GET /v1/users/{id}/labs` lists
+them (filters `code`, `report`, `start`, `end`), `GET /v1/users/{id}/labs/reports/{report_id}`
+reads one report, and FHIR serves them as Observations of category `laboratory` and
+DiagnosticReports. Mapping, unit normalization and amendments: [labs.md](labs.md).
+
+```sh
+curl -s -X POST $OHS/v1/users/$USER_ID/labs -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"reports":[{"id":"r1","collected_at":"2026-03-04T07:30:00Z","results":[{"id":"r1-glu","loinc":"2345-7","value":5.4,"unit":"mmol/L"}]}]}'
+curl -s "$OHS/v1/users/$USER_ID/labs?code=2345-7" -H "Authorization: Bearer $KEY"
+```
+
 ## Share links
 
 `POST /v1/users/{id}/shares` makes a SMART Health Link: a snapshot of the user's records of some
@@ -535,7 +677,7 @@ curl -s "$OHS/v1/users/$USER_ID/omh/data-points?schema=omh:blood-pressure&start=
 ## Exports
 
 `GET /v1/users/{id}/exports/{dataset}` streams every record of one list (`samples`,
-`category-samples`, `sleep`, `workouts`, `nutrition`, `daily` or `ecg`) in `[start, end)` as one CSV
+`category-samples`, `sleep`, `workouts`, `nutrition`, `daily`, `ecg` or `labs`) in `[start, end)` as one CSV
 (`format=csv`, the default) or Parquet (`format=parquet`) file, with the columns of the list's
 JSON records. Not paged. See [exports.md](exports.md).
 
@@ -562,6 +704,21 @@ sync writes or deletes records, a user is erased, a connection needs the user to
 again, a time tag changes or a share link is made, stopped or opened. Requests are signed per Standard Webhooks and retried for about 28 hours. Events,
 signature verification and the routes: [webhooks.md](webhooks.md).
 
+An endpoint also shows three read only fields that say why nothing arrives:
+`consecutive_failures` (failed attempts since the last success), `paused_until` (set while the
+endpoint is paused after failures in a row, null otherwise) and `previous_secret_expires_at`
+(until when the secret the last rotation replaced also signs, null outside a rotation).
+`POST /v1/webhooks/{webhook_id}/rotate-secret` answers with the new `secret` and that same
+`previous_secret_expires_at`; send `{"expire_previous": true}` to end the old secret at once
+after a leak (the answer then has `previous_secret_expires_at` null).
+
+### Event stream
+
+`GET /v1/events/stream` (`webhooks:read`) streams the same events as Server-Sent Events, for a
+backend without a public receiver; `GET /v1/users/{id}/events/stream` (`data:read`, a tenant key
+or that user's token with scope `read`) streams one user's. Filter with `types` and `user_id`,
+resume with `Last-Event-ID` within 24 hours. See [events-stream.md](events-stream.md).
+
 ## Audit log
 
 Every request authenticated with a tenant key or a user token, every key command of
@@ -586,9 +743,10 @@ API key and are recorded in the audit log.
 
 | Route | Purpose |
 |---|---|
-| `GET /v1/tenant` | The tenant of the key: `id`, `name`, `admin`, and the `id` and `prefix` of the key in use |
-| `GET /v1/keys`, `POST /v1/keys` | The tenant's API keys (revoked ones included, `current` marks the one in use); create one, its full `key` is in the 201 answer only (`Cache-Control: no-store`) |
-| `DELETE /v1/keys/{key_id}` | Revoke a key; 409 for the key making the call |
+| `GET /v1/tenant` | The tenant of the key: `id`, `name`, `admin`, and the `id`, `prefix` and `scopes` of the key in use |
+| `GET /v1/keys`, `POST /v1/keys` | The tenant's API keys (revoked ones included, `current` marks the one in use, `expires_at` its expiry or null, `scopes` what it may do); create one, optionally with `{"expires_at": "...", "scopes": [...]}` (see [key scopes](#key-scopes)), its full `key` is in the 201 answer only (`Cache-Control: no-store`) |
+| `DELETE /v1/keys/{key_id}` | Revoke a key and the user tokens it minted; 409 for the key making the call |
+| `DELETE /v1/users/{id}/tokens`, `DELETE /v1/users/{id}/tokens/{token_id}` | Revoke every token of a user (`{"revoked": n}`), or one by the `id` of its mint response (204) |
 | `GET /v1/pipeline` | The tenant's pipeline in one answer: users, sources (connections per provider and status, rate limit pauses), sync runs, processing jobs, rejected records, raw data stored in the last 24 hours, webhook endpoints and deliveries |
 | `GET /v1/pipeline/sync-runs` | Sync runs across the tenant's users, newest first; filters `status` and `provider`, paged with `cursor` and `limit` |
 | `GET /v1/pipeline/etl-jobs` | Processing jobs; `status` is `parked` (default), `pending` or `running`; filter `provider`, paged with `cursor` and `limit` |
@@ -640,7 +798,7 @@ An instance that serves several teams manages their tenants with the same admin 
 | `POST /inbound/{provider}` | Provider push notifications, verified with the provider's own scheme |
 | `GET /inbound/{provider}` | Notification URL check and subscription challenge |
 | `GET /healthz` | Liveness |
-| `GET /readyz` | Readiness: database ping and raw store check, 503 when either fails |
+| `GET /readyz` | Readiness: database ping, schema version and raw store check. 503 when one fails, including a database whose schema is not at the version this build migrates to (a pending or half done migration, or a newer release's schema); the version check is kept for 10 seconds. The body then says "database schema is not at the version this binary needs", without versions: those are in the server log |
 | `GET /metrics` | Prometheus text format; absent when `OHS_METRICS=false` |
 | `GET /v1/setup`, `POST /v1/setup` | The browser [first-run setup](setup.md): creates the first tenant and its key with `OHS_SETUP_TOKEN`, once; only when that is set |
 | `GET /console` | The [admin console](console.md) (HTML), only when `OHS_CONSOLE` is `true` or `read-only` |

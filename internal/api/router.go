@@ -6,6 +6,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -18,6 +19,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -32,6 +34,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -78,6 +81,9 @@ type Deps struct {
 	// SelfReport handles POST /v1/users/{id}/self-reports. Nil leaves the
 	// route out.
 	SelfReport connector.DeviceConnector
+	// Labs handles POST /v1/users/{id}/labs. Nil leaves the route
+	// unmounted; the read routes are mounted either way.
+	Labs connector.DeviceConnector
 	// IngestLimit bounds uploads in flight (0 means DefaultIngestLimit).
 	IngestLimit int
 	// IngestTenantLimit is the share of the upload slots one tenant is sure
@@ -130,24 +136,92 @@ type Deps struct {
 	// TrustedProxies (OHS_TRUSTED_PROXIES) are the reverse proxies whose
 	// X-Forwarded-For names the client address of a rate limited request.
 	TrustedProxies []netip.Prefix
+	// RateLimitAPI bounds the requests of one credential on every
+	// authenticated route (an API key by its id, a user token by its user).
+	// The zero value is DefaultRateLimitAPI; RateLimitAPIOff turns the limit
+	// off. Buckets are per process: each replica counts on its own.
+	RateLimitAPI    RateLimit
+	RateLimitAPIOff bool
+	// RateLimitAuthFailures bounds the refused credentials (401) of one
+	// client address: past it, a refused credential of that address answers
+	// 429 instead of 401. A valid credential is never refused by it. The
+	// zero value is DefaultRateLimitAuthFailures; RateLimitAuthFailuresOff
+	// turns the throttle off (failures are still recorded). Per process
+	// too.
+	RateLimitAuthFailures    RateLimit
+	RateLimitAuthFailuresOff bool
+	// Audit, when set, takes the audit events of the high volume actions
+	// (audit.Buffered) and writes them in batches, so a request does not
+	// wait for its audit row. The caller starts it (audit.NewWriter) and
+	// closes it after the HTTP server stopped, which writes what is queued.
+	// Nil writes every event before the request ends, as before.
+	Audit *audit.Writer
+	// CompressionOff leaves every response as it is, for an instance behind
+	// a proxy that compresses. By default JSON, NDJSON, FHIR, CSV and YAML
+	// responses are gzipped for a client that accepts it.
+	CompressionOff bool
+	// Vault holds the tenant and user keys. When set, /readyz checks that
+	// its key provider opens keys and /metrics carries its counters.
+	Vault *vault.Vault
+	// Stream serves the event stream (GET /v1/events/stream and
+	// /v1/users/{id}/events/stream); its Run must be running. Nil leaves
+	// the routes answering 404 (OHS_STREAM_MAX=0).
+	Stream *StreamHub
 }
 
 type server struct {
 	d       Deps
 	metrics *httpMetrics
 	lookup  auth.Lookup
+	// authFail throttles refused credentials, unless that is turned off,
+	// and bounds the audit events they leave.
+	authFail *authFailures
+	// whyRefused resolves a refused credential for the audit log.
+	whyRefused func(ctx context.Context, hash string) (tenant.Refused, error)
+	// sink, when set, takes every audit event instead of the database
+	// (tests).
+	sink func(audit.Event)
+	// schema caches the schema version check of /readyz.
+	schema schemaCheck
 }
 
 // NewRouter returns the handler for every route of the public API and the ops
 // endpoints.
 func NewRouter(d Deps) http.Handler {
+	return newServer(d).handler()
+}
+
+func newServer(d Deps) *server {
 	if d.Pool == nil || d.Store == nil {
 		panic("api: NewRouter needs Pool and Store")
 	}
-	s := &server{d: d, metrics: newHTTPMetrics(), lookup: d.Lookup}
+	s := &server{d: d, metrics: newHTTPMetrics(), lookup: d.Lookup, whyRefused: d.Store.WhyRefused}
 	if s.lookup == nil {
 		s.lookup = d.Store.LookupKey
 	}
+	if !d.RateLimitAPIOff {
+		l := d.RateLimitAPI
+		if !l.on() {
+			l = DefaultRateLimitAPI
+		}
+		s.lookup = s.limitedLookup(s.lookup, newRateLimiter(l, RateLimit{}))
+	}
+	var failures RateLimit // the zero value throttles nothing
+	if !d.RateLimitAuthFailuresOff {
+		if failures = d.RateLimitAuthFailures; !failures.on() {
+			failures = DefaultRateLimitAuthFailures
+		}
+	}
+	s.authFail = newAuthFailures(failures)
+	if d.Audit != nil {
+		s.metrics.auditDropped = d.Audit.Dropped
+	}
+	return s
+}
+
+// handler mounts every route. It is called once.
+func (s *server) handler() http.Handler {
+	d := s.d
 	mux := http.NewServeMux()
 	s.mountOps(mux)
 	s.mountProviders(mux)
@@ -157,10 +231,12 @@ func NewRouter(d Deps) http.Handler {
 	s.mountUsers(mux)
 	s.mountTokens(mux)
 	s.mountWebhooks(mux)
+	s.mountStream(mux)
 	s.mountDeletion(mux)
 	s.mountReads(mux)
 	s.mountTags(mux)
 	s.mountSelfReports(mux)
+	s.mountLabs(mux)
 	s.mountSourcePriorities(mux)
 	s.mountFHIR(mux)
 	s.mountOMH(mux)
@@ -187,7 +263,11 @@ func NewRouter(d Deps) http.Handler {
 		}
 		notFound(w, "route")
 	})
-	return s.instrument(textOK(mux))
+	h := textOK(mux)
+	if !d.CompressionOff {
+		h = compress(h)
+	}
+	return s.instrument(h)
 }
 
 // allowedMethods lists the methods a route other than the catch-all serves
@@ -208,13 +288,16 @@ func allowedMethods(mux *http.ServeMux, r *http.Request) []string {
 }
 
 // mountMCP serves the read-only MCP server at /mcp to a tenant key or a user
-// token with scope read; a user token without it gets 403.
+// token with scope read; a user token without it gets 403. Like every
+// route, it asks the key (or the key that minted the token) for its key
+// scope, data:read (routeScopes).
 func (s *server) mountMCP(mux *http.ServeMux) {
 	h := mcp.NewHandler(mcp.Deps{DB: s.d.Pool, Store: s.d.Store, Webhooks: s.d.Webhooks})
 	mux.Handle("/mcp", auth.MiddlewareAny(s.lookup, auth.TenantKey, auth.UserRead)(h))
 }
 
-// tenantRoute mounts h behind a tenant API key.
+// tenantRoute mounts h behind a tenant API key. The key scope pattern needs
+// is declared in routeScopes.
 func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerFunc) {
 	mux.Handle(pattern, auth.Middleware(s.lookup, auth.TenantKey)(h))
 }
@@ -222,7 +305,12 @@ func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerF
 // instrument gives every request an id (X-Request-Id, kept from the caller
 // when well formed), counts it by its matched pattern, logs it at debug level
 // (route pattern, never the query string or a header), records an
-// authenticated one in the audit log and turns a panic into a 500. With
+// authenticated one in the audit log, and a refused credential within
+// bounds (authFailed), and turns a panic into a 500. It tells the auth
+// middleware which key scope each route needs (routeScope): a credential
+// without it answers 403, recorded with the scope it lacked. A credential the lookup
+// refused, from an address that presented too many of them, answers 429
+// instead of 401 (refused); a valid one is never refused for that. With
 // tracing on, the request is a server span named by its method and route
 // pattern, child of the caller's W3C traceparent when one came.
 func (s *server) instrument(next http.Handler) http.Handler {
@@ -237,7 +325,9 @@ func (s *server) instrument(next http.Handler) http.Handler {
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(semconv.HTTPRequestMethodKey.String(method), attribute.String(tracing.AttrRequestID, id)))
 		ctx, slot := auth.WithSlot(reqid.With(ctx, id))
-		r = r.WithContext(ctx)
+		r = r.WithContext(s.sealedReads(ctx))
+		slot.OnFailure(func(auth.Failure) (time.Duration, bool) { return s.refused(r) })
+		slot.RequireScope(routeScope)
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
 			v := recover()
@@ -258,7 +348,10 @@ func (s *server) instrument(next http.Handler) http.Handler {
 			}
 			s.metrics.count(r.Pattern, code)
 			if p, ok := slot.Principal(); ok {
-				s.audit(r, p, code)
+				s.audit(r, p, code, slot.MissingScope())
+			} else if f, ok := slot.Failure(); ok && code == http.StatusUnauthorized {
+				// A throttled failure (429) leaves no event: it is counted.
+				s.authFailed(r, f)
 			}
 			slog.DebugContext(r.Context(), "http request", "route", r.Pattern, "status", code,
 				"duration_ms", time.Since(start).Milliseconds())

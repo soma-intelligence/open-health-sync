@@ -21,6 +21,7 @@ From a clone of the repository:
 git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-health-sync
 cp .env.example .env
 sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
 docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
 docker compose --env-file .env -f deploy/docker-compose.yml exec -T ohs \
   /ohs admin personal setup > ~/.ohs.env

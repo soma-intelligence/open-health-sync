@@ -21,7 +21,7 @@ const auditTimeout = 2 * time.Second
 
 // auditPathValues are the path values an audit event keeps in its detail:
 // identifiers, never a value read or written.
-var auditPathValues = []string{"tenant_id", "provider", "key_id", "job_id"}
+var auditPathValues = []string{"tenant_id", "provider", "key_id", "job_id", "token_id"}
 
 func (s *server) mountAudit(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/audit", s.listAudit)
@@ -34,7 +34,7 @@ func (s *server) mountAudit(mux *http.ServeMux) {
 // the caller's, and is named on that tenant's log instead (asTenant). A write
 // that fails is logged and counted, never turned into an error for the
 // caller, who already has the response.
-func (s *server) audit(r *http.Request, p auth.Principal, code int) {
+func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope string) {
 	ev := audit.Event{
 		Tenant:    p.TenantID,
 		ActorType: audit.APIKey,
@@ -60,12 +60,32 @@ func (s *server) audit(r *http.Request, p auth.Principal, code int) {
 			ev.Detail[name] = v
 		}
 	}
+	// A request refused for a key scope (403) says which one.
+	if missingScope != "" {
+		if ev.Detail == nil {
+			ev.Detail = map[string]any{}
+		}
+		ev.Detail["missing_scope"] = missingScope
+	}
 	s.record(r, ev)
 }
 
-// record writes ev once the response is decided. A write that fails is
-// logged and counted.
+// record writes ev once the response is decided. An event of a high volume
+// action (audit.Buffered) goes to the buffered writer when there is one; any
+// other event, every event without a writer, and an event the writer does
+// not take (its queue is full, or the process is stopping) is written before
+// the request ends, so a full queue slows requests down instead of losing
+// events. A write that fails is logged and counted.
 func (s *server) record(r *http.Request, ev audit.Event) {
+	if s.sink != nil {
+		s.sink(ev)
+		return
+	}
+	if s.d.Audit != nil && audit.Buffered(ev.Action) {
+		if err := s.d.Audit.Enqueue(ev); err == nil {
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), auditTimeout)
 	defer cancel()
 	if err := audit.Record(ctx, s.d.Pool, ev); err != nil {

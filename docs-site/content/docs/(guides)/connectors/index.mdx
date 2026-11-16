@@ -10,8 +10,9 @@ There are two ways data arrives, and a connector can do both.
 
 <Cards>
   <Card icon={<Smartphone />} title="On-device: your app uploads">
-    The data lives on the phone (HealthKit on iOS, Health Connect on Android). Your app reads it
-    and posts it with a user token. The server never talks to the vendor.
+    The data lives on the phone (HealthKit on iOS, Health Connect on Android). Your app reads it,
+    with the [SDKs](/documentation/sdks) or its own code, and posts it with a user token. The
+    server never talks to the vendor.
   </Card>
   <Card icon={<CloudDownload />} title="Cloud: the server pulls">
     The user consents over OAuth, then the server pulls on a schedule and on the provider's
@@ -27,6 +28,12 @@ There are two ways data arrives, and a connector can do both.
   </Card>
   <Card title="Withings" href="/documentation/connectors/withings">
     Cloud. OAuth, scheduled pulls and push notifications. Bring your own developer app.
+  </Card>
+  <Card title="Wahoo" href="/documentation/connectors/wahoo">
+    Cloud. Workouts with distance, power and heart rate, OAuth and webhooks. Bring your own developer app.
+  </Card>
+  <Card title="Sandbox" href="/documentation/connectors/sandbox">
+    Built in. The full connect flow with synthetic data, for evaluation. Off by default.
   </Card>
   <Card title="Oura" href="/documentation/connectors/oura">
     Cloud. Sleep, readiness, activity, heart rate and workouts, with optional webhooks.
@@ -56,6 +63,7 @@ There are two ways data arrives, and a connector can do both.
   </Card>
   <Card title="Health Connect" href="/documentation/connectors/health-connect">
     On-device. Your Android app uploads Health Connect records, from any app that writes there.
+    The Kotlin SDK reads and uploads them.
   </Card>
   <Card title="Dexcom" href="/documentation/connectors/dexcom">
     Cloud. CGM glucose readings, coded as interstitial glucose in FHIR.
@@ -70,8 +78,11 @@ Something differs from what you see with your account? Open an
 
 [Garmin](/documentation/connectors/garmin) is available since 0.2.0, for operators with
 their own Garmin business app (a connector for Garmin's free Personal API is planned), and so is [Eight Sleep](/documentation/connectors/eight-sleep), through the sign-in
-the Eight Sleep app uses. Coros and more are planned. FreeStyle Libre has no public API; its readings arrive
-through Health Connect or Apple Health ([notes](/documentation/connectors/freestyle-libre)). The
+the Eight Sleep app uses. Coros, FreeStyle Libre, Peloton, Zwift, MyFitnessPal and Cronometer offer no
+public API we can build on; their data arrives through activity files, Health Connect or Apple Health
+([Coros](/documentation/connectors/coros), [FreeStyle Libre](/documentation/connectors/freestyle-libre)). A
+[sandbox provider](/documentation/connectors/sandbox), off by default, runs the connect flow on synthetic
+data. The
 [sources page](/documentation/connectors/sources) has the status, integration path and tracking issue of
 each one.
 

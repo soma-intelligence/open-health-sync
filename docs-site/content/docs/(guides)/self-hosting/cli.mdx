@@ -16,14 +16,21 @@ ohs <command> [flags]
 | `ohs migrate version` | Prints the schema version of the database. |
 | `ohs migrate latest` | Prints the schema version this binary migrates to. Needs no database. |
 | `ohs migrate down --all` | Reverts every migration: **drops all Open Health Sync data**. |
-| `ohs doctor [--quick]` | Checks configuration, database, raw store, public URL and connectors. `--quick` checks the database and raw store only. |
+| `ohs migrate force <version> --yes` | Clears a schema left dirty by a stopped migration. Refuses a clean schema and any version other than the dirty one or its neighbour. |
+| `ohs doctor [--quick]` | Checks configuration, database, raw store, public URL, connectors and the vault (key provider, tenant keys under a previous root key, rows still in clear). `--quick` checks the database and raw store only. |
 | `ohs admin tenant create --name <name>` | Creates a tenant and prints its first API key, once. |
 | `ohs admin tenant list` | Lists tenants with their ids and active key counts. |
-| `ohs admin key create --tenant <id>` | Adds an API key to a tenant, for rotation. |
-| `ohs admin key list --tenant <id>` | Lists a tenant's keys by prefix, with creation and last use. |
+| `ohs admin key create --tenant <id> [--scopes <a,b>] [--expires-at <time>]` | Adds an API key to a tenant, for rotation or for one service. `--scopes` limits what it may do (default `*`, everything); `--expires-at` sets an expiry. |
+| `ohs admin key list --tenant <id>` | Lists a tenant's keys by prefix, with creation, last use, revocation, expiry and scopes. |
 | `ohs admin key revoke --tenant <id> --key <key or prefix>` | Revokes a key. A whole user token is revoked the same way. |
 | `ohs admin personal setup [--person <name>] [--url <url>]` | Readies a one person install for the [recipes](/documentation/recipes): a `personal` tenant, a user and a new key, printed as an env file. |
-| `ohs admin rekey [--batch <rows>]` | Re-seals every stored OAuth token and webhook secret under `OHS_ENCRYPTION_KEY` after a [key rotation](/documentation/self-hosting/key-rotation), and prints counts. |
+| `ohs admin rekey [--batch <rows>]` | Re-seals every stored OAuth token and webhook secret under `OHS_ENCRYPTION_KEY` after a [key rotation](/documentation/self-hosting/key-rotation), and prints counts. When the vault root key is derived from `OHS_ENCRYPTION_KEY`, it also rewraps the tenant keys under the new one. |
+| `ohs vault status [--check]` | Counts the health rows and raw objects still stored in clear. `--check` exits 1 while any is left. |
+| `ohs vault seal [--batch <rows>] [--user <id>] [--dry-run]` | Seals what an earlier version stored in clear, user by user in batches, and moves per-point ECG, route and heartbeat rows into their blobs. Stop it at any time; run it again to go on. |
+| `ohs vault rotate root` | Rewraps every tenant key under the configured root key or KMS key. No data is rewritten. Restart every `ohs` process afterwards. |
+| `ohs vault rotate tenant <tenant id>` | Gives a tenant a new key and rewraps its user keys. |
+| `ohs vault rotate user <tenant id> <user id>` | Gives a user a new key version for new writes. |
+| `ohs vault reseal [--batch <rows>] [--user <id>]` | Rewrites what older user key versions sealed under the current one, after a suspected user key leak. |
 | `ohs import apple-health <export.zip\|export.xml> [--since] [--tz] [--dry-run]` | Loads a Health app export into an instance with a user token (`--url`/`OHS_URL`, `--token`/`OHS_TOKEN`). |
 | `ohs import mi-fitness <folder\|copy.zip> [--since] [--dry-run]` | Loads the copy of Mi Fitness data Xiaomi sends from its account privacy center, the same way. |
 | `ohs import files <file\|folder\|zip> [--since] [--dry-run]` | Loads activity files (.fit, .gpx, .tcx), one file, a folder or a zip such as a Garmin or Strava export; each file is sent once. |
@@ -34,7 +41,10 @@ ohs <command> [flags]
 
 `up` and `serve` need `OHS_DATABASE_URL` and `OHS_ENCRYPTION_KEY`; `migrate`, `admin` and `seed` need
 `OHS_DATABASE_URL` only (`migrate latest` needs nothing), except `admin rekey`, which also reads the
-encryption keys; `mcp` needs `OHS_MCP_KEY` and the instance URL. `doctor` checks the same settings,
+encryption keys. `vault` needs the database and the same key settings as the server
+(`OHS_ENCRYPTION_KEY` and the `OHS_VAULT_*` variables), and so do `seed` and
+`admin personal setup` once the instance holds vault keys, so that what they write is sealed; `mcp`
+needs `OHS_MCP_KEY` and the instance URL. `doctor` checks the same settings,
 and prints a fresh key when `OHS_ENCRYPTION_KEY` is empty.
 
 **Exit status:** 0 on success, 1 on failure (a failed doctor check included), 2 on a command line

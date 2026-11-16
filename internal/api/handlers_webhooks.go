@@ -4,9 +4,11 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,10 +22,31 @@ type createWebhookRequest struct {
 	EventTypes  []string `json:"event_types"`
 }
 
-// webhookWithSecret is an endpoint with its signing secret, returned by the
-// create and rotate calls only.
-type webhookWithSecret struct {
+// webhookJSON is an endpoint as the API shows it: the stored endpoint and
+// the delivery state an operator needs to tell why nothing arrives. The
+// three fields are read only: the delivery worker and the secret rotation
+// set them.
+type webhookJSON struct {
 	webhook.Endpoint
+	// ConsecutiveFailures counts the failed attempts since the last success.
+	ConsecutiveFailures int `json:"consecutive_failures"`
+	// PausedUntil is when a paused endpoint is tried again, null when it is
+	// not paused.
+	PausedUntil *time.Time `json:"paused_until"`
+	// PreviousSecretExpiresAt is until when the secret the last rotation
+	// replaced also signs, null outside a rotation's grace period.
+	PreviousSecretExpiresAt *time.Time `json:"previous_secret_expires_at"`
+}
+
+func toWebhookJSON(e webhook.Endpoint) webhookJSON {
+	return webhookJSON{Endpoint: e, ConsecutiveFailures: e.ConsecutiveFailures,
+		PausedUntil: e.PausedUntil, PreviousSecretExpiresAt: e.PreviousSecretExpiresAt}
+}
+
+// webhookWithSecret is an endpoint with its signing secret, returned by the
+// create call only.
+type webhookWithSecret struct {
+	webhookJSON
 	Secret string `json:"secret"`
 }
 
@@ -34,8 +57,18 @@ type updateWebhookRequest struct {
 	Enabled     *bool     `json:"enabled"`
 }
 
+// rotateSecretRequest is the optional body of the rotate route.
+type rotateSecretRequest struct {
+	// ExpirePrevious ends the replaced secret at once instead of after the
+	// grace period: the rotation after a leak.
+	ExpirePrevious bool `json:"expire_previous"`
+}
+
 type secretResponse struct {
 	Secret string `json:"secret"`
+	// PreviousSecretExpiresAt is until when the replaced secret also signs,
+	// null when it stopped at once.
+	PreviousSecretExpiresAt *time.Time `json:"previous_secret_expires_at"`
 }
 
 // testWebhookRequest is the optional body of the test route.
@@ -124,7 +157,7 @@ func (s *server) createWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Location", "/v1/webhooks/"+e.ID.String())
-	writeJSON(w, http.StatusCreated, webhookWithSecret{Endpoint: e, Secret: secret})
+	writeJSON(w, http.StatusCreated, webhookWithSecret{webhookJSON: toWebhookJSON(e), Secret: secret})
 }
 
 func (s *server) listWebhooks(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +167,11 @@ func (s *server) listWebhooks(w http.ResponseWriter, r *http.Request) {
 		internalError(w, r, "api: list webhooks", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newPage(list, ""))
+	out := make([]webhookJSON, len(list))
+	for i, e := range list {
+		out[i] = toWebhookJSON(e)
+	}
+	writeJSON(w, http.StatusOK, newPage(out, ""))
 }
 
 func (s *server) getWebhook(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +183,7 @@ func (s *server) getWebhook(w http.ResponseWriter, r *http.Request) {
 	if !webhookErr(w, r, err, "api: get webhook") {
 		return
 	}
-	writeJSON(w, http.StatusOK, e)
+	writeJSON(w, http.StatusOK, toWebhookJSON(e))
 }
 
 func (s *server) updateWebhook(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +204,7 @@ func (s *server) updateWebhook(w http.ResponseWriter, r *http.Request) {
 	if !webhookErr(w, r, err, "api: update webhook") {
 		return
 	}
-	writeJSON(w, http.StatusOK, e)
+	writeJSON(w, http.StatusOK, toWebhookJSON(e))
 }
 
 func (s *server) deleteWebhook(w http.ResponseWriter, r *http.Request) {
@@ -186,12 +223,35 @@ func (s *server) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	secret, err := s.d.Webhooks.RotateSecret(r.Context(), p.TenantID, id)
+	var req rotateSecretRequest
+	if !decodeJSON(w, r, &req, true) {
+		return
+	}
+	var (
+		secret string
+		until  *time.Time
+		err    error
+	)
+	if req.ExpirePrevious {
+		secret, until, err = s.d.Webhooks.RotateSecretWithGrace(r.Context(), p.TenantID, id, 0)
+	} else {
+		// The store's grace period (OHS_WEBHOOK_ROTATION_GRACE_HOURS).
+		secret, err = s.d.Webhooks.RotateSecret(r.Context(), p.TenantID, id)
+	}
 	if !webhookErr(w, r, err, "api: rotate webhook secret") {
 		return
 	}
+	if !req.ExpirePrevious {
+		// Read back when the replaced secret stops. The rotation is done:
+		// a failure here must not hide the new secret, shown only now.
+		if e, gerr := s.d.Webhooks.Get(r.Context(), p.TenantID, id); gerr == nil {
+			until = e.PreviousSecretExpiresAt
+		} else {
+			slog.WarnContext(r.Context(), "api: rotate webhook secret: read the grace period", "error", gerr)
+		}
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, secretResponse{Secret: secret})
+	writeJSON(w, http.StatusOK, secretResponse{Secret: secret, PreviousSecretExpiresAt: until})
 }
 
 func (s *server) testWebhook(w http.ResponseWriter, r *http.Request) {

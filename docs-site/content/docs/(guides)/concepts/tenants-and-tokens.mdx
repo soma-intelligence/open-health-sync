@@ -31,9 +31,16 @@ a lost key cannot be shown again, only replaced.
 ```sh
 ohs admin tenant create --name acme        # prints the first key once
 ohs admin key create --tenant <tenant id>  # add a key, for rotation
-ohs admin key list --tenant <tenant id>    # prefixes, created and last used
+ohs admin key create --tenant <tenant id> --scopes users:read,data:read --expires-at 2027-01-01
+ohs admin key list --tenant <tenant id>    # prefixes, created, last used, expiry, scopes
 ohs admin key revoke --tenant <tenant id> --key <prefix>
 ```
+
+A key holds scopes, fixed when it is created: `*` (everything, the default and what keys made
+before 0.3.0 keep) or a list such as `users:read`, `data:read`, `data:write`, `webhooks:write`. A
+route the key has no scope for answers 403 naming the scope. A user token never does more than
+the key that minted it. The list is in the
+[API overview](/documentation/api-reference#key-scopes).
 
 To rotate a key without downtime, see [Rotating secrets](/documentation/self-hosting/rotating-secrets).
 
@@ -54,8 +61,10 @@ curl -s -X POST $OHS/v1/users/$USER_ID/tokens -H "Authorization: Bearer $KEY" \
 | `connect` | reserved: no route uses it yet | 1 hour by default, at most 24 hours |
 
 The token is shown once (`Cache-Control: no-store`) and stored hashed. It stops working at
-`expires_at`, or as soon as its user is deleted. Revoking the tenant key that minted it does not
-end it; `ohs admin key revoke` with the whole token does.
+`expires_at`, as soon as its user is deleted, when the key that minted it is revoked or expires,
+or when it is revoked with `DELETE /v1/users/{id}/tokens/{token_id}` (or all of a user's with
+`DELETE /v1/users/{id}/tokens`). A token minted before 0.3.0 is tied to no key: revoke it through
+those routes or `ohs admin key revoke` with the whole token.
 
 <Callout title="Keep tenant keys on your server">
   A tenant key can read every user of the tenant. Never ship it in a mobile app: give the app a

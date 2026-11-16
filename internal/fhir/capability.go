@@ -104,6 +104,10 @@ func Capability(base string) CapabilityStatement {
 					Name: "everything", Definition: "http://hl7.org/fhir/OperationDefinition/Patient-everything",
 				}}},
 				{Type: "Observation", Interaction: readSearch, SearchParam: obsParams},
+				{Type: "DiagnosticReport", Interaction: readSearch, SearchParam: append([]CapabilityParam{
+					{Name: "category", Definition: "http://hl7.org/fhir/SearchParameter/DiagnosticReport-category", Type: "token",
+						Documentation: "LAB or laboratory: every report is a lab report"},
+				}, append(append([]CapabilityParam{}, windowParams...), pageParams...)...)},
 				{Type: "Device", Interaction: readSearch, SearchParam: windowParams},
 				{Type: "Provenance", Interaction: readSearch, SearchParam: []CapabilityParam{{
 					Name: "target", Definition: "http://hl7.org/fhir/SearchParameter/Provenance-target", Type: "reference",

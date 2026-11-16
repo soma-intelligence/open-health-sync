@@ -113,9 +113,12 @@ spent their attempts (parked). Retry one parked job, or all of them.
 and on, send a test event, rotate its signing secret, delete it; retry or replay a delivery. See
 [webhooks.md](webhooks.md).
 
-**API keys.** The tenant's keys: prefix, created, last used, revoked. Create one (the full key is
-shown once) or revoke one. The key signed in cannot revoke itself, so the console cannot lock you
-out.
+**API keys.** The tenant's keys: prefix, created, last used, [scopes](api.md#key-scopes),
+revoked. Create one (the full key is shown once) or revoke one. A key created here holds the
+scopes of the key signed in; a key with fewer scopes is made with `POST /v1/keys` or
+`ohs admin key create --scopes`. The key signed in cannot revoke itself, so the console cannot
+lock you out. Sign in with a key that holds `*`: with fewer scopes, the pages whose routes the
+key cannot call show the 403 instead.
 
 **Audit log.** The tenant's [audit events](audit-log.md), newest first, with a filter by action.
 

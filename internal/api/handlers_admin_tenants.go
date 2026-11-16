@@ -250,12 +250,22 @@ func (s *server) createAdminTenantKey(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var req struct{}
+	var req createKeyRequest
 	if !decodeJSON(w, r, &req, true) {
 		return
 	}
-	full, k, err := s.d.Store.CreateKeyAudited(r.Context(), id, adminEvent(r, p, audit.KeyCreate, http.StatusCreated, nil))
+	// Without scopes the key does everything. An admin grants any scope,
+	// one it does not hold included: admin:write is power over the
+	// instance.
+	full, k, err := s.d.Store.CreateKeyAuditedWith(r.Context(), id, tenant.KeyOptions{ExpiresAt: req.ExpiresAt, Scopes: req.Scopes},
+		adminEvent(r, p, audit.KeyCreate, http.StatusCreated, nil))
 	switch {
+	case errors.Is(err, tenant.ErrExpiryPast):
+		badRequest(w, errExpiryPast)
+		return
+	case errors.Is(err, tenant.ErrInvalidKeyScopes):
+		badRequest(w, errKeyScopes)
+		return
 	case errors.Is(err, tenant.ErrNotFound):
 		notFound(w, "tenant")
 		return

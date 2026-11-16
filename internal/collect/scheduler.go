@@ -6,8 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net"
+	"regexp"
 	"sync"
 	"time"
 
@@ -18,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
@@ -41,15 +45,54 @@ const (
 	BackfillChunk = 7 * 24 * time.Hour
 	// pullOverlap re-reads the end of the previous window for late data.
 	pullOverlap = time.Hour
-	// defaultScheduleBatch bounds the connections one scheduling pass looks at.
-	defaultScheduleBatch = 1000
+	// MaxBackfillWindow bounds Deps.BackfillWindow.
+	MaxBackfillWindow = 5 * 365 * 24 * time.Hour
 )
 
-// Default pull budget per provider (see SchedulerConfig).
+// Defaults of SchedulerConfig.
 const (
+	// DefaultPullConcurrency is the number of pulls in flight per instance.
+	DefaultPullConcurrency = 4
+	// DefaultScheduleBatch bounds the backfills and the regular pulls one
+	// scheduling pass enqueues.
+	DefaultScheduleBatch = 1000
+	// DefaultPullsPerProvider and DefaultBackfillsPerProvider are the pull
+	// budget of each provider across every instance.
 	DefaultPullsPerProvider     = 4
 	DefaultBackfillsPerProvider = 2
 )
+
+// DefaultTick is how often due connections are looked for, and pending
+// subscriptions subscribed, unless SchedulerConfig.Tick says otherwise.
+const DefaultTick = time.Minute
+
+// How long one pass of a loop may hold it before the loop counts as hung
+// (SchedulerHooks). A scheduling pass enqueues up to scheduleRounds batches
+// under one lock; a pull is bounded by JobTimeout, then settled, and a
+// settle is retried for up to half the visibility timeout while the database
+// is away.
+const (
+	schedulePassLimit = 15 * time.Minute
+	settleLimit       = queue.VisibilityTimeout/2 + time.Minute
+)
+
+// SchedulerHooks tell the process what the three loops of a Scheduler do.
+// Every field is optional.
+type SchedulerHooks struct {
+	// Schedule, Subscribe and Work get the heartbeat of the scheduling
+	// loop, the subscription loop and the pull worker loop: one beat per
+	// round, and each pass or pull in flight as work that excuses a silent
+	// loop (a worker whose slots are all taken waits for one of them).
+	Schedule, Subscribe, Work *ops.Loop
+	// Pulled is told how each pull job ended (the ohs.job.outcome span
+	// attribute) and how long it ran, settle included.
+	Pulled func(job queue.PullJob, outcome string, took time.Duration)
+}
+
+// scheduleRounds bounds the batches of connections one scheduling pass
+// looks at for regular pulls: a pass goes on while its batches are full of
+// connections that turn out not to be due, up to this many.
+const scheduleRounds = 10
 
 // schedulerLock is the advisory lock key that makes one instance schedule at
 // a time ("ohs pull" as bytes).
@@ -57,16 +100,18 @@ const schedulerLock int64 = 0x6f68732070756c6c
 
 // SchedulerConfig tunes the pull loop. Zero values take the defaults.
 type SchedulerConfig struct {
-	// Concurrency is the number of pulls in flight per instance (default 4).
+	// Concurrency is the number of pulls in flight per instance (default
+	// DefaultPullConcurrency).
 	Concurrency int
-	// Tick is how often due connections are looked for (default 1 minute).
+	// Tick is how often due connections are looked for (default DefaultTick).
 	Tick time.Duration
 	// JobTimeout bounds one pull (default queue.VisibilityTimeout minus one minute).
 	JobTimeout time.Duration
 	// IdleMin and IdleMax bound the pause after an empty claim (default 1 to 2 s).
 	IdleMin, IdleMax time.Duration
-	// Batch bounds the backfills and the regular pulls one pass enqueues
-	// (default 1000 each); the rest wait for the next tick.
+	// Batch bounds the connections one pass enqueues backfills for, and
+	// those it enqueues a regular pull for (default DefaultScheduleBatch
+	// each); the rest wait for the next tick.
 	Batch int
 	// PerProvider caps the pulls of one provider running at once across
 	// every instance (default DefaultPullsPerProvider); BackfillPerProvider
@@ -77,6 +122,8 @@ type SchedulerConfig struct {
 	// Run's context ends; then their context is cancelled (an unsettled
 	// claim is reclaimed later). Zero leaves them bounded by JobTimeout only.
 	ShutdownGrace time.Duration
+	// Hooks report the loops' heartbeats and the pulls' durations.
+	Hooks SchedulerHooks
 }
 
 // Scheduler is the collect role: it enqueues pulls (a backfill per new
@@ -95,16 +142,16 @@ func NewScheduler(d Deps, cfg SchedulerConfig) *Scheduler {
 		panic("collect: NewScheduler needs Raw")
 	}
 	if cfg.Concurrency <= 0 {
-		cfg.Concurrency = 4
+		cfg.Concurrency = DefaultPullConcurrency
 	}
 	if cfg.Tick <= 0 {
-		cfg.Tick = time.Minute
+		cfg.Tick = DefaultTick
 	}
 	if cfg.JobTimeout <= 0 {
 		cfg.JobTimeout = queue.VisibilityTimeout - time.Minute
 	}
 	if cfg.Batch <= 0 {
-		cfg.Batch = defaultScheduleBatch
+		cfg.Batch = DefaultScheduleBatch
 	}
 	if cfg.IdleMin <= 0 {
 		cfg.IdleMin = time.Second
@@ -147,9 +194,12 @@ func (s *Scheduler) scheduleLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.Tick)
 	defer t.Stop()
 	for {
+		s.cfg.Hooks.Schedule.Tick()
+		done := s.cfg.Hooks.Schedule.Busy(schedulePassLimit)
 		if _, err := s.Schedule(ctx); err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "collect: schedule pulls", "error", err)
 		}
+		done()
 		select {
 		case <-ctx.Done():
 			return
@@ -181,7 +231,9 @@ func (s *Scheduler) subscribeLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.Tick)
 	defer t.Stop()
 	for {
-		if n, err := s.RenewSilent(ctx, defaultScheduleBatch); err != nil && ctx.Err() == nil {
+		s.cfg.Hooks.Subscribe.Tick()
+		done := s.cfg.Hooks.Subscribe.Busy(schedulePassLimit)
+		if n, err := s.RenewSilent(ctx, s.cfg.Batch); err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "collect: renew silent subscriptions", "error", err)
 		} else if n > 0 {
 			slog.InfoContext(ctx, "collect: renewing subscriptions that went silent", "count", n)
@@ -189,6 +241,7 @@ func (s *Scheduler) subscribeLoop(ctx context.Context) {
 		if _, err := s.subscribePass(ctx, jobCtx, defaultSubscribeBatch); err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "collect: subscribe pending", "error", err)
 		}
+		done()
 		select {
 		case <-ctx.Done():
 			return
@@ -204,6 +257,7 @@ func (s *Scheduler) workLoop(ctx context.Context) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for {
+		s.cfg.Hooks.Work.Tick()
 		select {
 		case <-ctx.Done():
 			return
@@ -292,18 +346,60 @@ func backfillWindows(now time.Time, p connector.SyncPolicy) [][2]time.Time {
 	return out
 }
 
-// enqueueBackfill adds the backfill jobs of a new connection in tx, over its
-// provider's backfill policy.
-func enqueueBackfill(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID, provider string, p connector.SyncPolicy, now time.Time) error {
-	for _, w := range backfillWindows(now, p) {
-		if err := queue.EnqueuePull(ctx, tx, queue.PullJob{
-			TenantID: tenantID, UserID: userID, Provider: provider, From: w[0], To: w[1],
+// backfillJobs are the backfill jobs of a new connection over policy p: one
+// job per BackfillChunk, the most recent chunk first, so a long history
+// starts with the data a user looks at first. Each chunk is a job of its
+// own: it is retried alone, and the chunks already pulled stay done across
+// a failure or a restart.
+func backfillJobs(tenantID, userID uuid.UUID, provider string, p connector.SyncPolicy, now time.Time) []queue.PullJob {
+	windows := backfillWindows(now, p)
+	jobs := make([]queue.PullJob, 0, len(windows))
+	for i := len(windows) - 1; i >= 0; i-- {
+		jobs = append(jobs, queue.PullJob{
+			TenantID: tenantID, UserID: userID, Provider: provider, From: windows[i][0], To: windows[i][1],
 			Trigger: queue.TriggerBackfill,
-		}); err != nil {
-			return err
+		})
+	}
+	return jobs
+}
+
+// enqueueBackfill adds the backfill jobs of a new connection in tx, over
+// policy p (Deps.backfillPolicy).
+func enqueueBackfill(ctx context.Context, tx pgx.Tx, tenantID, userID uuid.UUID, provider string, p connector.SyncPolicy, now time.Time) error {
+	_, err := queue.EnqueuePulls(ctx, tx, backfillJobs(tenantID, userID, provider, p, now))
+	return err
+}
+
+// backfillPolicy is the provider's sync policy with its backfill set by
+// Deps.BackfillWindow, when that is set: the provider's own value for one
+// that declares less than the default (it keeps less history than that, or
+// allows few calls), the configured window for every other provider.
+func (d Deps) backfillPolicy(slug string) connector.SyncPolicy {
+	p := d.syncPolicy(slug)
+	w := min(d.BackfillWindow, MaxBackfillWindow)
+	if w <= 0 {
+		return p
+	}
+	if p.Backfill < connector.DefaultSyncPolicy().Backfill {
+		w = min(w, p.Backfill)
+	}
+	p.Backfill = w
+	p.BackfillChunk = min(p.BackfillChunk, w)
+	return p
+}
+
+// scheduleAfter is the earliest time a regular pull of a connection can
+// become due again, once the scheduler looked at it in the slot ending at
+// slotEnd: the end of the next slot, or the moment its notifications will
+// count as silent when that comes first (its slots get shorter then).
+func scheduleAfter(slotEnd time.Time, every time.Duration, healthy bool, lastEvent *time.Time) time.Time {
+	next := slotEnd.Add(every)
+	if healthy && lastEvent != nil {
+		if silent := lastEvent.Add(PushSilence); silent.Before(next) {
+			next = silent
 		}
 	}
-	return nil
+	return next
 }
 
 // pullEvery is the regular pull interval of a connection under its
@@ -361,6 +457,10 @@ func reconcileFrom(slotEnd time.Time, p connector.SyncPolicy) time.Time {
 // boundary, once. A connection whose provider is not available on this
 // instance, or is turned off for its tenant, is skipped. Only one instance
 // schedules at a time (advisory lock); the others return 0.
+//
+// A pass only looks at the connections past their schedule_after, which it
+// moves to the end of the connection's slot once it looked: a tick costs
+// what is due, not one check per active connection.
 func (s *Scheduler) Schedule(ctx context.Context) (int, error) {
 	tx, err := s.d.Pool.Begin(ctx)
 	if err != nil {
@@ -411,7 +511,17 @@ func (s *Scheduler) Schedule(ctx context.Context) (int, error) {
 func (s *Scheduler) slugs(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	candidates := s.d.Slugs
 	if candidates == nil {
-		rows, err := tx.Query(ctx, `SELECT DISTINCT provider FROM ohs_sync.connections WHERE status = 'active'`)
+		// A loose scan of connections_provider_user: one index probe per
+		// provider instead of a read of every active connection.
+		rows, err := tx.Query(ctx, `
+			WITH RECURSIVE p AS (
+				(SELECT provider FROM ohs_sync.connections WHERE status = 'active' ORDER BY provider LIMIT 1)
+				UNION ALL
+				SELECT (SELECT c.provider FROM ohs_sync.connections c
+					WHERE c.status = 'active' AND c.provider > p.provider ORDER BY c.provider LIMIT 1)
+				FROM p WHERE p.provider IS NOT NULL
+			)
+			SELECT provider FROM p WHERE provider IS NOT NULL`)
 		if err != nil {
 			return nil, fmt.Errorf("list providers: %w", err)
 		}
@@ -491,89 +601,133 @@ func (s *Scheduler) scheduleConnections(ctx context.Context, tx pgx.Tx, now time
 	if err != nil {
 		return 0, fmt.Errorf("find connections to backfill: %w", err)
 	}
-	for _, k := range fresh {
-		if err := enqueueBackfill(ctx, tx, k.tenant, k.user, k.provider, s.d.syncPolicy(k.provider), now); err != nil {
+	if len(fresh) > 0 {
+		var jobs []queue.PullJob
+		tenants, users, providers := make([]uuid.UUID, len(fresh)), make([]uuid.UUID, len(fresh)), make([]string, len(fresh))
+		for i, k := range fresh {
+			jobs = append(jobs, backfillJobs(k.tenant, k.user, k.provider, s.d.backfillPolicy(k.provider), now)...)
+			tenants[i], users[i], providers[i] = k.tenant, k.user, k.provider
+		}
+		if _, err := queue.EnqueuePulls(ctx, tx, jobs); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE ohs_sync.connections SET initial_backfill_at = $4, updated_at = now()
-			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
-			k.tenant, k.user, k.provider, now); err != nil {
+			UPDATE ohs_sync.connections c SET initial_backfill_at = $4, updated_at = now()
+			FROM unnest($1::uuid[], $2::uuid[], $3::text[]) AS k(tenant_id, user_id, provider)
+			WHERE c.tenant_id = k.tenant_id AND c.user_id = k.user_id AND c.provider = k.provider`,
+			tenants, users, providers, now); err != nil {
 			return 0, fmt.Errorf("mark backfill: %w", err)
 		}
-		n++
+		n += len(fresh)
 	}
 
-	// Regular pulls, the least recently synced first. Each provider has its
-	// own policy (connector.SyncPolicy), passed as one row per provider: its
-	// slot ends (the long interval's while its notifications arrive, the
-	// short one's otherwise), spans (interval plus lookback), lookback,
-	// catch-up bound and reconciliation start for each slot. $3 = silence
-	// cutoff.
+	// Regular pulls, the connections due the longest first. Only those past
+	// their schedule_after are read (connections_schedule), a batch at a
+	// time; each is checked against its slot and its jobs (due), gets a job
+	// when it is, and has its schedule_after moved to the end of its slot
+	// either way, so the next tick does not read it again. Each provider
+	// has its own policy (connector.SyncPolicy), passed as one row per
+	// provider: its slot ends (the long interval's while its notifications
+	// arrive, the short one's otherwise), spans (interval plus lookback),
+	// lookback, catch-up bound and reconciliation start for each slot.
+	// $3 = silence cutoff, $13 = now.
 	pp := s.policyRows(slugs, now)
-	rows, err := tx.Query(ctx, `
-		SELECT c.tenant_id, c.user_id, c.provider, c.synced_through, s.slot_end, s.healthy
-		FROM ohs_sync.connections c
-		JOIN ohs_core.end_users u ON u.tenant_id = c.tenant_id AND u.id = c.user_id AND u.status = 'active'
-		JOIN unnest($1::text[], $4::bool[], $5::timestamptz[], $6::timestamptz[], $7::float8[], $8::float8[],
-		            $9::float8[], $10::float8[], $11::timestamptz[], $12::timestamptz[])
-		     AS p(provider, push, long_slot, short_slot, long_span, short_span, lookback, catchup, long_recon, short_recon)
-		  ON p.provider = c.provider
-		CROSS JOIN LATERAL (
-			SELECT h.healthy,
-			       CASE WHEN h.healthy THEN p.long_slot ELSE p.short_slot END AS slot_end,
-			       CASE WHEN h.healthy THEN p.long_span ELSE p.short_span END AS span,
-			       CASE WHEN h.healthy THEN p.long_recon ELSE p.short_recon END AS recon_from
-			FROM (SELECT coalesce(p.push AND c.last_event_at > $3, false) AS healthy) h
-		) s
-		WHERE c.status = 'active' AND `+providerOn+`
-		  AND c.initial_backfill_at IS NOT NULL AND c.initial_backfill_at < s.slot_end
-		  AND NOT EXISTS (
-			SELECT 1 FROM ohs_sync.pull_jobs j
-			WHERE j.tenant_id = c.tenant_id AND j.user_id = c.user_id AND j.provider = c.provider
-			  -- a pull of one data type does not stand in for the backstop
-			  AND j.data_type IS NULL
-			  AND (j.to_time = s.slot_end
-			       -- any other job counts only if it covers the whole window
-			       -- regularWindow would pull (catch-up and reconciliation
-			       -- included), e.g. a slot job an inbound burst widened
-			       OR (j.to_time > s.slot_end AND j.from_time <= least(s.recon_from, greatest(
-					s.slot_end - make_interval(secs => p.catchup),
-					least(s.slot_end - make_interval(secs => s.span),
-					      coalesce(c.synced_through, s.slot_end) - make_interval(secs => p.lookback)))))))
-		ORDER BY c.last_sync_at NULLS FIRST, c.tenant_id, c.user_id, c.provider
-		LIMIT $2
-		FOR SHARE OF u`, pp.provider, s.cfg.Batch, now.Add(-PushSilence), pp.push, pp.longSlot, pp.shortSlot,
-		pp.longSpan, pp.shortSpan, pp.lookback, pp.catchup, pp.longRecon, pp.shortRecon)
-	if err != nil {
-		return 0, fmt.Errorf("find due connections: %w", err)
-	}
-	type dueConn struct {
-		tenant, user  uuid.UUID
-		provider      string
-		syncedThrough *time.Time
-		slotEnd       time.Time
-		healthy       bool
-	}
-	due, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (dueConn, error) {
-		var k dueConn
-		err := r.Scan(&k.tenant, &k.user, &k.provider, &k.syncedThrough, &k.slotEnd, &k.healthy)
-		return k, err
-	})
-	if err != nil {
-		return 0, fmt.Errorf("find due connections: %w", err)
-	}
-	for _, k := range due {
-		p := s.d.syncPolicy(k.provider)
-		from, to := regularWindow(k.slotEnd, pullEvery(p, k.healthy), p, k.syncedThrough)
-		if err := queue.EnqueuePull(ctx, tx, queue.PullJob{
-			TenantID: k.tenant, UserID: k.user, Provider: k.provider, From: from, To: to,
-		}); err != nil {
+	enqueued := 0
+	for round := 0; round < scheduleRounds && enqueued < s.cfg.Batch; round++ {
+		rows, err := tx.Query(ctx, `
+			SELECT c.tenant_id, c.user_id, c.provider, c.synced_through, c.last_event_at, s.slot_end, s.healthy,
+			       (c.initial_backfill_at IS NOT NULL AND c.initial_backfill_at < s.slot_end
+			        AND NOT EXISTS (
+				SELECT 1 FROM ohs_sync.pull_jobs j
+				WHERE j.tenant_id = c.tenant_id AND j.user_id = c.user_id AND j.provider = c.provider
+				  -- a pull of one data type does not stand in for the backstop
+				  AND j.data_type IS NULL
+				  AND (j.to_time = s.slot_end
+				       -- any other job counts only if it covers the whole window
+				       -- regularWindow would pull (catch-up and reconciliation
+				       -- included), e.g. a slot job an inbound burst widened
+				       OR (j.to_time > s.slot_end AND j.from_time <= least(s.recon_from, greatest(
+						s.slot_end - make_interval(secs => p.catchup),
+						least(s.slot_end - make_interval(secs => s.span),
+						      coalesce(c.synced_through, s.slot_end) - make_interval(secs => p.lookback)))))))) AS due
+			FROM ohs_sync.connections c
+			JOIN ohs_core.end_users u ON u.tenant_id = c.tenant_id AND u.id = c.user_id AND u.status = 'active'
+			JOIN unnest($1::text[], $4::bool[], $5::timestamptz[], $6::timestamptz[], $7::float8[], $8::float8[],
+			            $9::float8[], $10::float8[], $11::timestamptz[], $12::timestamptz[])
+			     AS p(provider, push, long_slot, short_slot, long_span, short_span, lookback, catchup, long_recon, short_recon)
+			  ON p.provider = c.provider
+			CROSS JOIN LATERAL (
+				SELECT h.healthy,
+				       CASE WHEN h.healthy THEN p.long_slot ELSE p.short_slot END AS slot_end,
+				       CASE WHEN h.healthy THEN p.long_span ELSE p.short_span END AS span,
+				       CASE WHEN h.healthy THEN p.long_recon ELSE p.short_recon END AS recon_from
+				FROM (SELECT coalesce(p.push AND c.last_event_at > $3, false) AS healthy) h
+			) s
+			WHERE c.status = 'active' AND c.schedule_after <= $13 AND `+providerOn+`
+			ORDER BY c.schedule_after, c.tenant_id, c.user_id, c.provider
+			LIMIT $2
+			FOR SHARE OF u`, pp.provider, s.cfg.Batch, now.Add(-PushSilence), pp.push, pp.longSlot, pp.shortSlot,
+			pp.longSpan, pp.shortSpan, pp.lookback, pp.catchup, pp.longRecon, pp.shortRecon, now)
+		if err != nil {
+			return 0, fmt.Errorf("find due connections: %w", err)
+		}
+		type candidate struct {
+			tenant, user  uuid.UUID
+			provider      string
+			syncedThrough *time.Time
+			lastEvent     *time.Time
+			slotEnd       time.Time
+			healthy, due  bool
+		}
+		cands, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (candidate, error) {
+			var k candidate
+			err := r.Scan(&k.tenant, &k.user, &k.provider, &k.syncedThrough, &k.lastEvent, &k.slotEnd, &k.healthy, &k.due)
+			return k, err
+		})
+		if err != nil {
+			return 0, fmt.Errorf("find due connections: %w", err)
+		}
+		var (
+			jobs           []queue.PullJob
+			tenants, users []uuid.UUID
+			providers      []string
+			after          []time.Time
+			left           bool
+		)
+		for _, k := range cands {
+			p := s.d.syncPolicy(k.provider)
+			every := pullEvery(p, k.healthy)
+			if k.due {
+				if enqueued == s.cfg.Batch {
+					// The pass is full: this one and those after it stay
+					// due for the next tick.
+					left = true
+					break
+				}
+				from, to := regularWindow(k.slotEnd, every, p, k.syncedThrough)
+				jobs = append(jobs, queue.PullJob{TenantID: k.tenant, UserID: k.user, Provider: k.provider, From: from, To: to})
+				enqueued++
+			}
+			tenants, users, providers = append(tenants, k.tenant), append(users, k.user), append(providers, k.provider)
+			after = append(after, scheduleAfter(k.slotEnd, every, k.healthy, k.lastEvent))
+		}
+		if _, err := queue.EnqueuePulls(ctx, tx, jobs); err != nil {
 			return 0, err
 		}
-		n++
+		if len(tenants) > 0 {
+			if _, err := tx.Exec(ctx, `
+				UPDATE ohs_sync.connections c SET schedule_after = k.schedule_after
+				FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::timestamptz[]) AS k(tenant_id, user_id, provider, schedule_after)
+				WHERE c.tenant_id = k.tenant_id AND c.user_id = k.user_id AND c.provider = k.provider`,
+				tenants, users, providers, after); err != nil {
+				return 0, fmt.Errorf("move schedule_after: %w", err)
+			}
+		}
+		if left || len(cands) < s.cfg.Batch {
+			break
+		}
 	}
-	return n, nil
+	return n + enqueued, nil
 }
 
 // policyRows are the per-provider columns of the regular pull query, one
@@ -630,17 +784,25 @@ func (s *Scheduler) handle(ctx context.Context, job queue.PullJob) {
 			attribute.String(tracing.AttrUserID, job.UserID.String()),
 			attribute.Int(tracing.AttrAttempts, job.Attempts)))
 	outcome := ""
+	start := time.Now()
+	done := s.cfg.Hooks.Work.Busy(s.cfg.JobTimeout + settleLimit)
 	defer func() {
 		if r := recover(); r != nil {
 			log.ErrorContext(ctx, "collect: pull job panicked", "panic", r)
 			outcome = s.settle(ctx, log, job, errors.New("pull job panicked"))
 		}
 		endJobSpan(span, outcome)
+		done()
+		if s.cfg.Hooks.Pulled != nil {
+			s.cfg.Hooks.Pulled(job, outcome, time.Since(start))
+		}
 	}()
 	jobCtx, cancel := context.WithTimeout(ctx, s.cfg.JobTimeout)
 	defer cancel()
-	start := time.Now()
 	stored, err := s.pull(jobCtx, job)
+	if err != nil && ctx.Err() == nil && errors.Is(jobCtx.Err(), context.DeadlineExceeded) {
+		err = jobTimeoutError{err}
+	}
 	job.Stored = stored
 	s.logSync(ctx, log, job, stored, time.Since(start), err)
 	outcome = s.settle(ctx, log, job, err)
@@ -683,6 +845,9 @@ func (s *Scheduler) pull(ctx context.Context, job queue.PullJob) (int, error) {
 	}
 	sink := newPullSink(s.d, job)
 	fetch := func(conn connector.Connection) error {
+		if err := sink.startFetch(ctx); err != nil {
+			return err
+		}
 		if nf, ok := oc.(connector.NotifiedFetcher); ok && job.DataType != "" {
 			return nf.FetchNotified(ctx, conn, job.From, job.To, job.DataType, sink)
 		}
@@ -806,8 +971,15 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 	default:
 		outcome = outcomeFailed
 		msg := safeErr(cause)
-		log.WarnContext(ctx, "collect: pull failed", "error", msg)
-		err = s.q.Fail(ctx, job, errors.New(msg))
+		// The provider being down or unreachable is retried for days, not
+		// minutes: an outage must not leave a hole in a user's history.
+		if retryTransient(job, cause) {
+			log.WarnContext(ctx, "collect: pull failed, the provider is unavailable", "error", msg)
+			err = s.q.FailTransient(ctx, job, errors.New(msg))
+		} else {
+			log.WarnContext(ctx, "collect: pull failed", "error", msg)
+			err = s.q.Fail(ctx, job, errors.New(msg))
+		}
 		if err == nil {
 			if uerr := s.recordFailure(ctx, job, msg); uerr != nil {
 				log.ErrorContext(ctx, "collect: record pull failure", "error", uerr)
@@ -823,6 +995,59 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 		return outcomeSettleError
 	}
 	return outcome
+}
+
+// jobTimeoutError marks the error of a pull that ran into its own time
+// limit (SchedulerConfig.JobTimeout), which no error value tells apart from
+// a provider that did not answer one request in time.
+type jobTimeoutError struct{ error }
+
+func (e jobTimeoutError) Unwrap() error { return e.error }
+
+// jobTimeoutTransientAttempts is how many failed attempts a pull that ran
+// into its own time limit may have behind it and still be retried on the
+// long schedule. A slow provider passes; a window that always takes longer
+// than the limit never will, and is parked at its fifth failure like any
+// other error that repeats.
+const jobTimeoutTransientAttempts = 3
+
+// retryTransient reports whether a failed pull goes on the long retry
+// schedule (queue.FailTransient) rather than the short one.
+func retryTransient(job queue.PullJob, cause error) bool {
+	var timedOut jobTimeoutError
+	if errors.As(cause, &timedOut) {
+		return job.Attempts < jobTimeoutTransientAttempts
+	}
+	return transientPullError(cause)
+}
+
+// providerStatus matches an HTTP status in a connector's error ("oura: GET
+// /sleep: HTTP 503"). Connectors report HTTP errors as text, with the status
+// after "HTTP".
+var providerStatus = regexp.MustCompile(`\bHTTP ([1-5][0-9][0-9])\b`)
+
+// transientPullError reports whether a failed pull is the provider's and
+// should pass on its own: a 5xx answer, a network error (refused, reset,
+// DNS, a connection closed or a response cut short), or a timeout.
+// Everything else (a 4xx, a response that does not parse, a bug) keeps the
+// short retry schedule, and a pull cancelled by a shutdown is not the
+// provider's.
+//
+// The status is the first one the error text names: the connector's own,
+// which comes before anything it quotes from the provider's answer. A 4xx
+// whose body mentions a 5xx is a 4xx. A bare io.EOF is not a network error:
+// the transport reports a closed connection as a net.Error, and what is left
+// is a decoder reading an empty body.
+func transientPullError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var netErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	m := providerStatus.FindStringSubmatch(err.Error())
+	return m != nil && m[1][0] == '5'
 }
 
 // recordSuccess moves the connection's freshness forward and restores it if

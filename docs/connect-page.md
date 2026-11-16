@@ -71,6 +71,23 @@ An unknown link answers 404 and an expired one 410, as a short page that tells t
 back to the app. Expired sessions are purged an hour after they expire, after which the link
 answers 404.
 
+## Present limits
+
+- **`redirect_uri` is https only.** `http` is accepted for `localhost`, `127.0.0.1` and `::1`,
+  and nothing else is: a custom URL scheme such as `myapp://connected` is a 400. To come back
+  into a mobile app, register a universal link (iOS) or an App Link (Android) and pass its https
+  address, or pass an https page of yours that hands over to the app.
+- **English only.** The page, the result page and the provider descriptions are written in
+  English and are not translated; the page does not read the browser's language.
+- **Customization is `app_name` and `logo_url`.** Besides them you choose which providers are
+  listed and in what order. Colours, fonts, layout and wording are fixed; the page follows the
+  device's light or dark setting on its own.
+- **Your server creates the session.** The route takes the tenant key. A user token cannot
+  create a session or start a connection: the `connect` scope can be minted, but no route uses
+  it yet ([API guide](api.md#credentials)).
+- **Cloud providers only.** Apple Health and Health Connect are uploads from an app, not
+  connections, so they are refused in `providers`.
+
 ## Routes
 
 | Route | Auth | Purpose |

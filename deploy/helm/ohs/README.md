@@ -19,6 +19,9 @@ kubectl -n ohs exec deploy/ohs -- /ohs doctor
   (`rawStore.type=s3`) or a `ReadWriteMany` volume to run more.
 - The encryption key is generated on the first install and kept across upgrades and uninstalls,
   unless you pass `encryptionKey` or your own Secret (`existingSecret`).
+- With `splitRoles.enabled`, the `collect` and `etl` pods serve `/healthz`, `/readyz` and
+  `/metrics` on port 8081 and are probed there: a hung worker loop fails `/healthz` and the pod
+  restarts.
 - Ingress, ServiceMonitor, NetworkPolicy, HorizontalPodAutoscaler and PodDisruptionBudget are
   available and off by default.
 

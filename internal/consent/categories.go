@@ -28,12 +28,13 @@ const (
 	Nutrition     = "nutrition"      // food, drinks, water
 	Reproductive  = "reproductive"   // menstrual cycle, ovulation, sexual activity, pregnancy
 	Mental        = "mental"         // mindfulness, state of mind, stress
+	Labs          = "labs"           // lab results (docs/labs.md)
 	Other         = "other"          // anything no category above describes
 )
 
 // Categories lists every category, in documentation order.
 var Categories = []string{Activity, Location, Heart, ECG, BloodPressure, Glucose, Respiratory, Body,
-	Sleep, Nutrition, Reproductive, Mental, Other}
+	Sleep, Nutrition, Reproductive, Mental, Labs, Other}
 
 // Known reports whether c is a category.
 func Known(c string) bool { return slices.Contains(Categories, c) }
@@ -48,6 +49,9 @@ type rule struct {
 }
 
 var rules = []rule{
+	// A lab result is filed by its prefix before any other rule: a glucose
+	// or a cholesterol from a lab is a lab result, not CGM data.
+	{category: Labs, prefixes: []string{"lab:"}},
 	{category: ECG, prefixes: []string{"ecg", "electrocardiogram"}},
 	{category: BloodPressure, prefixes: []string{"blood_pressure"}},
 	{category: Glucose, prefixes: []string{"blood_glucose", "glucose", "insulin"}},

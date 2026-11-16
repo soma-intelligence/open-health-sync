@@ -204,6 +204,14 @@ public class OhsClient(
     public suspend fun uploadBluetoothPart(part: BluetoothPart): UploadResult =
         upload("bluetooth", BluetoothPart.TYPE, part.day, part.batch, part.partNumber, part.body)
 
+    /**
+     * Uploads one part of Health Connect records ([HealthConnectPartBuilder]) to
+     * `POST /v1/ingest/health-connect`, with the retries of [uploadAppleHealthPart]. Send the
+     * same part again until it is stored: a retry is answered `duplicate: true`.
+     */
+    public suspend fun uploadHealthConnectPart(part: HealthConnectPart): UploadResult =
+        upload("health-connect", part.type, part.day, part.batch, part.partNumber, part.body)
+
     private suspend fun upload(route: String, type: String, day: String, batch: String, partNumber: Int, body: ByteArray): UploadResult {
         val headers = mapOf(
             "Content-Type" to "application/gzip",

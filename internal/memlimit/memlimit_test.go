@@ -73,3 +73,16 @@ func TestApply(t *testing.T) {
 	assert.Equal(t, None, src)
 	assert.Zero(t, n)
 }
+
+func TestLow(t *testing.T) {
+	prev := debug.SetMemoryLimit(-1)
+	t.Cleanup(func() { debug.SetMemoryLimit(prev) })
+	debug.SetMemoryLimit(256 << 20)
+	assert.True(t, Low(), "the Pi overlay's GOMEMLIMIT")
+	debug.SetMemoryLimit(LowLimit)
+	assert.True(t, Low())
+	debug.SetMemoryLimit(768 << 20)
+	assert.False(t, Low(), "the default container's derived limit")
+	debug.SetMemoryLimit(math.MaxInt64)
+	assert.False(t, Low(), "no limit")
+}

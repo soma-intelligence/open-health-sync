@@ -83,3 +83,27 @@ func TestJitteredStaysInBand(t *testing.T) {
 	}
 	require.Equal(t, time.Minute, jittered(time.Minute, 0))
 }
+
+// The tick hook is told at the top of every iteration, the one before the
+// first run included, with the task's name and interval.
+func TestSchedulerTicksEveryIteration(t *testing.T) {
+	var runs, ticks atomic.Int32
+	var wrong atomic.Bool
+	s := NewScheduler(0)
+	s.onTick = func(task string, interval time.Duration) {
+		if task != "tick" || interval != 10*time.Millisecond {
+			wrong.Store(true)
+		}
+		ticks.Add(1)
+	}
+	s.Add("tick", 10*time.Millisecond, time.Second, func(context.Context) error { runs.Add(1); return errors.New("boom") })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { s.Run(ctx); close(done) }()
+	require.Eventually(t, func() bool { return runs.Load() >= 3 }, 2*time.Second, 5*time.Millisecond)
+	cancel()
+	<-done
+	require.False(t, wrong.Load())
+	require.Greater(t, ticks.Load(), runs.Load()-1, "one tick before each run, failed or not")
+}

@@ -10,12 +10,18 @@
 #      Apple Health fixture of that release, wait for the ETL, check the
 #      counts against that release's test/e2e/expect.go, then record every
 #      table's row count and the API reads; stop it
-#   4. new binary: migrate up on top of that data (row counts unchanged), then
-#      `ohs up`: /readyz, the same API key and upload token, the same reads
-#      return the same data, the endpoints added since answer, a new user's
-#      upload is processed
-#   5. down migrations back to the old release's schema version, the old
-#      binary serves the same reads again, then up again with the new binary
+#   4. new binary: migrate up on top of that data (row counts unchanged)
+#   5. down migrations back to the old release's schema version, before the
+#      new binary wrote anything: the old binary serves the same reads again,
+#      then up again with the new binary
+#   6. `ohs up`: /readyz, the same API key and upload token, the same reads
+#      return the same data (the rows are still stored clear), the endpoints
+#      added since answer, a new user's upload is processed
+#   7. `ohs vault seal`, with the server running: `ohs vault status` goes from
+#      "still stored clear" to nothing, the reads return the same data, and
+#      neither the database nor the raw store holds a clear health value
+#   8. a down migration below the vault schema is now refused (it would drop
+#      the sealed values); the schema is put back and the server serves again
 #
 # The binaries run on the host (no image build); only Postgres runs in Docker.
 #
@@ -284,6 +290,20 @@ while read -r tbl n; do
 done <"$E2E_WORK/tables-before.txt"
 ok "row counts compared ($(awk '{s += $2} END {print s}' "$E2E_WORK/tables-before.txt") rows before)"
 
+# Before the new binary serves: once it has sealed a row, the vault schema
+# cannot be reverted (step 8).
+step "5. down migrations to $FROM's schema ($OLD_MIGRATION), then up again"
+go run ./test/upgrade/migrateto internal/db/migrations "${DB_URL%%&pool_max_conns=*}" "$OLD_MIGRATION" || die "down migrations to $OLD_MIGRATION"
+check "schema version after the down migrations" "$(schema_version "$OLD_BIN")" "$OLD_MIGRATION"
+start "$OLD_BIN" old-again serve || die "$FROM serve after the down migrations"
+ok "$FROM serves again after the down migrations"
+snapshot "$E2E_WORK/downgraded" "$KEY" "$USER_ID" || die "snapshot on $FROM after the down migrations"
+compare_reads "$E2E_WORK/before" "$E2E_WORK/downgraded" "after down"
+stop || fail "$FROM did not stop cleanly"
+ohs "$NEW_BIN" migrate up >/dev/null || die "migrate up again failed: $(schema_version "$NEW_BIN" || true)"
+check "schema version after up again" "$(schema_version "$NEW_BIN")" "$NEW_MIGRATION"
+
+step "6. this checkout serves $FROM's data"
 start "$NEW_BIN" new up || die "ohs up after the upgrade"
 ok "/readyz 200 after ohs up"
 api GET /v1/providers "$KEY" || true
@@ -330,17 +350,83 @@ eval "$(sed 's/^/NEW_/' <<<"$NEW_EXPECT")"
 check "new user heart rate samples" "$(e2e_count "$KEY" "$USER2" '/samples?type=heart_rate')" "$NEW_HR_COUNT"
 check "new user sleep sessions" "$(e2e_count "$KEY" "$USER2" /sleep)" "$NEW_SLEEP_SESSIONS"
 check "new user workouts" "$(e2e_count "$KEY" "$USER2" /workouts)" "$NEW_WORKOUTS"
+# stored_clear: how many health values the database still holds in clear, in
+# the columns a sealed row keeps NULL.
+stored_clear() {
+  psql_q "SELECT (SELECT count(*) FROM ohs_data.quantity_samples WHERE value IS NOT NULL OR source_name IS NOT NULL OR sealed IS NULL)
+    + (SELECT count(*) FROM ohs_data.category_samples WHERE value_int IS NOT NULL OR sealed IS NULL)
+    + (SELECT count(*) FROM ohs_data.sleep_sessions WHERE total_sleep_seconds IS NOT NULL OR sealed IS NULL)
+    + (SELECT count(*) FROM ohs_data.sleep_phases WHERE phase IS NOT NULL OR sealed IS NULL)
+    + (SELECT count(*) FROM ohs_data.workouts WHERE duration_s IS NOT NULL OR sealed IS NULL)
+    + (SELECT count(*) FROM ohs_data.daily_summaries WHERE step_count IS NOT NULL OR sealed IS NULL)"
+}
+
+# raw_clear: the raw objects in the store that are not sealed ("OHSV" header).
+raw_clear() {
+  local n=0 f
+  while IFS= read -r f; do
+    [ "$(head -c 4 "$f")" = "OHSV" ] || n=$((n + 1))
+  done < <(find "$RAW_DIR" -type f)
+  echo "$n"
+}
+
+step "7. ohs vault seal on $FROM's data, with the server running"
+if out=$(ohs "$NEW_BIN" vault status --check 2>&1); then
+  fail "vault status --check passes before the seal: $out"
+else
+  grep -q 'still stored clear' <<<"$out" && ok "vault status: $(head -n 1 <<<"$out")" || fail "vault status: $out"
+fi
+[ "$(raw_clear)" -gt 0 ] && ok "$(raw_clear) raw objects of $FROM are plain gzip" || fail "no plain raw object before the seal"
+ohs "$NEW_BIN" doctor >"$E2E_WORK/doctor.txt" 2>&1 || true
+grep -q '^ok    vault key provider (local)' "$E2E_WORK/doctor.txt" && ok "doctor: the key provider opens the tenant keys" ||
+  fail "doctor: $(grep -i vault "$E2E_WORK/doctor.txt" || true)"
+grep -q 'vault root key is derived from OHS_ENCRYPTION_KEY' "$E2E_WORK/doctor.txt" && ok "doctor warns that the root key is derived" ||
+  fail "doctor does not warn about the derived root key"
+grep -q 'are still stored clear: run `ohs vault seal`' "$E2E_WORK/doctor.txt" && ok "doctor names what is left to seal" ||
+  fail "doctor: $(grep -i vault "$E2E_WORK/doctor.txt" || true)"
+t=$(date +%s)
+if out=$(ohs "$NEW_BIN" vault seal --batch 100 2>&1); then
+  ok "vault seal in $(($(date +%s) - t)) s: $(head -n 1 <<<"$out")"
+else
+  fail "vault seal: $out"
+fi
+if out=$(ohs "$NEW_BIN" vault status --check 2>&1); then ok "vault status: $out"; else fail "vault status after the seal: $out"; fi
+check "health values left clear in the database" "$(stored_clear)" 0
+check "raw objects left unsealed in the store" "$(raw_clear)" 0
+if out=$(ohs "$NEW_BIN" vault seal 2>&1) && grep -q 'seal: 0 users, 0 rows, 0 raw objects' <<<"$out"; then
+  ok "a second seal finds nothing to do"
+else
+  fail "second vault seal: $out"
+fi
+snapshot "$E2E_WORK/sealed" "$KEY" "$USER_ID" || die "snapshot after the seal"
+compare_reads "$E2E_WORK/before" "$E2E_WORK/sealed" "after seal"
+check "new user heart rate samples after the seal" "$(e2e_count "$KEY" "$USER2" '/samples?type=heart_rate')" "$NEW_HR_COUNT"
+# The sealed raw objects are still read: a part sent again is a duplicate,
+# and a new one is processed.
+e2e_upload_part "$TOKEN" "$(find "$FIXTURE" -name '*.ndjson' | sort | head -n 1)" "$DAY" after-upgrade || true
+[ "$API_CODE" = "200" ] && [ "$(jq -r .duplicate <<<"$API_BODY" 2>/dev/null)" = "true" ] &&
+  ok "a part sent again after the seal is a duplicate" || fail "re-sent part after the seal -> $API_CODE $API_BODY"
+stop || fail "the new server did not stop cleanly"
+start "$NEW_BIN" new-sealed up || die "ohs up after the seal"
+snapshot "$E2E_WORK/restarted" "$KEY" "$USER_ID" || die "snapshot after the restart"
+compare_reads "$E2E_WORK/before" "$E2E_WORK/restarted" "after seal and restart"
 stop || fail "the new server did not stop cleanly"
 
-step "5. down migrations to $FROM's schema ($OLD_MIGRATION), then up again"
-go run ./test/upgrade/migrateto internal/db/migrations "${DB_URL%%&pool_max_conns=*}" "$OLD_MIGRATION" || die "down migrations to $OLD_MIGRATION"
-check "schema version after the down migrations" "$(schema_version "$OLD_BIN")" "$OLD_MIGRATION"
-start "$OLD_BIN" old-again serve || die "$FROM serve after the down migrations"
-ok "$FROM serves again after the down migrations"
-snapshot "$E2E_WORK/downgraded" "$KEY" "$USER_ID" || die "snapshot on $FROM after the down migrations"
-compare_reads "$E2E_WORK/before" "$E2E_WORK/downgraded" "after down"
-stop || fail "$FROM did not stop cleanly"
-start "$NEW_BIN" new-again up || die "ohs up after the down and up migrations"
+step "8. the vault schema cannot be reverted once rows are sealed"
+VAULT_MIGRATION=$(find internal/db/migrations -name '*_vault.up.sql' -exec basename {} \; | sed 's/_.*//; s/^0*//')
+if go run ./test/upgrade/migrateto internal/db/migrations "${DB_URL%%&pool_max_conns=*}" "$OLD_MIGRATION" >"$E2E_WORK/down.txt" 2>&1; then
+  fail "the down migrations passed over sealed rows: their values are gone"
+else
+  ok "down migration $VAULT_MIGRATION refused: $(tail -n 1 "$E2E_WORK/down.txt" | cut -c1-160)"
+fi
+check "health values left clear in the database" "$(stored_clear)" 0
+# The refused migration left the schema where it was, marked dirty one below.
+case "$(schema_version "$NEW_BIN")" in
+  "$((VAULT_MIGRATION - 1)) (dirty)") ok "schema left at $VAULT_MIGRATION, marked $((VAULT_MIGRATION - 1)) (dirty)" ;;
+  *) fail "schema version after the refused down migration: $(schema_version "$NEW_BIN")" ;;
+esac
+ohs "$NEW_BIN" migrate force "$VAULT_MIGRATION" --yes >/dev/null || die "migrate force $VAULT_MIGRATION"
+start "$NEW_BIN" new-again up || die "ohs up after the refused down migration"
 check "schema version after up again" "$(schema_version "$NEW_BIN")" "$NEW_MIGRATION"
 snapshot "$E2E_WORK/again" "$KEY" "$USER_ID" || die "snapshot after up again"
 compare_reads "$E2E_WORK/before" "$E2E_WORK/again" "after up again"

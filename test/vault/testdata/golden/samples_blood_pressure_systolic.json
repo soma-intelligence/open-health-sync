@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "device": "",
+      "device_model": "",
+      "end_date": "2026-09-27T07:13:00Z",
+      "external_id": "",
+      "is_primary_source": true,
+      "metadata": {
+        "synthetic": true,
+        "timezone": "Europe/Paris"
+      },
+      "product_type": "",
+      "provider": "withings",
+      "source": "withings",
+      "source_bundle_id": "",
+      "source_name": "Demo Scale",
+      "start_date": "2026-09-27T07:13:00Z",
+      "type": "blood_pressure_systolic",
+      "unit": "mmHg",
+      "value": 120,
+      "was_user_entered": null
+    }
+  ],
+  "next_cursor": null
+}

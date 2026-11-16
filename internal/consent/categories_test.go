@@ -45,6 +45,9 @@ func TestOf(t *testing.T) {
 		"reported_muscle_soreness":     Activity,
 		"reported_exertion":            Activity,
 		"reported_pain":                Other,
+		"lab:loinc:2345-7":             Labs,
+		"lab:local:glucose":            Labs,
+		"lab:loinc:8867-4":             Labs,
 	}
 	for name, want := range cases {
 		assert.Equal(t, want, Of(name), name)

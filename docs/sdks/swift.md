@@ -14,23 +14,39 @@ since the last run. It follows the shape every SDK shares ([overview](README.md)
 
 ## Install
 
-Nothing is published yet. Add the package from a checkout of this repository, by path:
+Add the package with Swift Package Manager, by the URL of this repository:
 
 ```swift
 // Package.swift of your app or backend
 dependencies: [
-    .package(path: "path/to/open-health-sync/sdks/swift"),
+    .package(url: "https://github.com/soma-intelligence/open-health-sync", from: "0.3.0"),
 ],
 targets: [
     .target(name: "MyApp", dependencies: [
-        .product(name: "OpenHealthSync", package: "OpenHealthSync"),
-        .product(name: "OpenHealthSyncHealthKit", package: "OpenHealthSync"), // iOS apps
+        .product(name: "OpenHealthSync", package: "open-health-sync"),
+        .product(name: "OpenHealthSyncHealthKit", package: "open-health-sync"), // iOS apps
     ]),
 ]
 ```
 
-In Xcode, *File > Add Package Dependencies > Add Local* and pick `sdks/swift`. The package name and
-the way to depend on it may change with the first release.
+In Xcode, *File > Add Package Dependencies*, paste the URL and pick the libraries.
+
+The URL works from the first version tag that contains the `Package.swift` at the root of the
+repository, which is `v0.3.0`: the tags before it have no manifest there and cannot be resolved.
+The root manifest only exposes the three libraries; the sources stay in `sdks/swift`. Swift
+Package Manager clones the whole repository, server included, and builds only the Swift targets.
+
+Before that tag, or to work on the SDK, depend on a checkout by path. The package is then named
+after the folder:
+
+```swift
+dependencies: [
+    .package(path: "path/to/open-health-sync"),
+],
+// products as above, package: "open-health-sync"
+```
+
+In Xcode, *File > Add Package Dependencies > Add Local* and pick the checkout.
 
 ## Create a client
 
@@ -87,9 +103,24 @@ for try await workout in OHSClient.items({ cursor in
 `OHSClient.pages` gives the pages instead of the records, and `OHSClient.allItems` collects them
 into an array. The other read calls are `listCategorySamples`, `listSleep`, `listSleepPhases`,
 `listWorkouts`, `getWorkoutRoute`, `listNutrition`, `listDaily`, `getCoverage`,
-`listConnections` and `getFreshness`. Times are `Date`, read with up to nine fractional digits;
+`listConnections`, `getFreshness`, and, for the heart: `listECGRecordings` and `getECGRecording`
+(one recording with its voltages as two parallel arrays, `samples.offsetsS` and
+`samples.voltagesUv`), `listRRIntervals` (beat to beat intervals) and `listHRV` (RMSSD, SDNN and
+pNN50 per heartbeat series; nil when too few intervals were accepted). Times are `Date`, read with up to nine fractional digits;
 `date` fields stay `YYYY-MM-DD` strings because they are the user's local day. `metadata` and
 `nutrients` are `[String: JSONValue]`.
+
+Statistics are not paged: count, sum, mean, min and max per hour or per local day, one row per
+interval from the best ranked source (`view: .all` gives one series per source instead).
+
+```swift
+let stats = try await ohs.sampleStats(
+    userId: userId, type: "step_count", start: "2026-01-01", end: "2026-02-01",
+    interval: .day, timeZone: "Europe/Paris")
+for bucket in stats.buckets {
+    print(bucket.start, bucket.sum)
+}
+```
 
 FHIR R4 Observations come back as JSON, with the next cursor already parsed:
 
@@ -124,12 +155,52 @@ session.start()
 `deleteConnection(userId:provider:)` disconnects; `listConnections` and `getFreshness` tell how up
 to date each source is.
 
+To let the user pick among several providers without a screen of your own, create a link to the
+[hosted connection page](../connect-page.md) instead. The token in the link is the page's only
+credential: give it to this user only.
+
+```swift
+// Backend
+let page = try await ohs.createConnectSession(
+    userId: userId, redirectUri: "myapp://ohs/connected", providers: ["oura", "withings"],
+    appName: "My App", ttlSeconds: 900)
+// page.url goes to the app, which opens it the same way; page.expiresAt says until when.
+```
+
+## Tags and self reports
+
+A [time tag](../time-tags.md) is an interval that gives context to the data (an illness, a trip):
+`createTimeTag`, `listTimeTags`, `getTimeTag`, `updateTimeTag` and `deleteTimeTag`, with the tenant
+key. In a change, a member left alone stays as it is, and `.clear` sends null.
+
+```swift
+let tag = try await ohs.createTimeTag(
+    userId: userId, tag: NewTimeTag(kind: .travel, startAt: "2026-03-01", label: "Tokyo", timeZone: "Asia/Tokyo"))
+var change = TimeTagChange()
+change.endAt = .set("2026-03-10")
+_ = try await ohs.updateTimeTag(userId: userId, tagId: tag.id, change: change)
+```
+
+[Self reports](../self-reports.md) are the person's own ratings (mood, stress, energy, sleep
+quality, soreness, exertion, pain). `createSelfReports` also works from the app, with a user token
+holding the `upload` scope; the reports are read back as samples of type `reported_<kind>`.
+
+```swift
+let result = try await uploads.createSelfReports(
+    userId: userId,
+    reports: [NewSelfReport(id: UUID().uuidString, kind: .mood, value: 4, startAt: Date(),
+                            timeZone: TimeZone.current.identifier)])
+```
+
+Give each report an `id` of your own: sending it again then replaces the value instead of
+recording it twice.
+
 ## Upload
 
 The app uploads HealthKit-shaped lines as parts ([line formats](../connectors/apple-health.md#line-formats)).
 `HealthKitSync` ([below](#healthkit-sync)) does all of it; to send lines of your own, build them
-with `QuantityLine`, `CategoryLine`, `WorkoutLine` or `CorrelationLine`, or as a raw
-`[String: JSONValue]`, and let `AppleHealthPartBuilder` cut the parts:
+with `QuantityLine`, `CategoryLine`, `WorkoutLine`, `CorrelationLine`, `HeartbeatSeriesLine`,
+`AudiogramLine` or `StateOfMindLine`, or as a raw `[String: JSONValue]`, and let `AppleHealthPartBuilder` cut the parts:
 
 ```swift
 let now = Date()
@@ -167,13 +238,7 @@ import OpenHealthSync
 import OpenHealthSyncHealthKit
 
 let store = HKHealthStore()
-let types: Set<HKSampleType> = [
-    HKQuantityType.quantityType(forIdentifier: .heartRate)!,
-    HKQuantityType.quantityType(forIdentifier: .stepCount)!,
-    HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)!,
-    HKCorrelationType.correlationType(forIdentifier: .bloodPressure)!,
-    HKObjectType.workoutType(),
-]
+let types = HealthKitSync.allSupportedTypes  // everything the server stores
 let healthSync = HealthKitSync(store: store, client: uploads)
 
 try await healthSync.requestAuthorization(for: types)
@@ -182,8 +247,29 @@ print(report.linesUploaded, report.partsUploaded, report.skippedSamples)
 ```
 
 `requestAuthorization` shows the system sheet once. HealthKit never tells an app whether read
-access was granted: a declined type returns no samples. Ask for blood pressure through the
-correlation type: its systolic and diastolic members then travel together.
+access was granted: a declined type returns no samples.
+
+**Which types.** `HealthKitSync.allSupportedTypes` is every type the server stores that the OS
+version has: quantities, nutrition, categories and sleep, workouts and their routes, ECG
+recordings, heartbeat series, audiograms and states of mind (iOS 18). It is built from one table,
+`AppleHealthTypes`, which is also what the sync reads samples by, so the set and the sync cannot
+disagree; a test compares the table with the server's own. To ask for less, take the subsets
+(`quantityTypes`, `nutritionTypes`, `categoryTypes`, `workoutTypes`, `heartRhythmTypes`) or build a
+set by hand:
+
+```swift
+let types = HealthKitSync.workoutTypes.union(HealthKitSync.heartRhythmTypes).union([
+    HKQuantityType.quantityType(forIdentifier: .heartRate)!,
+    HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)!,
+])
+```
+
+A workout route is only readable when workouts are too, so keep the two together. Correlations
+(blood pressure, food) are not in `allSupportedTypes`: their members are quantity samples of types
+that are, and sending a food correlation next to its nutrients would store the meal twice. You can
+still sync `HKCorrelationType` for blood pressure instead of the two quantity types; its members
+then travel in one line. `requestAuthorization` asks for the member types in its place, since
+HealthKit refuses an authorization request for a correlation type.
 
 **Background delivery.** Call `enableBackgroundDelivery` at every launch, after authorization,
 from `application(_:didFinishLaunchingWithOptions:)`. It turns on HealthKit's background delivery
@@ -200,6 +286,49 @@ try await healthSync.enableBackgroundDelivery(for: types, frequency: .immediate)
 iOS decides how often it actually wakes the app; `.immediate` is a request, and step counts are
 delivered at most hourly whatever you ask.
 
+**Catching up.** Background delivery covers new and deleted samples while the device is unlocked
+enough for HealthKit to be read. It does not retry: when a wake finds no network, an expired token
+or a locked device, the sync fails, the anchor stays where it was, and nothing runs again until
+HealthKit reports another change of that type or the user opens the app. It also stops after the
+user force quits the app, until the next launch. Two things close the gap, and the SDK needs no
+helper for them because a catch-up is one more `sync` call:
+
+1. Call `sync` when the app comes to the foreground.
+2. Schedule a background refresh with `BGTaskScheduler`. Add the *Background fetch* mode and your
+   task identifier under `BGTaskSchedulerPermittedIdentifiers` in `Info.plist`, register before
+   the end of `application(_:didFinishLaunchingWithOptions:)`, and schedule again from the task.
+
+```swift
+import BackgroundTasks
+
+let catchUpTask = "com.example.myapp.health-catch-up"
+
+func registerCatchUp(_ healthSync: HealthKitSync, types: Set<HKSampleType>) {
+    BGTaskScheduler.shared.register(forTaskWithIdentifier: catchUpTask, using: nil) { task in
+        scheduleCatchUp()  // the next one
+        let work = Task {
+            do {
+                _ = try await healthSync.sync(types: types)
+                task.setTaskCompleted(success: true)
+            } catch {
+                task.setTaskCompleted(success: false)
+            }
+        }
+        task.expirationHandler = { work.cancel() }
+    }
+}
+
+func scheduleCatchUp() {
+    let request = BGAppRefreshTaskRequest(identifier: catchUpTask)
+    request.earliestBeginDate = Date(timeIntervalSinceNow: 4 * 3600)
+    try? BGTaskScheduler.shared.submit(request)
+}
+```
+
+A sync cut short by the expiration is safe: the anchor of a type only moves once its round is
+uploaded. HealthKit cannot be read while the device is locked, so a refresh that runs then fails
+and the next one catches up.
+
 **What is sent.** One line per new sample, in the [line format](../connectors/apple-health.md#line-formats):
 
 | HealthKit sample | Line |
@@ -208,14 +337,32 @@ delivered at most hourly whatever you ask.
 | `HKCategorySample` | `categoryType` and its integer `value`; sleep analysis becomes sleep sessions and phases |
 | `HKWorkout` | `workoutActivityType` raw value, `durationS`, `totalDistance` in metres, `totalEnergyBurned` in kilocalories, heart rate average, minimum and maximum (iOS 16+) |
 | `HKCorrelation` | `correlationType` and its quantity `objects` (blood pressure, food) |
+| `HKWorkoutRoute` | one line per GPS point (`timestamp`, `latitude`, `longitude`, and `altitude`, `speed`, `course` when valid), read with `HKWorkoutRouteQuery`. Every part starts with the line of the route's workout, which is how the server knows whose points they are |
+| `HKElectrocardiogram` | the recording (`classification` and `symptomsStatus` raw values, `averageHeartRate`, `samplingFrequency` in hertz, `numberOfVoltageMeasurements`), then one line per voltage (`timeSinceSampleStart`, `value` in volts), read with `HKElectrocardiogramQuery`, in the same part |
+| `HKHeartbeatSeriesSample` | one line with the whole series in `heartbeats` (`timeSinceSeriesStart`, `precededByGap`), read with `HKHeartbeatSeriesQuery`; the server stores the RR intervals |
+| `HKAudiogramSample` | the sensitivity points (`frequency` in hertz, `leftEarSensitivity` and `rightEarSensitivity` in dBHL) |
+| `HKStateOfMind` (iOS 18) | the raw values of its kind, labels and associations, and its valence |
 
 Every line carries `startDate`, `endDate`, `sourceName`, `sourceBundleId`, `device`, `deviceModel`,
 `productType`, `deviceManufacturer`, the hardware, software and OS versions, `wasUserEntered`, the
 sample `uuid`, and `metadata`: HealthKit's metadata with numbers and booleans kept, dates as
 RFC 3339 and quantities as text (`1.25 m/s`). When HealthKit recorded no `HKTimeZone`, the device
-zone is written there, so the server counts the sample on the user's local day. A quantity type
-the server does not store, or whose unit does not fit, is left out and counted in
-`report.skippedSamples`.
+zone is written there, so the server counts the sample on the user's local day. A sample of a
+type that is not in `AppleHealthTypes`, or whose unit does not fit, is left out and counted in
+`report.skippedSamples`. GPS points and voltages carry only their own fields.
+
+**Routes and ECG.** These follow the same anchors, deletions and resume rules as the other types,
+with two differences. A round reads at most `seriesQueryLimit` of them (25), so the anchor is
+saved often. And their data is never held whole: points and voltages are read a batch at a time
+and uploaded in parts of at most `seriesPartBytes` of NDJSON (2 MiB), one batch id per route or
+recording; the query is held back while an upload is in flight. An Apple Watch ECG fits in one
+part. A long route takes several, and each repeats the workout line, which the server stores once.
+When the workout of a route cannot be read (workouts not authorized) its points go alone, and the
+server attaches them to a stored workout that overlaps them in time, or drops them when there is
+none. A heartbeat series of more than 5000 beats is cut into several lines that share one beat at
+each cut, so every interval is still computed once. The server keeps no record under the UUID of a
+route, and does not apply the deletion of an ECG or a heartbeat series (see the connector page);
+their deletion lines are sent like the others.
 
 **Deleted and edited samples.** The anchored query also returns the samples deleted since the
 anchor (`HKDeletedObject`). Each becomes a [deletion line](../connectors/apple-health.md#deletions),
@@ -331,8 +478,11 @@ swift test
 The tests need no server and run on macOS and Linux. They check the requests (method, path,
 query, headers), decode an answer for every record type, the error mapping, the retries, paging,
 the part builder and its gzip output, and that the upload lines match the server's own fixture
-`connectors/applehealth/testdata/ios_upload_lines.ndjson`. The HealthKit library needs a device or
-simulator and has no automated tests here.
+`connectors/applehealth/testdata/ios_upload_lines.ndjson`. The anchored sync (parts, deletions,
+anchors, the chunked upload of routes and ECG recordings) runs against fakes, and on macOS the
+type table is checked against HealthKit's own identifiers and against the server's
+`connectors/applehealth/types.go`. Reading from a real HealthKit store needs a device or a
+simulator and has no automated test here.
 
 ## Run the example
 

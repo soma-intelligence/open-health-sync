@@ -12,6 +12,8 @@ import (
 	_ "time/tzdata" // a sample's zone must resolve on a host without a zone database
 
 	"github.com/google/uuid"
+
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // Menstrual cycles are derived at read time from the menstrual_flow category
@@ -45,6 +47,11 @@ var MaxCycleScanSamples = 50000
 var cycleChunk = 1000
 
 const categoryMenstrualFlow = "menstrual_flow"
+
+// flowSel reads a flow sample: its label is sealed on a sealed row. The zone
+// of the sample is read beside it, from the metadata of a clear row and from
+// the clear tz column the writer fills on a sealed one.
+var flowSel = vault.Select("category_samples", `id, start_date, value_label, provider`)
 
 // flowRank orders the flow labels; the heaviest of a day is kept. A label
 // outside the list (or none) is flow of unknown amount, "unspecified".
@@ -103,6 +110,7 @@ func MenstrualCycles(ctx context.Context, db Querier, tenantID, userID uuid.UUID
 	}
 
 	s := newCycleScan(w)
+	keys := keysFor(ctx, tenantID, userID)
 	var from time.Time
 	if w.hasLower {
 		// A flow day within PeriodGapDays+1 days before the lower bound
@@ -133,8 +141,8 @@ func MenstrualCycles(ctx context.Context, db Querier, tenantID, userID uuid.UUID
 			args = append(args, from)
 			where += " AND start_date >= $4"
 		}
-		rows, err := db.Query(ctx, `SELECT id, start_date, coalesce(value_label, ''), provider,
-				coalesce(metadata->>'timezone', '')
+		rows, err := db.Query(ctx, `SELECT `+flowSel.List("")+`,
+				coalesce(CASE WHEN sealed IS NULL THEN metadata->>'timezone' ELSE tz END, '')
 			FROM ohs_data.category_samples WHERE `+where+`
 			ORDER BY start_date, id LIMIT `+strconv.Itoa(size), args...)
 		if err != nil {
@@ -143,9 +151,13 @@ func MenstrualCycles(ctx context.Context, db Querier, tenantID, userID uuid.UUID
 		got, counted := 0, 0
 		for rows.Next() {
 			r := flowRow{Type: categoryMenstrualFlow}
-			if err := rows.Scan(&lastID, &r.Start, &r.Label, &r.Provider, &r.TZ); err != nil {
+			var label *string
+			if err := flowSel.Scan(ctx, keys, rows, []any{&lastID, &r.Start, &label, &r.Provider}, &r.TZ); err != nil {
 				rows.Close()
 				return Page[MenstrualCycle]{}, fmt.Errorf("read: menstrual cycles: scan: %w", err)
+			}
+			if label != nil {
+				r.Label = *label
 			}
 			lastT = r.Start
 			got++

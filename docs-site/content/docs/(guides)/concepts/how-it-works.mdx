@@ -23,7 +23,9 @@ schedule in case one was lost ([background sync](/documentation/concepts/backgro
 ### Keep the raw payload
 
 Before anything else, the payload is written to the **raw store** (a local folder or any S3
-compatible bucket), verbatim, as gzip NDJSON. A raw object is never rewritten. In the same
+compatible bucket), verbatim, as gzip NDJSON sealed to the user's key by the health data vault
+([security model](/documentation/concepts/security-model)). A raw object is never rewritten,
+except once by `ohs vault seal` for an object an earlier version stored in clear. In the same
 transaction as its registry row, a job is queued in Postgres.
 
 </Step>

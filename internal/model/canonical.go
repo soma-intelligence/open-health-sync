@@ -301,6 +301,16 @@ type Observation struct {
 	S3Ref           string // pointer if a blob backs this observation
 	ContentHash     string // Set via ObservationContentHash for dedup
 	Metadata        map[string]any
+	// ExternalID is the source's id of the record. With Replaceable, a later
+	// copy with the same id replaces the stored one whole, also under another
+	// TS (a lab result amended or corrected).
+	ExternalID string
+	// ReportID is the source's id of the report a lab result belongs to.
+	ReportID string
+	// Replaceable is a writer instruction, not a column: the latest copy of
+	// the source record (same provider and ExternalID) replaces every stored
+	// copy of it, value, unit and metadata included.
+	Replaceable bool
 }
 
 // MapResult holds all canonical records produced from a single input record.

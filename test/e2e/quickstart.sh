@@ -15,6 +15,9 @@
 #   8. read samples (heart rate, steps, SpO2), sleep and workouts back (tenant key)
 #   9. ohs admin personal setup, the same upload for that person, then every
 #      recipe of recipes/ against it (built with go)
+#  10. the vault, with only OHS_ENCRYPTION_KEY set as the quickstart leaves
+#      it: ohs doctor opens the key provider, ohs vault status finds nothing
+#      stored clear, and the database holds no clear value
 #
 # The counts read back must equal what test/e2e/expect.go computes from the
 # fixture (connectors/applehealth/testdata/e2e).
@@ -149,5 +152,21 @@ else
   grep -q "no resting heart rate or HRV" <<<"$out" && ok "recipe heart-trend explains missing data" ||
     fail "heart-trend: $out"
 fi
+
+step "10. the vault: every health value is sealed"
+if out=$(e2e_compose exec -T ohs /ohs vault status --check 2>&1); then
+  ok "ohs vault status: $out"
+else
+  fail "ohs vault status --check: $out"
+fi
+out=$(e2e_compose exec -T ohs /ohs doctor 2>&1) || true
+grep -q '^ok    vault key provider (local) (opens the tenant keys)' <<<"$out" && ok "doctor: the key provider opens the tenant keys" ||
+  fail "doctor: $(grep -i vault <<<"$out" || true)"
+grep -q 'vault root key is derived from OHS_ENCRYPTION_KEY' <<<"$out" && ok "doctor warns that the root key is derived from OHS_ENCRYPTION_KEY" ||
+  fail "doctor does not warn about the derived root key"
+check "sample values stored clear" "$(psql_q "SELECT count(*) FROM ohs_data.quantity_samples WHERE value IS NOT NULL OR source_name IS NOT NULL OR sealed IS NULL" || true)" 0
+check "sleep and workout rows stored clear" "$(psql_q "SELECT (SELECT count(*) FROM ohs_data.sleep_sessions WHERE sealed IS NULL) + (SELECT count(*) FROM ohs_data.workouts WHERE sealed IS NULL)" || true)" 0
+stored=$(psql_q "SELECT count(*) FROM ohs_data.quantity_samples WHERE sealed IS NOT NULL" || true)
+[ "${stored:-0}" -gt 0 ] && ok "$stored samples stored sealed" || fail "no sealed sample stored"
 
 e2e_summary
