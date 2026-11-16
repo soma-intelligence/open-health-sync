@@ -44,11 +44,15 @@ describe("setup page", () => {
       "GET /v1/setup": { body: { needed: true } },
       "POST /v1/setup": { status: 201, body: { tenant_id: TENANT, api_key: KEY } },
     });
-    renderWithApp(null, { session: null, api, route: "/console/setup" });
+    // A signed-in session holds a CSRF token, so only `anonymous` keeps it off the wire.
+    renderWithApp(null, { session, api, route: "/console/setup" });
     await userEvent.type(await screen.findByLabelText("Setup token"), "  tok ");
     await userEvent.click(screen.getByRole("button", { name: "Create the first tenant" }));
     await screen.findByText(TENANT);
+    expect(api.callsTo("GET /v1/setup").length).toBeGreaterThan(0);
+    expect(api.callsTo("POST /v1/setup")).toHaveLength(1);
     for (const call of [...api.callsTo("GET /v1/setup"), ...api.callsTo("POST /v1/setup")]) {
+      expect(call.credentials).toBe("omit");
       expect(call.headers["x-ohs-csrf"]).toBeUndefined();
       expect(call.headers.authorization).toBeUndefined();
     }

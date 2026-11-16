@@ -9,6 +9,8 @@ export interface FakeCall {
   headers: Record<string, string>;
   /** The parsed JSON body, or undefined. */
   body: unknown;
+  /** The credentials mode the call was sent with, if any. */
+  credentials: RequestCredentials | undefined;
 }
 
 export interface FakeReply {
@@ -45,6 +47,7 @@ export function fakeApi(routes: Record<string, FakeHandler>): FakeApi {
       path,
       headers: Object.fromEntries(new Headers(init?.headers).entries()),
       body: parseBody(init?.body),
+      credentials: init?.credentials,
     };
     calls.push(call);
     const bare = path.split("?")[0] ?? path;

@@ -101,6 +101,12 @@ describe("createClient", () => {
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
   });
 
+  it("a 401 on an anonymous request leaves the session alone", async () => {
+    const { api, onUnauthorized } = setup([() => problem(401, { title: "Unauthorized", detail: "no" })]);
+    await expect(api.request("GET", "/v1/setup", { anonymous: true })).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
   it("a stale CSRF token is refreshed once and the write retried once", async () => {
     const stale = () => problem(403, { title: "Forbidden", detail: CSRF_REFUSED });
     const created = () => new Response('{"id":"u1"}', { status: 201, headers: { "Content-Type": "application/json" } });

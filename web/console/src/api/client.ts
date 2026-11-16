@@ -140,7 +140,8 @@ export function createClient(deps: ClientDeps): ApiClient {
     if (!res.ok) {
       const p = await readProblem(res);
       const signIn = method === "POST" && path === SESSION_PATH;
-      if (res.status === 401 && !signIn) deps.onUnauthorized();
+      // An anonymous call carries no session, so its 401 says nothing about it.
+      if (res.status === 401 && !signIn && !opts.anonymous) deps.onUnauthorized();
       throw new ApiError(res.status, p.detail, p.requestId, p.body);
     }
 
