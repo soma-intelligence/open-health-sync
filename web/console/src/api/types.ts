@@ -33,6 +33,7 @@ export type KeyScope = Schemas["KeyScope"];
 export type CreateKeyRequest = Schemas["CreateKeyRequest"];
 export type KeyList = JsonOf<"/v1/keys", "get", 200>;
 export type AuditEvent = Schemas["AuditEvent"];
+export type AuditList = JsonOf<"/v1/audit", "get", 200>;
 
 export type Setting = Schemas["AdminSetting"];
 export type SettingsList = Schemas["AdminSettings"];
