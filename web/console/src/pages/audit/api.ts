@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
-import type { AdminTenant, AuditList } from "../../api/types";
+import type { AdminTenantList, AuditList } from "../../api/types";
 import { useApi, useIsAdmin } from "../../session/SessionProvider";
 import { useSettingsQuery } from "../settings/api";
 
@@ -41,17 +41,13 @@ export function useAuditQuery(filter: AuditFilter, cursor: string | undefined) {
   });
 }
 
-interface TenantPage {
-  data?: AdminTenant[];
-}
-
 /** GET /v1/admin/tenants, for an instance admin session only. */
 export function useAdminTenantsQuery() {
   const api = useApi();
   const admin = useIsAdmin();
   return useQuery({
     queryKey: ["admin-tenants"],
-    queryFn: () => api.get<TenantPage>("/v1/admin/tenants"),
+    queryFn: () => api.get<AdminTenantList>("/v1/admin/tenants"),
     enabled: admin,
   });
 }

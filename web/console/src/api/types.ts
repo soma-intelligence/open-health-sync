@@ -18,6 +18,8 @@ export type ConsoleTenant = Schemas["ConsoleTenant"];
 export type Problem = Schemas["Problem"];
 export type Tenant = Schemas["Tenant"];
 export type AdminTenant = Schemas["AdminTenant"];
+/** One page of GET /v1/admin/tenants; PageBase types data as unknown[], so the rows are narrowed to AdminTenant. */
+export type AdminTenantList = Omit<JsonOf<"/v1/admin/tenants", "get", 200>, "data"> & { data?: AdminTenant[] };
 export type User = Schemas["User"];
 export type CreateUserRequest = Schemas["CreateUserRequest"];
 /** One page of GET /v1/users, as the schema says it. */
