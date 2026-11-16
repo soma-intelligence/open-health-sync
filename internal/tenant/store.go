@@ -478,10 +478,16 @@ func (s *Store) EnsureUser(ctx context.Context, tenantID uuid.UUID, externalRef 
 	return u, false, nil
 }
 
+// UserFilter narrows ListUsers. The zero value keeps every user.
+type UserFilter struct {
+	ExternalRef string // exact match; empty means no filter
+}
+
 // ListUsers pages through a tenant's active users, oldest first. A user being
 // deleted is not listed. The returned cursor is empty on the last page.
-// limit <= 0 means 100; it is capped at 1000.
-func (s *Store) ListUsers(ctx context.Context, tenantID uuid.UUID, cursor string, limit int) ([]User, string, error) {
+// limit <= 0 means 100; it is capped at 1000. A filter with an ExternalRef
+// keeps only the user whose external_ref is exactly that.
+func (s *Store) ListUsers(ctx context.Context, tenantID uuid.UUID, f UserFilter, cursor string, limit int) ([]User, string, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
@@ -499,8 +505,9 @@ func (s *Store) ListUsers(ctx context.Context, tenantID uuid.UUID, cursor string
 		`SELECT `+userColumns+`
 		 FROM ohs_core.end_users
 		 WHERE tenant_id = $1 AND status = 'active' AND (created_at, id) > ($2, $3)
+		   AND ($5 = '' OR external_ref = $5)
 		 ORDER BY created_at, id LIMIT $4`,
-		tenantID, afterTime, afterID, limit+1)
+		tenantID, afterTime, afterID, limit+1, f.ExternalRef)
 	if err != nil {
 		return nil, "", fmt.Errorf("tenant: list users: %w", err)
 	}

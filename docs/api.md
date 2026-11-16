@@ -178,8 +178,8 @@ curl -s -X POST $OHS/v1/users -H "Authorization: Bearer $KEY" \
 ```
 
 `external_ref` is your own identifier, unique per tenant (a second user with the same one is a
-409); it may be omitted. `GET /v1/users` pages through the tenant's users, `GET /v1/users/{id}`
-returns one.
+409); it may be omitted. `GET /v1/users` pages through the tenant's users (`?external_ref=` keeps the one user with
+exactly that reference), `GET /v1/users/{id}` returns one.
 
 A user has a time zone, `timezone` (an IANA name such as `Europe/Paris`, or null), with
 `timezone_source` saying where it came from. It is the zone of the local day of a sample that
@@ -724,8 +724,8 @@ resume with `Last-Event-ID` within 24 hours. See [events-stream.md](events-strea
 Every request authenticated with a tenant key or a user token, every key command of
 `ohs admin` and every completed erasure is recorded in an append-only audit log: the credential,
 the action, the user it concerns, the route pattern and the status, never a value read or
-written. Read it with `GET /v1/audit` (tenant key; filters `user_id`, `action`, `since`,
-`until`). Details: [audit-log.md](audit-log.md).
+written. Read it with `GET /v1/audit` (tenant key; filters `user_id`, `action`, `actor_type`,
+`actor_id`, `since`, `until`). Details: [audit-log.md](audit-log.md).
 
 ## Consent
 

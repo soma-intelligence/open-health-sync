@@ -171,3 +171,24 @@ func TestActorTenantRecordedAndListed(t *testing.T) {
 	assert.Nil(t, got[2].ActorTenantID)
 	assert.Equal(t, &actor, got[3].ActorTenantID)
 }
+
+func TestListFilterByActor(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+	tn := uuid.New()
+	for _, id := range []string{"k1", "k1", "k2"} {
+		require.NoError(t, audit.Record(ctx, pool, audit.Event{Tenant: tn, ActorType: audit.APIKey, ActorID: id,
+			Action: audit.DataRead, Method: "GET", Route: "GET /v1/x", Status: 200}))
+	}
+	require.NoError(t, audit.Record(ctx, pool, audit.Event{Tenant: tn, ActorType: audit.System, ActorID: "k1",
+		Action: audit.UserErased}))
+
+	got, _, err := audit.List(ctx, pool, tn, audit.Filter{ActorType: audit.APIKey, ActorID: "k1"})
+	require.NoError(t, err)
+	assert.Len(t, got, 2)
+	got, _, err = audit.List(ctx, pool, tn, audit.Filter{ActorType: audit.APIKey})
+	require.NoError(t, err)
+	assert.Len(t, got, 3)
+}

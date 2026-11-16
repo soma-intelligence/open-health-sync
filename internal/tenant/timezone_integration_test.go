@@ -53,7 +53,7 @@ func TestUserTimezone(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Equal(t, "Asia/Tokyo", ensured.Timezone)
-	users, _, err := s.ListUsers(ctx, ten.ID, "", 10)
+	users, _, err := s.ListUsers(ctx, ten.ID, tenant.UserFilter{}, "", 10)
 	require.NoError(t, err)
 	zones := map[string]string{}
 	for _, l := range users {

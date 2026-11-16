@@ -6714,6 +6714,8 @@ export interface operations {
     listUsers: {
         parameters: {
             query?: {
+                /** @description Only the user with exactly this `external_ref` (at most one row). */
+                external_ref?: string;
                 /** @description The next_cursor of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
@@ -12454,6 +12456,10 @@ export interface operations {
                 user_id?: string;
                 /** @description An exact action (`data.export`), or a prefix ending in a dot (`data.`). */
                 action?: string;
+                /** @description Only events of this kind of credential. */
+                actor_type?: "api_key" | "user_token" | "admin" | "system" | "share_link";
+                /** @description Only events of this credential (a key id, a token id). Needs `actor_type`, else 400. */
+                actor_id?: string;
                 /** @description Events at or after this time (RFC 3339 or YYYY-MM-DD). */
                 since?: string;
                 /** @description Events before this time (RFC 3339 or YYYY-MM-DD). */

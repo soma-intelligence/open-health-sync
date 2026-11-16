@@ -313,6 +313,7 @@ class OpenHealthSync:
     def list_users(
         self,
         *,
+        external_ref: Optional[str] = None,
         cursor: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> ListUsersResponse:
@@ -321,21 +322,29 @@ class OpenHealthSync:
         ``GET /v1/users``
 
         Args:
+            external_ref: Only the user with exactly this `external_ref` (at most one row).
             cursor: The next_cursor of the previous page.
         """
         return self._request(
             "GET",
             "/v1/users",
             query={
+                "external_ref": external_ref,
                 "cursor": cursor,
                 "limit": limit,
             },
         )
 
-    def iter_users(self, *, limit: Optional[int] = None) -> Iterator[User]:
+    def iter_users(
+        self,
+        *,
+        external_ref: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Iterator[User]:
         """Every item of :meth:`list_users`, page after page, following ``next_cursor``."""
         return paginate(
             lambda cursor: self.list_users(
+                external_ref=external_ref,
                 cursor=cursor,
                 limit=limit,
             )
