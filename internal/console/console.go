@@ -9,11 +9,10 @@
 // Every path under /console that is not a built file answers index.html (the
 // client router reads the URL), except under assets/, where a missing file is
 // a plain 404 so a stale page never runs HTML as script. Hashed files under
-// assets/ are immutable; everything else is revalidated. Beside it,
-// /console/setup is the old first-run page (temporary, replaced by the React
-// console): it posts the setup token to POST /v1/setup and shows the first
-// tenant's API key once. Both are mounted only when OHS_CONSOLE is true or
-// read-only.
+// assets/ are immutable; everything else is revalidated. The first-run page,
+// /console/setup, is a route of the same app: it posts the setup token to
+// POST /v1/setup and shows the first tenant's API key once. The console is
+// mounted only when OHS_CONSOLE is true or read-only.
 package console
 
 import (
@@ -106,6 +105,7 @@ func notFound(w http.ResponseWriter) {
 func writeFrom(w http.ResponseWriter, fsys fs.FS, file, contentType, cache string) {
 	body, err := fs.ReadFile(fsys, file)
 	if err != nil { // dist has no index.html: the build was not run
+		w.Header().Set("Cache-Control", "no-store")
 		http.Error(w, "console assets missing", http.StatusInternalServerError)
 		return
 	}

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func serveConsole(t *testing.T, method, path string) *httptest.ResponseRecorder {
@@ -220,5 +221,17 @@ func TestSetupRouteServesTheApp(t *testing.T) {
 	}
 	if rec := serveConsole(t, "POST", "/console/setup"); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /console/setup: %d", rec.Code)
+	}
+}
+
+// A build without index.html answers 500, and that answer is never cached.
+func TestMissingBuildIsNotCached(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeFrom(rec, fstest.MapFS{}, "dist/index.html", "text/html; charset=utf-8", cacheRevalidate)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
 	}
 }
