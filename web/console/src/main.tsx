@@ -8,6 +8,7 @@ import "./styles/base.css";
 import "./styles/tokens.css";
 import "./styles/components.css";
 import "./styles/shell.css";
+import "./styles/inspector.css";
 
 const root = document.getElementById("root");
 if (!root) {

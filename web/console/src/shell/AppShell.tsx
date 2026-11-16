@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 
 import { readPref, writePref } from "../lib/prefs";
+import { InspectorPane } from "../inspector/InspectorPane";
+import { InspectorProvider } from "../inspector/InspectorProvider";
 import { useSession } from "../session/SessionProvider";
 import { ToastProvider } from "../ui/Toast";
 import { NavPane } from "./NavPane";
@@ -20,7 +22,11 @@ export function AppShell() {
   // The menu is open for the page it was opened on: moving to another page closes it.
   const [menuAt, setMenuAt] = useState<string | null>(null);
   const menuOpen = narrow && menuAt === pathname;
-  const [inspectorOpen, setInspectorOpen] = useState(() => readPref("inspector") !== "closed");
+  // Wide screens keep the stored choice. Under 1024 px the pane is an overlay: it starts
+  // closed on every visit and its state is not stored, so it never changes the wide choice.
+  const [wideOpen, setWideOpen] = useState(() => readPref("inspector") !== "closed");
+  const [narrowOpen, setNarrowOpen] = useState(false);
+  const inspectorOpen = narrow ? narrowOpen : wideOpen;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -33,47 +39,67 @@ export function AppShell() {
     };
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (!narrow || !narrowOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNarrowOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [narrow, narrowOpen]);
+
   const toggleInspector = () => {
     const next = !inspectorOpen;
-    setInspectorOpen(next);
+    if (narrow) {
+      setNarrowOpen(next);
+      return;
+    }
+    setWideOpen(next);
     writePref("inspector", next ? "open" : "closed");
   };
 
   return (
     <ToastProvider>
-      <div className="app">
-        <TopBar
-          narrow={narrow}
-          menuOpen={menuOpen}
-          navId={NAV_ID}
-          onMenu={() => {
-            setMenuAt(menuOpen ? null : pathname);
-          }}
-          inspectorOpen={inspectorOpen}
-          onInspector={toggleInspector}
-        />
-        <div className={inspectorOpen ? "shell" : "shell no-inspector"}>
-          {!narrow || menuOpen ? <NavPane id={NAV_ID} /> : null}
-          {menuOpen ? (
-            <button
-              type="button"
-              className="scrim"
-              aria-label="Close navigation"
-              onClick={() => {
-                setMenuAt(null);
-              }}
-            />
-          ) : null}
-          {/* Another acting tenant remounts the page, so none of it keeps the old tenant's data. */}
-          <main key={session?.acting_tenant.id ?? ""} className="shell-main">
-            <PageBoundary>
-              <Outlet />
-            </PageBoundary>
-          </main>
-          {/* The inspector pane fills this slot (Task 4). */}
-          {inspectorOpen ? <aside id="inspector-slot" className="insp" aria-label="Inspector" /> : null}
+      <InspectorProvider>
+        <div className="app">
+          <TopBar
+            narrow={narrow}
+            menuOpen={menuOpen}
+            navId={NAV_ID}
+            onMenu={() => {
+              setMenuAt(menuOpen ? null : pathname);
+            }}
+            inspectorOpen={inspectorOpen}
+            onInspector={toggleInspector}
+          />
+          <div className={inspectorOpen ? "shell" : "shell no-inspector"}>
+            {!narrow || menuOpen ? <NavPane id={NAV_ID} /> : null}
+            {menuOpen ? (
+              <button
+                type="button"
+                className="scrim"
+                aria-label="Close navigation"
+                onClick={() => {
+                  setMenuAt(null);
+                }}
+              />
+            ) : null}
+            {/* Another acting tenant remounts the page, so none of it keeps the old tenant's data. */}
+            <main key={session?.acting_tenant.id ?? ""} className="shell-main">
+              <PageBoundary>
+                <Outlet />
+              </PageBoundary>
+            </main>
+            {inspectorOpen ? (
+              <aside className="insp" aria-label="Inspector">
+                <InspectorPane onClose={narrow ? toggleInspector : undefined} />
+              </aside>
+            ) : null}
+          </div>
         </div>
-      </div>
+      </InspectorProvider>
     </ToastProvider>
   );
 }
