@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import type { QueryClient } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 
 import type { AdminProvider, AdminTenantProvider, ConsoleSession } from "../../api/types";
@@ -159,6 +160,36 @@ describe("provider page", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("CLIENT_SECRET")).toHaveValue("");
     });
+  });
+
+  it("the mutation cache keeps no typed secret, after a save and after a 400", async () => {
+    const holds = (qc: QueryClient) =>
+      qc
+        .getMutationCache()
+        .getAll()
+        .some((m) => JSON.stringify([m.state.variables ?? null, m.state.data ?? null]).includes("s3cret"));
+    let refuse = true;
+    const { api, queryClient } = view(
+      {
+        "PATCH /v1/admin/providers/oura": () =>
+          refuse ? { status: 400, body: { title: "Bad Request", detail: "CLIENT_SECRET is too short" } } : { body: oura },
+      },
+      "/console/providers/oura",
+    );
+    await userEvent.type(await screen.findByLabelText("CLIENT_SECRET"), "s3cret");
+    await userEvent.click(screen.getByRole("button", { name: "Save keys" }));
+    await confirmIn("Save keys");
+    expect(await screen.findByText("CLIENT_SECRET is too short")).toBeInTheDocument();
+    expect(holds(queryClient)).toBe(false);
+    refuse = false;
+    await confirmIn("Save keys");
+    await waitFor(() => {
+      expect(api.callsTo("PATCH /v1/admin/providers/oura")).toHaveLength(2);
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("CLIENT_SECRET")).toHaveValue("");
+    });
+    expect(holds(queryClient)).toBe(false);
   });
 
   it("shows Not set for a secret that has no value", async () => {

@@ -123,9 +123,14 @@ export function ProviderKeysForm({ provider }: { provider: AdminProvider }) {
           }
           confirmLabel="Save keys"
           onConfirm={async () => {
-            const next = await update.mutateAsync({ keys: patch });
-            setEdits(initial(next));
-            toast(`Keys saved. ${provider.name} is ${providerStatusLabel(next.status).toLowerCase()}.`);
+            // The variables hold the typed secrets: drop them once settled, success or not.
+            try {
+              const next = await update.mutateAsync({ keys: patch });
+              setEdits(initial(next));
+              toast(`Keys saved. ${provider.name} is ${providerStatusLabel(next.status).toLowerCase()}.`);
+            } finally {
+              update.reset();
+            }
           }}
           onClose={() => {
             setConfirming(false);

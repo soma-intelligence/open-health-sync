@@ -62,11 +62,15 @@ export function useTenantProvidersQuery(tenantId: string, enabled: boolean) {
   });
 }
 
-/** PATCH /v1/admin/providers/{slug}: keys and the instance switch. */
+/**
+ * PATCH /v1/admin/providers/{slug}: keys and the instance switch. The variables
+ * may hold a client secret: gcTime 0, and the caller resets once settled.
+ */
 export function useUpdateProvider(slug: string) {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: (patch: AdminProviderPatch) => api.send<AdminProvider>("PATCH", adminProviderPath(slug), patch),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["providers"] });
