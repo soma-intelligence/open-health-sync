@@ -11,5 +11,8 @@ export async function downloadFile(api: ApiClient, path: string, fallbackName: s
   document.body.append(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Safari and some Firefox versions start the save after click() returns: revoking at once can abort it.
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
