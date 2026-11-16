@@ -3,6 +3,7 @@ import { useState } from "react";
 import { RouterProvider } from "react-router";
 
 import { ApiError } from "./api/client";
+import { DraftProvider } from "./pages/settings/DraftProvider";
 import { router } from "./routes";
 import { SessionProvider } from "./session/SessionProvider";
 
@@ -21,7 +22,10 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
-        <RouterProvider router={router} />
+        {/* Above the router: unsaved settings survive the sign in a 401 leads to. */}
+        <DraftProvider>
+          <RouterProvider router={router} />
+        </DraftProvider>
       </SessionProvider>
     </QueryClientProvider>
   );

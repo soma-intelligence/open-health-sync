@@ -39,6 +39,8 @@ export type AuditList = JsonOf<"/v1/audit", "get", 200>;
 export type Setting = Schemas["AdminSetting"];
 export type SettingsList = Schemas["AdminSettings"];
 export type SettingsProblem = Schemas["AdminSettingsProblem"];
+export type SettingsPatch = Schemas["AdminSettingsPatch"];
+export type SettingsPatchResult = JsonOf<"/v1/admin/settings", "patch", 200>;
 export type ProcessHeartbeat = Schemas["AdminProcess"];
 export type ProcessList = Schemas["AdminProcesses"];
 

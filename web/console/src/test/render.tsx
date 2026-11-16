@@ -5,6 +5,7 @@ import { RouterProvider, createMemoryRouter, type RouteObject } from "react-rout
 
 import type { ConsoleSession } from "../api/types";
 import { BASENAME } from "../lib/basename";
+import { DraftProvider } from "../pages/settings/DraftProvider";
 import { routes } from "../routes";
 import { RequireSession } from "../session/RequireSession";
 import { SESSION_KEY, SessionProvider } from "../session/SessionProvider";
@@ -45,7 +46,9 @@ export function renderWithApp(ui: ReactNode, opts: RenderOptions = {}): Rendered
   const result = render(
     <QueryClientProvider client={queryClient}>
       <SessionProvider fetchImpl={api.fetch}>
-        <RouterProvider router={router} />
+        <DraftProvider>
+          <RouterProvider router={router} />
+        </DraftProvider>
       </SessionProvider>
     </QueryClientProvider>,
   );

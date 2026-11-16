@@ -1,4 +1,4 @@
-import { Navigate, createBrowserRouter, useLocation, type RouteObject } from "react-router";
+import { Navigate, createBrowserRouter, type RouteObject } from "react-router";
 
 import { BASENAME } from "./lib/basename";
 import { AuditPage } from "./pages/audit/AuditPage";
@@ -8,6 +8,7 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { OverviewPage } from "./pages/overview/OverviewPage";
 import { ProviderPage } from "./pages/providers/ProviderPage";
 import { ProvidersPage } from "./pages/providers/ProvidersPage";
+import { SettingsPage } from "./pages/settings/SettingsPage";
 import { UserPage } from "./pages/user/UserPage";
 import { UsersPage } from "./pages/users/UsersPage";
 import { WebhookPage } from "./pages/webhooks/WebhookPage";
@@ -15,19 +16,6 @@ import { WebhooksPage } from "./pages/webhooks/WebhooksPage";
 import { AppShell } from "./shell/AppShell";
 import { RequireSession } from "./session/RequireSession";
 import { SignInPage } from "./session/SignInPage";
-
-// Replaced page by page by the tasks that follow.
-function Placeholder() {
-  const { pathname } = useLocation();
-  return (
-    <div className="page">
-      <h1 className="page-title">Console</h1>
-      <p>{pathname}</p>
-    </div>
-  );
-}
-
-const PAGE_PATHS = ["settings"];
 
 export const routes: RouteObject[] = [
   { path: "sign-in", element: <SignInPage /> },
@@ -49,7 +37,9 @@ export const routes: RouteObject[] = [
           { path: "webhooks/:webhookId", element: <WebhookPage /> },
           { path: "keys", element: <KeysPage /> },
           { path: "audit", element: <AuditPage /> },
-          ...PAGE_PATHS.map((path) => ({ path: `${path}/*`, element: <Placeholder /> })),
+          { path: "settings", element: <SettingsPage /> },
+          { path: "settings/:section", element: <SettingsPage /> },
+          { path: "settings/:section/:name", element: <SettingsPage /> },
           { path: "*", element: <NotFoundPage /> },
         ],
       },
