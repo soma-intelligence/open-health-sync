@@ -6,8 +6,11 @@ save their keys, create users and send them a connection link, start a sync, ret
 stuck, manage webhook endpoints and API keys, and read the audit log. Everything it does is a
 call to a documented API route with your tenant key, exactly as `curl` would.
 
-> **0.2.0 and later.** The actions and this design ship in 0.2.0; the 0.1.0 image serves a
-> read-only console.
+> **0.2.0 and later.** The actions ship in 0.2.0; the 0.1.0 image serves a read-only console. The
+> React console described here replaces the hand-written page of earlier builds.
+
+![The overview, light](assets/console/overview-light.png#gh-light-mode-only)
+![The overview, dark](assets/console/overview-dark.png#gh-dark-mode-only)
 
 ## Turn it on
 
@@ -25,16 +28,17 @@ OHS_CONSOLE=true
 | `true` | The management console, with its actions |
 | `read-only` | The same pages without any action: every session the console opens is read only, and the server refuses every request of such a session but `GET` and `HEAD` (see [Read only](#read-only)). For a wall screen. A bearer key keeps all its rights, so it is not a way to take a key's rights away |
 
-Then open `https://your-host/console` and paste a tenant API key (`ohs_sk_...`, from
+Then open `https://your-host/console` and sign in once with a tenant API key (`ohs_sk_...`, from
 `ohs admin tenant create`, `ohs admin key create`, the bootstrap tenant or the
-[first-run setup](setup.md)). The console signs you in with it: see [Sign in](#sign-in).
+[first-run setup](setup.md)). The server answers with a session, and the page uses the session from
+then on: see [Sign in](#sign-in). Everything else in this guide happens inside that session.
 
 No key yet and no terminal? With `OHS_SETUP_TOKEN` set, the sign-in screen of an instance that
-has no tenant links to `/console/setup`, a separate page that creates the first tenant and shows
-its key once; see [setup.md](setup.md). It writes nothing once a tenant exists.
+has no tenant links to `/console/setup`, a page that creates the first tenant and shows its key
+once; see [setup.md](setup.md). It writes nothing once a tenant exists.
 
 The console sees what that key sees: one tenant. An instance admin can switch to another tenant
-without another key, through the session route (see [Switching tenant](#switching-tenant)); any other key sees its own tenant, and
+without another key, from the tenant picker (see [Switching tenant](#switching-tenant)); any other key sees its own tenant, and
 to look at another one you sign out and use its key.
 
 ## Sign in
@@ -72,7 +76,8 @@ A session of an instance admin tenant can act on another tenant: `PUT /console/s
 `{"tenant_id": "..."}` (the key needs `admin:read`; 404 for an unknown tenant). The session then
 answers every tenant route for that tenant, with the admin key's own rights, while the tenant the
 admin signed in with stays the session's tenant. `GET /console/session` returns both as `tenant`
-and `acting_tenant`. This release adds the route; the console pages have no tenant picker yet. A
+and `acting_tenant`. An admin session shows an "Acting tenant" picker at the top of the navigation;
+choosing a tenant calls this route, and the navigation then reads "Acting as" with its name. A
 session of any other tenant cannot switch (403). Deleting the tenant a session acts on ends that
 session, and so does `ohs admin tenant admin --off` on the tenant it signed in with, once it
 views another tenant. A token a session mints for a user of another tenant is tied to no key. The
@@ -109,6 +114,22 @@ signed in, or the tenant an admin session switched to; see [admin-api.md](admin-
 
 ## Pages
 
+The console has three panes. The navigation on the left lists the pages (Workspace: Overview,
+Users, Providers, Jobs. Developers: Webhooks, API keys, Audit log. Instance: Settings, for admins
+only), the tenant picker of an admin session, the theme switch and Sign out. The page sits in the
+middle. The **inspector** on the right shows the API call behind the page: the request as cURL,
+TypeScript or Python (copy it, with `$OHS_API_KEY` where the key goes), the answer as JSON, and the
+settings that shape what the page shows. The language you pick and whether the inspector is open
+are kept in the browser; nothing else is.
+
+Press Ctrl+K (Cmd+K on a Mac) for the **command palette**: type to jump to a page, a setting, or
+run an action such as creating a user, a webhook endpoint or an API key. Arrow keys move, Enter
+runs, Escape closes. Tables are keyboard driven too: Tab into one, arrows move the selection, and
+Enter (or a double click) opens the row.
+
+![A user, dark](assets/console/user-dark.png#gh-dark-mode-only)
+![A user, light](assets/console/user-light.png#gh-light-mode-only)
+
 **Overview.** The pipeline as five stages, each with its headline count and a state:
 
 | Stage | Counts |
@@ -119,8 +140,10 @@ signed in, or the tenant an admin session switched to; see [admin-api.md](admin-
 | Storage | Raw data and raw objects stored in the last 24 hours |
 | Delivery | Webhook endpoints, failing ones, deliveries pending and parked |
 
-Below it, a "needs attention" list links each problem to the page that fixes it, and the sources
-table lists every provider with its connections.
+Below it, a "Needs attention" list links each problem to the page that fixes it, and "Get started"
+ticks off the first steps (turn on a provider, add a user, connect an account, receive data, add a
+webhook endpoint). "First data" counts the last 24 hours, so an idle tenant with older data shows
+that step as not done.
 
 **Providers.** Every connector the binary knows, cloud providers first, then app uploads (Apple
 Health, Health Connect, Xiaomi, activity files, self reports), each with its state: on, off, not
@@ -140,50 +163,52 @@ set up, or refused. Opening a cloud provider walks through turning it on:
 
 Turning a provider off keeps its connections and data. Pulls, new connections, the OAuth callback
 and notifications stop until it is on again. "Forget saved settings" deletes the keys and the
-on/off choice saved in the console.
+on/off choice saved in the console, after you type the provider's slug. A key that is not an
+instance admin sees the providers enabled on the instance, read only.
 
-**Users.** The tenant's users, 50 per page, and "New user". A user's `external_ref` is your own
-identifier for them; never put a name or an email in it.
+**Users.** The tenant's users, 50 per page, with a search by exact `external_ref` and "New user".
+A user's `external_ref` is your own identifier for them; never put a name or an email in it.
 
-**User.** Connections with their health, freshness per source, recent sync runs and coverage.
-Actions: create a [connection link](connect-page.md) to send the user, sync a connection now,
-disconnect it (optionally erasing its data), and delete the user. The data card shows a preview
-of recent records and downloads FHIR, Open mHealth, CSV per dataset and the user's archive.
-The health card draws the user's last 30 or 90 days as charts once you press Show charts: sleep
-with its stages, resting heart rate, heart rate variability (RMSSD, else SDNN), daily steps and
-active energy, workouts on a timeline, and weight and body fat when the user has some. It reads
-the documented routes with your key (daily summaries, sleep, workouts, and `samples/stats` by day
-in the zone the records carry), so each read is in the audit log; it works in read-only mode.
-Each chart has a table view, and a pointer or the arrow keys read each day.
+**User.** A header with the user's state, "Connection link" and "Delete user" (type the name), and
+tabs: **Data** (coverage per provider, a preview of recent records, and downloads), **Connections**
+(health, freshness, sync now, disconnect with an optional erase), **Consents**, **Sync runs** and
+**Shares** (the last two and Consents are read only). "Connection link" creates a
+[connection link](connect-page.md) to send the user. The Data tab previews the first rows of daily
+summaries, sleep and workouts only when you press a button, and downloads FHIR, Open mHealth, CSV
+per dataset and the user's archive. The console draws no charts of health data.
 
 **Jobs.** Sync runs that failed, across the tenant's users, newest first, and processing jobs that
 spent their attempts (parked). Retry one parked job, or all of them.
 
 **Webhooks.** Endpoints with their state and recent deliveries. Create one, edit it, turn it off
-and on, send a test event, rotate its signing secret, delete it; retry or replay a delivery. See
-[webhooks.md](webhooks.md).
+and on, send a test event, rotate its signing secret, delete it (type its URL); retry or replay a
+delivery. See [webhooks.md](webhooks.md).
 
 **API keys.** The tenant's keys: prefix, created, last used, [scopes](api.md#key-scopes),
-revoked. Create one (the full key is shown once) or revoke one. A key created here holds the
-scopes of the key signed in; a key with fewer scopes is made with `POST /v1/keys` or
-`ohs admin key create --scopes`. The key signed in cannot revoke itself, so the console cannot
-lock you out. Sign in with a key that holds `*`: with fewer scopes, the pages whose routes the
-key cannot call show the 403 instead.
+revoked. Create one (the full key is shown once) or revoke one (type its prefix). A key created
+here can hold any subset of the scopes of the key signed in. The key signed in cannot revoke
+itself, so the console cannot lock you out. Sign in with a key that holds `*`: with fewer scopes,
+the pages whose routes the key cannot call show the 403 instead.
 
 **Settings.** Every server setting in one list, grouped by section (Server, Storage, Security, Console,
-Metrics, Retention, Consent, Ingest, Sync, Processing, Webhooks, Event stream, Rate limits, Vault). Each row shows
-its value, where the value comes from (`env`, `console` or `default`) and how a change applies (see
-[Settings saved from the console](#settings-saved-from-the-console)). A secret is write only: the page says
-whether it is set, never what it is. A setting the environment sets is locked, with the value the environment gives,
-and a stored value it overrides stays visible. A stored value the server skipped as invalid is shown with its message.
-"Export" downloads the effective configuration as a `.env` file, with every secret left as `# set`. The page also
-lists the running processes and says which are behind or stale.
+Metrics, Retention, Consent, Ingest, Sync, Processing, Webhooks, Event stream, Rate limits, Vault). Each setting has
+its own address, `/console/settings/<section>/<name>`. Each row shows its value, where the value comes from (`env`,
+`console` or `default`) and how a change applies (see [Settings saved from the console](#settings-saved-from-the-console)).
+Edits are collected, then "Review" shows a diff and "Apply" saves them in one call, with the revision you read. A
+secret is write only: the page says whether it is set, never what it is. A setting the environment sets is locked,
+with the value the environment gives, and a stored value it overrides stays visible. A stored value the server
+skipped as invalid is shown with its message. "Export" downloads the effective configuration as a `.env` file, with
+every secret left as `# set`. The page also lists the running processes and says which are behind or stale. Only
+instance admins see Settings.
 
 Raising `OHS_RETENTION_DAYS` from `0` (keep everything) to a number deletes raw files and health data older than that
 many days at the next daily cleanup. It is a live setting, so a save from this page takes effect without a restart:
 check the number before you save it.
 
-**Audit log.** The tenant's [audit events](audit-log.md), newest first, with a filter by action.
+**Audit log.** The tenant's [audit events](audit-log.md), newest first, filtered by action and by
+actor (one of the tenant's API keys). Selecting an event shows it in the inspector.
+
+A session that is read only (see [Read only](#read-only)) sees every page without a write button.
 
 ## Where provider keys come from
 
@@ -253,14 +278,15 @@ one message per invalid value. See [api.md](api.md#admin-settings). Each `PATCH`
 
 ## Security model
 
-- **A server session, not the key.** The page is static. The key is sent once to sign in
-  ([Sign in](#sign-in)) and the browser holds only an `HttpOnly` cookie from then on; the key is
-  never stored, logged, returned or written to an audit event. The API's own key checks still
-  apply to every request, through the key behind the session. A user token (`ohs_ut_...`) is
-  refused.
+- **A server session, not the key.** The key is sent once to sign in ([Sign in](#sign-in)) and the
+  browser holds only an `HttpOnly` cookie from then on. The page never keeps a key: not in
+  `localStorage`, `sessionStorage`, a cookie it writes, or a URL. The key is never logged,
+  returned or written to an audit event. The API's own key checks still apply to every request,
+  through the key behind the session. A user token (`ohs_ut_...`) is refused.
 - **Cookie and CSRF.** The cookie is `SameSite=Strict` and a request with it needs the
   `X-OHS-CSRF` header, kept in the page's memory only. A request with a cookie and a foreign
-  `Origin` is refused, and so is a sign in with one.
+  `Origin` is refused, and so is a sign in with one. A stale token is a 403; the page refreshes it
+  once and retries once.
 - **One way to the server.** Every request goes through one wrapper that refuses a URL that is not
   a path on the same server and follows no redirect. It sends the cookie and the CSRF header to
   this server only. In `read-only` mode the server, not the wrapper, refuses every method but
@@ -268,18 +294,21 @@ one message per invalid value. See [api.md](api.md#admin-settings). Each `PATCH`
 - **Writes ask first.** Every action asks for a confirmation. Deleting a user or a webhook
   endpoint, revoking a key and forgetting a provider's keys ask you to type the name of what
   goes. A secret the API returns once (a new API key, a webhook signing secret) is shown once
-  with a copy button and dropped from the page when the dialog closes.
+  with a copy button and dropped from the page when the dialog closes. Secrets are never
+  revealed afterwards, and there is no restart button.
 - **Health values only on demand.** The console counts records; it shows values only when you
-  press "Preview" or a download button on a user, and each read is in the audit log as
+  press a preview or a download button on a user, and each read is in the audit log as
   `data.read` or `data.export`. Downloads are built in the page from the API answer, so the key
   never goes into a URL.
-- **Same origin, strict headers.** The page, its scripts and its stylesheet are embedded in the
-  binary; nothing loads from a CDN. Every console response carries
+- **Same origin, strict headers.** The page, its scripts, its stylesheet and its fonts are embedded
+  in the binary; nothing loads from a CDN. Every console response carries
   `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src
   'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
   `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and
-  `X-Frame-Options: DENY`; the HTML is sent with `Cache-Control: no-store`. The page has no inline
-  script or style, and API data is inserted as text, never as markup.
+  `X-Frame-Options: DENY`. The HTML and every file outside `assets/` are sent with
+  `Cache-Control: no-cache`; the content hashed files under `assets/` with `public,
+  max-age=31536000, immutable`. The page has no inline script or style, and API data is inserted
+  as text, never as markup.
 - **Exposure.** The page itself holds nothing secret, and without a key it shows only the sign-in
   form. Still, if you prefer that operators reach it only from inside, block `/console` at your
   reverse proxy for the public address, or put it behind the proxy's own login, or leave
@@ -287,9 +316,34 @@ one message per invalid value. See [api.md](api.md#admin-settings). Each `PATCH`
 
 ## Look and feel
 
-Light and dark follow the system setting. The console shares its type, frame and glass panels
-with the [hosted connection page](connect-page.md): the sidebar, the sign-in, the setup page, the
-overview's pipeline and the top of each provider sit in the same frame, drawn from gradients and
-SVG noise with nothing loaded from elsewhere, and the figures that matter are large display
-numerals. Below 860 px wide the sidebar folds into a bar with a menu button; the menu opens over
-the page and closes on a link, a tap outside it or Escape.
+The console is quiet and dense: a navigation, a page and an inspector, with Inter for text and
+JetBrains Mono for code, keys, ids and setting names. The colours are tokens, in two sets.
+
+| Token | Light | Dark |
+|---|---|---|
+| Page | `#f6faf7` | `#070a09` |
+| Panel | `#ffffff` | `#0e1311` |
+| Raised | `#f1f6f3` | `#121916` |
+| Ink | `#0b1510` | `#eef4f0` |
+| Muted | `#4b5a53` | `#8fa39a` |
+| Accent | `#17a865` | `#3ddc8e` |
+
+Pick Light, Dark or Auto (follow the system) at the foot of the navigation; the choice stays in
+the browser. Below 1024 px wide the navigation folds into a menu, and below 768 px the inspector
+is a bottom sheet.
+
+## Working on the console
+
+The console is a React app in `web/console` (Node.js 22), built into `internal/console/dist`, which
+the binary embeds. Both `dist` and `web/console/src/api/schema.ts` (the API types, generated from
+`api/openapi.yaml`) are committed, and CI fails when either differs from what a build writes.
+
+| Command | What it does |
+|---|---|
+| `make console` | Installs the pinned packages, writes `schema.ts` and builds `dist`. Run it after a change to the app or to `api/openapi.yaml`, and commit the result |
+| `make console-dev` | Vite dev server on port 5173, proxying the API to `OHS_DEV_TARGET` (default `http://localhost:8080`). Set the local server's `OHS_PUBLIC_URL` to the same address, since a sign in is checked against it |
+| `make console-e2e` | The browser tests (Playwright) against two real `ohs serve` processes. Needs `OHS_E2E_DATABASE_URL`, the URL of an empty Postgres database with TimescaleDB |
+
+Unit tests, types and lint run with `npm test`, `npm run typecheck` and `npm run lint` in
+`web/console`. To refresh the screenshots above, run the end to end tests with `OHS_E2E_SHOTS=1`
+(`e2e/screenshots.spec.ts` writes them under `docs/assets/console`).

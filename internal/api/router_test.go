@@ -88,7 +88,7 @@ func TestConsoleMountedWithFlag(t *testing.T) {
 	assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
 	assert.NotEmpty(t, rec.Header().Get("X-Request-Id"), "console requests go through the instrumented router")
 
-	for _, p := range []string{"/console/", "/console/overview", "/console/favicon.svg", "/console/setup", "/console/setup.mjs"} {
+	for _, p := range []string{"/console/", "/console/overview", "/console/favicon.svg", "/console/setup"} {
 		rec = httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
 		assert.Equal(t, http.StatusOK, rec.Code, p)

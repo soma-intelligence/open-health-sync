@@ -42,10 +42,10 @@ released-migrations:
 compose-image-check:
 	scripts/check-compose-image.sh
 
-# The admin console's and the setup page's pure JavaScript helpers (Node 22+, no
-# npm install).
+# The share viewer's pure JavaScript helpers (Node 22+, no npm install). The
+# console's own tests run with npm test in web/console.
 test-js:
-	node --test internal/console/app.test.mjs internal/console/setup.test.mjs internal/shl/viewer/view.test.mjs
+	node --test internal/shl/viewer/view.test.mjs
 
 # golangci-lint v2 with .golangci.yml (the integration suites included). CI
 # runs the same version: go install
