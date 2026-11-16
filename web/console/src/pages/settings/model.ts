@@ -124,16 +124,37 @@ export function toPatch(pending: Pending): Record<string, string | null> {
 }
 
 /**
- * A retention that keeps everything now (effective value 0) and would keep N
- * days after the change, N above 0: the next daily cleanup deletes for good.
+ * How the server reads OHS_TRACKING_RETENTION_DAYS, kept in step with
+ * internal/etl/automation/automation.go and tracking.go: 0 means the default
+ * (90 days), 1 to 13 count as 14, a negative value keeps everything.
+ */
+export const TRACKING_RETENTION = { defaultDays: 90, minDays: 14 } as const;
+
+/** The days a retention keeps, or null when it keeps everything (server meaning). */
+function retentionDays(name: string, raw: string): number | null {
+  const t = raw.trim();
+  if (!/^-?\d+$/.test(t)) return null;
+  const n = Number(t);
+  if (name === "OHS_TRACKING_RETENTION_DAYS") {
+    if (n < 0) return null;
+    return n === 0 ? TRACKING_RETENTION.defaultDays : Math.max(n, TRACKING_RETENTION.minDays);
+  }
+  return n <= 0 ? null : n;
+}
+
+/**
+ * A retention that keeps everything now and would delete after N days once the
+ * change is applied: the next daily cleanup deletes for good. A retention that
+ * deletes already never warns.
  */
 export function retentionWarnings(settings: readonly Setting[], pending: Pending): string[] {
   const out: string[] = [];
   for (const s of settings) {
-    if (!RETENTION.has(s.name) || !Object.hasOwn(pending, s.name) || s.value === null || Number(s.value.trim()) !== 0) continue;
-    const next = pending[s.name] ?? s.default;
-    if (!/^\d+$/.test(next.trim()) || Number(next) <= 0) continue;
-    out.push(`${s.name} will delete data older than ${String(Number(next))} days at the next daily cleanup. This cannot be undone.`);
+    if (!RETENTION.has(s.name) || !Object.hasOwn(pending, s.name) || s.value === null) continue;
+    if (retentionDays(s.name, s.value) !== null) continue;
+    const after = retentionDays(s.name, pending[s.name] ?? s.default);
+    if (after === null) continue;
+    out.push(`${s.name} will delete data older than ${String(after)} days at the next daily cleanup. This cannot be undone.`);
   }
   return out;
 }

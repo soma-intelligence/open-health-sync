@@ -8,6 +8,7 @@ import {
   prunePending,
   restartCount,
   retentionWarnings,
+  TRACKING_RETENTION,
   sectionSlug,
   settingPath,
   toPatch,
@@ -108,7 +109,7 @@ describe("retentionWarnings", () => {
   const list: Setting[] = [
     setting({ name: "OHS_RETENTION_DAYS", section: "Retention", default: "0", value: "0" }),
     setting({ name: "OHS_AUDIT_RETENTION_DAYS", section: "Retention", default: "365", value: "0", source: "console" }),
-    setting({ name: "OHS_TRACKING_RETENTION_DAYS", section: "Retention", default: "30", value: "30" }),
+    setting({ name: "OHS_TRACKING_RETENTION_DAYS", section: "Retention", default: "90", value: "-1" }),
     setting({ name: "OHS_WEBHOOK_PAUSE_AFTER", section: "Webhooks", default: "0", value: "0" }),
   ];
 
@@ -124,8 +125,33 @@ describe("retentionWarnings", () => {
     ]);
   });
 
+  it("sync log retention: negative keeps all, 0 is the 90 day default, 1 to 13 count as 14", () => {
+    const warn = (days: number) => [
+      `OHS_TRACKING_RETENTION_DAYS will delete data older than ${String(days)} days at the next daily cleanup. This cannot be undone.`,
+    ];
+    expect(retentionWarnings(list, { OHS_TRACKING_RETENTION_DAYS: "0" })).toEqual(warn(TRACKING_RETENTION.defaultDays));
+    expect(retentionWarnings(list, { OHS_TRACKING_RETENTION_DAYS: "5" })).toEqual(warn(TRACKING_RETENTION.minDays));
+    expect(retentionWarnings(list, { OHS_TRACKING_RETENTION_DAYS: null })).toEqual(warn(90));
+    expect(retentionWarnings(list, { OHS_TRACKING_RETENTION_DAYS: "20" })).toEqual(warn(20));
+    expect(retentionWarnings(list, { OHS_TRACKING_RETENTION_DAYS: "-5" })).toEqual([]);
+  });
+
+  it("sync log retention that deletes already never warns", () => {
+    const at = (value: string): Setting[] => [
+      setting({ name: "OHS_TRACKING_RETENTION_DAYS", section: "Retention", default: "90", value }),
+    ];
+    expect(retentionWarnings(at("0"), { OHS_TRACKING_RETENTION_DAYS: "20" })).toEqual([]);
+    expect(retentionWarnings(at("30"), { OHS_TRACKING_RETENTION_DAYS: "20" })).toEqual([]);
+    expect(retentionWarnings(at("30"), { OHS_TRACKING_RETENTION_DAYS: "0" })).toEqual([]);
+  });
+
+  it("a retention that deletes already never warns", () => {
+    const at: Setting[] = [setting({ name: "OHS_RETENTION_DAYS", section: "Retention", default: "0", value: "30" })];
+    expect(retentionWarnings(at, { OHS_RETENTION_DAYS: "20" })).toEqual([]);
+  });
+
   it("stays quiet otherwise", () => {
-    expect(retentionWarnings(list, { OHS_RETENTION_DAYS: "0", OHS_TRACKING_RETENTION_DAYS: "20", OHS_WEBHOOK_PAUSE_AFTER: "3" })).toEqual([]);
+    expect(retentionWarnings(list, { OHS_RETENTION_DAYS: "0", OHS_TRACKING_RETENTION_DAYS: "-1", OHS_WEBHOOK_PAUSE_AFTER: "3" })).toEqual([]);
     expect(retentionWarnings(list, { OHS_RETENTION_DAYS: "x" })).toEqual([]);
     expect(retentionWarnings(list, {})).toEqual([]);
   });
