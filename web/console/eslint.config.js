@@ -25,6 +25,13 @@ const syntax = [
   { selector: "MemberExpression[object.name='console']", message: "No console output in shipped code: it can leak health data." },
 ];
 
+// The global ban misses fetch reached through an object.
+const FETCH_PROPERTIES = ["window", "globalThis", "self"].map((object) => ({
+  object,
+  property: "fetch",
+  message: "Every request goes through src/api/client.ts: it adds the CSRF token and handles the session.",
+}));
+
 export default defineConfig(
   { ignores: ["src/api/schema.ts", "../../internal/console/dist", "eslint.config.js", "node_modules", "playwright-report", "test-results"] },
   js.configs.recommended,
@@ -44,11 +51,13 @@ export default defineConfig(
         { name: "localStorage", message: "Only src/lib/prefs.ts reads or writes localStorage (three preferences)." },
         { name: "sessionStorage", message: "The page never stores a key or a token: sessionStorage is not used." },
       ],
+      "no-restricted-properties": ["error", ...FETCH_PROPERTIES],
     },
   },
   {
     files: ["src/api/client.ts", "e2e/**"],
     rules: {
+      "no-restricted-properties": "off",
       "no-restricted-globals": [
         "error",
         { name: "XMLHttpRequest", message: "Every request goes through src/api/client.ts (fetch)." },
