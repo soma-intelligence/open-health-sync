@@ -15,4 +15,11 @@ describe("legacyHashPath", () => {
     expect(legacyHashPath("#//evil.example/x")).toBeNull();
     expect(legacyHashPath("#/")).toBeNull();
   });
+
+  it("never leaves the console through a dot segment", () => {
+    expect(legacyHashPath("#/../x")).toBeNull();
+    expect(legacyHashPath("#/%2e%2e/x")).toBeNull();
+    expect(legacyHashPath("#/users/%2E./x")).toBeNull();
+    expect(legacyHashPath("#/users/./u1")).toBeNull();
+  });
 });
