@@ -19,6 +19,9 @@ export type Problem = Schemas["Problem"];
 export type Tenant = Schemas["Tenant"];
 export type AdminTenant = Schemas["AdminTenant"];
 export type User = Schemas["User"];
+export type CreateUserRequest = Schemas["CreateUserRequest"];
+/** One page of GET /v1/users, as the schema says it. */
+export type UserList = JsonOf<"/v1/users", "get", 200>;
 export type Pipeline = Schemas["Pipeline"];
 export type Provider = Schemas["Provider"];
 export type AdminProvider = Schemas["AdminProvider"];

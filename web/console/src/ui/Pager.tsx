@@ -19,7 +19,8 @@ export function usePager(): PagerState {
   const [stack, setStack] = useState<(string | undefined)[]>([undefined]);
   const next = useCallback((cursor: string | null) => {
     if (cursor === null) return;
-    setStack((s) => [...s, cursor]);
+    // A repeated click, or a cursor the page on screen was already reached with, adds nothing.
+    setStack((s) => (s[s.length - 1] === cursor ? s : [...s, cursor]));
   }, []);
   const prev = useCallback(() => {
     setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
@@ -31,17 +32,26 @@ export function usePager(): PagerState {
 }
 
 /** Previous and Next under a list; nextCursor is the answer's next_cursor. */
-export function Pager({ pager, nextCursor }: { pager: PagerState; nextCursor: string | null | undefined }) {
+export function Pager({
+  pager,
+  nextCursor,
+  loading = false,
+}: {
+  pager: PagerState;
+  nextCursor: string | null | undefined;
+  /** The list on screen is the previous page, kept while the next one loads. */
+  loading?: boolean;
+}) {
   if (pager.page === 1 && !nextCursor) return null;
   return (
     <nav className="pager" aria-label="Pages">
-      <Button size="sm" disabled={pager.page === 1} onClick={pager.prev}>
+      <Button size="sm" disabled={pager.page === 1 || loading} onClick={pager.prev}>
         Previous
       </Button>
       <span className="muted">Page {pager.page}</span>
       <Button
         size="sm"
-        disabled={!nextCursor}
+        disabled={!nextCursor || loading}
         onClick={() => {
           pager.next(nextCursor ?? null);
         }}

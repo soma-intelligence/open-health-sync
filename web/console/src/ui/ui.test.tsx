@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { MemoryRouter, useLocation } from "react-router";
@@ -7,6 +7,7 @@ import { ApiError } from "../api/client";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DataTable, type Column } from "./DataTable";
 import { Dialog } from "./Dialog";
+import { Pager, usePager } from "./Pager";
 
 describe("Dialog", () => {
   function Host({ onClose }: { onClose: () => void }) {
@@ -162,5 +163,61 @@ describe("DataTable", () => {
     );
     expect(screen.getByText("none here")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+});
+
+describe("usePager", () => {
+  it("ignores a cursor equal to the current one, and Previous goes back one page", () => {
+    const { result } = renderHook(() => usePager());
+    expect(result.current.page).toBe(1);
+    act(() => {
+      result.current.next("c2");
+      result.current.next("c2");
+    });
+    expect(result.current.page).toBe(2);
+    expect(result.current.cursor).toBe("c2");
+    act(() => {
+      result.current.next("c2");
+    });
+    expect(result.current.page).toBe(2);
+    act(() => {
+      result.current.prev();
+    });
+    expect(result.current.page).toBe(1);
+    expect(result.current.cursor).toBeUndefined();
+  });
+
+  it("ignores the last page's null cursor", () => {
+    const { result } = renderHook(() => usePager());
+    act(() => {
+      result.current.next(null);
+    });
+    expect(result.current.page).toBe(1);
+  });
+});
+
+describe("Pager", () => {
+  function Host({ loading }: { loading: boolean }) {
+    const pager = usePager();
+    return (
+      <>
+        <p data-testid="page">{pager.page}</p>
+        <Pager pager={pager} nextCursor="c2" loading={loading} />
+      </>
+    );
+  }
+
+  it("a double click on Next pushes one page, then Previous returns", async () => {
+    render(<Host loading={false} />);
+    await userEvent.dblClick(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByTestId("page")).toHaveTextContent("2");
+    await userEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByTestId("page")).toHaveTextContent("1");
+  });
+
+  it("disables both buttons while the page on screen is a placeholder", () => {
+    render(<Host loading />);
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
   });
 });

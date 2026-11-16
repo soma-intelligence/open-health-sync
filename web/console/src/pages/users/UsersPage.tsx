@@ -85,7 +85,8 @@ export function UsersPage() {
             onSelect={setSelected}
             empty={empty}
           />
-          <Pager pager={pager} nextCursor={data.next_cursor} />
+          <Pager pager={pager} nextCursor={data.next_cursor}
+            loading={users.isPlaceholderData} />
         </>
       ) : null}
       {creating ? (
