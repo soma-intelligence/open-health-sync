@@ -7,6 +7,7 @@ import { useCanWrite } from "../../session/SessionProvider";
 import { Button } from "../../ui/Button";
 import { EmptyState } from "../../ui/EmptyState";
 import { ErrorPanel } from "../../ui/ErrorPanel";
+import { useOpenCreate } from "../../palette/useOpenCreate";
 import { Pager, usePager } from "../../ui/Pager";
 import { PAGE_SIZE, useUsersQuery } from "./api";
 import { CreateUserDialog } from "./CreateUserDialog";
@@ -19,6 +20,9 @@ export function UsersPage() {
   const [externalRef, setExternalRef] = useState("");
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<User | null>(null);
+  useOpenCreate(() => {
+    setCreating(true);
+  });
   const users = useUsersQuery(pager.cursor, externalRef);
   const { data, error } = users;
 

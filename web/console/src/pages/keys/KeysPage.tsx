@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { ApiError } from "../../api/client";
 import type { APIKey } from "../../api/types";
 import { useInspect, type InspectorEntry } from "../../inspector/InspectorProvider";
+import { useOpenCreate } from "../../palette/useOpenCreate";
 import { useCanWrite, useSession } from "../../session/SessionProvider";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
@@ -41,6 +42,9 @@ export function KeysPage() {
   const { data, error } = query;
   const [selected, setSelected] = useState<APIKey | null>(null);
   const [creating, setCreating] = useState(false);
+  useOpenCreate(() => {
+    setCreating(true);
+  });
   const [revoking, setRevoking] = useState<APIKey | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
 

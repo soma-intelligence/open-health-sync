@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { ApiError } from "../../api/client";
 import type { Webhook } from "../../api/types";
 import { useInspect, type InspectorEntry } from "../../inspector/InspectorProvider";
+import { useOpenCreate } from "../../palette/useOpenCreate";
 import { useCanWrite } from "../../session/SessionProvider";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
@@ -53,6 +54,9 @@ export function WebhooksPage() {
   const { data, error } = query;
   const [selected, setSelected] = useState<Webhook | null>(null);
   const [creating, setCreating] = useState(false);
+  useOpenCreate(() => {
+    setCreating(true);
+  });
   const [secret, setSecret] = useState<string | null>(null);
 
   const entry = useMemo<InspectorEntry | null>(() => {

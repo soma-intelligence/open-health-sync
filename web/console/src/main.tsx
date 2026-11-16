@@ -13,6 +13,7 @@ import "./styles/overview.css";
 import "./styles/table.css";
 import "./styles/user.css";
 import "./styles/providers.css";
+import "./styles/palette.css";
 
 const root = document.getElementById("root");
 if (!root) {

@@ -6,6 +6,7 @@ import { InspectorPane } from "../inspector/InspectorPane";
 import { InspectorProvider } from "../inspector/InspectorProvider";
 import { useSession } from "../session/SessionProvider";
 import { ToastProvider } from "../ui/Toast";
+import { CommandPalette } from "../palette/CommandPalette";
 import { NavPane } from "./NavPane";
 import { PageBoundary } from "./PageBoundary";
 import { TopBar } from "./TopBar";
@@ -26,6 +27,7 @@ export function AppShell() {
   // closed on every visit and its state is not stored, so it never changes the wide choice.
   const [wideOpen, setWideOpen] = useState(() => readPref("inspector") !== "closed");
   const [narrowOpen, setNarrowOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const inspectorOpen = narrow ? narrowOpen : wideOpen;
 
   useEffect(() => {
@@ -50,6 +52,19 @@ export function AppShell() {
     };
   }, [narrow, narrowOpen]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
   const toggleInspector = () => {
     const next = !inspectorOpen;
     if (narrow) {
@@ -73,6 +88,9 @@ export function AppShell() {
             }}
             inspectorOpen={inspectorOpen}
             onInspector={toggleInspector}
+            onSearch={() => {
+              setPaletteOpen(true);
+            }}
           />
           <div className={inspectorOpen ? "shell" : "shell no-inspector"}>
             {!narrow || menuOpen ? <NavPane id={NAV_ID} /> : null}
@@ -98,6 +116,12 @@ export function AppShell() {
               </aside>
             ) : null}
           </div>
+          <CommandPalette
+            open={paletteOpen}
+            onClose={() => {
+              setPaletteOpen(false);
+            }}
+          />
         </div>
       </InspectorProvider>
     </ToastProvider>

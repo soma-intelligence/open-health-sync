@@ -6,10 +6,11 @@ export interface DialogProps {
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  className?: string;
 }
 
 /** A modal over a native <dialog>: focus trap, Escape and the backdrop come from the platform. */
-export function Dialog({ title, open, onClose, children, footer }: DialogProps) {
+export function Dialog({ title, open, onClose, children, footer, className }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -30,7 +31,7 @@ export function Dialog({ title, open, onClose, children, footer }: DialogProps) 
   return (
     <dialog
       ref={ref}
-      className="dialog"
+      className={className === undefined ? "dialog" : `dialog ${className}`}
       aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();
