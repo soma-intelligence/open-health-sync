@@ -417,6 +417,44 @@ describe("settings", () => {
     expect(api.callsTo("PATCH /v1/admin/settings")[1]?.headers["if-match"]).toBe('"42"');
   });
 
+  it("a 412 whose reload fails says so instead of reopening on stale values", async () => {
+    const user = userEvent.setup();
+    let patches = 0;
+    view({
+      "GET /v1/admin/settings": () =>
+        patches === 0 ? { body: list(41), headers: { ETag: '"41"' } } : { status: 500, body: { title: "Internal Server Error", detail: "db down" } },
+      "PATCH /v1/admin/settings": () => {
+        patches += 1;
+        return { status: 412, body: { title: "Precondition Failed", detail: "moved" } };
+      },
+    });
+    const pause = within(await loaded()).getByLabelText("Pause after");
+    await user.clear(pause);
+    await user.type(pause, "9");
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    const dialog = screen.getByRole("dialog", { name: "Review changes" });
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(await within(dialog).findByText("The settings changed and could not be read again. Try again.")).toBeInTheDocument();
+    expect(within(dialog).queryByText("The settings changed since you opened this review. Here are the new values.")).not.toBeInTheDocument();
+  });
+
+  it("a 422 that names no field on the page keeps the review open with its detail", async () => {
+    const user = userEvent.setup();
+    view({
+      "PATCH /v1/admin/settings": {
+        status: 422,
+        body: { title: "Unprocessable Entity", detail: "OHS_SOMETHING_ELSE must be set first", settings: [{ name: "OHS_SOMETHING_ELSE", message: "x" }] },
+      },
+    });
+    await editTwo(user);
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    const dialog = screen.getByRole("dialog", { name: "Review changes" });
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(await within(dialog).findByText(/OHS_SOMETHING_ELSE must be set first/)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Review changes" })).toBeInTheDocument();
+    expect(screen.queryByText("Nothing was saved. See the marked fields.")).not.toBeInTheDocument();
+  });
+
   it("422 marks each invalid field and saves nothing", async () => {
     const user = userEvent.setup();
     view({

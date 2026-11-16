@@ -240,9 +240,11 @@ describe("applyOutcome", () => {
         { name: "OHS_B", message: "OHS_B must be below OHS_C" },
       ],
     };
-    expect(applyOutcome(new ApiError(422, "x", null, body))).toEqual({
+    const refused = new ApiError(422, "x", null, body);
+    expect(applyOutcome(refused)).toEqual({
       kind: "invalid",
       errors: { OHS_A: "OHS_A: not an integer", OHS_B: "OHS_B must be below OHS_C" },
+      error: refused,
     });
   });
 

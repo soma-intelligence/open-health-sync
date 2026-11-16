@@ -25,7 +25,7 @@ export type ApplyOutcome =
   | { kind: "ok"; revision: number; restart: string[] }
   | { kind: "moved" }
   | { kind: "conflict"; names: string[] }
-  | { kind: "invalid"; errors: Record<string, string> };
+  | { kind: "invalid"; errors: Record<string, string>; error: ApiError };
 
 export const EMPTY_TYPED = "Enter a value, or revert to default.";
 
@@ -195,7 +195,7 @@ export function applyOutcome(result: ApiResponse<unknown> | ApiError): ApplyOutc
     if (result.status === 422) {
       const errors: Record<string, string> = {};
       for (const x of problemSettings(result.body)) errors[x.name] = typeof x.message === "string" ? x.message : "";
-      return { kind: "invalid", errors };
+      return { kind: "invalid", errors, error: result };
     }
     throw result;
   }

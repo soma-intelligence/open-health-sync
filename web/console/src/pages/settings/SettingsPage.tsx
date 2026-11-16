@@ -151,6 +151,8 @@ function AdminSettings() {
 
   const reload = async (): Promise<SettingsList | null> => {
     const res = await query.refetch();
+    // A failed refetch keeps the old data: never rebuild a review on it.
+    if (res.isError) return null;
     return res.data ?? null;
   };
 
@@ -195,6 +197,11 @@ function AdminSettings() {
         return;
       }
       case "invalid":
+        if (!Object.keys(outcome.errors).some((name) => settings.some((x) => x.name === name))) {
+          // Nothing on the page to mark: keep the review and the API's own message.
+          setReview((r) => (r ? { ...r, error: outcome.error } : r));
+          return;
+        }
         setServerErrors(outcome.errors);
         setReview(null);
         toast("Nothing was saved. See the marked fields.", "bad");
@@ -308,4 +315,3 @@ export function SettingsPage() {
   }
   return <AdminSettings />;
 }
-
