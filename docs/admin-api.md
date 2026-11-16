@@ -401,7 +401,11 @@ request through the tenant routes gets an event too, with the user of the path.
 
 - Renaming or deleting a tenant.
 - Making a tenant an instance admin, or clearing the mark: `ohs admin tenant admin`.
-- The [admin console](console.md) still shows the tenant of the key signed in.
+- The [admin console](console.md) shows the tenant of the key signed in, until an admin session
+  switches tenant with `PUT /console/session/tenant` (body `{"tenant_id": "..."}`, a session of an
+  instance admin tenant, key with `admin:read`; 404 for an unknown tenant). It is a console session
+  route, not a bearer route: a request with a bearer key answers 401. The switch is recorded as
+  `session.tenant`, see [audit-log.md](audit-log.md#console-sessions).
 - The server SDKs leave these routes out, as they do the provider settings; their types
   (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`, `AdminTenantProvider`,
   `AdminTenantProviderKeys`) are generated. The

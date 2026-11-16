@@ -16,6 +16,17 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 )
 
+const (
+	// SessionCookie is the cookie of a console session.
+	SessionCookie = "ohs_console"
+	// CSRFHeader carries the CSRF token of a console session.
+	CSRFHeader = "X-OHS-CSRF"
+	// Problem details of a refused cookie request, matched verbatim by lib.mjs.
+	DetailCSRF     = "this request needs the X-OHS-CSRF token of the console session; reload the page"
+	DetailOrigin   = "a console session only accepts requests from this server's own origin"
+	DetailReadOnly = "this console session is read-only (OHS_CONSOLE=read-only)"
+)
+
 // Scope is what a route demands of the caller.
 type Scope string
 
@@ -46,6 +57,20 @@ type Principal struct {
 	// more than its key. Nil means every scope: a token tied to no key, or
 	// a caller built in process.
 	KeyScopes []string
+	// ActorTenantID is the tenant of the console session itself, which may
+	// differ from TenantID when an admin session views another tenant.
+	// uuid.Nil for a key or token.
+	ActorTenantID uuid.UUID
+	// SessionID is the console session; uuid.Nil for a key or token.
+	SessionID uuid.UUID
+}
+
+// Actor returns the tenant that acts: ActorTenantID when set, else TenantID.
+func (p Principal) Actor() uuid.UUID {
+	if p.ActorTenantID != uuid.Nil {
+		return p.ActorTenantID
+	}
+	return p.TenantID
 }
 
 // ErrUnauthenticated is what a Lookup returns for an unknown, revoked or expired
@@ -69,6 +94,8 @@ type Slot struct {
 	onFailure func(Failure) (retryAfter time.Duration, limited bool)
 	// routeScope names the key scope a request needs (RequireScope).
 	routeScope func(*http.Request) string
+	// session resolves the console cookie (AcceptSession).
+	session SessionFunc
 	// missing is the key scope the caller lacked (MissingScope).
 	missing string
 }
@@ -116,6 +143,22 @@ func (s *Slot) RequireScope(fn func(*http.Request) string) { s.routeScope = fn }
 // MissingScope returns the key scope the caller of the request lacked, when
 // it was refused for that (403). Principal still names the caller.
 func (s *Slot) MissingScope() string { return s.missing }
+
+// SessionFunc resolves the token of the ohs_console cookie for request r.
+// ErrUnauthenticated answers 401, *ForbiddenError 403 with its Detail,
+// *LimitedError 429; any other error is handled like a lookup error.
+type SessionFunc func(r *http.Request, token string) (Principal, error)
+
+// ForbiddenError is what a SessionFunc returns for a session that must not
+// make this request: the middleware answers 403 with Detail.
+type ForbiddenError struct{ Detail string }
+
+func (e *ForbiddenError) Error() string { return "auth: forbidden: " + e.Detail }
+
+// AcceptSession makes the middleware accept the console session cookie,
+// resolved by fn, on a request that has no Authorization header. Without it
+// the cookie is never read.
+func (s *Slot) AcceptSession(fn SessionFunc) { s.session = fn }
 
 // LimitedError is what a Lookup returns for a credential that is valid but
 // over its rate limit: the middleware answers 429 with Retry-After.
@@ -174,66 +217,59 @@ func MiddlewareAny(lookup Lookup, wants ...Scope) func(http.Handler) http.Handle
 			// caller alone: no cache on the way may keep it. A handler that
 			// knows better sets its own value.
 			w.Header().Set("Cache-Control", "no-store")
-			raw, ok := bearer(r)
-			if !ok || (!strings.HasPrefix(raw, PrefixSecretKey) && !strings.HasPrefix(raw, PrefixUserToken)) {
-				unauthorized(w)
-				return
-			}
-			// A database that does not answer (a frozen host, a network
-			// partition: no reset, no error) would hold the request, its
-			// goroutine and a pool connection for as long as it stays
-			// silent. The lookup is one indexed read; past LookupTimeout it
-			// is an outage.
-			lctx, cancel := context.WithTimeout(r.Context(), LookupTimeout)
-			p, err := lookup(lctx, Hash(raw))
-			timedOut := err != nil && errors.Is(lctx.Err(), context.DeadlineExceeded) && r.Context().Err() == nil
-			cancel()
-			if timedOut {
-				slog.ErrorContext(r.Context(), "auth: lookup timed out", "timeout", LookupTimeout.String())
-				WriteUnavailable(w, "the database did not answer in time; retry in a few seconds")
-				return
-			}
-			if errors.Is(err, ErrUnauthenticated) {
-				if s, ok := r.Context().Value(slotKey{}).(*Slot); ok {
+			slot, _ := r.Context().Value(slotKey{}).(*Slot)
+			var (
+				p   Principal
+				raw string
+			)
+			if token, ok := sessionToken(r, slot); ok {
+				var done bool
+				p, done = resolve(w, r, func(ctx context.Context) (Principal, error) {
+					return slot.session(r.WithContext(ctx), token)
+				}, nil)
+				if done {
+					return
+				}
+			} else {
+				var ok bool
+				raw, ok = bearer(r)
+				if !ok || (!strings.HasPrefix(raw, PrefixSecretKey) && !strings.HasPrefix(raw, PrefixUserToken)) {
+					unauthorized(w)
+					return
+				}
+				var done bool
+				p, done = resolve(w, r, func(ctx context.Context) (Principal, error) {
+					return lookup(ctx, Hash(raw))
+				}, func() bool {
+					if slot == nil {
+						return false
+					}
 					f := &Failure{Hash: Hash(raw), UserToken: strings.HasPrefix(raw, PrefixUserToken)}
 					if !f.UserToken && len(raw) > KeyPrefixLen {
 						f.Prefix = raw[:KeyPrefixLen]
 					}
-					s.failed = f
-					if s.onFailure != nil {
-						if wait, limited := s.onFailure(*f); limited {
+					slot.failed = f
+					if slot.onFailure != nil {
+						if wait, limited := slot.onFailure(*f); limited {
 							WriteTooManyRequests(w, wait)
-							return
+							return true
 						}
 					}
-				}
-				unauthorized(w)
-				return
-			}
-			var limited *LimitedError
-			if errors.As(err, &limited) {
-				WriteTooManyRequests(w, limited.RetryAfter)
-				return
-			}
-			if err != nil {
-				// The cause may name infrastructure; it is logged, never sent. No token or hash.
-				slog.ErrorContext(r.Context(), "auth: lookup failed", "error", err)
-				if db.Unavailable(err) {
-					WriteUnavailable(w, "the database is unavailable; retry in a few seconds")
+					return false
+				})
+				if done {
 					return
 				}
-				WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "authentication is temporarily unavailable")
-				return
 			}
 			if !slices.ContainsFunc(wants, func(want Scope) bool { return allowed(p, want) }) {
 				WriteProblem(w, http.StatusForbidden, "Forbidden", forbidden)
 				return
 			}
-			if s, ok := r.Context().Value(slotKey{}).(*Slot); ok {
-				s.p, s.ok = p, true
-				if s.routeScope != nil {
-					if scope := s.routeScope(r); !p.Can(scope) {
-						s.missing = scope
+			if slot != nil {
+				slot.p, slot.ok = p, true
+				if slot.routeScope != nil {
+					if scope := slot.routeScope(r); !p.Can(scope) {
+						slot.missing = scope
 						WriteProblem(w, http.StatusForbidden, "Forbidden", missingScopeDetail(p, scope))
 						return
 					}
@@ -291,4 +327,67 @@ func bearer(r *http.Request) (string, bool) {
 func unauthorized(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", "Bearer")
 	WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "a valid API key or user token is required")
+}
+
+// sessionToken returns the console session cookie of r when the cookie is the
+// credential: no Authorization header (bearer wins), a SessionFunc on the
+// slot and a cookie that is present and not empty.
+func sessionToken(r *http.Request, slot *Slot) (string, bool) {
+	if slot == nil || slot.session == nil || len(r.Header.Values("Authorization")) > 0 {
+		return "", false
+	}
+	c, err := r.Cookie(SessionCookie)
+	if err != nil || c.Value == "" {
+		return "", false
+	}
+	return c.Value, true
+}
+
+// resolve runs a credential lookup under LookupTimeout and answers every
+// outcome but success. It reports done when it has answered. onUnauth, when
+// not nil, runs for ErrUnauthenticated before the 401 and reports whether it
+// answered itself (a rate limited caller).
+func resolve(w http.ResponseWriter, r *http.Request, call func(context.Context) (Principal, error), onUnauth func() bool) (Principal, bool) {
+	// A database that does not answer (a frozen host, a network
+	// partition: no reset, no error) would hold the request, its
+	// goroutine and a pool connection for as long as it stays
+	// silent. The lookup is one indexed read; past LookupTimeout it
+	// is an outage.
+	lctx, cancel := context.WithTimeout(r.Context(), LookupTimeout)
+	p, err := call(lctx)
+	timedOut := err != nil && errors.Is(lctx.Err(), context.DeadlineExceeded) && r.Context().Err() == nil
+	cancel()
+	if timedOut {
+		slog.ErrorContext(r.Context(), "auth: lookup timed out", "timeout", LookupTimeout.String())
+		WriteUnavailable(w, "the database did not answer in time; retry in a few seconds")
+		return Principal{}, true
+	}
+	if errors.Is(err, ErrUnauthenticated) {
+		if onUnauth != nil && onUnauth() {
+			return Principal{}, true
+		}
+		unauthorized(w)
+		return Principal{}, true
+	}
+	var forbidden *ForbiddenError
+	if errors.As(err, &forbidden) {
+		WriteProblem(w, http.StatusForbidden, "Forbidden", forbidden.Detail)
+		return Principal{}, true
+	}
+	var limited *LimitedError
+	if errors.As(err, &limited) {
+		WriteTooManyRequests(w, limited.RetryAfter)
+		return Principal{}, true
+	}
+	if err != nil {
+		// The cause may name infrastructure; it is logged, never sent. No token or hash.
+		slog.ErrorContext(r.Context(), "auth: lookup failed", "error", err)
+		if db.Unavailable(err) {
+			WriteUnavailable(w, "the database is unavailable; retry in a few seconds")
+			return Principal{}, true
+		}
+		WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "authentication is temporarily unavailable")
+		return Principal{}, true
+	}
+	return p, false
 }

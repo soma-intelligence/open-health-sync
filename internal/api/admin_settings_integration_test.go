@@ -30,10 +30,10 @@ import (
 // settingsEnv is the test router with the settings routes, over the pool of
 // the test database, and the Live behind them. The environment holds only
 // the two variables Load needs, so every other setting is the console's.
-func settingsEnv(t *testing.T) (*env, *settings.Live) {
+func settingsEnv(t *testing.T, extra ...func(*api.Deps)) (*env, *settings.Live) {
 	t.Helper()
 	var live *settings.Live
-	e := newEnv(t, func(d *api.Deps) {
+	e := newEnv(t, append([]func(*api.Deps){func(d *api.Deps) {
 		keyB64 := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
 		kv := map[string]string{"OHS_DATABASE_URL": "postgres://unused/unused", "OHS_ENCRYPTION_KEY": keyB64}
 		environ := []string{"OHS_DATABASE_URL=" + kv["OHS_DATABASE_URL"], "OHS_ENCRYPTION_KEY=" + keyB64}
@@ -46,7 +46,7 @@ func settingsEnv(t *testing.T) (*env, *settings.Live) {
 		require.NoError(t, err)
 		live = settings.NewLive(settings.LiveOptions{Store: settings.NewPG(d.Pool, box), Env: lookup, Environ: environ, Config: cfg})
 		d.Settings = live
-	})
+	}}, extra...)...)
 	return e, live
 }
 

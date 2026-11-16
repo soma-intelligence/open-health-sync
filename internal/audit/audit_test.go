@@ -146,3 +146,28 @@ func TestDetailJSONCleansEveryType(t *testing.T) {
 		t.Fatalf("%s %v", clean, err)
 	}
 }
+
+func TestClassifyConsoleSession(t *testing.T) {
+	cases := []struct{ method, pattern, want string }{
+		{"POST", "POST /console/session", SessionCreate},
+		{"GET", "GET /console/session", SessionRead},
+		{"DELETE", "DELETE /console/session", SessionDelete},
+		{"PUT", "PUT /console/session/tenant", SessionTenant},
+	}
+	for _, c := range cases {
+		if got := Classify(c.method, c.pattern); got != c.want {
+			t.Errorf("Classify(%q, %q) = %q, want %q", c.method, c.pattern, got, c.want)
+		}
+	}
+}
+
+func TestBufferedSessionActions(t *testing.T) {
+	if !Buffered(SessionRead) {
+		t.Error("session.read should be buffered")
+	}
+	for _, a := range []string{SessionCreate, SessionDelete, SessionTenant} {
+		if Buffered(a) {
+			t.Errorf("%s should be written synchronously", a)
+		}
+	}
+}

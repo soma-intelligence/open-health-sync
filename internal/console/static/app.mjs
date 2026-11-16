@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // The admin console. It calls the documented API on the same origin with the
-// tenant key the operator pasted (kept in sessionStorage), exactly as curl
-// would; in read-only mode it sends GET only and shows no action. Every value
+// tenant key the operator pasted, which it trades once for a server session
+// (an HttpOnly cookie plus a CSRF token held in memory); in read-only mode it
+// sends GET only and shows no action. Every value
 // from the API reaches the page through textContent or an attribute set on a
 // created element, never as markup. The pure helpers live in lib.mjs.
 
 import {
   ApiError,
   HEALTH_RANGES,
-  KEY_STORAGE,
   SLEEP_STAGES,
+  loadSession,
+  signIn,
+  signOut as endSession,
   STAGE_STATES,
   absTime,
   apiPath,
@@ -92,31 +95,18 @@ const STAGE_ICONS = { sources: "plug", sync: "refresh", processing: "cpu", stora
 const SEVERITY_ICONS = { ok: "check-circle", warn: "alert", bad: "alert-circle" };
 
 // ---------------------------------------------------------------------------
-// Key storage
+// CSRF token
 
-function storage() {
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
-function getKey() {
-  try {
-    return storage()?.getItem(KEY_STORAGE) || "";
-  } catch {
-    return "";
-  }
-}
-
-function setKey(v) {
-  try {
-    if (v) storage()?.setItem(KEY_STORAGE, v);
-    else storage()?.removeItem(KEY_STORAGE);
-  } catch {
-    // Storage blocked: the key lives only until the next reload.
-  }
+// memoryToken holds the session's CSRF token in a closure: never in storage,
+// a cookie or a global.
+function memoryToken() {
+  let token = "";
+  return {
+    get: () => token,
+    set: (v) => {
+      token = v || "";
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -807,7 +797,8 @@ function healthCharts({ n, days, zone, daily, sleep, workouts, rhr, hrv, hrvKind
 function main() {
   const meta = document.querySelector('meta[name="ohs-console-mode"]');
   const readOnly = !meta || meta.getAttribute("content") !== "manage";
-  const api = makeApi((u, o) => window.fetch(u, o), getKey, { readOnly });
+  const csrf = memoryToken();
+  const api = makeApi((u, o) => window.fetch(u, o), csrf, { readOnly });
   const view = document.getElementById("view");
   const signin = document.getElementById("signin");
   const sidebar = document.getElementById("sidebar");
@@ -826,6 +817,8 @@ function main() {
   const dialog = document.getElementById("dialog");
   let renderSeq = 0;
   let tenant = null;
+  // session is the console session JSON once signed in; null otherwise.
+  let session = null;
   // names maps a provider slug to its display name, as the server gave it.
   let names = {};
   // Cursor stacks of the paged views: page n starts at cursors[n].
@@ -850,10 +843,26 @@ function main() {
     setTimeout(drop, cls === "bad" ? 12000 : 5000);
   }
 
+  // reset forgets everything held for the signed in session: the CSRF token,
+  // the session, the page cursors, the provider names and the tenant.
+  function reset() {
+    csrf.set("");
+    session = null;
+    tenant = null;
+    cursors.users = [null];
+    cursors.audit = [null];
+    names = {};
+  }
+
+  // lostSession handles a 401: the session is gone or its key was revoked.
+  function lostSession() {
+    reset();
+    showSignin("The session ended. Sign in again.");
+  }
+
   function failure(err) {
     if (err instanceof ApiError && err.status === 401) {
-      setKey("");
-      showSignin("The key is no longer accepted. Sign in again.");
+      lostSession();
       return;
     }
     flash(err instanceof ApiError && err.detail ? err.detail : err.message || String(err), "bad");
@@ -1076,11 +1085,13 @@ function main() {
     }
   }
 
-  function signOut() {
-    setKey("");
-    cursors.users = [null];
-    cursors.audit = [null];
-    names = {};
+  async function leave() {
+    try {
+      await endSession(api, csrf);
+    } catch {
+      // The token is forgotten either way; the server ends the session by its clock.
+    }
+    reset();
     keyInput.value = "";
     showSignin("");
   }
@@ -1103,11 +1114,22 @@ function main() {
     const key = keyInput.value.trim();
     keyInput.value = "";
     if (!key) return;
-    setKey(key);
+    let signedIn = false;
     try {
+      session = await signIn(api, csrf, key);
+      signedIn = true;
       await loadTenant();
     } catch (err) {
-      setKey("");
+      // A session opened but the page could not load: close it, so none stays
+      // behind with no page to use it.
+      if (signedIn) {
+        try {
+          await endSession(api, csrf);
+        } catch {
+          // The server ends it by its clock.
+        }
+      }
+      reset();
       showSignin(
         err instanceof ApiError && (err.status === 401 || err.status === 403)
           ? "This key was refused. A tenant API key is needed, not a user token."
@@ -1117,7 +1139,7 @@ function main() {
     }
     render();
   });
-  signout.addEventListener("click", signOut);
+  signout.addEventListener("click", leave);
   window.addEventListener("hashchange", () => render());
 
   // On a phone the sidebar is a bar with a menu button. The menu closes on
@@ -1143,7 +1165,7 @@ function main() {
   }
 
   async function render() {
-    if (!getKey()) {
+    if (!session) {
       showSignin("");
       return;
     }
@@ -1178,8 +1200,7 @@ function main() {
       content = await views[route.view](route.id);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        setKey("");
-        showSignin("The key is no longer accepted. Sign in again.");
+        lostSession();
         return;
       }
       content = errorBox(err);
@@ -2583,7 +2604,13 @@ function main() {
     );
   }
 
-  render();
+  loadSession(api, csrf).then(
+    (found) => {
+      session = found;
+      render();
+    },
+    (err) => showSignin(`Could not reach the server: ${err.message}`),
+  );
 }
 
 if (typeof document !== "undefined") {

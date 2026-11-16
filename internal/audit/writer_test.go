@@ -190,9 +190,9 @@ func TestWriterKeepsTheTimeOfTheEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	closeWriter(t, w)
-	at, ok := db.args[0][eventColumns-1].(*time.Time)
+	at, ok := db.args[0][eventColumns-2].(*time.Time)
 	if !ok || at == nil || at.Before(before) || at.After(time.Now()) {
-		t.Fatalf("at = %v, want the time the event was queued", db.args[0][eventColumns-1])
+		t.Fatalf("at = %v, want the time the event was queued", db.args[0][eventColumns-2])
 	}
 }
 

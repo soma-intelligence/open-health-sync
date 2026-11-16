@@ -155,6 +155,25 @@ converts them, and `ohs vault status --check` exits non-zero while anything is l
   the request carries the same `request_id` (`internal/reqid/reqid.go`, `internal/api/router.go`).
   Request logs record the route pattern and status, never the query string or a header.
 
+### The console
+
+- **A session, not the key.** The [console](console.md#sign-in) trades a tenant key for a session
+  once. The cookie `ohs_console` (`HttpOnly`, `SameSite=Strict`, `Secure` except on localhost) holds
+  a random token of 32 bytes; only its SHA-256 hash is stored, like a key's. The key itself is
+  never stored in the browser, logged or written to an audit event, and the session and CSRF
+  tokens appear in neither a log line nor an event.
+- **CSRF.** A request that carries the cookie and is not a `GET`, `HEAD` or `OPTIONS` needs the
+  `X-OHS-CSRF` header, a second random token the page keeps in memory only. A cookie request with
+  a foreign `Origin` is refused, and so is a sign in.
+- **Bounded life.** 12 hours without a request, 7 days in all, and the session ends with its key
+  (revoked or expired) or its tenant. Sign out deletes it.
+- **Read only is the server's.** With `OHS_CONSOLE=read-only` a session refuses every write with
+  403, whatever the page does. A bearer key keeps its rights.
+- **No cookie over plain http.** Sign in is refused on a remote host unless `OHS_PUBLIC_URL` is the
+  `https` address (a plain `http` public URL on a remote host is refused too). A bearer key is authenticated by its header and the cookie is then ignored.
+- **Attribution.** What a session does is in the [audit log](audit-log.md#console-sessions) with the
+  key as actor and `actor_tenant_id` set.
+
 ### Providers and the public routes
 
 - **Forged OAuth callback / login CSRF.** `StartConnection` mints a 32 byte random state, stores

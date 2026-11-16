@@ -168,8 +168,9 @@ func (s *server) patchAdminSettings(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "the body changes nothing: give at least one setting, a string or null")
 		return
 	}
-	// updated_by is the admin tenant, per spec 1.4, not the key.
-	res, err := s.d.Settings.Patch(r.Context(), rev, req, p.TenantID)
+	// updated_by is the admin tenant (the session tenant of a console
+	// session), per spec 1.4, not the key.
+	res, err := s.d.Settings.Patch(r.Context(), rev, req, p.Actor())
 	if err != nil {
 		patchError(w, r, err, func() (int64, error) {
 			v, err := s.d.Settings.View(r.Context())

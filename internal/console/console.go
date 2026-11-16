@@ -3,8 +3,9 @@
 // Package console serves the admin console at /console (docs/console.md):
 // one HTML page, two JavaScript modules and one stylesheet, embedded in the
 // binary. The page holds no server-side state and has no auth of its own: it
-// asks for a tenant API key, keeps it in the tab's sessionStorage and calls
-// the documented API routes on the same origin, as curl would. In read-only
+// asks for a tenant API key once, trades it at POST /console/session for an
+// HttpOnly session cookie and a CSRF token it keeps in memory, and calls the
+// documented API routes on the same origin with them. In read-only
 // mode the page refuses any request but GET and shows no action. Beside it,
 // /console/setup is the separate first-run page: it posts the setup token to
 // POST /v1/setup and shows the first tenant's API key once. Both are mounted

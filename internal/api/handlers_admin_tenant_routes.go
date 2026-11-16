@@ -108,7 +108,7 @@ func (s *server) asTenant(h http.Handler) http.HandlerFunc {
 		}
 		aw := &adminWriter{statusWriter: statusWriter{ResponseWriter: w}, prefix: "/v1/admin/tenants/" + t.ID.String()}
 		h.ServeHTTP(aw, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{TenantID: t.ID, KeyID: admin.KeyID})))
-		if t.ID == admin.TenantID {
+		if t.ID == admin.Actor() {
 			return
 		}
 		code := aw.code

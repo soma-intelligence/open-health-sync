@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/soma-intelligence/open-health-sync/internal/auth"
 )
 
 func serveConsole(t *testing.T, method, path string) *httptest.ResponseRecorder {
@@ -149,7 +151,7 @@ func TestScriptAvoidsUnsafeSinks(t *testing.T) {
 			t.Fatal(err)
 		}
 		src := string(js)
-		for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "XMLHttpRequest", "console.log"} {
+		for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "sessionStorage", "Authorization", "XMLHttpRequest", "console.log"} {
 			if strings.Contains(src, bad) {
 				t.Errorf("%s uses %s", name, bad)
 			}
@@ -163,12 +165,24 @@ func TestScriptAvoidsUnsafeSinks(t *testing.T) {
 	if strings.Contains(string(lib), "fetch(") {
 		t.Error("lib.mjs calls fetch itself; it takes the fetch to use")
 	}
-	if !strings.Contains(string(app), "makeApi((u, o) => window.fetch(u, o), getKey, { readOnly })") {
+	if !strings.Contains(string(app), "makeApi((u, o) => window.fetch(u, o), csrf, { readOnly })") {
 		t.Error("app.mjs does not build its one request wrapper in the page's mode")
 	}
-	for _, want := range []string{`credentials: "omit"`, `redirect: "error"`, `referrerPolicy: "no-referrer"`} {
+	for _, want := range []string{`credentials: "same-origin"`, `redirect: "error"`, `referrerPolicy: "no-referrer"`} {
 		if !strings.Contains(string(lib), want) {
 			t.Errorf("lib.mjs requests lack %s", want)
+		}
+	}
+}
+
+func TestCSRFDetailMatchesServer(t *testing.T) {
+	lib, err := static.ReadFile("static/lib.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{auth.DetailCSRF, auth.CSRFHeader} {
+		if !strings.Contains(string(lib), want) {
+			t.Errorf("lib.mjs lacks %q", want)
 		}
 	}
 }
@@ -224,7 +238,7 @@ func TestSetupScriptAvoidsUnsafeSinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(js)
-	for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "XMLHttpRequest", "console.log"} {
+	for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "sessionStorage", "Authorization", "XMLHttpRequest", "console.log"} {
 		if strings.Contains(src, bad) {
 			t.Errorf("setup.mjs uses %s", bad)
 		}

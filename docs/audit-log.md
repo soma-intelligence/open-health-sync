@@ -14,6 +14,7 @@ articles 30 and 32 and comparable health data rules expect one).
 | A change an instance admin key makes to a tenant through the [admin API](admin-api.md) | On the tenant it changed, besides the request's own event on the admin's tenant: `tenant.create`, `key.create` and `key.revoke` with `admin_tenant_id`, `key_id` and `key_prefix` in `detail`; `data.write` for the demo user, with its `user_id` and `admin_tenant_id`, `synthetic`, `days`, `persona`, `rows_written` and `user_created` in `detail`; `tenant.provider` for a provider turned off or on, with `admin_tenant_id`, `provider` and `enabled` in `detail`; `tenant.provider_keys` for the tenant's own provider keys set, replaced or removed, with `admin_tenant_id`, `provider`, `set` and `reauth_required` in `detail`, never a key; for a request through the tenant routes (`/v1/admin/tenants/{tenant_id}/users...`, `/webhooks...`, `/pipeline/...`, `/deletions/...`, `/audit`), the action of the tenant route with the user of the path and `admin_tenant_id` (and `provider` or `job_id` when the path names one). Actor `admin` |
 | The [first-run setup](setup.md) (`POST /v1/setup`) | `tenant.create`, actor `system` with id `setup`, the key prefix in `detail` |
 | The deletion worker | `user.erased` when a user's data is gone, with the job id, actor `system` |
+| A [console session](console.md#sign-in) | `session.create` (sign in), `session.read`, `session.delete` (sign out) and `session.tenant` (a tenant switch), actor `api_key` with the id of the session's key; see [Console sessions](#console-sessions) |
 | A [share link](share-links.md) opened by its reader | `share.access` for each manifest request on a known link and each file download, actor `share_link`, the outcome in `detail` |
 
 A request with no credential, or one that is not shaped like a key or a token, is not an audit
@@ -33,6 +34,7 @@ Each event holds:
 | `action` | What was done, see below |
 | `user_id` | The end user the action concerns: the user of a user token, the `{id}` of the route, or the demo user an admin key filled |
 | `method`, `route`, `status` | The HTTP method, the route **pattern** (`GET /v1/users/{id}/samples`) and the status code |
+| `actor_tenant_id` | Set when the request was made through a [console session](console.md#sign-in): the id of the session's own tenant, which differs from the tenant of the event when an admin acted on another tenant. `null` for a bearer key, a user token and every other source |
 | `request_id` | The request's `X-Request-Id`, to match the event with your own logs |
 | `detail` | Identifiers only, such as a deletion job id or a key prefix. For a route that names a tenant, a provider, an API key or a processing job in its path, its `tenant_id`, `provider`, `key_id` or `job_id`. For a request refused with 403 because the key lacks the [scope](api.md#key-scopes) of the route, `missing_scope`; for `key.create`, the `scopes` of the new key. A NUL character is removed and invalid UTF-8 replaced by U+FFFD, so such a value never stops the event from being written |
 
@@ -60,8 +62,25 @@ one the refused credential came from.
 | `key.create`, `key.revoke` | Creating and revoking an API key (`POST /v1/keys`, `DELETE /v1/keys/{key_id}`, and for another tenant `POST /v1/admin/tenants/{tenant_id}/keys`, `DELETE /v1/admin/tenants/{tenant_id}/keys/{key_id}`); listing keys is `config.read` |
 | `tenant.provider` | Turning a provider off or back on for one tenant (`PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}`); `detail` holds `provider` and, on the tenant changed, `enabled` |
 | `tenant.provider_keys` | Setting, replacing or removing a tenant's own keys for a provider (`PUT` or `DELETE /v1/admin/tenants/{tenant_id}/providers/{provider}/keys`); `detail` holds `provider` and, on the tenant changed, `set` and `reauth_required` (the connections set `needs_reauth`), never a key |
+| `session.create`, `session.read`, `session.delete`, `session.tenant` | The console session routes: sign in (`POST /console/session`, `detail` holds `key_prefix`), reading the session (`GET /console/session`), sign out (`DELETE /console/session`) and switching tenant (`PUT /console/session/tenant`, `detail` holds `from_tenant_id` and `to_tenant_id`). Never a token |
 | `audit.read` | Reading this log |
 | `config.read`, `config.write` | Anything else: the provider list, the tenant, the pipeline and retrying processing jobs (`/v1/pipeline`), the provider settings (`/v1/admin/providers`), the server settings (`/v1/admin/settings`; a `PATCH` writes `config.write` with `detail` holding `settings`, the names it changed, and the new `revision`, never a value), reading tenants, their keys, pipelines and providers (`/v1/admin/tenants`) |
+
+### Console sessions
+
+The key behind a [console session](console.md#sign-in) is the actor of every event it makes
+(`actor.type` `api_key`, `actor.id` the key's id), and `actor_tenant_id` is the session's tenant.
+Where the event is stored depends on the route:
+
+- A request to a tenant route made while acting on a tenant is recorded on that acting tenant, with
+  `actor_tenant_id` set to the session's tenant. A tenant sees what an admin did in its data, and who.
+- A request to an instance admin route (`/v1/admin/...`) is recorded on the session's own tenant,
+  never on the tenant the console is viewing.
+- All four `session.*` events (`session.create`, `session.read`, `session.delete` and
+  `session.tenant`) are recorded on the session's own tenant, even while it views another one.
+  `session.read` is a buffered event.
+
+Filter the log by `actor_tenant_id` in the result to see what sessions of another tenant did.
 
 New actions may be added; treat an unknown one as `config.read` or `config.write` by its method.
 

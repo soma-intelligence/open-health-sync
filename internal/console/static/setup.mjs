@@ -7,10 +7,6 @@
 // origin, and shows the key with textContent. The helpers above main() are
 // pure and tested with `node --test`.
 
-// KEY_STORAGE is the console's sessionStorage key (lib.mjs): the new key is
-// kept there so /console opens signed in, in this tab only.
-export const KEY_STORAGE = "ohs.console.key";
-
 // SETUP_PATH is the only URL this page calls.
 export const SETUP_PATH = "/v1/setup";
 
@@ -118,14 +114,6 @@ export function makeSetupClient(fetchImpl) {
 // ---------------------------------------------------------------------------
 // DOM
 
-function storeKey(key) {
-  try {
-    window.sessionStorage.setItem(KEY_STORAGE, key);
-  } catch {
-    // Storage blocked: the operator signs in to the console by hand.
-  }
-}
-
 function main() {
   const client = makeSetupClient((u, o) => window.fetch(u, o));
   const $ = (id) => document.getElementById(id);
@@ -156,7 +144,6 @@ function main() {
     try {
       const { tenantId, apiKey } = await client.create(tokenInput.value, nameInput.value);
       tokenInput.value = "";
-      storeKey(apiKey);
       $("result-tenant").textContent = tenantId;
       keyOut.textContent = apiKey;
       show("result");

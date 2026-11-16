@@ -3,9 +3,15 @@
 // The console's pure helpers: no DOM, no global state. app.mjs builds the
 // page with them; app.test.mjs tests them with `node --test`.
 
-export const KEY_STORAGE = "ohs.console.key";
+// The console session (POST /console/session): the key is sent once, the
+// server answers with a cookie the page cannot read and a CSRF token the page
+// keeps in memory only.
+export const SESSION_PATH = "/console/session";
+export const CSRF_HEADER = "X-OHS-CSRF";
+export const CSRF_REFUSED = "this request needs the X-OHS-CSRF token of the console session; reload the page";
 
-// The methods the console may send. In read-only mode, GET only.
+// The methods the console may send. In read-only mode, GET only (and the
+// sign in and sign out of the session).
 export const WRITE_METHODS = ["POST", "PATCH", "PUT", "DELETE"];
 
 // ReadOnlyError is thrown by the request wrapper for a request the mode or
@@ -29,13 +35,45 @@ function samePath(path) {
 
 // makeApi returns api(path, opts), the only way the console talks to the
 // server. opts: method (GET by default), body (sent as JSON), auth (false
-// sends no key), download (true returns {blob, filename} instead of JSON).
-// In read-only mode every method but GET is refused. A path off this origin
-// is refused. The key goes as a bearer token, never in a URL or a cookie.
-export function makeApi(fetchImpl, getKey, { readOnly = false } = {}) {
+// sends no cookie), download (true returns {blob, filename} instead of JSON).
+// csrf is {get(), set(token)}, held in memory by app.mjs, never in storage.
+// In read-only mode every method but GET is refused, except POST and DELETE
+// on SESSION_PATH. A path off this origin is refused. The session rides in an
+// HttpOnly cookie; the key never rides in a header. A write carries
+// CSRF_HEADER; one refused as stale (403 with CSRF_REFUSED) fetches the
+// session's token once and is sent again once.
+export function makeApi(fetchImpl, csrf, { readOnly = false } = {}) {
+  async function send(path, method, opts, hasBody) {
+    const headers = { Accept: opts.download ? "*/*" : "application/json" };
+    if (method !== "GET") {
+      const token = csrf.get();
+      if (token) headers[CSRF_HEADER] = token;
+    }
+    if (hasBody) headers["Content-Type"] = "application/json";
+    const init = {
+      method,
+      headers,
+      body: hasBody ? JSON.stringify(opts.body) : undefined,
+      credentials: "same-origin",
+      cache: "no-store",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    };
+    if (opts.auth === false) init.credentials = "omit";
+    return fetchImpl(path, init);
+  }
+  async function readBody(res) {
+    if (res.status === 204) return null;
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
   return async function api(path, opts = {}) {
     const method = String(opts.method ?? "GET").toUpperCase();
-    if (method !== "GET" && (readOnly || !WRITE_METHODS.includes(method))) {
+    const sessionCall = path === SESSION_PATH && (method === "POST" || method === "DELETE");
+    if (method !== "GET" && ((readOnly && !sessionCall) || !WRITE_METHODS.includes(method))) {
       throw new ReadOnlyError(readOnly ? `the console is read-only: ${method} refused` : `${method} is not a method the console sends`);
     }
     const hasBody = opts.body !== undefined && opts.body !== null;
@@ -45,32 +83,29 @@ export function makeApi(fetchImpl, getKey, { readOnly = false } = {}) {
     if (!samePath(path)) {
       throw new ReadOnlyError("the console only calls paths on this server");
     }
-    const headers = { Accept: opts.download ? "*/*" : "application/json" };
-    if (opts.auth !== false) {
-      const key = getKey();
-      if (key) headers.Authorization = "Bearer " + key;
+    let res = await send(path, method, opts, hasBody);
+    let body = null;
+    if (!(res.ok && opts.download)) {
+      body = await readBody(res);
+      if (method !== "GET" && res.status === 403 && body && body.detail === CSRF_REFUSED) {
+        const fresh = await send(SESSION_PATH, "GET", {}, false);
+        if (fresh.status === 401) {
+          // The session is gone: the page shows sign in, not a reload toast.
+          const lost = await readBody(fresh);
+          const detail = lost && typeof lost === "object" ? lost.detail || lost.title || "" : "";
+          throw new ApiError(401, String(detail));
+        }
+        const session = fresh.ok ? await readBody(fresh) : null;
+        if (session && typeof session.csrf_token === "string" && session.csrf_token) {
+          csrf.set(session.csrf_token);
+          res = await send(path, method, opts, hasBody);
+          body = res.ok && opts.download ? null : await readBody(res);
+        }
+      }
     }
-    if (hasBody) headers["Content-Type"] = "application/json";
-    const res = await fetchImpl(path, {
-      method,
-      headers,
-      body: hasBody ? JSON.stringify(opts.body) : undefined,
-      credentials: "omit",
-      cache: "no-store",
-      redirect: "error",
-      referrerPolicy: "no-referrer",
-    });
     if (res.ok && opts.download) {
       const header = res.headers && typeof res.headers.get === "function" ? res.headers.get("Content-Disposition") : null;
       return { blob: await res.blob(), filename: filenameFrom(header) };
-    }
-    let body = null;
-    if (res.status !== 204) {
-      try {
-        body = await res.json();
-      } catch {
-        body = null;
-      }
     }
     if (!res.ok) {
       const detail = body && typeof body === "object" ? body.detail || body.title || "" : "";
@@ -81,8 +116,41 @@ export function makeApi(fetchImpl, getKey, { readOnly = false } = {}) {
 }
 
 // makeGet is makeApi in read-only mode: GET only.
-export function makeGet(fetchImpl, getKey) {
-  return makeApi(fetchImpl, getKey, { readOnly: true });
+export function makeGet(fetchImpl, csrf) {
+  return makeApi(fetchImpl, csrf, { readOnly: true });
+}
+
+// signIn sends the key once to open a session and keeps only its CSRF token
+// (in csrf). It returns the session JSON, which holds no key.
+export async function signIn(api, csrf, key) {
+  const session = await api(SESSION_PATH, { method: "POST", body: { key } });
+  csrf.set(session && typeof session.csrf_token === "string" ? session.csrf_token : "");
+  return session;
+}
+
+// loadSession reads the current session: its JSON, or null when there is none
+// (401). Its CSRF token is kept in csrf.
+export async function loadSession(api, csrf) {
+  try {
+    const session = await api(SESSION_PATH);
+    if (session && typeof session.csrf_token === "string" && session.csrf_token) csrf.set(session.csrf_token);
+    return session;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return null;
+    throw err;
+  }
+}
+
+// signOut ends the session and forgets the CSRF token, whatever the answer
+// (a refusal by the server is not an error here; a network failure still is).
+export async function signOut(api, csrf) {
+  try {
+    await api(SESSION_PATH, { method: "DELETE" });
+  } catch (err) {
+    if (!(err instanceof ApiError)) throw err;
+  } finally {
+    csrf.set("");
+  }
 }
 
 // filenameFrom reads the file name of a Content-Disposition header, keeping

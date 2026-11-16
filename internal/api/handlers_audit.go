@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,10 +56,26 @@ func (s *server) mountAudit(mux *http.ServeMux) {
 // {tenant_id} names another tenant (an admin route): that user is not one of
 // the caller's, and is named on that tenant's log instead (asTenant). A write
 // that fails is logged and counted, never turned into an error for the
-// caller, who already has the response.
+// caller, who already has the response. A console session request carries
+// the tenant of the session as ActorTenant; a session route is recorded on
+// that tenant, and the request event of a session route whose handler
+// recorded its own event is skipped when it succeeded.
 func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope string) {
+	// The handler of a session route writes its own event when it succeeds;
+	// a request refused before that (a scope, a bad body, an unknown tenant)
+	// is recorded here.
+	if sessionOwnEvent[r.Pattern] && code < http.StatusBadRequest {
+		return
+	}
+	// An instance admin route is the admin's own business: it is recorded on
+	// the tenant that acts, never on a tenant the console session is viewing.
+	// So is a session route.
+	tenantID := p.TenantID
+	if isAdminRoute(r.Pattern) || isSessionRoute(r.Pattern) {
+		tenantID = p.Actor()
+	}
 	ev := audit.Event{
-		Tenant:    p.TenantID,
+		Tenant:    tenantID,
 		ActorType: audit.APIKey,
 		ActorID:   p.KeyID,
 		Action:    audit.Classify(r.Method, r.Pattern),
@@ -67,10 +84,14 @@ func (s *server) audit(r *http.Request, p auth.Principal, code int, missingScope
 		Status:    code,
 		RequestID: reqid.From(r.Context()),
 	}
+	if p.SessionID != uuid.Nil {
+		at := p.ActorTenantID
+		ev.ActorTenant = &at
+	}
 	if p.UserID != nil {
 		ev.ActorType = audit.UserToken
 		ev.User = p.UserID
-	} else if u, err := uuid.Parse(r.PathValue("id")); err == nil && ownTenant(r, p) {
+	} else if u, err := uuid.Parse(r.PathValue("id")); err == nil && ownTenant(r, tenantID) {
 		ev.User = &u
 	}
 	// The route pattern hides which provider, key or job a request named.
@@ -125,13 +146,25 @@ func (s *server) record(r *http.Request, ev audit.Event) {
 
 // ownTenant reports whether the request is about the caller's own tenant:
 // true unless the route's {tenant_id} names another one.
-func ownTenant(r *http.Request, p auth.Principal) bool {
+func ownTenant(r *http.Request, tenantID uuid.UUID) bool {
 	v := r.PathValue("tenant_id")
 	if v == "" {
 		return true
 	}
 	id, err := uuid.Parse(v)
-	return err == nil && id == p.TenantID
+	return err == nil && id == tenantID
+}
+
+// isAdminRoute reports whether a route pattern is an instance admin route.
+func isAdminRoute(pattern string) bool {
+	_, path, _ := strings.Cut(pattern, " ")
+	return strings.HasPrefix(path, "/v1/admin/")
+}
+
+// isSessionRoute reports whether pattern is a console session route.
+func isSessionRoute(pattern string) bool {
+	_, path, _ := strings.Cut(pattern, " ")
+	return strings.HasPrefix(path, "/console/session")
 }
 
 // listAudit serves the tenant's audit log, newest first, filtered by

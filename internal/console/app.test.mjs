@@ -43,6 +43,12 @@ import {
   localDate,
   makeApi,
   makeGet,
+  CSRF_HEADER,
+  CSRF_REFUSED,
+  SESSION_PATH,
+  loadSession,
+  signIn,
+  signOut,
   mean,
   niceTicks,
   parseRoute,
@@ -60,6 +66,11 @@ import {
   workoutSummary,
   workoutTimeline,
 } from "./static/lib.mjs";
+
+function memCsrf(token = "tok") {
+  let t = token;
+  return { get: () => t, set: (v) => { t = v; } };
+}
 
 function fakeFetch(status = 200, body = { data: [] }, headers = {}) {
   const calls = [];
@@ -85,7 +96,7 @@ test("app.mjs loads without a DOM", async () => {
 
 test("get refuses every method but GET, before any request", async () => {
   const f = fakeFetch();
-  const get = makeGet(f.impl, () => "ohs_sk_test");
+  const get = makeGet(f.impl, memCsrf());
   for (const method of ["POST", "PUT", "PATCH", "DELETE", "post", "OPTIONS", "HEAD"]) {
     await assert.rejects(get("/v1/users", { method }), ReadOnlyError, method);
   }
@@ -95,33 +106,34 @@ test("get refuses every method but GET, before any request", async () => {
 
 test("get refuses URLs off this origin", async () => {
   const f = fakeFetch();
-  const get = makeGet(f.impl, () => "k");
+  const get = makeGet(f.impl, memCsrf());
   for (const url of ["https://evil.example/v1/users", "//evil.example/x", "v1/users", "/\\evil.example", 42]) {
     await assert.rejects(get(url), ReadOnlyError, String(url));
   }
   assert.equal(f.calls.length, 0);
 });
 
-test("get sends a GET with the bearer key and no cookies", async () => {
+test("get sends a GET with the session cookie and no key", async () => {
   const f = fakeFetch(200, { data: [1] });
-  const get = makeGet(f.impl, () => "ohs_sk_test");
+  const get = makeGet(f.impl, memCsrf());
   assert.deepEqual(await get("/v1/users"), { data: [1] });
   assert.equal(f.calls.length, 1);
   const { url, init } = f.calls[0];
   assert.equal(url, "/v1/users");
   assert.equal(init.method, "GET");
   assert.equal(init.body, undefined);
-  assert.equal(init.headers.Authorization, "Bearer ohs_sk_test");
-  assert.equal(init.credentials, "omit");
+  assert.equal(init.headers.Authorization, undefined);
+  assert.equal(init.credentials, "same-origin");
   assert.equal(init.redirect, "error");
 
   await get("/healthz", { auth: false });
   assert.equal(f.calls[1].init.headers.Authorization, undefined);
+  assert.equal(f.calls[1].init.credentials, "omit");
 });
 
 test("get turns a problem answer into an ApiError", async () => {
   const f = fakeFetch(401, { title: "Unauthorized", detail: "missing or invalid credentials" });
-  const get = makeGet(f.impl, () => "bad");
+  const get = makeGet(f.impl, memCsrf());
   await assert.rejects(get("/v1/users"), (err) => {
     assert.ok(err instanceof ApiError);
     assert.equal(err.status, 401);
@@ -235,16 +247,17 @@ test("parseRoute", () => {
   assert.deepEqual(parseRoute("#/users/%E0"), { view: "user", section: "users", id: "%E0" });
 });
 
-test("api sends writes as JSON with the key, and only the methods it knows", async () => {
+test("api sends writes as JSON with the CSRF token, and only the methods it knows", async () => {
   const f = fakeFetch(201, { id: "u1" });
-  const api = makeApi(f.impl, () => "ohs_sk_test");
+  const api = makeApi(f.impl, memCsrf());
   assert.deepEqual(await api("/v1/users", { method: "post", body: { external_ref: "r" } }), { id: "u1" });
   const { init } = f.calls[0];
   assert.equal(init.method, "POST");
   assert.equal(init.body, JSON.stringify({ external_ref: "r" }));
   assert.equal(init.headers["Content-Type"], "application/json");
-  assert.equal(init.headers.Authorization, "Bearer ohs_sk_test");
-  assert.equal(init.credentials, "omit");
+  assert.equal(init.headers.Authorization, undefined);
+  assert.equal(init.credentials, "same-origin");
+  assert.equal(init['headers'][CSRF_HEADER], "tok");
   for (const method of ["PATCH", "PUT", "DELETE"]) {
     await api("/v1/x", { method });
   }
@@ -261,7 +274,7 @@ test("api sends writes as JSON with the key, and only the methods it knows", asy
 
 test("api in read-only mode sends GET only", async () => {
   const f = fakeFetch();
-  const api = makeApi(f.impl, () => "k", { readOnly: true });
+  const api = makeApi(f.impl, memCsrf(), { readOnly: true });
   for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
     await assert.rejects(api("/v1/users", { method, body: {} }), ReadOnlyError, method);
   }
@@ -271,9 +284,9 @@ test("api in read-only mode sends GET only", async () => {
 
 test("api reads 204 as null and downloads as a blob with a safe name", async () => {
   const none = fakeFetch(204, undefined);
-  assert.equal(await makeApi(none.impl, () => "k")("/v1/keys/1", { method: "DELETE" }), null);
+  assert.equal(await makeApi(none.impl, memCsrf())("/v1/keys/1", { method: "DELETE" }), null);
   const file = fakeFetch(200, undefined, { "Content-Disposition": 'attachment; filename="samples-u1.csv"' });
-  const got = await makeApi(file.impl, () => "k")("/v1/users/u1/exports/samples", { download: true });
+  const got = await makeApi(file.impl, memCsrf())("/v1/users/u1/exports/samples", { download: true });
   assert.equal(got.filename, "samples-u1.csv");
   assert.equal(got.blob.size, 3);
   assert.equal(file.calls[0].init.headers.Accept, "*/*");
@@ -543,4 +556,126 @@ test("syncSchedule", () => {
   const rows = syncSchedule({ ...dexcom, pull_every_seconds: 86400, pull_every_without_push_seconds: 86400, reconcile_seconds: 0 }, true);
   assert.deepEqual(rows[0], ["Pulled", "Every 1 d"]);
   assert.deepEqual(rows.at(-1), ["Daily reconciliation", "Off"]);
+});
+
+function queueFetch(answers) {
+  const calls = [];
+  const impl = async (url, init) => {
+    calls.push({ url, init });
+    const a = answers.shift() ?? { status: 200, body: {} };
+    return {
+      ok: a.status >= 200 && a.status < 300,
+      status: a.status,
+      headers: { get: () => null },
+      json: async () => a.body,
+      blob: async () => ({ size: 0 }),
+    };
+  };
+  return { impl, calls };
+}
+
+test("api sends no Authorization header and same-origin credentials", async () => {
+  const f = fakeFetch();
+  const api = makeApi(f.impl, memCsrf());
+  await api("/v1/users");
+  await api("/v1/setup", { auth: false });
+  assert.equal(f.calls[0].init.headers.Authorization, undefined);
+  assert.equal(f.calls[0].init.credentials, "same-origin");
+  assert.equal(f.calls[1].init.headers.Authorization, undefined);
+  assert.equal(f.calls[1].init.credentials, "omit");
+});
+
+test("api sends the CSRF token on writes only", async () => {
+  const f = fakeFetch(200, {});
+  const api = makeApi(f.impl, memCsrf("tok-1"));
+  await api("/v1/users");
+  await api("/v1/users", { method: "POST", body: {} });
+  assert.equal(f.calls[0].init.headers[CSRF_HEADER], undefined);
+  assert.equal(f.calls[1].init.headers[CSRF_HEADER], "tok-1");
+  assert.equal(CSRF_HEADER, "X-OHS-CSRF");
+});
+
+test("api retries a write once after a stale CSRF token", async () => {
+  const csrf = memCsrf("old");
+  const f = queueFetch([
+    { status: 403, body: { detail: CSRF_REFUSED } },
+    { status: 200, body: { csrf_token: "new" } },
+    { status: 201, body: {} },
+  ]);
+  const api = makeApi(f.impl, csrf);
+  await api("/v1/users", { method: "POST", body: {} });
+  assert.equal(f.calls.length, 3);
+  assert.equal(f.calls[1].url, SESSION_PATH);
+  assert.equal(f.calls[1].init.method, "GET");
+  assert.equal(f.calls[2].init.headers[CSRF_HEADER], "new");
+  assert.equal(csrf.get(), "new");
+
+  const g = queueFetch([
+    { status: 403, body: { detail: CSRF_REFUSED } },
+    { status: 200, body: { csrf_token: "n2" } },
+    { status: 403, body: { detail: CSRF_REFUSED } },
+  ]);
+  await assert.rejects(makeApi(g.impl, memCsrf())("/v1/users", { method: "POST", body: {} }), (err) => {
+    assert.ok(err instanceof ApiError);
+    assert.equal(err.status, 403);
+    return true;
+  });
+  assert.equal(g.calls.length, 3);
+});
+
+test("api turns a 401 on the CSRF refresh into a 401, not a reload toast", async () => {
+  const f = queueFetch([
+    { status: 403, body: { detail: CSRF_REFUSED } },
+    { status: 401, body: { title: "Unauthorized", detail: "no session" } },
+  ]);
+  await assert.rejects(makeApi(f.impl, memCsrf("old"))("/v1/users", { method: "POST", body: {} }), (err) => {
+    assert.ok(err instanceof ApiError);
+    assert.equal(err.status, 401);
+    return true;
+  });
+  assert.equal(f.calls.length, 2, "the write is not retried");
+});
+
+test("api in read-only mode still signs in and out", async () => {
+  const f = fakeFetch(200, { csrf_token: "t" });
+  const api = makeApi(f.impl, memCsrf(), { readOnly: true });
+  await api(SESSION_PATH, { method: "POST", body: { key: "k" } });
+  await api(SESSION_PATH, { method: "DELETE" });
+  assert.equal(f.calls.length, 2);
+  await assert.rejects(api("/v1/users", { method: "POST", body: {} }), ReadOnlyError);
+  await assert.rejects(api(SESSION_PATH + "/tenant", { method: "PUT", body: {} }), ReadOnlyError);
+  assert.equal(f.calls.length, 2);
+});
+
+test("signIn posts the key once and keeps only the CSRF token", async () => {
+  const csrf = memCsrf("");
+  const f = fakeFetch(201, { csrf_token: "csrf-1", tenant: { id: "t" }, read_only: false });
+  const api = makeApi(f.impl, csrf);
+  const session = await signIn(api, csrf, "ohs_sk_x");
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].url, SESSION_PATH);
+  assert.equal(f.calls[0].init.method, "POST");
+  assert.equal(f.calls[0].init.body, JSON.stringify({ key: "ohs_sk_x" }));
+  assert.equal(csrf.get(), "csrf-1");
+  assert.ok(!JSON.stringify(session).includes("ohs_sk_x"));
+});
+
+test("loadSession answers null on 401", async () => {
+  const csrf = memCsrf("");
+  const none = fakeFetch(401, { detail: "no session" });
+  assert.equal(await loadSession(makeApi(none.impl, csrf), csrf), null);
+  const ok = fakeFetch(200, { csrf_token: "c2", tenant: { id: "t" } });
+  const s = await loadSession(makeApi(ok.impl, csrf), csrf);
+  assert.equal(s.tenant.id, "t");
+  assert.equal(csrf.get(), "c2");
+  const boom = fakeFetch(500, { detail: "x" });
+  await assert.rejects(loadSession(makeApi(boom.impl, csrf), csrf), ApiError);
+});
+
+test("signOut clears the token even when the server refuses", async () => {
+  const csrf = memCsrf("tok");
+  const f = fakeFetch(500, { detail: "boom" });
+  await signOut(makeApi(f.impl, csrf), csrf);
+  assert.equal(csrf.get(), "");
+  assert.equal(f.calls[0].init.method, "DELETE");
 });

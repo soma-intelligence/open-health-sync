@@ -52,6 +52,7 @@ func everyRoute(t *testing.T) func(*Deps) {
 		d.Collect = collect.NewHandlers(collect.Deps{Pool: d.Pool, Box: box, Tenants: d.Store})
 		d.Webhooks = webhook.NewStore(d.Pool, box)
 		d.Settings = settings.NewLive(settings.LiveOptions{Store: settings.NewPG(d.Pool, box), Env: func(string) (string, bool) { return "", false }, Environ: []string{}})
+		d.PublicURL = "http://localhost:8080" // sign in reaches its body check
 		d.Console, d.Metrics, d.MetricsToken, d.SetupToken = true, true, "metrics-token-0123456789", "the-right-setup-token"
 		d.RateLimitAPIOff = true
 	}
@@ -92,6 +93,9 @@ func specOperations(t *testing.T) []operation {
 						o.public = false
 					}
 					if _, ok := alt["userToken"]; ok {
+						o.public = false
+					}
+					if _, ok := alt["consoleSession"]; ok {
 						o.public = false
 					}
 				}

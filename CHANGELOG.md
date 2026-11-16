@@ -16,6 +16,22 @@ release may change the API, the configuration or the database schema.
 - `GET` and `PATCH /v1/admin/settings` (the `PATCH` needs `If-Match`), `GET /v1/admin/settings/export` and
   `GET /v1/admin/processes`.
 - `ohs doctor` lists stored settings no release setting reads any more, and stored values a process skips.
+- Console sessions ([console.md](docs/console.md#sign-in)): signing in to the console opens a server
+  session, with the `ohs_console` cookie (`HttpOnly`, `SameSite=Strict`) and an `X-OHS-CSRF` token the page keeps
+  in memory. A session ends after 12 hours idle or 7 days, or with its key or tenant. Migration `0058` adds
+  `ohs_core.console_sessions`; a daily `etl` job deletes ended ones.
+- An instance admin session can switch tenant (`PUT /console/session/tenant`), and the audit log gains
+  `actor_tenant_id` and the actions `session.create`, `session.read`, `session.delete` and `session.tenant`
+  ([audit-log.md](docs/audit-log.md#console-sessions)).
+- `OHS_CONSOLE=read-only` is now enforced by the server for every session (403).
+
+### Changed
+
+- The console signs in with a server session instead of keeping the key in the browser tab and sending it as a
+  bearer header. The key is sent once and never stored; the cookie is `HttpOnly` and requests need the CSRF
+  token. Plain http works only on `localhost`, `127.0.0.1` and `[::1]`; elsewhere sign in is refused until
+  `OHS_PUBLIC_URL` is the `https` address (a plain `http` public URL on a remote host is refused too).
+- The first-run setup page no longer passes the key to the console: paste it on the console sign in page.
 
 ## [0.3.0] - 2026-11-11
 
