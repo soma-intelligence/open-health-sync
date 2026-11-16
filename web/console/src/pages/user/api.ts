@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import type {
   ConnectSession,
   ConsentHistory,
+  PreviewAnswer,
   User,
   UserConnections,
   UserConsents,
@@ -107,8 +108,9 @@ export function usePreview(id: string) {
   return useMutation({
     gcTime: 0,
     mutationFn: async (dataset: PreviewDataset) => {
-      const answer = await api.get<{ data?: unknown[]; entry?: unknown[] }>(userPath(id, dataset), { limit: PREVIEW_SIZE });
-      return { dataset, rows: (answer.data ?? answer.entry ?? []).slice(0, PREVIEW_SIZE) };
+      const answer = await api.get<PreviewAnswer>(userPath(id, dataset), { limit: PREVIEW_SIZE });
+      const rows: readonly unknown[] = answer.data;
+      return { dataset, rows: rows.slice(0, PREVIEW_SIZE) };
     },
   });
 }

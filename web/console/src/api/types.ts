@@ -51,3 +51,8 @@ export type UserSyncRuns = JsonOf<"/v1/users/{id}/sync-runs", "get", 200>;
 export type SyncRun = Schemas["SyncRun"];
 export type UserShares = JsonOf<"/v1/users/{id}/shares", "get", 200>;
 export type Share = Schemas["Share"];
+export type UserDaily = JsonOf<"/v1/users/{id}/daily", "get", 200>;
+export type UserSleep = JsonOf<"/v1/users/{id}/sleep", "get", 200>;
+export type UserWorkouts = JsonOf<"/v1/users/{id}/workouts", "get", 200>;
+/** The answer of any previewed dataset. */
+export type PreviewAnswer = UserDaily | UserSleep | UserWorkouts;

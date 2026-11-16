@@ -184,6 +184,9 @@ describe("user page", () => {
     const link = "https://ohs.example.com/connect/one-time-value";
     const { api } = view({ [`POST ${BASE}/connect-sessions`]: { status: 201, body: { url: link, expires_at: "2030-01-01T00:00:00Z" } } });
     await userEvent.click(await screen.findByRole("button", { name: "Connection link" }));
+    const ask = screen.getByRole("dialog", { name: "Create a connection link?" });
+    expect(api.callsTo(`POST ${BASE}/connect-sessions`)).toHaveLength(0);
+    await userEvent.click(within(ask).getByRole("button", { name: "Create link" }));
     const dialog = await screen.findByRole("dialog", { name: "Connection link" });
     expect(within(dialog).getByDisplayValue(link)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Copy/ })).toBeInTheDocument();

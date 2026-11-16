@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import type { User } from "../../api/types";
+import type { ConnectSession, User } from "../../api/types";
 import { classifyUser } from "../../lib/classify";
 import { absTime, humanize, initials, relTime } from "../../lib/format";
 import { useCanWrite } from "../../session/SessionProvider";
@@ -10,7 +10,7 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { Mono } from "../../ui/Mono";
 import { Pill } from "../../ui/Pill";
 import { useToast } from "../../ui/Toast";
-import { useDeleteUser } from "./api";
+import { useCreateConnectSession, useDeleteUser } from "./api";
 import { ConnectLinkDialog } from "./ConnectLinkDialog";
 
 /** The name an operator knows the user by: their external id, else the id. */
@@ -23,6 +23,8 @@ export function UserHeader({ user }: { user: User }) {
   const navigate = useNavigate();
   const toast = useToast();
   const remove = useDeleteUser(user.id);
+  const createLink = useCreateConnectSession(user.id);
+  const [link, setLink] = useState<ConnectSession | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [linking, setLinking] = useState(false);
 
@@ -63,10 +65,23 @@ export function UserHeader({ user }: { user: User }) {
         </div>
       ) : null}
       {linking ? (
-        <ConnectLinkDialog
-          userId={user.id}
+        <ConfirmDialog
+          title="Create a connection link?"
+          body="The link lets the user connect a source to this account. It works once."
+          confirmLabel="Create link"
+          onConfirm={async () => {
+            setLink(await createLink.mutateAsync());
+          }}
           onClose={() => {
             setLinking(false);
+          }}
+        />
+      ) : null}
+      {link ? (
+        <ConnectLinkDialog
+          session={link}
+          onClose={() => {
+            setLink(null);
           }}
         />
       ) : null}
