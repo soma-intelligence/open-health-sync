@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { ApiError } from "../../api/client";
-import type { AuditEvent } from "../../api/types";
+import type { AdminTenant, AuditEvent } from "../../api/types";
 import { useInspect, type InspectorEntry } from "../../inspector/InspectorProvider";
 import { useSession } from "../../session/SessionProvider";
 import { Card } from "../../ui/Card";
@@ -23,7 +23,11 @@ export function AuditPage() {
   const retention = useRetentionDays();
   const { data, error } = audit;
 
-  const tenantNames = useMemo(() => new Map((tenants.data?.data ?? []).map((t) => [t.id, t.name])), [tenants.data]);
+  const tenantNames = useMemo(() => {
+    // PageBase types data as unknown[], so a map on the intersection sees unknown rows; reading it as AdminTenant[] is an assignment.
+    const rows: readonly AdminTenant[] = tenants.data?.data ?? [];
+    return new Map(rows.map((t) => [t.id, t.name]));
+  }, [tenants.data]);
 
   const entry = useMemo<InspectorEntry | null>(() => {
     if (selected) {
