@@ -50,6 +50,8 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
       },
       readOnly: () => current(queryClient)?.read_only ?? false,
       onUnauthorized: () => {
+        // The next sign in may be another tenant: none of this one's data stays.
+        queryClient.removeQueries({ predicate: (q) => !isSessionKey(q.queryKey) });
         queryClient.setQueryData(SESSION_KEY, null);
       },
     });

@@ -159,6 +159,31 @@ describe("session", () => {
     });
   });
 
+  it("a 401 drops every cached query but the session", async () => {
+    const api = fakeApi({
+      "GET /v1/users/u1": { status: 401, body: { title: "Unauthorized", detail: "session ended" } },
+      "GET /v1/setup": { status: 404, body: { title: "Not Found", detail: "x" } },
+    });
+    function Probe() {
+      const client = useApi();
+      useQuery({ queryKey: ["user", "u1"], queryFn: () => client.get("/v1/users/u1") });
+      return <p>probe</p>;
+    }
+    const view = renderWithApp(<Probe />, { session, route: "/console/users/u1", api });
+    view.queryClient.setQueryData(["users"], [1]);
+    await waitFor(() => {
+      expect(view.path()).toBe("/console/sign-in");
+    });
+    expect(view.queryClient.getQueryData(["users"])).toBeUndefined();
+    expect(view.queryClient.getQueryData(["user", "u1"])).toBeUndefined();
+    const keys = view.queryClient
+      .getQueryCache()
+      .getAll()
+      .map((q) => q.queryKey[0])
+      .filter((k) => k !== "setup");
+    expect(keys).toEqual(["session"]);
+  });
+
   it("switches tenant, keeps the CSRF token and drops the old tenant's data", async () => {
     const other = { ...session, acting_tenant: { id: "22222222-2222-4222-8222-222222222222", name: "Beta", admin: false } };
     const { csrf_token: _dropped, ...answer } = other;
