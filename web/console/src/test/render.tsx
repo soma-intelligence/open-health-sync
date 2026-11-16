@@ -25,6 +25,8 @@ export interface Rendered extends RenderResult {
   queryClient: QueryClient;
   /** The current address, basename included. */
   path: () => string;
+  /** Moves the router to a router path (no basename), as a typed address would. */
+  go: (to: string) => Promise<void>;
 }
 
 /**
@@ -57,5 +59,6 @@ export function renderWithApp(ui: ReactNode, opts: RenderOptions = {}): Rendered
     api,
     queryClient,
     path: () => router.state.location.pathname + router.state.location.search,
+    go: (to: string) => router.navigate(to),
   };
 }

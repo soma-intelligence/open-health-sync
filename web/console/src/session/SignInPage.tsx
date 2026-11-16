@@ -1,29 +1,22 @@
-import { useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation } from "react-router";
 
 import { ApiError } from "../api/client";
 import { BASENAME } from "../lib/basename";
+import { useSetupState } from "../pages/setup/api";
 import { isApiKey } from "../pages/setup/setup";
 import { safeReturnPath } from "./returnPath";
-import { useApi, useSession } from "./SessionProvider";
+import { useSession } from "./SessionProvider";
 
 export function SignInPage() {
   const { status, signIn } = useSession();
-  const api = useApi();
   const location = useLocation();
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // 404 (the route is not mounted) and every other failure: no link.
-  const setup = useQuery({
-    queryKey: ["setup"],
-    queryFn: async () => (await api.request<{ needed: boolean }>("GET", "/v1/setup", { anonymous: true })).data,
-    enabled: status === "signed-out",
-    retry: false,
-    refetchOnWindowFocus: false,
-  });
+  // "off" (the route is not mounted), "done" and every failure: no link.
+  const setup = useSetupState(status === "signed-out");
 
   if (status === "signed-in") {
     const state = location.state as { from?: unknown } | null;
@@ -73,7 +66,7 @@ export function SignInPage() {
         </button>
       </form>
       <p>The key is checked once. The console then holds a session, never the key.</p>
-      {setup.data?.needed ? <Link to="/setup">First run: create the first tenant</Link> : null}
+      {setup.data === "needed" ? <Link to="/setup">First run: create the first tenant</Link> : null}
     </main>
   );
 }

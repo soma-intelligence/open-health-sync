@@ -5,11 +5,15 @@ import type { SetupResult } from "../../api/types";
 import { useApi } from "../../session/SessionProvider";
 import { SETUP_PATH, SetupError, buildSetupRequest, isApiKey, setupMessage, setupState } from "./setup";
 
-/** GET /v1/setup, anonymous: "needed", "done" or "off". */
-export function useSetupState() {
+/**
+ * GET /v1/setup, anonymous: "needed", "done" or "off". The one reader of the
+ * ["setup"] cache entry, so the sign in page and the setup page share its shape.
+ */
+export function useSetupState(enabled = true) {
   const api = useApi();
   return useQuery({
     queryKey: ["setup"],
+    enabled,
     retry: false,
     refetchOnWindowFocus: false,
     queryFn: async () => {

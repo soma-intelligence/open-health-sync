@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { useApi, useCanWrite, useIsAdmin, useSession } from "./SessionProvider";
@@ -83,6 +83,29 @@ describe("session", () => {
     renderWithApp(null, { session: null, route: "/console/sign-in", api });
     const link = await screen.findByRole("link", { name: "First run: create the first tenant" });
     expect(link).toHaveAttribute("href", "/console/setup");
+  });
+
+  it("sign in and setup share one setup state, with no wrong-state flash", async () => {
+    const api = fakeApi({ "GET /v1/setup": { body: { needed: true } } });
+    const view = renderWithApp(null, { session: null, route: "/console/sign-in", api });
+    await screen.findByRole("link", { name: "First run: create the first tenant" });
+    expect(view.queryClient.getQueryData(["setup"])).toBe("needed");
+    await act(() => view.go("/setup"));
+    expect(screen.getByLabelText("Setup token")).toBeInTheDocument();
+    await act(() => view.go("/sign-in"));
+    expect(screen.getByRole("link", { name: "First run: create the first tenant" })).toBeInTheDocument();
+  });
+
+  it("an instance without setup: sign in then setup shows off, never an error", async () => {
+    const api = signedOutApi();
+    const view = renderWithApp(null, { session: null, route: "/console/sign-in", api });
+    await waitFor(() => {
+      expect(view.queryClient.getQueryData(["setup"])).toBe("off");
+    });
+    expect(screen.queryByRole("link", { name: "First run: create the first tenant" })).not.toBeInTheDocument();
+    await act(() => view.go("/setup"));
+    expect(screen.queryByText("Cannot reach this instance.")).not.toBeInTheDocument();
+    expect(screen.getByText("First-run setup is off on this instance.")).toBeInTheDocument();
   });
 
   it("a reload restores the session from the cookie", async () => {
