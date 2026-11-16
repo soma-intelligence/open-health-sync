@@ -70,6 +70,13 @@ describe("keys", () => {
     expect(within(gone).queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
 
+  it("names the acting tenant, whose keys /v1/keys lists", async () => {
+    const acting: ConsoleSession = { ...session, acting_tenant: { id: "22222222-2222-4222-8222-222222222222", name: "Beta", admin: false } };
+    view({}, acting);
+    expect(await screen.findByText(/Keys of Beta\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Keys of Acme\./)).not.toBeInTheDocument();
+  });
+
   it("creates a key with chosen scopes and an optional expiry, shown once", async () => {
     const key = "ohs_sk_Zz9YyQ1w2e3r4t5y6u7i8o9p0aSdFgHj";
     const { api, queryClient } = view({ "POST /v1/keys": { status: 201, body: { ...ci, key } } });

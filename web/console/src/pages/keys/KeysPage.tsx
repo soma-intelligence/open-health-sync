@@ -70,7 +70,7 @@ export function KeysPage() {
         <div>
           <h1 className="page-title">API keys</h1>
           <p className="page-sub">
-            Keys of {session?.tenant.name ?? "this tenant"}. A key created here can do at most what this session&apos;s key does.
+            Keys of {session?.acting_tenant.name ?? "this tenant"}. A key created here can do at most what this session&apos;s key does.
           </p>
         </div>
         <div className="page-actions">
