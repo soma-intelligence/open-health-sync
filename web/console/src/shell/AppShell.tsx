@@ -55,6 +55,8 @@ export function AppShell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        // Over another open dialog (a one-time secret, a confirmation) the palette stays shut.
+        if (document.querySelector("dialog[open]") !== null) return;
         e.preventDefault();
         setPaletteOpen(true);
       }

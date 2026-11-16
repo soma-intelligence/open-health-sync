@@ -84,6 +84,13 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   };
 
   const optionId = (i: number) => `${listId}-${String(i)}`;
+  const activeId = found.length > 0 ? optionId(at) : null;
+  useEffect(() => {
+    if (activeId === null) return;
+    const el = document.getElementById(activeId);
+    // jsdom has no scrollIntoView.
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" });
+  }, [activeId]);
 
   return (
     <div className="palette-body">

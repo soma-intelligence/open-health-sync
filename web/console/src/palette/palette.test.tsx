@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes, useLocation } from "react-router";
+import { Route, Routes, useLocation, useNavigate } from "react-router";
 
 import type { ConsoleSession } from "../api/types";
 import { UsersPage } from "../pages/users/UsersPage";
@@ -95,7 +95,7 @@ describe("command palette", () => {
     expect(path()).toBe("/console/users");
   });
 
-  it("a read only session gets no create action, and the state never opens a dialog", async () => {
+  it("a read only session gets no create action", async () => {
     const user = userEvent.setup();
     view(readOnly);
     await user.keyboard("{Control>}k{/Control}");
@@ -153,6 +153,31 @@ describe("command palette", () => {
     expect(path()).toBe("/console/settings/server/OHS_LOG_LEVEL");
   });
 
+  it("is ignored while another dialog is open", async () => {
+    const user = userEvent.setup();
+    view(session, "/console/users");
+    await user.click(await screen.findByRole("button", { name: "New user" }));
+    expect(await screen.findByRole("dialog", { name: "New user" })).toBeInTheDocument();
+    await user.keyboard("{Control>}k{/Control}");
+    expect(dialog()).toBeNull();
+    expect(screen.getByRole("dialog", { name: "New user" })).toBeInTheDocument();
+  });
+
+  it("scrolls the active option into view", async () => {
+    const user = userEvent.setup();
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      view();
+      await user.keyboard("{Control>}k{/Control}");
+      scroll.mockClear();
+      await user.keyboard("{ArrowDown}");
+      expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
+    } finally {
+      Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+    }
+  });
+
   it("focus returns to where it was on close", async () => {
     const user = userEvent.setup();
     view();
@@ -164,5 +189,58 @@ describe("command palette", () => {
     await waitFor(() => {
       expect(button).toHaveFocus();
     });
+  });
+});
+
+describe("opening a create dialog from location state", () => {
+  function launcher(s: ConsoleSession) {
+    function Go() {
+      const navigate = useNavigate();
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            void navigate("/users", { state: { open: "create" } });
+          }}
+        >
+          go create
+        </button>
+      );
+    }
+    const api = fakeApi({ "GET /v1/users": { body: { data: [], next_cursor: null } } });
+    return renderWithApp(
+      <>
+        <Where />
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="jobs" element={<Go />} />
+            <Route path="users" element={<UsersPage />} />
+          </Route>
+        </Routes>
+      </>,
+      { session: s, api, route: "/console/jobs" },
+    );
+  }
+
+  it("a writer gets the New user dialog and the state is cleared", async () => {
+    const user = userEvent.setup();
+    launcher(session);
+    await user.click(await screen.findByRole("button", { name: "go create" }));
+    expect(await screen.findByRole("dialog", { name: "New user" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("where")).toHaveTextContent("/users|none");
+    });
+  });
+
+  it("a read only session gets no dialog and the state is cleared", async () => {
+    const user = userEvent.setup();
+    launcher(readOnly);
+    await user.click(await screen.findByRole("button", { name: "go create" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("where")).toHaveTextContent("/users|none");
+    });
+    expect(screen.getByRole("heading", { name: "Users", level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "New user" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New user" })).toBeNull();
   });
 });
