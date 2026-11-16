@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useMemo, useReducer, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useReducer, useRef, type ReactNode } from "react";
 
 import { ApiError, SESSION_PATH, browserFetch, createClient, type ApiClient } from "../api/client";
 import type { ConsoleSession } from "../api/types";
@@ -14,6 +14,8 @@ export interface SessionValue {
   signIn: (key: string) => Promise<void>;
   signOut: () => Promise<void>;
   switchTenant: (tenantId: string) => Promise<void>;
+  /** Calls fn after each explicit sign out (not on a 401); returns the unsubscribe. */
+  onSignOut: (fn: () => void) => () => void;
 }
 
 interface Context extends SessionValue {
@@ -38,6 +40,14 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
   const queryClient = useQueryClient();
   // clear() drops the session query the observer holds; a render makes it pick up the new one.
   const [, rebind] = useReducer((n: number) => n + 1, 0);
+  const signOutListeners = useRef(new Set<() => void>());
+  const onSignOut = useCallback((fn: () => void) => {
+    const listeners = signOutListeners.current;
+    listeners.add(fn);
+    return () => {
+      listeners.delete(fn);
+    };
+  }, []);
 
   const api = useMemo<ApiClient>(() => {
     // Declared first so the client can fetch the session to refresh the token.
@@ -83,8 +93,10 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
         await api.send("DELETE", SESSION_PATH);
         queryClient.clear();
         queryClient.setQueryData(SESSION_KEY, null);
+        for (const fn of signOutListeners.current) fn();
         rebind();
       },
+      onSignOut,
       switchTenant: async (tenantId) => {
         const next = await api.send<ConsoleSession>("PUT", `${SESSION_PATH}/tenant`, { tenant_id: tenantId });
         // The answer carries no token: the session keeps the one it has.
@@ -93,7 +105,7 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
         queryClient.removeQueries({ predicate: (q) => !isSessionKey(q.queryKey) });
       },
     }),
-    [api, queryClient, rebind, session, status],
+    [api, onSignOut, queryClient, rebind, session, status],
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

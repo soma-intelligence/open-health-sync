@@ -6,6 +6,8 @@ import { restartCount, type DiffRow } from "./model";
 
 export interface ReviewDialogProps {
   rows: readonly DiffRow[];
+  /** Said above the rows: changes that delete data for good. Apply stays allowed. */
+  warnings: readonly string[];
   /** Said above the rows, after a reload. */
   note: string | null;
   error: unknown;
@@ -15,7 +17,7 @@ export interface ReviewDialogProps {
 }
 
 /** The diff the PATCH will make. A secret shows as set or not set, then new value: never the typed text. */
-export function ReviewDialog({ rows, note, error, busy, onApply, onClose }: ReviewDialogProps) {
+export function ReviewDialog({ rows, warnings, note, error, busy, onApply, onClose }: ReviewDialogProps) {
   const restarts = restartCount(rows);
   return (
     <Dialog
@@ -34,6 +36,11 @@ export function ReviewDialog({ rows, note, error, busy, onApply, onClose }: Revi
       }
     >
       {note ? <p className="notice">{note}</p> : null}
+      {warnings.map((w) => (
+        <p key={w} className="notice warn set-warning">
+          {w}
+        </p>
+      ))}
       {rows.length === 0 ? (
         <p className="muted">Nothing left to apply.</p>
       ) : (

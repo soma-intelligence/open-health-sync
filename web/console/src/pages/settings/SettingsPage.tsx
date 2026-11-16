@@ -13,7 +13,7 @@ import { useToast } from "../../ui/Toast";
 import { SETTINGS_EXPORT_PATH, SETTINGS_KEY, SETTINGS_PATH, useApplySettings, useProcessesQuery, useSettingsQuery } from "./api";
 import { useDraft } from "./DraftProvider";
 import { SourceBadge } from "./FieldMeta";
-import { diffRows, fieldState, prunePending, restartCount, sectionSlug, toPatch, type ApplyOutcome } from "./model";
+import { diffRows, fieldState, prunePending, restartCount, retentionWarnings, sectionSlug, toPatch, type ApplyOutcome } from "./model";
 import { ProcessesBanner } from "./ProcessesBanner";
 import { RestartNotice } from "./RestartNotice";
 import { ReviewDialog } from "./ReviewDialog";
@@ -158,7 +158,7 @@ function AdminSettings() {
     if (!review) return;
     let outcome: ApplyOutcome;
     try {
-      outcome = await apply.mutateAsync({ revision: review.base.revision, patch: toPatch(draft.pending, review.base.data) });
+      outcome = await apply.mutateAsync({ revision: review.base.revision, patch: toPatch(draft.pending) });
     } catch (e) {
       setReview((r) => (r ? { ...r, error: e } : r));
       return;
@@ -203,6 +203,7 @@ function AdminSettings() {
   };
 
   const reviewRows = review ? diffRows(review.base.data, draft.pending) : [];
+  const reviewWarnings = review ? retentionWarnings(review.base.data, draft.pending) : [];
 
   return (
     <div className="page set-page">
@@ -274,6 +275,7 @@ function AdminSettings() {
       {review ? (
         <ReviewDialog
           rows={reviewRows}
+          warnings={reviewWarnings}
           note={review.note}
           error={review.error}
           busy={apply.isPending}

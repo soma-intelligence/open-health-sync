@@ -218,6 +218,84 @@ describe("settings", () => {
     expect(api.callsTo("PATCH /v1/admin/settings")).toHaveLength(0);
   });
 
+  it("an emptied string, list or url field blocks Review", async () => {
+    const user = userEvent.setup();
+    const { api } = view();
+    await loaded();
+    await user.clear(within(field("Event host")).getByLabelText("Event host"));
+    expect(within(field("Event host")).getByText("Enter a value, or revert to default.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Unsaved changes" })).getByRole("button", { name: "Review" })).toBeDisabled();
+    await user.clear(within(field("Public URL")).getByLabelText("Public URL"));
+    expect(within(field("Public URL")).getByText("Enter a value, or revert to default.")).toBeInTheDocument();
+    expect(api.callsTo("PATCH /v1/admin/settings")).toHaveLength(0);
+  });
+
+  it("an emptied secret input drops the change", async () => {
+    const user = userEvent.setup();
+    view();
+    await loaded();
+    await user.click(within(field("Metrics token")).getByRole("button", { name: "Replace" }));
+    const input = within(field("Metrics token")).getByLabelText("Metrics token");
+    await user.type(input, "abc");
+    expect(screen.getByRole("region", { name: "Unsaved changes" })).toBeInTheDocument();
+    await user.clear(input);
+    expect(screen.queryByRole("region", { name: "Unsaved changes" })).not.toBeInTheDocument();
+    expect(within(field("Metrics token")).queryByText("Enter a value, or revert to default.")).not.toBeInTheDocument();
+  });
+
+  it("Review warns before a retention starts deleting", async () => {
+    const user = userEvent.setup();
+    const data = SETTINGS.map((x) => (x.name === "OHS_RETENTION_DAYS" ? { ...x, value: "0", default: "0", invalid: null } : x));
+    const { api } = view({
+      "GET /v1/admin/settings": { body: list(41, data) },
+      "PATCH /v1/admin/settings": { body: { revision: 42, changed: ["OHS_RETENTION_DAYS"], restart_required: [] } },
+    });
+    const days = within(await screen.findByRole("group", { name: "Retention days" })).getByLabelText("Retention days");
+    await user.clear(days);
+    await user.type(days, "30");
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    const dialog = screen.getByRole("dialog", { name: "Review changes" });
+    expect(
+      within(dialog).getByText("OHS_RETENTION_DAYS will delete data older than 30 days at the next daily cleanup. This cannot be undone."),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() => {
+      expect(api.callsTo("PATCH /v1/admin/settings")).toHaveLength(1);
+    });
+  });
+
+  it("no retention warning for other changes", async () => {
+    const user = userEvent.setup();
+    view();
+    await editTwo(user);
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    expect(within(screen.getByRole("dialog", { name: "Review changes" })).queryByText(/will delete data older than/)).not.toBeInTheDocument();
+  });
+
+  it("an explicit sign out drops the draft", async () => {
+    const user = userEvent.setup();
+    const { path } = view({
+      "DELETE /console/session": { status: 204 },
+      "POST /console/session": { status: 201, body: admin },
+    });
+    const pause = within(await loaded()).getByLabelText("Pause after");
+    await user.clear(pause);
+    await user.type(pause, "9");
+    expect(screen.getByRole("region", { name: "Unsaved changes" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => {
+      expect(path()).toMatch(/^\/console\/sign-in/);
+    });
+    await user.type(await screen.findByLabelText("Tenant API key"), KEY);
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(path()).not.toMatch(/sign-in/);
+    });
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    expect(within(await loaded()).getByLabelText("Pause after")).toHaveValue(8);
+    expect(screen.queryByRole("region", { name: "Unsaved changes" })).not.toBeInTheDocument();
+  });
+
   it("Review opens the diff, Apply sends one PATCH with If-Match", async () => {
     const user = userEvent.setup();
     const { api } = view({

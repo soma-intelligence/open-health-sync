@@ -25,9 +25,12 @@ function nextValue(e: Entry): string {
   return String(e.max !== null && d + 1 > e.max ? d - 1 : d + 1);
 }
 
-// An int with a plain default the e2e servers leave to the console.
+// An int with a plain default the e2e servers leave to the console. Never a
+// retention: from 0 it would start deleting data.
 function pick(list: Entry[], apply: string): Entry {
-  const e = list.find((s) => s.type === "int" && s.apply === apply && s.source === "default" && /^-?\d+$/.test(s.default));
+  const e = list.find(
+    (s) => s.type === "int" && s.apply === apply && s.source === "default" && /^-?\d+$/.test(s.default) && !s.name.includes("RETENTION"),
+  );
   if (!e) throw new Error(`no int setting with apply ${apply} and source default`);
   return e;
 }

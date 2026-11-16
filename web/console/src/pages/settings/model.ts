@@ -29,9 +29,9 @@ export type ApplyOutcome =
 
 export const EMPTY_TYPED = "Enter a value, or revert to default.";
 
-// An empty value of these types would read as unset under the environment
-// rule, but the store would keep it: it is never sent.
-const TYPED = new Set<Setting["type"]>(["int", "duration", "rate", "enum", "bool"]);
+// The server refuses every empty value (null reverts to the default), and an
+// empty variable reads as unset under the environment rule: "" is never sent.
+const RETENTION = new Set(["OHS_RETENTION_DAYS", "OHS_AUDIT_RETENTION_DAYS", "OHS_TRACKING_RETENTION_DAYS"]);
 
 /** The address segment of a settings section: lower case, spaces as hyphens. */
 export function sectionSlug(section: string): string {
@@ -58,7 +58,7 @@ function boundsText(s: Setting): string {
 
 function inputErrorOf(s: Setting, v: string | null): string | null {
   if (v === null) return null;
-  if (v === "") return TYPED.has(s.type) ? EMPTY_TYPED : null;
+  if (v === "") return EMPTY_TYPED;
   if (s.type === "int") {
     const n = /^-?\d+$/.test(v.trim()) ? Number(v) : NaN;
     if (!Number.isSafeInteger(n) || (s.min !== null && n < s.min) || (s.max !== null && n > s.max)) {
@@ -113,19 +113,27 @@ export function restartCount(rows: readonly DiffRow[]): number {
   return rows.filter((r) => r.apply === "restart").length;
 }
 
-/**
- * The PATCH body. Throws on an empty value of a typed setting, and on an
- * empty value whose type it cannot check (settings not given).
- */
-export function toPatch(pending: Pending, settings?: readonly Setting[]): Record<string, string | null> {
-  const byName = new Map((settings ?? []).map((s) => [s.name, s]));
+/** The PATCH body. Throws on an empty value: it is never sent. */
+export function toPatch(pending: Pending): Record<string, string | null> {
   const out: Record<string, string | null> = {};
   for (const [name, v] of Object.entries(pending)) {
-    if (v === "") {
-      const s = byName.get(name);
-      if (!s || TYPED.has(s.type)) throw new Error(`${name}: an empty value is never sent`);
-    }
+    if (v === "") throw new Error(`${name}: an empty value is never sent`);
     out[name] = v;
+  }
+  return out;
+}
+
+/**
+ * A retention that keeps everything now (effective value 0) and would keep N
+ * days after the change, N above 0: the next daily cleanup deletes for good.
+ */
+export function retentionWarnings(settings: readonly Setting[], pending: Pending): string[] {
+  const out: string[] = [];
+  for (const s of settings) {
+    if (!RETENTION.has(s.name) || !Object.hasOwn(pending, s.name) || s.value === null || Number(s.value.trim()) !== 0) continue;
+    const next = pending[s.name] ?? s.default;
+    if (!/^\d+$/.test(next.trim()) || Number(next) <= 0) continue;
+    out.push(`${s.name} will delete data older than ${String(Number(next))} days at the next daily cleanup. This cannot be undone.`);
   }
   return out;
 }

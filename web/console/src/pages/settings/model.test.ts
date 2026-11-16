@@ -7,6 +7,7 @@ import {
   fieldState,
   prunePending,
   restartCount,
+  retentionWarnings,
   sectionSlug,
   settingPath,
   toPatch,
@@ -85,26 +86,48 @@ describe("fieldState", () => {
 });
 
 describe("an emptied typed field blocks Review and is never sent", () => {
-  const typed = ["int", "duration", "rate", "enum", "bool"] as const;
-  it.each(typed)("%s: empty is an input error and toPatch throws", (type) => {
+  const types = ["int", "duration", "rate", "enum", "bool", "string", "list", "url"] as const;
+  it.each(types)("%s: empty is an input error and toPatch throws", (type) => {
     const s = setting({ name: "OHS_X", type });
     expect(fieldState(s, { OHS_X: "" }).inputError).toBe(EMPTY_TYPED);
     expect(EMPTY_TYPED).toBe("Enter a value, or revert to default.");
-    expect(() => toPatch({ OHS_X: "" }, [s])).toThrow();
+    expect(() => toPatch({ OHS_X: "" })).toThrow();
   });
 
-  it.each(["string", "list"] as const)("%s: empty is a value", (type) => {
-    const s = setting({ name: "OHS_X", type });
-    expect(fieldState(s, { OHS_X: "" }).inputError).toBeNull();
-    expect(toPatch({ OHS_X: "" }, [s])).toEqual({ OHS_X: "" });
-  });
-
-  it("toPatch throws on an empty value of a name it cannot type", () => {
-    expect(() => toPatch({ OHS_UNKNOWN: "" })).toThrow();
+  it("an empty secret is blocked too (the page drops it instead of keeping it)", () => {
+    const s = setting({ name: "OHS_X", type: "string", secret: true });
+    expect(fieldState(s, { OHS_X: "" }).inputError).toBe(EMPTY_TYPED);
   });
 
   it("toPatch keeps strings and nulls", () => {
     expect(toPatch({ OHS_A: "5", OHS_B: null })).toEqual({ OHS_A: "5", OHS_B: null });
+  });
+});
+
+describe("retentionWarnings", () => {
+  const list: Setting[] = [
+    setting({ name: "OHS_RETENTION_DAYS", section: "Retention", default: "0", value: "0" }),
+    setting({ name: "OHS_AUDIT_RETENTION_DAYS", section: "Retention", default: "365", value: "0", source: "console" }),
+    setting({ name: "OHS_TRACKING_RETENTION_DAYS", section: "Retention", default: "30", value: "30" }),
+    setting({ name: "OHS_WEBHOOK_PAUSE_AFTER", section: "Webhooks", default: "0", value: "0" }),
+  ];
+
+  it("warns when a retention goes from 0 to more than 0", () => {
+    expect(retentionWarnings(list, { OHS_RETENTION_DAYS: "30" })).toEqual([
+      "OHS_RETENTION_DAYS will delete data older than 30 days at the next daily cleanup. This cannot be undone.",
+    ]);
+  });
+
+  it("a revert to a default above 0 warns with the default", () => {
+    expect(retentionWarnings(list, { OHS_AUDIT_RETENTION_DAYS: null })).toEqual([
+      "OHS_AUDIT_RETENTION_DAYS will delete data older than 365 days at the next daily cleanup. This cannot be undone.",
+    ]);
+  });
+
+  it("stays quiet otherwise", () => {
+    expect(retentionWarnings(list, { OHS_RETENTION_DAYS: "0", OHS_TRACKING_RETENTION_DAYS: "20", OHS_WEBHOOK_PAUSE_AFTER: "3" })).toEqual([]);
+    expect(retentionWarnings(list, { OHS_RETENTION_DAYS: "x" })).toEqual([]);
+    expect(retentionWarnings(list, {})).toEqual([]);
   });
 });
 
