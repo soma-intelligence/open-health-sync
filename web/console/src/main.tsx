@@ -12,6 +12,7 @@ import "./styles/inspector.css";
 import "./styles/overview.css";
 import "./styles/table.css";
 import "./styles/user.css";
+import "./styles/providers.css";
 
 const root = document.getElementById("root");
 if (!root) {

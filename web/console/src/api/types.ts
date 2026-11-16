@@ -56,3 +56,11 @@ export type UserSleep = JsonOf<"/v1/users/{id}/sleep", "get", 200>;
 export type UserWorkouts = JsonOf<"/v1/users/{id}/workouts", "get", 200>;
 /** The answer of any previewed dataset. */
 export type PreviewAnswer = UserDaily | UserSleep | UserWorkouts;
+
+export type AdminProviderList = JsonOf<"/v1/admin/providers", "get", 200>;
+export type AdminProviderKey = Schemas["AdminProviderKey"];
+export type AdminProviderPatch = Schemas["AdminProviderPatch"];
+export type ProviderList = JsonOf<"/v1/providers", "get", 200>;
+export type AdminTenantProvider = Schemas["AdminTenantProvider"];
+export type AdminTenantProviderList = JsonOf<"/v1/admin/tenants/{tenant_id}/providers", "get", 200>;
+export type AdminTenantProviderPatch = Schemas["AdminTenantProviderPatch"];
