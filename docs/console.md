@@ -146,13 +146,14 @@ webhook endpoint). "First data" counts the last 24 hours, so an idle tenant with
 that step as not done.
 
 **Providers.** Every connector the binary knows, cloud providers first, then app uploads (Apple
-Health, Health Connect, Xiaomi, activity files, self reports), each with its state: on, off, not
-set up, or refused. Opening a cloud provider walks through turning it on:
+Health, Health Connect, Xiaomi, activity files, self reports), each with its state: On, Built in
+(no key needed, always on), Off, Not configured, or Error (the keys were refused). Opening a cloud
+provider walks through turning it on:
 
 1. **Register an app** at the provider. The page shows the redirect URL (and, for a provider that
    sends notifications, the notification URL) to paste in the provider's developer portal, each
-   with a copy button. They are built from `OHS_PUBLIC_URL`; the page warns when it is not set,
-   since a provider cannot reach `localhost`.
+   with a copy button. They are built from `OHS_PUBLIC_URL`; the Providers list warns when it is
+   not set, since a provider cannot reach `localhost`.
 2. **Save its keys.** One row per key, required ones first. A secret is write only: the page
    shows whether it is set, never its value. Keys that are not secrets (`CLIENT_ID`, `REGION`,
    `ENVIRONMENT`, `WEBHOOK_SIGNATURE`, `SUBSCRIPTION_ID`) show their value. The connector checks
@@ -163,8 +164,13 @@ set up, or refused. Opening a cloud provider walks through turning it on:
 
 Turning a provider off keeps its connections and data. Pulls, new connections, the OAuth callback
 and notifications stop until it is on again. "Forget saved settings" deletes the keys and the
-on/off choice saved in the console, after you type the provider's slug. A key that is not an
-instance admin sees the providers enabled on the instance, read only.
+on/off choice saved in the console, after you type the provider's slug.
+
+Below the instance switch, "This tenant" turns the provider on or off for the acting tenant alone
+(the tenant picked in the navigation, or your own). The instance and the other tenants are
+untouched. Off for a tenant stops new connections, uploads and pulls for that tenant only; its
+connections and data are kept. A key that is not an instance admin sees the providers enabled on
+the instance, read only.
 
 **Users.** The tenant's users, 50 per page, with a search by exact `external_ref` and "New user".
 A user's `external_ref` is your own identifier for them; never put a name or an email in it.

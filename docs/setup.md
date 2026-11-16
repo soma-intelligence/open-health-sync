@@ -106,9 +106,9 @@ in [`api/openapi.yaml`](../api/openapi.yaml).
   `tenant.create`, actor `system` / `setup`, with the key's prefix only. It is written in the same
   transaction as the tenant, so a failed write creates nothing. A refused call (401, 409) is not
   an audit event, like any call without a valid credential.
-- **Same origin, strict headers.** `/console/setup` is a page of its own beside the console,
-  with the same Content-Security-Policy and headers. Its one script posts only to `/v1/setup` on
-  the same server, without cookies, and inserts the key as text.
+- **Same origin, strict headers.** `/console/setup` is a page of the console itself, served with
+  its Content-Security-Policy and headers. It posts only to `/v1/setup` on the same server,
+  without cookies or a session, and shows the key as text.
 - **Put HTTPS in front.** The token and the key cross the network in the request and the
   answer. On anything but `localhost`, serve the instance through a reverse proxy with TLS (see
   [self-hosting.md](self-hosting.md)) before you open the setup page.
