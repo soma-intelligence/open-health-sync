@@ -27,6 +27,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
@@ -50,6 +51,7 @@ func everyRoute(t *testing.T) func(*Deps) {
 		d.Device, d.HealthConnect, d.Xiaomi, d.ActivityFiles, d.Bluetooth, d.SelfReport, d.Labs = dev, dev, dev, dev, dev, dev, dev
 		d.Collect = collect.NewHandlers(collect.Deps{Pool: d.Pool, Box: box, Tenants: d.Store})
 		d.Webhooks = webhook.NewStore(d.Pool, box)
+		d.Settings = settings.NewLive(settings.LiveOptions{Store: settings.NewPG(d.Pool, box), Env: func(string) (string, bool) { return "", false }, Environ: []string{}})
 		d.Console, d.Metrics, d.MetricsToken, d.SetupToken = true, true, "metrics-token-0123456789", "the-right-setup-token"
 		d.RateLimitAPIOff = true
 	}

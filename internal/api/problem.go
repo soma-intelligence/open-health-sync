@@ -15,6 +15,8 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
+	"github.com/soma-intelligence/open-health-sync/internal/reqid"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
@@ -170,4 +172,33 @@ func jsonErrDetail(err error) string {
 	}
 	// encoding/json names the unknown field; nothing from the body beyond it.
 	return err.Error()
+}
+
+// settingErrorJSON is one setting a settings problem is about.
+type settingErrorJSON struct {
+	Name    string `json:"name"`
+	Message string `json:"message"`
+}
+
+// settingsProblem is the problem details of a refused settings change (409,
+// 422): the usual members plus one entry per setting at fault.
+type settingsProblem struct {
+	Type      string             `json:"type"`
+	Title     string             `json:"title"`
+	Status    int                `json:"status"`
+	Detail    string             `json:"detail"`
+	RequestID string             `json:"request_id,omitempty"`
+	Settings  []settingErrorJSON `json:"settings,omitempty"`
+}
+
+// writeSettingsProblem answers status with the settings it is about.
+func writeSettingsProblem(w http.ResponseWriter, status int, detail string, in []settings.SettingError) {
+	p := settingsProblem{Type: "about:blank", Title: http.StatusText(status), Status: status, Detail: detail,
+		RequestID: w.Header().Get(reqid.Header), Settings: make([]settingErrorJSON, 0, len(in))}
+	for _, s := range in {
+		p.Settings = append(p.Settings, settingErrorJSON{Name: s.Name, Message: s.Message})
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(p)
 }

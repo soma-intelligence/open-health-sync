@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"io"
 	"net"
 	"net/http"
@@ -211,7 +212,7 @@ func TestEndToEnd_ConnectPullWebhooks(t *testing.T) {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- app.Run(runCtx, cfg) }()
+	go func() { done <- app.Run(runCtx, cfg, settings.Start{}) }()
 	t.Cleanup(func() {
 		cancel()
 		select {

@@ -68,6 +68,12 @@ func WithWriterConfig(c WriterConfig) WorkerOption { return func(w *Worker) { w.
 // consent for (OHS_CONSENT_REQUIRED).
 func WithConsentRequired(b bool) WorkerOption { return func(w *Worker) { w.opts.ConsentRequired = b } }
 
+// WithConsentRequiredFunc is WithConsentRequired with a getter read at the
+// start of every job, so a change applies without a restart.
+func WithConsentRequiredFunc(f func() bool) WorkerOption {
+	return func(w *Worker) { w.opts.ConsentRequiredFunc = f }
+}
+
 // WithRowsWritten makes the worker report the rows every processed job
 // wrote: fn is called once per table of the job's Counts with its written
 // count (the unqualified table name, "quantity_samples").

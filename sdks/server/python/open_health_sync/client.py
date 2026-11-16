@@ -15,6 +15,9 @@ import urllib.request
 from typing import Any, Callable, Dict, Iterator, Literal, Mapping, Optional, TypeVar, Union
 
 from .models import (
+    AdminProcesses,
+    AdminSettings,
+    AdminSettingsPatch,
     AuditEvent,
     CategorySample,
     CategorySamplePage,
@@ -125,6 +128,7 @@ from .models import (
     TestWebhookRequest,
     TimeTag,
     TimeTagPage,
+    UpdateAdminSettingsResponse,
     UpdateTimeTagRequest,
     UpdateUserRequest,
     UpdateWebhookRequest,
@@ -3019,6 +3023,82 @@ class OpenHealthSync:
         return self._request(
             "POST",
             f"/v1/pipeline/etl-jobs/{_path(job_id)}/retry",
+        )
+
+    def list_admin_settings(self) -> AdminSettings:
+        """Every runtime setting of this instance and where its value comes from (instance admin).
+
+        ``GET /v1/admin/settings``
+
+        Only a key of the instance admin tenant may call it (403 otherwise). Every setting of the
+        registry, in registry order, with its effective value, its source (`env`, `console` or
+        `default`), and when it applies (`live` within moments, `restart` at the next start,
+        `bootstrap` only from the environment). A secret is never served: `value` is `"set"` or
+        null. The `ETag` is the settings revision; send it back as `If-Match` on `PATCH`.
+        """
+        return self._request(
+            "GET",
+            "/v1/admin/settings",
+        )
+
+    def update_admin_settings(
+        self,
+        body: AdminSettingsPatch,
+        *,
+        if_match: str,
+    ) -> UpdateAdminSettingsResponse:
+        """Save settings, all or nothing (instance admin).
+
+        ``PATCH /v1/admin/settings``
+
+        The body maps setting names to a new value (a string) or null (back to the default).
+        `If-Match` carries the revision you read (`"5"` or `W/"5"`): 428 without it, 400 when it is
+        malformed or `*`, 412 when the revision moved (the problem carries the current `ETag`).
+        Nothing is stored unless every change passes: 409 when a setting is `bootstrap` or set by
+        the environment, 422 when a value is refused or the combination is invalid, each with one
+        entry per setting at fault. An empty string is a 422: send null. A secret is sealed with
+        `OHS_ENCRYPTION_KEY` and never served back. Recorded in the audit log as `config.write`
+        with the names that changed, never their values.
+
+        Args:
+            if_match: Sent as the If-Match header. The settings revision, quoted. `W/"<revision>"` is accepted.
+        """
+        return self._request(
+            "PATCH",
+            "/v1/admin/settings",
+            headers={
+                "If-Match": if_match,
+            },
+            json_body=body,
+        )
+
+    def export_admin_settings(self) -> bytes:
+        """The settings as an .env file (instance admin).
+
+        ``GET /v1/admin/settings/export``
+
+        The first line is `# Open Health Sync settings, revision <n>`; then, per section, a line
+        `# <Section>` and per setting a comment and `OHS_X=<value>`. A secret is never written: a
+        set one gets `# set, value not exported` and an empty assignment.
+        """
+        return self._request(
+            "GET",
+            "/v1/admin/settings/export",
+            expect="bytes",
+        )
+
+    def list_admin_processes(self) -> AdminProcesses:
+        """The processes of this instance and the settings each one runs (instance admin).
+
+        ``GET /v1/admin/processes``
+
+        Every process that reported within the last two minutes, by start time then id.
+        `behind` is true when it started before the last change to a `restart` setting;
+        `stale` when its live revision trails the stored one for over a minute.
+        """
+        return self._request(
+            "GET",
+            "/v1/admin/processes",
         )
 
     def retry_admin_tenant_sync_run(self, tenant_id: str, user_id: str, run_id: int) -> SyncRun:

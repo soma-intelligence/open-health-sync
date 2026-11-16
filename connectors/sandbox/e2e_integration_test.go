@@ -7,6 +7,7 @@ package sandbox_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"html"
 	"io"
 	"net"
@@ -107,7 +108,7 @@ func TestEndToEnd_SandboxConnectFlow(t *testing.T) {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- app.Run(runCtx, cfg) }()
+	go func() { done <- app.Run(runCtx, cfg, settings.Start{}) }()
 	t.Cleanup(func() {
 		cancel()
 		select {

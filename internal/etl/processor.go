@@ -39,11 +39,22 @@ type Options struct {
 	// ConsentRequired (OHS_CONSENT_REQUIRED) stores nothing from a source
 	// the user has recorded no consent for.
 	ConsentRequired bool
+	// ConsentRequiredFunc, when set, is read per job and wins over
+	// ConsentRequired.
+	ConsentRequiredFunc func() bool
 	// Vault, when set, gives the job the user's keys before anything is
 	// read. A user being deleted whose keys are already shredded ends like
 	// any job of a user who is not active; an active user with no keys
 	// fails the job, which the queue retries and then parks.
 	Vault *vault.Vault
+}
+
+// consentRequired is the value in force now.
+func (o Options) consentRequired() bool {
+	if o.ConsentRequiredFunc != nil {
+		return o.ConsentRequiredFunc()
+	}
+	return o.ConsentRequired
 }
 
 // Process normalizes the raw object of job into the canonical store and
@@ -115,7 +126,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 
 	// Consent choke point: categories the user has not granted for this
 	// source are dropped before validation, so nothing of them is stored.
-	policy, err := consent.Load(ctx, pool, job.TenantID, job.UserID, job.Provider, opts.ConsentRequired)
+	policy, err := consent.Load(ctx, pool, job.TenantID, job.UserID, job.Provider, opts.consentRequired())
 	if err != nil {
 		return nil, err
 	}

@@ -170,6 +170,28 @@ func TestBackfillWindowOption(t *testing.T) {
 	assert.Equal(t, MaxBackfillWindow, d.backfillPolicy("plain").Backfill)
 }
 
+// The getter wins over the static window and is read per new connection.
+func TestBackfillWindowFunc(t *testing.T) {
+	day := 24 * time.Hour
+	d := Deps{
+		Lookup:         func(slug string) (connector.Connector, bool) { return pageOAuth{slug}, true },
+		BackfillWindow: 3 * day,
+	}
+	window, calls := time.Duration(0), 0
+	d.BackfillWindowFunc = func() time.Duration { calls++; return window }
+
+	// The getter says unset: the provider's own value, not the static 3 days.
+	assert.Equal(t, 30*day, d.backfillPolicy("plain").Backfill)
+	window = 365 * day
+	assert.Equal(t, 365*day, d.backfillPolicy("plain").Backfill)
+	window = 10 * 365 * day
+	assert.Equal(t, MaxBackfillWindow, d.backfillPolicy("plain").Backfill)
+	assert.Equal(t, 3, calls, "read once per policy")
+
+	d.BackfillWindowFunc = nil
+	assert.Equal(t, 3*day, d.backfillPolicy("plain").Backfill, "without a getter the static field applies")
+}
+
 func TestScheduleAfter(t *testing.T) {
 	slot := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	assert.Equal(t, slot.Add(time.Hour), scheduleAfter(slot, time.Hour, false, nil))

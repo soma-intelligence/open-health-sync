@@ -59,11 +59,15 @@ func limitKey(p auth.Principal) string {
 // found: every authenticated route goes through it, whatever its middleware.
 // Over the limit it returns auth.LimitedError, which the middleware answers
 // with 429 and Retry-After before the handler does any work.
-func (s *server) limitedLookup(lookup auth.Lookup, l *rateLimiter) auth.Lookup {
+func (s *server) limitedLookup(lookup auth.Lookup, live *liveLimiter) auth.Lookup {
 	return func(ctx context.Context, hash string) (auth.Principal, error) {
 		p, err := lookup(ctx, hash)
 		if err != nil {
 			return p, err
+		}
+		l := live.current()
+		if !l.perAddr.on() {
+			return p, nil
 		}
 		if ok, wait, _ := l.allow(limitKey(p), ""); !ok {
 			s.metrics.rateLimited[groupAPI].Add(1)
@@ -80,7 +84,10 @@ func (s *server) limitedLookup(lookup auth.Lookup, l *rateLimiter) auth.Lookup {
 type authFailures struct {
 	// limit is the failures of one address. The zero value throttles
 	// nothing; the events are bounded all the same.
-	limit    RateLimit
+	limit RateLimit
+	// get, when set, is the limit read live: on a change limit follows it
+	// and every address starts with a full bucket.
+	get      func() RateLimit
 	now      func() time.Time
 	maxAddrs int
 
@@ -114,6 +121,29 @@ func newAuthFailures(l RateLimit) *authFailures {
 		addrs: map[string]*authFailEntry{}, known: map[string]*authFailEntry{}}
 }
 
+// newLiveAuthFailures is newAuthFailures with a limit that follows get.
+func newLiveAuthFailures(get func() RateLimit) *authFailures {
+	a := newAuthFailures(get())
+	a.get = get
+	return a
+}
+
+// follow adopts the live limit. When it changed the buckets restart full;
+// the bookkeeping of the audit events stays. The caller holds a.mu.
+func (a *authFailures) follow(now time.Time) {
+	if a.get == nil {
+		return
+	}
+	l := a.get()
+	if l == a.limit {
+		return
+	}
+	a.limit = l
+	for _, e := range a.addrs {
+		e.b = *fullBucket(now, l)
+	}
+}
+
 // fail counts one refused credential of addr. limited is true when the
 // address had used up its failures: the request then answers 429 after
 // wait instead of 401, and leaves no event.
@@ -121,6 +151,7 @@ func (a *authFailures) fail(addr string) (wait time.Duration, limited bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
+	a.follow(now)
 	if now.Sub(a.lastSweep) >= sweepEvery {
 		a.sweep(now)
 	}

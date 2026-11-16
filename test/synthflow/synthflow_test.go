@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"io"
 	"net"
 	"net/http"
@@ -220,7 +221,7 @@ func start(t *testing.T) *env {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- app.Run(runCtx, cfg) }()
+	go func() { done <- app.Run(runCtx, cfg, settings.Start{}) }()
 	t.Cleanup(func() {
 		cancel()
 		select {

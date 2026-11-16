@@ -12,7 +12,9 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -40,6 +42,7 @@ func TestConfigDefaultsMatchThePackages(t *testing.T) {
 	require.Equal(t, collect.DefaultPullConcurrency, config.DefaultPullConcurrency)
 	require.Equal(t, collect.DefaultScheduleBatch, config.DefaultScheduleBatch)
 	require.Equal(t, collect.MaxBackfillWindow, time.Duration(config.MaxBackfillDays)*24*time.Hour)
+	require.Equal(t, automation.DefaultTrackingRetentionDays, config.DefaultTrackingRetentionDays)
 	require.Equal(t, webhook.DefaultConcurrency, config.DefaultWebhookConcurrency)
 	require.Equal(t, webhook.DefaultPerEndpoint, config.DefaultWebhookPerEndpoint)
 	require.Equal(t, webhook.DefaultPerTenantDivisor, config.DefaultWebhookPerTenantDivisor)
@@ -50,7 +53,7 @@ func TestConfigDefaultsMatchThePackages(t *testing.T) {
 func TestAPITuning(t *testing.T) {
 	// Defaults: both limits on at their default, responses compressed.
 	var d api.Deps
-	apiTuning(loaded(t, nil), &d)
+	apiTuning(loaded(t, nil), &d, nil)
 	require.Equal(t, api.DefaultRateLimitAPI, d.RateLimitAPI)
 	require.Equal(t, api.DefaultRateLimitAuthFailures, d.RateLimitAuthFailures)
 	require.False(t, d.RateLimitAPIOff)
@@ -60,20 +63,20 @@ func TestAPITuning(t *testing.T) {
 	d = api.Deps{}
 	apiTuning(loaded(t, map[string]string{
 		"OHS_RATE_LIMIT_API": "50/100", "OHS_RATE_LIMIT_AUTH_FAILURES": "0", "OHS_COMPRESSION": "false",
-	}), &d)
+	}), &d, nil)
 	require.Equal(t, api.RateLimit{Rate: 50, Burst: 100}, d.RateLimitAPI)
 	require.False(t, d.RateLimitAPIOff)
 	require.True(t, d.RateLimitAuthFailuresOff)
 	require.True(t, d.CompressionOff)
 
 	d = api.Deps{}
-	apiTuning(loaded(t, map[string]string{"OHS_RATE_LIMIT_API": "0"}), &d)
+	apiTuning(loaded(t, map[string]string{"OHS_RATE_LIMIT_API": "0"}), &d, nil)
 	require.True(t, d.RateLimitAPIOff)
 	require.False(t, d.RateLimitAuthFailuresOff)
 
 	// A Config not built by Load has no limit, like the other rate limits.
 	d = api.Deps{}
-	apiTuning(config.Config{}, &d)
+	apiTuning(config.Config{}, &d, nil)
 	require.True(t, d.RateLimitAPIOff)
 	require.True(t, d.RateLimitAuthFailuresOff)
 	require.False(t, d.CompressionOff)
@@ -85,9 +88,8 @@ func TestWorkerTuning(t *testing.T) {
 	var zero config.Config
 	require.Equal(t, ETLConcurrency, etlConcurrency(zero))
 	require.Equal(t, collect.SchedulerConfig{ShutdownGrace: time.Second}, schedulerConfig(zero, time.Second))
-	require.Zero(t, backfillWindow(zero))
+	require.Zero(t, backfillWindowOf(zero.BackfillDays))
 	require.Equal(t, webhook.WorkerConfig{}, webhookWorkerConfig(zero))
-	require.Empty(t, webhookStoreOptions(zero))
 
 	cfg := loaded(t, map[string]string{
 		"OHS_ETL_CONCURRENCY": "8", "OHS_PULL_CONCURRENCY": "16", "OHS_SCHEDULE_BATCH": "5000",
@@ -99,21 +101,20 @@ func TestWorkerTuning(t *testing.T) {
 	require.Equal(t, collect.SchedulerConfig{
 		ShutdownGrace: time.Second, Concurrency: 16, Batch: 5000, PerProvider: 6, BackfillPerProvider: 3,
 	}, schedulerConfig(cfg, time.Second))
-	require.Equal(t, 730*24*time.Hour, backfillWindow(cfg))
+	require.Equal(t, 730*24*time.Hour, backfillWindowOf(cfg.BackfillDays))
 	wc := webhookWorkerConfig(cfg)
 	require.Equal(t, 32, wc.Concurrency)
 	require.Equal(t, 4, wc.PerEndpoint)
 	require.Equal(t, 12, wc.PerTenant)
 	require.Negative(t, wc.PauseAfter, "0 turns the pause off: the worker reads a negative value so")
 	require.True(t, wc.AllowPrivate)
-	require.Len(t, webhookStoreOptions(cfg), 1)
 
 	// The defaults of Load are the packages' own.
 	def := loaded(t, nil)
 	require.Equal(t, ETLConcurrency, etlConcurrency(def))
 	require.Equal(t, collect.DefaultPullConcurrency, schedulerConfig(def, 0).Concurrency)
 	require.Equal(t, collect.DefaultScheduleBatch, schedulerConfig(def, 0).Batch)
-	require.Zero(t, backfillWindow(def))
+	require.Zero(t, backfillWindowOf(def.BackfillDays))
 	require.Equal(t, webhook.WorkerConfig{
 		Concurrency: webhook.DefaultConcurrency, PerEndpoint: webhook.DefaultPerEndpoint,
 		PerTenant: webhook.DefaultConcurrency / webhook.DefaultPerTenantDivisor, PauseAfter: webhook.DefaultPauseAfter,
@@ -133,4 +134,19 @@ func TestUntrustedProxyWarning(t *testing.T) {
 		require.Empty(t, untrustedProxyWarning(listen, trusted), listen+" with a trusted proxy")
 	}
 	require.Contains(t, untrustedProxyWarning(":8080", nil), "OHS_TRUSTED_PROXIES")
+}
+
+func TestAPITuningLiveRateLimits(t *testing.T) {
+	var d api.Deps
+	apiTuning(config.Config{}, &d, nil)
+	require.Nil(t, d.RateLimits, "no live settings, fixed fields only")
+
+	cfg := loaded(t, map[string]string{"OHS_RATE_LIMIT_OAUTH": "3/7", "OHS_RATE_LIMIT_API": "0"})
+	live := settings.NewLive(settings.LiveOptions{Config: cfg})
+	apiTuning(cfg, &d, live)
+	require.NotNil(t, d.RateLimits)
+	got := d.RateLimits()
+	require.Equal(t, api.RateLimit{Rate: 3, Burst: 7}, got.OAuth)
+	require.Equal(t, api.RateLimit{}, got.API, "zero is off")
+	require.Equal(t, api.RateLimit(cfg.RateLimitInbound), got.Inbound)
 }

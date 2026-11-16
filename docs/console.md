@@ -120,6 +120,19 @@ scopes of the key signed in; a key with fewer scopes is made with `POST /v1/keys
 lock you out. Sign in with a key that holds `*`: with fewer scopes, the pages whose routes the
 key cannot call show the 403 instead.
 
+**Settings.** Every server setting in one list, grouped by section (Server, Storage, Security, Console,
+Metrics, Retention, Consent, Ingest, Sync, Processing, Webhooks, Event stream, Rate limits, Vault). Each row shows
+its value, where the value comes from (`env`, `console` or `default`) and how a change applies (see
+[Settings saved from the console](#settings-saved-from-the-console)). A secret is write only: the page says
+whether it is set, never what it is. A setting the environment sets is locked, with the value the environment gives,
+and a stored value it overrides stays visible. A stored value the server skipped as invalid is shown with its message.
+"Export" downloads the effective configuration as a `.env` file, with every secret left as `# set`. The page also
+lists the running processes and says which are behind or stale.
+
+Raising `OHS_RETENTION_DAYS` from `0` (keep everything) to a number deletes raw files and health data older than that
+many days at the next daily cleanup. It is a live setting, so a save from this page takes effect without a restart:
+check the number before you save it.
+
 **Audit log.** The tenant's [audit events](audit-log.md), newest first, with a filter by action.
 
 ## Where provider keys come from
@@ -137,6 +150,56 @@ leaves that provider off and the console says why; save its keys again from the 
 
 The routes behind the page are `GET /v1/admin/providers`, `GET`, `PATCH` and `DELETE`
 `/v1/admin/providers/{provider}`, for admin keys only (403 otherwise). See [api.md](api.md).
+
+## Settings saved from the console
+
+For each setting, a process runs with the first of these:
+
+1. its environment variable (or its `_FILE` twin), when it is set and not empty;
+2. the value saved from the console;
+3. the default.
+
+The environment always wins. The console never mixes the two sources for one setting, and a setting the
+environment sets answers 409 when you try to change it.
+
+A setting applies in one of three ways:
+
+- **live**: every process applies it within 30 seconds, without a restart. These are `OHS_LOG_LEVEL`,
+  `OHS_RETENTION_DAYS`, `OHS_AUDIT_RETENTION_DAYS`, `OHS_TRACKING_RETENTION_DAYS`, `OHS_CONSENT_REQUIRED`,
+  `OHS_BACKFILL_DAYS`, `OHS_WEBHOOK_PAUSE_AFTER`, `OHS_WEBHOOK_ROTATION_GRACE_HOURS`, `OHS_RATE_LIMIT_API`,
+  `OHS_RATE_LIMIT_AUTH_FAILURES`, `OHS_RATE_LIMIT_INBOUND`, `OHS_RATE_LIMIT_INBOUND_PROVIDER` and
+  `OHS_RATE_LIMIT_OAUTH`. A rate limit that changes starts again with full counters.
+- **restart**: every other setting. It is stored at once and applies when each process next starts.
+- **bootstrap**: read from the environment before the database opens, or too risky to change from a page the
+  process serves. Never stored, never editable here; the console shows the value (a secret as `set`). These are
+  `OHS_DATABASE_URL`, `OHS_ENCRYPTION_KEY`, `OHS_ENCRYPTION_KEY_FILE`, `OHS_PREVIOUS_ENCRYPTION_KEYS`, every
+  `OHS_VAULT_*` variable, `OHS_RAW_STORE`, `OHS_LISTEN`, `OHS_OPS_LISTEN`, `OHS_METRICS_LISTEN`, `OHS_ROLES`,
+  `OHS_CONSOLE`, `OHS_SETUP_TOKEN`, `OHS_SETUP_TOKEN_FILE` and `OHS_BOOTSTRAP_TENANT`.
+
+Stored values live in `ohs_core.instance_settings`; a secret is sealed with `OHS_ENCRYPTION_KEY`, bound to its name,
+and `ohs admin rekey` re-seals it. A stored value that does not hold (it fails its check, or no configured key opens
+it) does not stop a process: it is skipped, logged by name and never by value, and the environment value or the
+default applies. A stored name no release setting reads any more is ignored. `ohs doctor` lists both kinds, and
+`{"OHS_OLD": null}` in a `PATCH` removes a stored setting a later release no longer has.
+
+Each process writes a heartbeat every 30 seconds. A process is **behind** when a `restart` setting changed after the
+settings it loaded at start, so it still runs the old value. It is **stale** when its live settings have been older
+than the stored ones for more than 60 seconds, which points at a process that cannot reach the database. The
+console hides a heartbeat not seen for 2 minutes.
+
+The routes behind the page, for admin keys only (403 otherwise):
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/admin/settings` | Every setting, its source, effective value and the current revision (`ETag`) |
+| `PATCH /v1/admin/settings` | `{"OHS_X": "value", "OHS_Y": null}`; `null` removes the stored value. Needs `If-Match` with the revision you read. All or nothing |
+| `GET /v1/admin/settings/export` | The effective configuration as a `.env` file |
+| `GET /v1/admin/processes` | The running processes with `behind` and `stale` |
+
+A `PATCH` answers 200 with the new revision and the names that need a restart; 428 without `If-Match`; 412 when the
+revision moved (read again, then retry); 409 naming each setting that is bootstrap or set by the environment; 422 with
+one message per invalid value. See [api.md](api.md#admin-settings). Each `PATCH` is written to the
+[audit log](audit-log.md) with the names it changed, never the values.
 
 ## Security model
 

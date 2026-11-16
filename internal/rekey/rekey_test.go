@@ -17,9 +17,11 @@ var notSealed = map[string]bool{
 	"response_body": true, // idempotent replay of an API response
 	// The vault columns (migration 0050) are not under OHS_ENCRYPTION_KEY: the
 	// vault has its own key hierarchy and rotation (internal/vault).
-	"wrapped":     true, // a vault key, wrapped by its parent key
-	"kem_public":  true, // a user's public keys, in clear by design
-	"sealed":      true, // a row sealed under the user key
+	"wrapped":    true, // a vault key, wrapped by its parent key
+	"kem_public": true, // a user's public keys, in clear by design
+	// A row sealed under the user key (vault). The sealed column of
+	// ohs_core.instance_settings is under OHS_ENCRYPTION_KEY and is in tables.
+	"sealed":      true,
 	"content_mac": true, // keyed MAC of a sealed row's content
 	"source_key":  true, // keyed HMAC of a record's source
 	// series_blobs.points (migration 0053): a series compressed, and sealed

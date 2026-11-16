@@ -16,6 +16,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/mcp"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 )
 
 const serveUsage = "usage: ohs serve [--allow-newer-schema]"
@@ -44,9 +45,13 @@ func runServe(rest []string, _ io.Writer) error {
 		}
 		fmt.Fprintf(os.Stderr, "ohs: warning: --allow-newer-schema: %v\n", err)
 	}
+	cfg, start, err := settings.Boot(context.Background(), cfg, os.LookupEnv, os.Environ())
+	if err != nil {
+		return err
+	}
 	mcp.Version = version
 	app.Version = version
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return app.Run(ctx, cfg)
+	return app.Run(ctx, cfg, start)
 }

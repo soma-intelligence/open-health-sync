@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"io"
 	"net"
 	"net/http"
@@ -285,7 +286,7 @@ func TestWhoopEndToEnd(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		assert.NoError(t, app.Run(ctx, cfg))
+		assert.NoError(t, app.Run(ctx, cfg, settings.Start{}))
 	}()
 	t.Cleanup(func() { cancel(); wg.Wait() })
 	a := api{t: t, base: "http://" + listen, key: key, c: &http.Client{Timeout: 10 * time.Second}}

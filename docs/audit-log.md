@@ -61,7 +61,7 @@ one the refused credential came from.
 | `tenant.provider` | Turning a provider off or back on for one tenant (`PATCH /v1/admin/tenants/{tenant_id}/providers/{provider}`); `detail` holds `provider` and, on the tenant changed, `enabled` |
 | `tenant.provider_keys` | Setting, replacing or removing a tenant's own keys for a provider (`PUT` or `DELETE /v1/admin/tenants/{tenant_id}/providers/{provider}/keys`); `detail` holds `provider` and, on the tenant changed, `set` and `reauth_required` (the connections set `needs_reauth`), never a key |
 | `audit.read` | Reading this log |
-| `config.read`, `config.write` | Anything else: the provider list, the tenant, the pipeline and retrying processing jobs (`/v1/pipeline`), the provider settings (`/v1/admin/providers`), reading tenants, their keys, pipelines and providers (`/v1/admin/tenants`) |
+| `config.read`, `config.write` | Anything else: the provider list, the tenant, the pipeline and retrying processing jobs (`/v1/pipeline`), the provider settings (`/v1/admin/providers`), the server settings (`/v1/admin/settings`; a `PATCH` writes `config.write` with `detail` holding `settings`, the names it changed, and the new `revision`, never a value), reading tenants, their keys, pipelines and providers (`/v1/admin/tenants`) |
 
 New actions may be added; treat an unknown one as `config.read` or `config.write` by its method.
 

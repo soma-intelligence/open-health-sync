@@ -40,6 +40,7 @@ const (
 	DefaultAuditPruneEvery  = 24 * time.Hour
 	DefaultSharesEvery      = time.Hour
 	DefaultTrackingEvery    = 24 * time.Hour
+	DefaultHeartbeatsEvery  = 24 * time.Hour
 
 	defaultRunTimeout  = 5 * time.Minute
 	defaultLongTimeout = time.Hour
@@ -48,7 +49,7 @@ const (
 
 // Intervals sets how often each job runs. A zero value means the default.
 type Intervals struct {
-	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune, Shares, Tracking time.Duration
+	Reconcile, Orphans, Drain, Files, Retention, Idempotency, AuditPrune, Shares, Tracking, Heartbeats time.Duration
 }
 
 // Deps is everything Start needs.
@@ -66,7 +67,15 @@ type Deps struct {
 	// keeps them for ever (the tracking job is not scheduled), and a value
 	// under MinTrackingRetentionDays is raised to it.
 	TrackingRetentionDays int
-	Intervals             Intervals
+	// RetentionDaysFunc, AuditRetentionDaysFunc and TrackingRetentionDaysFunc
+	// read the same settings at every run, and win over the fields. Set, the
+	// task is always registered and does nothing while the value says off
+	// (same meaning as the field).
+	RetentionDaysFunc, AuditRetentionDaysFunc, TrackingRetentionDaysFunc func() int
+	Intervals                                                            Intervals
+	// PruneHeartbeats deletes the process heartbeats not seen for a while
+	// and returns how many. Nil leaves the heartbeats task unscheduled.
+	PruneHeartbeats func(context.Context) (int64, error)
 	// RunTimeout bounds one run of any job except files and retention (default 5 minutes;
 	// retention gets an hour unless this is set).
 	RunTimeout time.Duration
@@ -80,6 +89,20 @@ type Deps struct {
 	// task's loop with the task's name and interval: the heartbeat that
 	// tells a stalled task from a healthy one.
 	OnTick func(task string, interval time.Duration)
+
+	// Test seams: when set they replace the database work of the audit,
+	// tracking and retention runs, and receive the days the run read.
+	auditPrune   func(ctx context.Context, cutoff time.Time) (int64, error)
+	trackingRun  func(ctx context.Context, days int) error
+	retentionRun func(ctx context.Context, days int) error
+}
+
+// daysGetter is f when set, else the static value.
+func daysGetter(f func() int, static int) func() int {
+	if f != nil {
+		return f
+	}
+	return func() int { return static }
 }
 
 func (d Deps) now() time.Time {
@@ -173,28 +196,65 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 		_, err := files.Run(ctx)
 		return err
 	}))
-	if days := deps.AuditRetentionDays; days > 0 {
+	auditDays := daysGetter(deps.AuditRetentionDaysFunc, deps.AuditRetentionDays)
+	if deps.AuditRetentionDaysFunc != nil || deps.AuditRetentionDays > 0 {
 		s.Add("audit", or(deps.Intervals.AuditPrune, DefaultAuditPruneEvery), longTimeout, counted(func(ctx context.Context) error {
-			n, err := audit.Prune(ctx, deps.Pool, deps.now().AddDate(0, 0, -days))
+			days := auditDays()
+			if days <= 0 {
+				return nil
+			}
+			cutoff := deps.now().AddDate(0, 0, -days)
+			var n int64
+			var err error
+			if deps.auditPrune != nil {
+				n, err = deps.auditPrune(ctx, cutoff)
+			} else {
+				n, err = audit.Prune(ctx, deps.Pool, cutoff)
+			}
 			if n > 0 {
 				slog.InfoContext(ctx, "audit events pruned", "rows", n, "retention_days", days)
 			}
 			return err
 		}))
 	}
-	if days := deps.TrackingRetentionDays; days >= 0 {
-		if days == 0 {
-			days = DefaultTrackingRetentionDays
-		}
-		track := &TrackingPruner{Pool: deps.Pool, Days: days, Metrics: m, Now: deps.now}
+	trackingDays := daysGetter(deps.TrackingRetentionDaysFunc, deps.TrackingRetentionDays)
+	if deps.TrackingRetentionDaysFunc != nil || deps.TrackingRetentionDays >= 0 {
 		s.Add("tracking", or(deps.Intervals.Tracking, DefaultTrackingEvery), longTimeout, counted(func(ctx context.Context) error {
+			days := trackingDays()
+			if days < 0 {
+				return nil
+			}
+			if days == 0 {
+				days = DefaultTrackingRetentionDays
+			}
+			if deps.trackingRun != nil {
+				return deps.trackingRun(ctx, days)
+			}
+			track := &TrackingPruner{Pool: deps.Pool, Days: days, Metrics: m, Now: deps.now}
 			_, err := track.Run(ctx)
 			return err
 		}))
 	}
-	if deps.RetentionDays > 0 {
-		ret := &Retention{Pool: deps.Pool, Store: deps.Store, Days: deps.RetentionDays, Metrics: m, Now: deps.now}
+	if prune := deps.PruneHeartbeats; prune != nil {
+		s.Add("heartbeats", or(deps.Intervals.Heartbeats, DefaultHeartbeatsEvery), timeout, counted(func(ctx context.Context) error {
+			n, err := prune(ctx)
+			if n > 0 {
+				slog.InfoContext(ctx, "stale process heartbeats removed", "rows", n)
+			}
+			return err
+		}))
+	}
+	retentionDays := daysGetter(deps.RetentionDaysFunc, deps.RetentionDays)
+	if deps.RetentionDaysFunc != nil || deps.RetentionDays > 0 {
 		s.Add("retention", or(deps.Intervals.Retention, DefaultRetentionEvery), longTimeout, counted(func(ctx context.Context) error {
+			days := retentionDays()
+			if days <= 0 {
+				return nil
+			}
+			if deps.retentionRun != nil {
+				return deps.retentionRun(ctx, days)
+			}
+			ret := &Retention{Pool: deps.Pool, Store: deps.Store, Days: days, Metrics: m, Now: deps.now}
 			_, err := ret.Run(ctx)
 			return err
 		}))

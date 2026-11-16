@@ -654,3 +654,92 @@ func TestVaultKeysConstraints(t *testing.T) {
 		t.Errorf("tenant key count = %d err=%v, want 1", n, err)
 	}
 }
+
+// Migrations 0056 and 0057: the runtime settings, their one-row revision and
+// the process heartbeats. The revision row exists from the start, the value
+// and sealed columns exclude each other, and down to 55 drops all three.
+func TestInstanceSettingsSchema(t *testing.T) {
+	ctx := context.Background()
+	url := TestDB(t)
+	m, err := newMigrator(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	pool, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	exec := func(q string, args ...any) error { _, err := pool.Exec(ctx, q, args...); return err }
+
+	var n int
+	var id bool
+	var revision, restart int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.instance_settings_revision`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("revision rows = %d, %v; want 1", n, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT id, revision, restart_revision FROM ohs_core.instance_settings_revision`).Scan(&id, &revision, &restart); err != nil {
+		t.Fatal(err)
+	}
+	if !id || revision != 0 || restart != 0 {
+		t.Errorf("revision row = (%v, %d, %d), want (true, 0, 0)", id, revision, restart)
+	}
+	if err := exec(`INSERT INTO ohs_core.instance_settings_revision (id) VALUES (true)`); err == nil {
+		t.Error("second revision row (true) accepted")
+	}
+	if err := exec(`INSERT INTO ohs_core.instance_settings_revision (id) VALUES (false)`); err == nil {
+		t.Error("second revision row (false) accepted")
+	}
+
+	tenant := "00000000-0000-0000-0000-000000000001"
+	ins := `INSERT INTO ohs_core.instance_settings (name, value, sealed, updated_by) VALUES ($1, $2, $3, $4)`
+	if err := exec(ins, "OHS_A", nil, nil, tenant); err == nil {
+		t.Error("row with neither value nor sealed accepted")
+	}
+	if err := exec(ins, "OHS_B", "x", []byte{1}, tenant); err == nil {
+		t.Error("row with both value and sealed accepted")
+	}
+	if err := exec(ins, "OHS_C", "x", nil, tenant); err != nil {
+		t.Errorf("clear row: %v", err)
+	}
+	if err := exec(ins, "OHS_D", nil, []byte{1}, tenant); err != nil {
+		t.Errorf("sealed row: %v", err)
+	}
+
+	hb := `INSERT INTO ohs_core.process_heartbeats (process_id, host, roles, version, started_at, start_revision, live_revision)
+		VALUES (gen_random_uuid(), 'h', '{api}', 'v', now(), 0, 0)`
+	if err := exec(hb); err != nil {
+		t.Errorf("heartbeat: %v", err)
+	}
+	var idx int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_indexes WHERE schemaname = 'ohs_core' AND indexname = 'process_heartbeats_seen_at'`).Scan(&idx); err != nil || idx != 1 {
+		t.Errorf("seen_at index count = %d, %v", idx, err)
+	}
+
+	tables := func() (c int) {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'ohs_core'
+			AND table_name IN ('instance_settings', 'instance_settings_revision', 'process_heartbeats')`).Scan(&c); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	if got := tables(); got != 3 {
+		t.Fatalf("tables after up = %d, want 3", got)
+	}
+	if err := m.Migrate(55); err != nil {
+		t.Fatalf("down to 55: %v", err)
+	}
+	if got := tables(); got != 0 {
+		t.Errorf("tables after down = %d, want 0", got)
+	}
+	if err := m.Up(); err != nil {
+		t.Fatalf("up again: %v", err)
+	}
+	if got := tables(); got != 3 {
+		t.Errorf("tables after second up = %d, want 3", got)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.instance_settings_revision`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("revision rows after second up = %d, %v; want 1", n, err)
+	}
+}

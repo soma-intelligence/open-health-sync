@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,6 +23,10 @@ type RateLimit struct {
 }
 
 func (l RateLimit) on() bool { return l.Rate > 0 && l.Burst > 0 }
+
+// RateLimits are the five token buckets of the API; the zero RateLimit is
+// off. Deps.RateLimits returns them live.
+type RateLimits struct{ API, AuthFailures, Inbound, InboundProvider, OAuth RateLimit }
 
 // The route groups of the rate limiter, the label of ohs_rate_limited_total.
 const (
@@ -108,6 +113,40 @@ func newRateLimiter(perAddr, global RateLimit) *rateLimiter {
 	}
 }
 
+// liveLimiter is a rateLimiter that follows its limits: current rebuilds it,
+// counters full again, when get returns another pair than the one it was
+// built with. With an unchanging pair it is the same rateLimiter every time.
+type liveLimiter struct {
+	get func() (perAddr, global RateLimit)
+	cur atomic.Pointer[liveState]
+}
+
+type liveState struct {
+	perAddr, global RateLimit
+	l               *rateLimiter
+}
+
+func newLiveLimiter(get func() (perAddr, global RateLimit)) *liveLimiter {
+	return &liveLimiter{get: get}
+}
+
+// current is the limiter for the limits in force now. It is safe under
+// concurrent requests: when several see a change, one rebuild wins and all
+// use it.
+func (l *liveLimiter) current() *rateLimiter {
+	for {
+		p, g := l.get() // read inside the loop: a stale reader never swaps an old limiter back
+		st := l.cur.Load()
+		if st != nil && st.perAddr == p && st.global == g {
+			return st.l
+		}
+		next := &liveState{perAddr: p, global: g, l: newRateLimiter(p, g)}
+		if l.cur.CompareAndSwap(st, next) {
+			return next.l
+		}
+	}
+}
+
 // allow takes a token for addr and key. When refused, it says how long until
 // a retry can pass and which bucket ran dry.
 func (l *rateLimiter) allow(addr, key string) (ok bool, wait time.Duration, scope string) {
@@ -183,14 +222,17 @@ func retryAfter(wait time.Duration) string {
 }
 
 // rateLimit refuses a request over l with 429 and Retry-After before next
-// does any work. key names the shared bucket of the request (the provider)
+// does any work. The limits are read per request, so a limit turned on or
+// changed after the route was mounted applies. key names the shared bucket of the request (the provider)
 // for a limiter with a global limit. It logs at debug level, without the
 // client address or the query string: callback URLs carry codes and states.
-func (s *server) rateLimit(group string, l *rateLimiter, key func(*http.Request) string, next http.Handler) http.Handler {
-	if !l.perAddr.on() && !l.global.on() {
-		return next
-	}
+func (s *server) rateLimit(group string, live *liveLimiter, key func(*http.Request) string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l := live.current()
+		if !l.perAddr.on() && !l.global.on() {
+			next.ServeHTTP(w, r)
+			return
+		}
 		k := ""
 		if key != nil {
 			k = key(r)

@@ -440,6 +440,19 @@ func TestStartRegistersRetentionOnlyWhenEnabled(t *testing.T) {
 	}
 	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "tracking"}, names(0))
 	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "tracking", "retention"}, names(30))
+	withHB, err := newScheduler(Deps{Pool: e.pool, Store: e.rs, RetentionDays: 30,
+		PruneHeartbeats: func(context.Context) (int64, error) { return 0, nil }})
+	require.NoError(t, err)
+	var hbNames []string
+	hbEvery := time.Duration(0)
+	for _, tk := range withHB.tasks {
+		hbNames = append(hbNames, tk.name)
+		if tk.name == "heartbeats" {
+			hbEvery = tk.interval
+		}
+	}
+	require.Equal(t, []string{"reconciler", "orphans", "drainer", "idempotency", "shares", "files", "tracking", "heartbeats", "retention"}, hbNames)
+	require.Equal(t, 24*time.Hour, hbEvery)
 	off, err := newScheduler(Deps{Pool: e.pool, Store: e.rs, TrackingRetentionDays: -1})
 	require.NoError(t, err)
 	for _, tk := range off.tasks {

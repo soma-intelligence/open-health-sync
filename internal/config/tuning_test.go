@@ -60,7 +60,7 @@ func TestLoadWorkerTuning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ETLConcurrency != 4 || c.ETLJobsPerUser != 1 || c.TrackingRetentionDays != 0 ||
+	if c.ETLConcurrency != 4 || c.ETLJobsPerUser != 1 || c.TrackingRetentionDays != DefaultTrackingRetentionDays ||
 		c.PullConcurrency != 4 || c.ScheduleBatch != 1000 || c.BackfillDays != 0 {
 		t.Fatalf("defaults: %+v", c)
 	}

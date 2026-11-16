@@ -10,6 +10,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -19,12 +20,23 @@ import (
 // is no limit.
 
 // apiTuning sets the rate limits per credential and the compression of d.
-func apiTuning(cfg config.Config, d *api.Deps) {
+func apiTuning(cfg config.Config, d *api.Deps, live *settings.Live) {
 	d.RateLimitAPI = api.RateLimit(cfg.RateLimitAPI)
 	d.RateLimitAPIOff = cfg.RateLimitAPI == config.RateLimit{}
 	d.RateLimitAuthFailures = api.RateLimit(cfg.RateLimitAuthFailures)
 	d.RateLimitAuthFailuresOff = cfg.RateLimitAuthFailures == config.RateLimit{}
 	d.CompressionOff = cfg.CompressionOff
+	// Live wins: a limit saved in the console applies without a restart.
+	if live != nil {
+		d.RateLimits = func() api.RateLimits {
+			r := live.RateLimits()
+			return api.RateLimits{
+				API: api.RateLimit(r.API), AuthFailures: api.RateLimit(r.AuthFailures),
+				Inbound: api.RateLimit(r.Inbound), InboundProvider: api.RateLimit(r.InboundProvider),
+				OAuth: api.RateLimit(r.OAuth),
+			}
+		}
+	}
 }
 
 // etlConcurrency is how many jobs each ETL tier runs at once.
@@ -45,10 +57,10 @@ func schedulerConfig(cfg config.Config, grace time.Duration) collect.SchedulerCo
 	}
 }
 
-// backfillWindow is how far back a new connection is pulled, zero to leave
-// each provider its own window.
-func backfillWindow(cfg config.Config) time.Duration {
-	return time.Duration(max(cfg.BackfillDays, 0)) * 24 * time.Hour
+// backfillWindowOf is how far back a new connection is pulled, from
+// OHS_BACKFILL_DAYS: zero (not positive) leaves each provider its own window.
+func backfillWindowOf(days int) time.Duration {
+	return time.Duration(max(days, 0)) * 24 * time.Hour
 }
 
 // webhookWorkerConfig is the delivery worker's configuration.
@@ -60,15 +72,6 @@ func webhookWorkerConfig(cfg config.Config) webhook.WorkerConfig {
 		PerTenant:    cfg.WebhookPerTenant,
 		PauseAfter:   cfg.WebhookPauseAfter,
 	}
-}
-
-// webhookStoreOptions carries the rotation grace to the endpoint store. A
-// negative grace ends the replaced secret at once.
-func webhookStoreOptions(cfg config.Config) []webhook.StoreOption {
-	if cfg.WebhookRotationGrace == 0 {
-		return nil
-	}
-	return []webhook.StoreOption{webhook.WithRotationGrace(cfg.WebhookRotationGrace)}
 }
 
 // untrustedProxyWarning is what to log at start when the API listens for

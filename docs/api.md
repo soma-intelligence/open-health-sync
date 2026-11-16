@@ -769,6 +769,22 @@ curl -s -X PATCH $OHS/v1/admin/providers/oura -H "Authorization: Bearer $KEY" \
   -d '{"keys":{"CLIENT_ID":"...","CLIENT_SECRET":"..."},"enabled":true}'
 ```
 
+<a id="admin-settings"></a>Server settings (see [console.md](console.md#settings-saved-from-the-console)), same keys:
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/admin/settings` | Every setting: name, label, section, type, default, `secret`, apply mode (`live`, `restart`, `bootstrap`), `source` (`env`, `console`, `default`), effective value (`set` for a secret), `invalid` when a stored value was skipped, and the `revision`. The answer carries `ETag: "<revision>"` |
+| `PATCH /v1/admin/settings` | `{"OHS_X": "value", "OHS_Y": null}`; `null` removes the stored value. Needs `If-Match: "<revision>"`. All or nothing. 200 with the new `revision`, the `changed` names and `restart_required`; 428 without `If-Match`; 412 when the revision moved; 409 naming each setting that is bootstrap or set by the environment; 422 with one message per invalid value |
+| `GET /v1/admin/settings/export` | The effective configuration as a `.env` file; a secret is `# set` |
+| `GET /v1/admin/processes` | The running processes (seen in the last 2 minutes) with `behind` and `stale` |
+
+```sh
+REV=$(curl -si $OHS/v1/admin/settings -H "Authorization: Bearer $KEY" | awk -F'"' 'tolower($1) ~ /^etag/ {print $2}')
+curl -s -X PATCH $OHS/v1/admin/settings -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -H "If-Match: \"$REV\"" \
+  -d '{"OHS_LOG_LEVEL":"debug","OHS_OLD":null}'
+```
+
 An instance that serves several teams manages their tenants with the same admin keys, as
 `ohs admin tenant` and `ohs admin key` do from a shell. Shapes, examples and the audit trail:
 [admin-api.md](admin-api.md).
