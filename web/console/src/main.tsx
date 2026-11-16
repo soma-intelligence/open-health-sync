@@ -1,3 +1,5 @@
+// Must stay first: it rewrites an old #/ address before the router reads it.
+import "./legacyHashRedirect";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
