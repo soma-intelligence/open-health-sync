@@ -12,8 +12,10 @@ async function signIn(page: Page): Promise<void> {
 async function expectPage(page: Page, heading: string | RegExp): Promise<void> {
   await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
   await expect(page.getByText("This page failed")).toHaveCount(0);
+  // Pages show a failed query inline, not through the boundary: wait for the loads, then look.
+  await expect(page.getByText("Loading", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".error-panel")).toHaveCount(0);
 }
-
 
 test("signs in, opens the overview and signs out", async ({ page }) => {
   const key = process.env["OHS_E2E_ADMIN_KEY"] ?? "";
@@ -84,9 +86,24 @@ test("switches tenant and back", async ({ page }) => {
   await page.getByRole("navigation", { name: "Console" }).getByRole("link", { name: "Users" }).click();
   await expectPage(page, "Users");
   await expect(page.getByText("No users yet")).toBeVisible();
+  // /v1/admin/* authorizes on the session tenant: Settings still opens while acting as a non-admin.
+  await page.getByRole("navigation", { name: "Console" }).getByRole("link", { name: "Settings" }).click();
+  await expectPage(page, "Settings");
+  await expect(page.getByText("Acting as e2e-other")).toBeVisible();
 
   await picker.selectOption({ label: "e2e-admin" });
   await expect(page.getByText("Acting as e2e-other")).toHaveCount(0);
   await page.getByRole("navigation", { name: "Console" }).getByRole("link", { name: "Users" }).click();
   await expect(page.getByRole("row", { name: /demo-user/ }).first()).toBeVisible();
+});
+
+test("an old #/ link from v0.2.0 opens the same page", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/console/users");
+  await page.getByRole("row", { name: /demo-user/ }).first().dblclick();
+  await expect(page).toHaveURL(/\/console\/users\/[^/]+$/);
+  const userPath = new URL(page.url()).pathname;
+  await page.goto("/console/#" + userPath.slice("/console".length));
+  await expect.poll(() => new URL(page.url()).pathname + new URL(page.url()).hash).toBe(userPath);
+  await expectPage(page, "demo-user");
 });
