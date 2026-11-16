@@ -3,9 +3,11 @@ import { useNavigate } from "react-router";
 
 import { routerPath } from "../lib/basename";
 import { useSettingsQuery } from "../pages/settings/api";
+import { signOutFailure } from "../session/signOutFailure";
 import { useCanWrite, useIsAdmin, useSession } from "../session/SessionProvider";
 import { THEME_CHOICES, useTheme } from "../shell/theme";
 import { Dialog } from "../ui/Dialog";
+import { useToast } from "../ui/Toast";
 import { paletteItems, searchPalette, type PaletteItem } from "./search";
 
 export interface CommandPaletteProps {
@@ -40,6 +42,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const admin = useIsAdmin();
   const canWrite = useCanWrite();
   const { signOut } = useSession();
+  const toast = useToast();
   const [theme, setTheme] = useTheme();
   const settings = useSettingsQuery().data?.data;
   const listId = useId();
@@ -61,7 +64,9 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       const next = THEME_CHOICES[(THEME_CHOICES.indexOf(theme) + 1) % THEME_CHOICES.length];
       if (next !== undefined) setTheme(next);
     } else if (item.run === "sign-out") {
-      void signOut();
+      signOut().catch((e: unknown) => {
+        toast(signOutFailure(e), "bad");
+      });
     } else if (item.to !== undefined) {
       void navigate(routerPath(item.to), item.open === undefined ? undefined : { state: { open: item.open } });
     }

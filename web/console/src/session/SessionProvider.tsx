@@ -12,9 +12,13 @@ export interface SessionValue {
   session: ConsoleSession | null;
   status: SessionStatus;
   signIn: (key: string) => Promise<void>;
+  /** Rejects, still signed in, when the server could not end the session (network, 5xx). */
   signOut: () => Promise<void>;
   switchTenant: (tenantId: string) => Promise<void>;
-  /** Calls fn after each explicit sign out (not on a 401); returns the unsubscribe. */
+  /**
+   * Calls fn after each explicit sign out, also when the server answers 401
+   * (the session had ended), but not on a 401 elsewhere; returns the unsubscribe.
+   */
   onSignOut: (fn: () => void) => () => void;
 }
 
@@ -90,7 +94,12 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
         queryClient.setQueryData(SESSION_KEY, next);
       },
       signOut: async () => {
-        await api.send("DELETE", SESSION_PATH);
+        try {
+          await api.send("DELETE", SESSION_PATH);
+        } catch (e) {
+          // An expired session is already signed out: tear down as asked. Anything else stays signed in.
+          if (!(e instanceof ApiError && e.status === 401)) throw e;
+        }
         queryClient.clear();
         queryClient.setQueryData(SESSION_KEY, null);
         for (const fn of signOutListeners.current) fn();

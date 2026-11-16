@@ -296,6 +296,44 @@ describe("settings", () => {
     expect(screen.queryByRole("region", { name: "Unsaved changes" })).not.toBeInTheDocument();
   });
 
+  it("a sign out that meets an expired session (401) still drops the draft", async () => {
+    const user = userEvent.setup();
+    const { path } = view({
+      "DELETE /console/session": { status: 401, body: { title: "Unauthorized", detail: "session ended" } },
+      "POST /console/session": { status: 201, body: admin },
+    });
+    const pause = within(await loaded()).getByLabelText("Pause after");
+    await user.clear(pause);
+    await user.type(pause, "9");
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => {
+      expect(path()).toMatch(/^\/console\/sign-in/);
+    });
+    await user.type(await screen.findByLabelText("Tenant API key"), KEY);
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(path()).not.toMatch(/sign-in/);
+    });
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    expect(within(await loaded()).getByLabelText("Pause after")).toHaveValue(8);
+    expect(screen.queryByRole("region", { name: "Unsaved changes" })).not.toBeInTheDocument();
+  });
+
+  it("a sign out the server refuses (500) shows a toast and stays signed in", async () => {
+    const user = userEvent.setup();
+    const { path, queryClient } = view({
+      "DELETE /console/session": { status: 500, body: { title: "Internal Server Error", detail: "database is down" } },
+    });
+    const pause = within(await loaded()).getByLabelText("Pause after");
+    await user.clear(pause);
+    await user.type(pause, "9");
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(await screen.findByText("database is down")).toBeInTheDocument();
+    expect(path()).toBe(ROUTE);
+    expect(queryClient.getQueryData(["session"])).toEqual(admin);
+    expect(screen.getByRole("region", { name: "Unsaved changes" })).toBeInTheDocument();
+  });
+
   it("Review opens the diff, Apply sends one PATCH with If-Match", async () => {
     const user = userEvent.setup();
     const { api } = view({

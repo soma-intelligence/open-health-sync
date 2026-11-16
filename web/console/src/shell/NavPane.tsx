@@ -1,9 +1,11 @@
 import { NavLink } from "react-router";
 
+import { signOutFailure } from "../session/signOutFailure";
 import { useIsAdmin, useSession } from "../session/SessionProvider";
 import { Button } from "../ui/Button";
 import { Icon, type IconName } from "../ui/Icon";
 import { Pill } from "../ui/Pill";
+import { useToast } from "../ui/Toast";
 import { TenantSwitcher } from "./TenantSwitcher";
 import { ThemeControl } from "./ThemeControl";
 
@@ -46,6 +48,7 @@ export const NAV_GROUPS: NavGroup[] = [
 
 export function NavPane({ id }: { id: string }) {
   const { session, signOut } = useSession();
+  const toast = useToast();
   const admin = useIsAdmin();
   if (!session) return null;
   const { tenant, acting_tenant: acting } = session;
@@ -84,7 +87,9 @@ export function NavPane({ id }: { id: string }) {
         <Button
           kind="ghost"
           onClick={() => {
-            void signOut();
+            signOut().catch((e: unknown) => {
+              toast(signOutFailure(e), "bad");
+            });
           }}
         >
           <Icon name="out" size="sm" />
