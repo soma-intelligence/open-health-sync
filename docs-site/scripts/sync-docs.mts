@@ -468,6 +468,13 @@ sources["docs/how-to/eight-sleep-export.md"] = [
       "Export Eight Sleep Pod data (sleep stages, sleep score, heart rate, HRV, bed and room temperature) as CSV or Parquet and query it in PostgreSQL, from a self-hosted instance.",
   },
 ];
+sources["docs/how-to/dexcom-export.md"] = [
+  {
+    page: "(guides)/how-to/dexcom-export",
+    description:
+      "Export Dexcom CGM glucose readings as CSV or Parquet and query time in range and daily averages in PostgreSQL, through the official Dexcom API, from a self-hosted instance.",
+  },
+];
 for (const file of readdirSync(join(repo, "docs", "how-to")).sort()) {
   if (!file.endsWith(".md") || file === "README.md" || sources[`docs/how-to/${file}`]) continue;
   sources[`docs/how-to/${file}`] = [{ page: `(guides)/how-to/${file.replace(/\.md$/, "")}` }];
