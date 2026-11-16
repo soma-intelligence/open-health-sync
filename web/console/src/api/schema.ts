@@ -6914,7 +6914,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageBase"] & {
-                        data?: unknown;
+                        data?: components["schemas"]["Webhook"][];
                     };
                 };
             };
@@ -7129,7 +7129,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageBase"] & {
-                        data?: unknown;
+                        data?: components["schemas"]["WebhookDelivery"][];
                     };
                 };
             };
@@ -11982,7 +11982,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageBase"] & {
-                        data?: unknown;
+                        data?: components["schemas"]["Webhook"][];
                     };
                 };
             };
@@ -12214,7 +12214,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageBase"] & {
-                        data?: unknown;
+                        data?: components["schemas"]["WebhookDelivery"][];
                     };
                 };
             };

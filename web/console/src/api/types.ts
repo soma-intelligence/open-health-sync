@@ -71,3 +71,11 @@ export type TenantSyncRun = Schemas["TenantSyncRun"];
 export type EtlJobList = JsonOf<"/v1/pipeline/etl-jobs", "get", 200>;
 export type EtlJob = Schemas["ETLJob"];
 export type RetryParkedJobs = JsonOf<"/v1/pipeline/etl-jobs/retry", "post", 200>;
+
+export type WebhookEventType = Schemas["WebhookEventType"];
+export type WebhookList = JsonOf<"/v1/webhooks", "get", 200>;
+export type WebhookWithSecret = Schemas["WebhookWithSecret"];
+export type CreateWebhookRequest = Schemas["CreateWebhookRequest"];
+export type UpdateWebhookRequest = Schemas["UpdateWebhookRequest"];
+export type RotatedWebhookSecret = JsonOf<"/v1/webhooks/{webhook_id}/rotate-secret", "post", 200>;
+export type WebhookDeliveryList = JsonOf<"/v1/webhooks/{webhook_id}/deliveries", "get", 200>;

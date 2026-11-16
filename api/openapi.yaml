@@ -365,6 +365,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/Webhook" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -527,6 +528,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/WebhookDelivery" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -5092,6 +5094,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/Webhook" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -5308,6 +5311,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/WebhookDelivery" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }

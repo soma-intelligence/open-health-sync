@@ -8,6 +8,8 @@ import { ProviderPage } from "./pages/providers/ProviderPage";
 import { ProvidersPage } from "./pages/providers/ProvidersPage";
 import { UserPage } from "./pages/user/UserPage";
 import { UsersPage } from "./pages/users/UsersPage";
+import { WebhookPage } from "./pages/webhooks/WebhookPage";
+import { WebhooksPage } from "./pages/webhooks/WebhooksPage";
 import { AppShell } from "./shell/AppShell";
 import { RequireSession } from "./session/RequireSession";
 import { SignInPage } from "./session/SignInPage";
@@ -23,7 +25,7 @@ function Placeholder() {
   );
 }
 
-const PAGE_PATHS = ["webhooks", "keys", "audit", "settings"];
+const PAGE_PATHS = ["keys", "audit", "settings"];
 
 export const routes: RouteObject[] = [
   { path: "sign-in", element: <SignInPage /> },
@@ -41,6 +43,8 @@ export const routes: RouteObject[] = [
           { path: "providers", element: <ProvidersPage /> },
           { path: "providers/:slug", element: <ProviderPage /> },
           { path: "jobs", element: <JobsPage /> },
+          { path: "webhooks", element: <WebhooksPage /> },
+          { path: "webhooks/:webhookId", element: <WebhookPage /> },
           ...PAGE_PATHS.map((path) => ({ path: `${path}/*`, element: <Placeholder /> })),
           { path: "*", element: <NotFoundPage /> },
         ],

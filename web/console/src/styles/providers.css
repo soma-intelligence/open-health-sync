@@ -103,3 +103,27 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- webhooks ---------- */
+.endpoint-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.event-types {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.event-types legend {
+  padding: 0;
+  font-weight: 500;
+}
+
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0 12px;
+}
