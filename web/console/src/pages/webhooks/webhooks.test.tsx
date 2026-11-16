@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import type { QueryClient } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 
 import type { ConsoleSession, Delivery, Webhook } from "../../api/types";
@@ -65,6 +66,14 @@ function view(routes: Record<string, FakeHandler>, route: string, s: ConsoleSess
   return renderWithApp(null, { session: s, api, route });
 }
 
+
+function mutationsHold(queryClient: QueryClient, secret: string): boolean {
+  return queryClient
+    .getMutationCache()
+    .getAll()
+    .some((m) => JSON.stringify(m.state.data ?? null).includes(secret));
+}
+
 const LIST = "/console/webhooks";
 const DETAIL = `/console/webhooks/${ID}`;
 
@@ -88,7 +97,7 @@ describe("webhooks", () => {
 
   it("creates an endpoint and shows its signing secret once", async () => {
     const secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
-    const { api } = view({ "POST /v1/webhooks": { status: 201, body: { ...hook, secret } } }, LIST);
+    const { api, queryClient } = view({ "POST /v1/webhooks": { status: 201, body: { ...hook, secret } } }, LIST);
     await userEvent.click(await screen.findByRole("button", { name: "Add endpoint" }));
     const ask = screen.getByRole("dialog", { name: "Add a webhook endpoint" });
     await userEvent.type(within(ask).getByLabelText("Endpoint URL"), URL1);
@@ -98,6 +107,9 @@ describe("webhooks", () => {
     await userEvent.click(within(ask).getByRole("button", { name: "Create endpoint" }));
     const dialog = await screen.findByRole("dialog", { name: "Signing secret" });
     expect(within(dialog).getByDisplayValue(secret)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mutationsHold(queryClient, secret)).toBe(false);
+    });
     expect(api.callsTo("POST /v1/webhooks")[0]?.body).toEqual({
       url: URL1,
       description: "Research warehouse",
@@ -182,7 +194,7 @@ describe("webhooks", () => {
 
   it("rotates the secret after a confirmation and shows the new one once", async () => {
     const secret = "whsec_NEWNEWNEWNEWNEWNEWNEWNEWNEWNEW12";
-    const { api } = view({ [`POST ${BASE}/rotate-secret`]: { body: { secret, previous_secret_expires_at: "2026-10-03T08:00:00Z" } } }, DETAIL);
+    const { api, queryClient } = view({ [`POST ${BASE}/rotate-secret`]: { body: { secret, previous_secret_expires_at: "2026-10-03T08:00:00Z" } } }, DETAIL);
     await userEvent.click(await screen.findByRole("button", { name: "Rotate secret" }));
     const ask = screen.getByRole("dialog", { name: "Rotate the signing secret?" });
     expect(api.callsTo(`POST ${BASE}/rotate-secret`)).toHaveLength(0);
@@ -190,12 +202,16 @@ describe("webhooks", () => {
     const dialog = await screen.findByRole("dialog", { name: "New signing secret" });
     expect(within(dialog).getByDisplayValue(secret)).toBeInTheDocument();
     expect(within(dialog).getByText(/also signs until 2026-10-03 08:00 UTC/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mutationsHold(queryClient, secret)).toBe(false);
+    });
     expect(api.callsTo(`POST ${BASE}/rotate-secret`)[0]?.body).toEqual({});
     await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => {
       expect(screen.queryByDisplayValue(secret)).not.toBeInTheDocument();
     });
     expect(document.body.textContent).not.toContain(secret);
+    expect(mutationsHold(queryClient, secret)).toBe(false);
   });
 
   it("can end the old secret at once", async () => {

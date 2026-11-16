@@ -116,6 +116,7 @@ function Detail({ hook }: { hook: Webhook }) {
   const [expireNow, setExpireNow] = useState(false);
 
   const close = () => {
+    rotate.reset();
     setAction(null);
     setExpireNow(false);
   };
@@ -237,7 +238,11 @@ function Detail({ hook }: { hook: Webhook }) {
           confirmLabel="Rotate"
           onConfirm={async () => {
             const answer = await rotate.mutateAsync(expireNow);
-            setSecret({ value: answer.secret, until: answer.previous_secret_expires_at });
+            const value = answer.secret;
+            const until = answer.previous_secret_expires_at;
+            // The secret now lives in this component's state only, not in the mutation.
+            rotate.reset();
+            setSecret({ value, until });
           }}
           onClose={close}
         />

@@ -36,7 +36,10 @@ function CreateEndpoint({ onCreated, onClose }: { onCreated: (secret: string) =>
           ...(description === "" ? {} : { description }),
           event_types: [...values.eventTypes],
         });
-        onCreated(hook.secret);
+        const value = hook.secret;
+        // Keep the secret out of the mutation state: only the parent holds it.
+        create.reset();
+        onCreated(value);
       }}
       onClose={onClose}
     />
