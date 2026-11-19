@@ -8,7 +8,7 @@ import { expect, test, type Page } from "@playwright/test";
 // screenshots in out/audit/*.png; a probe never fails the run on a finding,
 // only when it cannot run at all.
 test.skip(process.env["OHS_UI_AUDIT"] !== "1", "OHS_UI_AUDIT is not set");
-test.setTimeout(600_000);
+test.setTimeout(180_000);
 
 const out = `${process.env["OHS_UI_OUT"] ?? "out"}/audit`;
 mkdirSync(out, { recursive: true });
@@ -258,9 +258,14 @@ test("forms: new user, webhook endpoint, API key", async ({ page }) => {
     await dialog.getByRole("button", { name: "Create user" }).click();
     await page.waitForTimeout(800);
     await shot(page, "form-user-empty-submit", false);
-    findings["user-empty-submit-text"] = (await dialog.innerText().catch(() => "")).slice(0, 300);
+    findings["user-empty-submit-url"] = page.url();
+    findings["user-empty-submit-dialog-open"] = await page.getByRole("dialog").count();
   }
   // Escape with typed text: closes silently?
+  await page.goto("/console/users");
+  await idle(page);
+  await opener.click();
+  dialog = page.getByRole("dialog");
   await dialog.getByLabel("External id").fill("draft-value");
   await page.keyboard.press("Escape");
   await page.waitForTimeout(400);
@@ -330,7 +335,7 @@ test("context kept: search, back button, tabs", async ({ page }) => {
   await page.goto("/console/users");
   await idle(page);
   await page.getByLabel("External id").fill("demo");
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await idle(page);
   const searchUrl = page.url();
   await page.getByRole("row", { name: /demo-user/ }).first().getByRole("link").click();
