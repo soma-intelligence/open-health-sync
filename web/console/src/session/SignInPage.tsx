@@ -5,6 +5,8 @@ import { ApiError } from "../api/client";
 import { BASENAME } from "../lib/basename";
 import { useSetupState } from "../pages/setup/api";
 import { isApiKey } from "../pages/setup/setup";
+import "../pages/setup/setup.css";
+import { Button } from "../ui/Button";
 import { safeReturnPath } from "./returnPath";
 import { useSession } from "./SessionProvider";
 
@@ -41,32 +43,45 @@ export function SignInPage() {
     }
   };
 
+  // The same card as the first-run page: both doors into the console look alike.
   return (
-    <main>
-      <h1>Sign in</h1>
-      <form
-        onSubmit={(e) => {
-          void submit(e);
-        }}
-      >
-        <label htmlFor="api-key">Tenant API key</label>
-        <input
-          id="api-key"
-          type="password"
+    <main className="setup-page">
+      <section className="setup-panel">
+        <p className="muted">Open Health Sync console</p>
+        <h1>Sign in</h1>
+        <form
+          className="setup-form"
           autoComplete="off"
-          spellCheck={false}
-          value={key}
-          onChange={(e) => {
-            setKey(e.target.value);
+          onSubmit={(e) => {
+            void submit(e);
           }}
-        />
-        {error ? <p role="alert">{error}</p> : null}
-        <button type="submit" disabled={busy}>
-          Sign in
-        </button>
-      </form>
-      <p>The key is checked once. The console then holds a session, never the key.</p>
-      {setup.data === "needed" ? <Link to="/setup">First run: create the first tenant</Link> : null}
+        >
+          <div className="field">
+            <label htmlFor="api-key">Tenant API key</label>
+            <input
+              id="api-key"
+              className="input mono"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={key}
+              onChange={(e) => {
+                setKey(e.target.value);
+              }}
+            />
+          </div>
+          {error ? (
+            <p role="alert" className="form-error">
+              {error}
+            </p>
+          ) : null}
+          <Button kind="primary" type="submit" disabled={busy}>
+            Sign in
+          </Button>
+          <p className="muted">The key is checked once. The console then holds a session, never the key.</p>
+          {setup.data === "needed" ? <Link to="/setup">First run: create the first tenant</Link> : null}
+        </form>
+      </section>
     </main>
   );
 }

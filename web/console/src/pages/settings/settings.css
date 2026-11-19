@@ -226,7 +226,8 @@
   width: 32px;
   height: 18px;
   border-radius: 999px;
-  background: var(--line-2);
+  /* The off track is the control's only boundary: it needs 3:1 like a field border. */
+  background: var(--field-border);
   position: relative;
   cursor: pointer;
   margin: 0;

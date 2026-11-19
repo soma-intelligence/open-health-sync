@@ -67,3 +67,23 @@ export function heldBy(held: readonly KeyScope[], scope: KeyScope): boolean {
 export function knownScopes(names: readonly string[]): KeyScope[] {
   return KEY_SCOPES.filter((s) => names.includes(s));
 }
+
+/** True when a session holding sessionScopes may give scope to a new key. admin:* counts only on an instance admin tenant. */
+export function grantable(sessionScopes: readonly KeyScope[], isAdmin: boolean, scope: KeyScope): boolean {
+  return heldBy(sessionScopes, scope) && (isAdmin || !scope.startsWith("admin:"));
+}
+
+/** The read only preset: every :read scope the session may give. Empty when it may give none. */
+export function readOnlyScopes(sessionScopes: readonly KeyScope[], isAdmin: boolean): KeyScope[] {
+  return KEY_SCOPES.filter((s) => s.endsWith(":read") && grantable(sessionScopes, isAdmin, s));
+}
+
+/** The full access preset: "*" when the session holds it, else the session's own scopes, spelled out. */
+export function fullAccessScopes(sessionScopes: readonly KeyScope[]): KeyScope[] {
+  return sessionScopes.includes("*") ? ["*"] : KEY_SCOPES.filter((s) => sessionScopes.includes(s));
+}
+
+/** How the picker names a scope: "*" alone gets words, the others are shown as they are. */
+export function scopeLabel(scope: KeyScope): string {
+  return scope === "*" ? "All scopes (*)" : scope;
+}

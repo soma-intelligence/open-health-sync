@@ -143,16 +143,26 @@ describe("DataTable", () => {
     const table = screen.getByRole("table");
     table.focus();
     await userEvent.keyboard("{ArrowDown}");
-    expect(screen.getByRole("row", { name: /Alpha/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("row", { name: /Alpha/ })).toHaveAttribute("aria-current", "true");
     await userEvent.keyboard("{ArrowDown}");
-    expect(screen.getByRole("row", { name: /Beta/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("row", { name: /Alpha/ })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("row", { name: /Beta/ })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("row", { name: /Alpha/ })).not.toHaveAttribute("aria-current");
     await userEvent.keyboard("{ArrowUp}");
-    expect(screen.getByRole("row", { name: /Alpha/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("row", { name: /Alpha/ })).toHaveAttribute("aria-current", "true");
     await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
-    expect(screen.getByRole("row", { name: /Gamma/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("row", { name: /Gamma/ })).toHaveAttribute("aria-current", "true");
     await userEvent.keyboard("{Enter}");
     expect(screen.getByTestId("where")).toHaveTextContent("/users/c");
+  });
+
+  it("never sets aria-selected outside a grid, and links the first cell when rows open", () => {
+    render(
+      <MemoryRouter>
+        <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} selectedKey="a" to={(r) => `/console/users/${r.id}`} empty={<p>none</p>} />
+      </MemoryRouter>,
+    );
+    for (const row of screen.getAllByRole("row")) expect(row).not.toHaveAttribute("aria-selected");
+    expect(screen.getByRole("link", { name: "Alpha" })).toHaveAttribute("href", "/users/a");
   });
 
   it("shows the empty node when there are no rows", () => {

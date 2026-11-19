@@ -1,7 +1,7 @@
 import { useId } from "react";
 
 import type { KeyScope } from "../../api/types";
-import { KEY_SCOPES, groupScopes, heldBy, impliedScopes } from "./scopes";
+import { KEY_SCOPES, grantable, groupScopes, impliedScopes, scopeLabel } from "./scopes";
 
 export interface ScopePickerProps {
   chosen: readonly KeyScope[];
@@ -16,14 +16,14 @@ export interface ScopePickerProps {
 export function ScopePicker({ chosen, onChange, sessionScopes, isAdmin }: ScopePickerProps) {
   const id = useId();
   const granted = impliedScopes(chosen);
-  const allowed = (scope: KeyScope) => heldBy(sessionScopes, scope) && (isAdmin || !scope.startsWith("admin:"));
+  const allowed = (scope: KeyScope) => grantable(sessionScopes, isAdmin, scope);
   const toggle = (scope: KeyScope, on: boolean) => {
     onChange(KEY_SCOPES.filter((s) => (s === scope ? on : chosen.includes(s))));
   };
   return (
     <fieldset className="scope-picker">
       <legend>
-        Scopes <span className="muted">(none checked: what this session&apos;s key can do)</span>
+        Scopes <span className="muted">(check at least one)</span>
       </legend>
       {groupScopes(KEY_SCOPES).map((group) => (
         <div key={group.resource} className="scope-group">
@@ -42,7 +42,7 @@ export function ScopePicker({ chosen, onChange, sessionScopes, isAdmin }: ScopeP
                       toggle(scope, e.target.checked);
                     }}
                   />
-                  <span className="mono">{scope}</span>
+                  <span className="mono">{scopeLabel(scope)}</span>
                 </label>
               );
             })}

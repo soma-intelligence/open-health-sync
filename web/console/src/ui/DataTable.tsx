@@ -1,7 +1,8 @@
 import type { KeyboardEvent, ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { routerPath } from "../lib/basename";
+import { Icon } from "./Icon";
 
 export interface Column<T> {
   key: string;
@@ -17,13 +18,18 @@ export interface DataTableProps<T> {
   rowKey: (row: T) => string;
   onSelect?: (row: T) => void;
   selectedKey?: string | undefined;
-  /** Where Enter, or a double click, takes a row. */
+  /** Where a row opens: its first cell is a link there, and Enter or a double click go there too. */
   to?: (row: T) => string;
   /** Shown instead of the table when there is no row. */
   empty: ReactNode;
 }
 
-/** A table the keyboard drives: Tab to it, arrows move the selection, Enter opens the row. */
+/**
+ * A table the keyboard drives: Tab to it, arrows move the selection, Enter opens the row.
+ * A click on a row selects it (for the inspector). When rows open, the first cell is a real
+ * link, so a click, a Cmd-click or the context menu opens the row like any link.
+ * The selected row is marked with aria-current: aria-selected is only valid inside a grid.
+ */
 export function DataTable<T>({ columns, rows, rowKey, onSelect, selectedKey, to, empty }: DataTableProps<T>) {
   const navigate = useNavigate();
   if (rows.length === 0) return <>{empty}</>;
@@ -83,7 +89,7 @@ export function DataTable<T>({ columns, rows, rowKey, onSelect, selectedKey, to,
           return (
             <tr
               key={key}
-              aria-selected={key === selectedKey}
+              aria-current={key === selectedKey ? "true" : undefined}
               className={key === selectedKey ? "selected" : undefined}
               onClick={(e) => {
                 onSelect?.(row);
@@ -93,9 +99,16 @@ export function DataTable<T>({ columns, rows, rowKey, onSelect, selectedKey, to,
                 open(row);
               }}
             >
-              {columns.map((c) => (
+              {columns.map((c, i) => (
                 <td key={c.key} className={c.className}>
-                  {c.cell(row)}
+                  {to && i === 0 ? (
+                    <Link className="row-link" to={routerPath(to(row))} tabIndex={-1}>
+                      {c.cell(row)}
+                      <Icon name="chevron" size="sm" />
+                    </Link>
+                  ) : (
+                    c.cell(row)
+                  )}
                 </td>
               ))}
             </tr>

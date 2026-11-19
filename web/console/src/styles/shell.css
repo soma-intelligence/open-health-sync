@@ -43,7 +43,7 @@
   height: 32px;
   padding: 0 8px 0 10px;
   border-radius: 8px;
-  border: 1px solid var(--line-2);
+  border: 1px solid var(--field-border);
   background: var(--page);
   color: var(--faint);
   cursor: pointer;
@@ -168,7 +168,7 @@
 .tenant-switch select {
   height: 30px;
   border-radius: 7px;
-  border: 1px solid var(--line-2);
+  border: 1px solid var(--field-border);
   background: var(--panel);
   padding: 0 8px;
   width: 100%;

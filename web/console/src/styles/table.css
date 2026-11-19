@@ -1,4 +1,4 @@
-/* ---------- data table, pager, search, form fields ---------- */
+/* ---------- data table, pager, list search, form fields ---------- */
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -9,7 +9,7 @@
 }
 
 .data-table:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -28,8 +28,31 @@
   vertical-align: middle;
 }
 
-.data-table tbody tr {
-  cursor: pointer;
+/* A click on a row only selects it, so the row keeps the default cursor.
+   Rows that open carry a link in their first cell, which shows the way. */
+.row-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.row-link .icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.row-link:hover,
+.row-link:focus-visible {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.row-link:hover .icon,
+.row-link:focus-visible .icon {
+  color: var(--accent-text);
 }
 
 .data-table tbody tr:last-child td {
@@ -63,23 +86,28 @@
   margin-top: 12px;
 }
 
-.search {
+.list-search {
   display: flex;
   gap: 8px;
+}
+
+.list-search .input {
+  flex: 1 1 240px;
+  max-width: 360px;
 }
 
 .input {
   font: inherit;
   color: var(--ink);
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-border);
   border-radius: 8px;
   padding: 7px 10px;
   min-width: 0;
 }
 
 .input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 

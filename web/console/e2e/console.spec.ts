@@ -48,7 +48,7 @@ test("opens every page", async ({ page }) => {
 
   await nav.getByRole("link", { name: "Users" }).click();
   await expectPage(page, "Users");
-  await page.getByRole("row", { name: /demo-user/ }).first().dblclick();
+  await page.getByRole("row", { name: /demo-user/ }).first().getByRole("link").click();
   await expect(page).toHaveURL(/\/console\/users\/[^/]+/);
   await expectPage(page, "demo-user");
   for (const tab of ["Data", "Connections", "Consents", "Sync runs", "Shares"]) {
@@ -58,7 +58,7 @@ test("opens every page", async ({ page }) => {
 
   await nav.getByRole("link", { name: "Providers" }).click();
   await expectPage(page, "Providers");
-  await page.getByRole("table").first().getByRole("row").nth(1).dblclick();
+  await page.getByRole("table").first().getByRole("row").nth(1).getByRole("link").click();
   await expect(page).toHaveURL(/\/console\/providers\/[^/]+/);
   await expectPage(page, /.+/);
 
@@ -100,7 +100,7 @@ test("switches tenant and back", async ({ page }) => {
 test("an old #/ link from v0.2.0 opens the same page", async ({ page }) => {
   await signIn(page);
   await page.goto("/console/users");
-  await page.getByRole("row", { name: /demo-user/ }).first().dblclick();
+  await page.getByRole("row", { name: /demo-user/ }).first().getByRole("link").click();
   await expect(page).toHaveURL(/\/console\/users\/[^/]+$/);
   const userPath = new URL(page.url()).pathname;
   await page.goto("/console/#" + userPath.slice("/console".length));

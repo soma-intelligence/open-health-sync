@@ -134,9 +134,19 @@ describe("users", () => {
     expect(screen.queryByRole("button", { name: "New user" })).not.toBeInTheDocument();
   });
 
+  it("the first cell of a row is a link to the user", async () => {
+    view({ "GET /v1/users": { body: { data: page2, next_cursor: null } } });
+    const link = (await screen.findByText("person-52")).closest("a");
+    expect(link).toHaveAttribute("href", `/console/users/${(page2[1] as User).id}`);
+  });
+
   it("selecting a row inspects GET /v1/users/{id}", async () => {
     view({ "GET /v1/users": { body: { data: page2, next_cursor: null } } });
-    await userEvent.click(await screen.findByText("person-52"));
+    // The first cell is the link that opens the user: another cell only selects the row.
+    const row = (await screen.findByText("person-52")).closest("tr") as HTMLTableRowElement;
+    const cells = within(row).getAllByRole("cell");
+    await userEvent.click(cells[cells.length - 1] as HTMLElement);
+    expect(row).toHaveAttribute("aria-current", "true");
     const id = (page2[1] as User).id;
     const pane = await screen.findByRole("complementary", { name: "Inspector" });
     expect(await within(pane).findByText(`/v1/users/${id}`)).toBeInTheDocument();

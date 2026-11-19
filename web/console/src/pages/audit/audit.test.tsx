@@ -5,6 +5,7 @@ import type { APIKey, AuditEvent, ConsoleSession } from "../../api/types";
 import { fakeApi, type FakeApi, type FakeCall, type FakeHandler } from "../../test/fake-api";
 import sessionJson from "../../test/fixtures/session.json";
 import { renderWithApp } from "../../test/render";
+import { routeLabel } from "./AuditTable";
 
 const session = sessionJson as ConsoleSession;
 const adminSession: ConsoleSession = { ...session, tenant: { ...session.tenant, admin: true } };
@@ -29,7 +30,8 @@ function event(n: number, over: Partial<AuditEvent> = {}): AuditEvent {
     user_id: null,
     actor_tenant_id: null,
     method: "GET",
-    route: `/v1/route-${String(n)}`,
+    // As the server records it: the Go route pattern, method included.
+    route: `GET /v1/route-${String(n)}`,
     status: 200,
     detail: {},
     ...over,
@@ -85,6 +87,20 @@ describe("audit", () => {
     await userEvent.selectOptions(screen.getByLabelText("Actor"), "Any actor");
     await screen.findByText("GET /v1/route-1");
     expect(api.calls.slice(before).some((c) => c.path === "/v1/audit?limit=50")).toBe(true);
+  });
+
+  it("shows the method once, whether the pattern holds it or not", async () => {
+    const rows = [event(1), event(2, { method: "POST", route: "/v1/legacy" })];
+    view({ "GET /v1/audit": { body: { data: rows, next_cursor: null } } });
+    expect(await screen.findByText("GET /v1/route-1")).toBeInTheDocument();
+    expect(screen.getByText("POST /v1/legacy")).toBeInTheDocument();
+    expect(screen.queryByText(/GET GET/)).not.toBeInTheDocument();
+  });
+
+  it("routeLabel adds the method only when the route lacks it", () => {
+    expect(routeLabel("GET", "GET /v1/keys")).toBe("GET /v1/keys");
+    expect(routeLabel("DELETE", "/v1/keys/{key_id}")).toBe("DELETE /v1/keys/{key_id}");
+    expect(routeLabel(undefined, "/v1/keys")).toBe("/v1/keys");
   });
 
   it("selecting an event inspects it", async () => {

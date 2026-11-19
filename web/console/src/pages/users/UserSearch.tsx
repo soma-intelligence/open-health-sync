@@ -8,7 +8,7 @@ export function UserSearch({ value, onSearch }: { value: string; onSearch: (exte
   const [text, setText] = useState(value);
   return (
     <form
-      className="search"
+      className="list-search"
       role="search"
       onSubmit={(e) => {
         e.preventDefault();

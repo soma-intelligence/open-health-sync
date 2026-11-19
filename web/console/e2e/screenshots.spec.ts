@@ -25,7 +25,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.screenshot({ path: resolve(out, `overview-${scheme}.png`) });
 
     await page.goto("/console/users");
-    await page.getByRole("row", { name: /demo-user/ }).first().dblclick();
+    await page.getByRole("row", { name: /demo-user/ }).first().getByRole("link").click();
     await expect(page.getByRole("heading", { name: "demo-user", level: 1 })).toBeVisible();
     await page.waitForLoadState("networkidle");
     await page.screenshot({ path: resolve(out, `user-${scheme}.png`) });

@@ -12,6 +12,16 @@ function statusTone(status: number | null): "ok" | "warn" | "bad" | "off" {
   return "ok";
 }
 
+/**
+ * The route as the table shows it. The server records the Go route pattern,
+ * which already starts with the method ("GET /v1/keys"); the method is added
+ * only to a pattern that lacks it, so it never shows twice.
+ */
+export function routeLabel(method: string | undefined, route: string): string {
+  if (!method || route.startsWith(`${method} `)) return route;
+  return `${method} ${route}`;
+}
+
 export interface AuditTableProps {
   rows: readonly AuditEvent[];
   keys: readonly APIKey[];
@@ -32,7 +42,7 @@ export function AuditTable({ rows, keys, actingTenantId, tenantNames, selectedId
     {
       key: "route",
       header: "Route",
-      cell: (e) => (e.route ? <Mono>{`${e.method ?? ""} ${e.route}`.trim()}</Mono> : <span className="muted">-</span>),
+      cell: (e) => (e.route ? <Mono>{routeLabel(e.method, e.route)}</Mono> : <span className="muted">-</span>),
     },
     {
       key: "actor",
