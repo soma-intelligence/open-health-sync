@@ -32,7 +32,8 @@ release may change the API, the configuration or the database schema.
   and offers Try again, a refresh that fails keeps the last figures and says how old they are, an offline
   notice explains pages that wait, and the sign in page says when a session ended. Dialogs ask before Escape or
   a click outside drops typed input, stay open while their request runs, and give the focus back on close; the
-  webhook settings form keeps typed changes when the endpoint changes underneath it.
+  webhook settings form keeps typed changes when the endpoint changes underneath it. A failed load of the
+  Settings page no longer reloads in a loop (the inspector restarted it), which kept the page on Loading.
 - `GET /v1/users` filters by `external_ref`, and `GET /v1/audit` filters by actor (`actor_type` and `actor_id`).
 
 ### Changed

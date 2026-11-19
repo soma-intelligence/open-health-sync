@@ -54,7 +54,7 @@ export function useAdminTenantsQuery() {
 
 /** The days the audit log is kept, from the settings (admin only), else undefined. */
 export function useRetentionDays(): string | undefined {
-  const settings = useSettingsQuery().data;
+  const settings = useSettingsQuery({ passive: true }).data;
   const row = settings?.data.find((s) => s.name === "OHS_AUDIT_RETENTION_DAYS");
   if (row === undefined) return undefined;
   const value = row.value ?? row.default;

@@ -18,8 +18,16 @@ const PROCESSES_EVERY_MS = 30_000;
 // a short stale time each mount would read the settings again.
 const SETTINGS_STALE_MS = 15_000;
 
-/** GET /v1/admin/settings. Runs only for an instance admin session. */
-export function useSettingsQuery() {
+/**
+ * GET /v1/admin/settings. Runs only for an instance admin session.
+ *
+ * passive: a reader on the side (the inspector, the palette, the audit page)
+ * that only shows the settings when they are there. Its mount never starts the
+ * load again after a failure: the inspector mounts when the Settings page shows
+ * that failure, and a refetch from it would put the page back to Loading and
+ * round again for ever. Try again and the Settings page itself still reload.
+ */
+export function useSettingsQuery({ passive = false }: { passive?: boolean } = {}) {
   const api = useApi();
   const admin = useIsAdmin();
   return useQuery({
@@ -27,6 +35,7 @@ export function useSettingsQuery() {
     queryFn: () => api.get<SettingsList>(SETTINGS_PATH),
     enabled: admin,
     staleTime: SETTINGS_STALE_MS,
+    retryOnMount: !passive,
   });
 }
 

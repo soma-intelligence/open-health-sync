@@ -46,7 +46,7 @@ const json = (value: unknown): string => value === undefined ? "" : JSON.stringi
 function RelatedSettings({ kind }: { kind: InspectorKind }) {
   const names = relatedSettings(kind);
   const admin = useIsAdmin();
-  const query = useSettingsQuery();
+  const query = useSettingsQuery({ passive: true });
   if (names.length === 0) return null;
   const byName = new Map<string, Setting>((query.data?.data ?? []).map((s) => [s.name, s]));
   return (
