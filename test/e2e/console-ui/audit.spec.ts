@@ -270,6 +270,13 @@ test("forms: new user, webhook endpoint, API key", async ({ page }) => {
   await page.keyboard.press("Escape");
   await page.waitForTimeout(400);
   findings["user-escape-with-text-closes"] = (await page.getByRole("dialog").count()) === 0;
+  const discard = page.getByRole("button", { name: "Discard" });
+  findings["user-escape-asks-before-discard"] = (await discard.count()) > 0;
+  if (await discard.count()) {
+    await shot(page, "form-user-escape-asks", false);
+    await discard.click();
+    await page.waitForTimeout(400);
+  }
   findings["focus-returned-to-opener"] = await opener.evaluate((el) => el === document.activeElement);
 
   // Long value + emoji, double click on Create
