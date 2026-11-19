@@ -7,14 +7,15 @@ import { Icon } from "../../ui/Icon";
 import { StageCard } from "./StageCard";
 
 /** The black band: the five stages in the order data flows. Black in both themes. */
-export function PipelineBand({ pipeline }: { pipeline: Pipeline }) {
+/** stale: the last refresh failed, so the figures are the last ones that came back, not live ones. */
+export function PipelineBand({ pipeline, stale = false }: { pipeline: Pipeline; stale?: boolean }) {
   const stages = pipelineStages(pipeline);
   return (
-    <section className="band" aria-label="Pipeline, live">
+    <section className="band" aria-label={stale ? "Pipeline, last known" : "Pipeline, live"}>
       <div className="band-top">
         <span className="band-label">
-          <span className="live-dot" aria-hidden="true" />
-          Pipeline, live
+          {stale ? null : <span className="live-dot" aria-hidden="true" />}
+          {stale ? "Pipeline, last known" : "Pipeline, live"}
         </span>
         <span className="band-label">Updated {relTime(pipeline.generated_at)}</span>
       </div>

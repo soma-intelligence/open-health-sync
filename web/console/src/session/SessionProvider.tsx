@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useMemo, useReducer, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 
 import { ApiError, SESSION_PATH, browserFetch, createClient, type ApiClient } from "../api/client";
 import type { ConsoleSession } from "../api/types";
@@ -11,6 +11,8 @@ export type SessionStatus = "loading" | "signed-in" | "signed-out";
 export interface SessionValue {
   session: ConsoleSession | null;
   status: SessionStatus;
+  /** The server ended the session while it was in use (a 401 on a call), not a sign out. */
+  expired: boolean;
   signIn: (key: string) => Promise<void>;
   /** Rejects, still signed in, when the server could not end the session (network, 5xx). */
   signOut: () => Promise<void>;
@@ -44,6 +46,7 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
   const queryClient = useQueryClient();
   // clear() drops the session query the observer holds; a render makes it pick up the new one.
   const [, rebind] = useReducer((n: number) => n + 1, 0);
+  const [expired, setExpired] = useState(false);
   const signOutListeners = useRef(new Set<() => void>());
   const onSignOut = useCallback((fn: () => void) => {
     const listeners = signOutListeners.current;
@@ -64,6 +67,8 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
       },
       readOnly: () => current(queryClient)?.read_only ?? false,
       onUnauthorized: () => {
+        // Signed in until now: the sign in page says the session ended.
+        if (current(queryClient) !== null) setExpired(true);
         // The next sign in may be another tenant: none of this one's data stays.
         queryClient.removeQueries({ predicate: (q) => !isSessionKey(q.queryKey) });
         queryClient.setQueryData(SESSION_KEY, null);
@@ -89,8 +94,10 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
       api,
       session,
       status,
+      expired,
       signIn: async (key) => {
         const next = await api.send<ConsoleSession>("POST", SESSION_PATH, { key });
+        setExpired(false);
         queryClient.setQueryData(SESSION_KEY, next);
       },
       signOut: async () => {
@@ -100,6 +107,7 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
           // An expired session is already signed out: tear down as asked. Anything else stays signed in.
           if (!(e instanceof ApiError && e.status === 401)) throw e;
         }
+        setExpired(false);
         queryClient.clear();
         queryClient.setQueryData(SESSION_KEY, null);
         for (const fn of signOutListeners.current) fn();
@@ -114,7 +122,7 @@ export function SessionProvider({ children, fetchImpl = browserFetch }: { childr
         queryClient.removeQueries({ predicate: (q) => !isSessionKey(q.queryKey) });
       },
     }),
-    [api, onSignOut, queryClient, rebind, session, status],
+    [api, expired, onSignOut, queryClient, rebind, session, status],
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

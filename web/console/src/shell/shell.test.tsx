@@ -148,13 +148,14 @@ describe("shell", () => {
     );
     const err = vi.spyOn(globalThis.console, "error").mockImplementation(() => undefined);
     const view = renderWithApp(page, { session: tenantSession, route: "/console/boom" });
-    expect(await screen.findByText("This page failed")).toBeInTheDocument();
+    expect(await screen.findByText("Something went wrong on this page")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reload page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(screen.getByText("kaboom")).toBeInTheDocument();
     expect(nav()).toBeInTheDocument();
     await userEvent.setup().click(within(nav()).getByRole("link", { name: "Overview" }));
     expect(await screen.findByText("fine")).toBeInTheDocument();
-    expect(screen.queryByText("This page failed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Something went wrong on this page")).not.toBeInTheDocument();
     expect(view.path()).toBe("/console/overview");
     err.mockRestore();
   });

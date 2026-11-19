@@ -231,7 +231,7 @@ function AdminSettings() {
       ) : null}
       <ProcessesBanner processes={processes.data?.data ?? []} />
       {query.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} /> : null}
+      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <div className="set-layout">
           <SettingsSubnav sections={sections} current={sectionParam ?? (focused ? sectionSlug(focused.section) : null)} changed={changedSections} />

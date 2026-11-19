@@ -48,6 +48,7 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
     <ConfirmDialog
       title="Create an API key"
       confirmLabel="Create key"
+      dirty={chosen.length > 0 || day !== ""}
       onClose={() => {
         create.reset();
         onClose();

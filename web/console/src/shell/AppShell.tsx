@@ -8,6 +8,7 @@ import { useSession } from "../session/SessionProvider";
 import { ToastProvider } from "../ui/Toast";
 import { CommandPalette } from "../palette/CommandPalette";
 import { NavPane } from "./NavPane";
+import { OfflineNotice } from "./OfflineNotice";
 import { PageBoundary } from "./PageBoundary";
 import { TopBar } from "./TopBar";
 import { useMediaQuery } from "./useMediaQuery";
@@ -108,6 +109,7 @@ export function AppShell() {
             ) : null}
             {/* Another acting tenant remounts the page, so none of it keeps the old tenant's data. */}
             <main key={session?.acting_tenant.id ?? ""} className="shell-main">
+              <OfflineNotice />
               <PageBoundary>
                 <Outlet />
               </PageBoundary>

@@ -53,6 +53,66 @@ describe("Dialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("asks before Escape or the backdrop drop typed input, and closes on Discard", async () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog title="Typed" open dirty onClose={onClose}>
+        <p>inside</p>
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Typed" });
+    act(() => {
+      dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Close and lose what you entered?");
+    await userEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await userEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays open on Escape and the backdrop while busy", async () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog title="Busy" open busy onClose={onClose}>
+        <p>inside</p>
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Busy" });
+    act(() => {
+      dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+    });
+    await userEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("gives the focus back to the opener when it closes", async () => {
+    function Opener() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => { setOpen(true); }}>Open</button>
+          {open ? (
+            <Dialog title="Focus" open onClose={() => { setOpen(false); }}>
+              <input aria-label="field" autoFocus />
+            </Dialog>
+          ) : null}
+        </>
+      );
+    }
+    render(<Opener />);
+    const opener = screen.getByRole("button", { name: "Open" });
+    await userEvent.click(opener);
+    act(() => {
+      screen.getByRole("dialog", { name: "Focus" }).dispatchEvent(new Event("cancel", { cancelable: true }));
+    });
+    expect(screen.queryByRole("dialog", { name: "Focus" })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
   it("gives two open dialogs their own labels", () => {
     render(
       <>
@@ -90,6 +150,25 @@ describe("ConfirmDialog", () => {
     await waitFor(() => {
       expect(onClose).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("keeps Cancel off and the dialog open while the write runs, then shows its error", async () => {
+    const onClose = vi.fn();
+    let fail: (e: unknown) => void = () => undefined;
+    const onConfirm = vi.fn(() => new Promise((_, reject) => { fail = reject; }));
+    render(<ConfirmDialog title="Slow" body="Sure?" confirmLabel="Go on" onConfirm={onConfirm} onClose={onClose} />);
+    await userEvent.click(screen.getByRole("button", { name: "Go on" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    act(() => {
+      screen.getByRole("dialog", { name: "Slow" }).dispatchEvent(new Event("cancel", { cancelable: true }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => {
+      fail(new ApiError(500, "", "req-1", null));
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("The server had a problem with this request");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
   });
 
   it("shows the API error and stays open", async () => {

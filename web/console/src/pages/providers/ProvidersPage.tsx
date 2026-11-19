@@ -66,8 +66,8 @@ function AdminProviders() {
         </div>
       </header>
       {providers.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} /> : null}
-      {tenantList.isError ? <ErrorPanel error={tenantList.error} /> : null}
+      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
+      {tenantList.isError ? <ErrorPanel error={tenantList.error} retry /> : null}
       {data && !data.public_url ? (
         <p className="notice warn">
           <span className="mono">OHS_PUBLIC_URL</span> is not set: the redirect and notification addresses name localhost, which no provider can reach.
@@ -123,7 +123,7 @@ function TenantProviders() {
         </div>
       </header>
       {providers.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} /> : null}
+      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <Card title="On for this tenant">
           <DataTable

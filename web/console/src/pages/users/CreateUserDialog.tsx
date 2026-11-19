@@ -16,6 +16,7 @@ export function CreateUserDialog({ onClose }: { onClose: () => void }) {
       title="New user"
       confirmLabel="Create user"
       onClose={onClose}
+      dirty={externalRef.trim() !== ""}
       onConfirm={async () => {
         const user = await create.mutateAsync(externalRef.trim());
         void navigate(`/users/${user.id}`);

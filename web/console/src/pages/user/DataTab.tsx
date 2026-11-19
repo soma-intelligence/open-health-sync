@@ -12,7 +12,7 @@ export function DataTab({ userId }: { userId: string }) {
   return (
     <div className="stack">
       {coverage.isPending ? <p role="status">Loading</p> : null}
-      {coverage.error !== null && coverage.data === undefined ? <ErrorPanel error={coverage.error} /> : null}
+      {coverage.error !== null && coverage.data === undefined ? <ErrorPanel error={coverage.error} retry /> : null}
       {coverage.data ? <CoveragePanel coverage={coverage.data} /> : null}
       <PreviewPanel userId={userId} />
       <DownloadsPanel userId={userId} />

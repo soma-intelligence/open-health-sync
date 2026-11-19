@@ -95,7 +95,7 @@ function WebhookView() {
     }
     return (
       <div className="page">
-        <ErrorPanel error={error} />
+        <ErrorPanel error={error} retry />
       </div>
     );
   }
@@ -193,7 +193,7 @@ function Detail({ hook }: { hook: Webhook }) {
         <Card title="Recent deliveries">
           <p className="muted">The last 30 days, newest first. Retry sends a delivery again; Replay sends its event as a new delivery.</p>
           {deliveries.isPending ? <p role="status">Loading</p> : null}
-          {deliveries.error !== null && deliveries.data === undefined ? <ErrorPanel error={deliveries.error} /> : null}
+          {deliveries.error !== null && deliveries.data === undefined ? <ErrorPanel error={deliveries.error} retry /> : null}
           {deliveries.data ? (
             <DeliveriesTable
               rows={rows}
@@ -208,7 +208,7 @@ function Detail({ hook }: { hook: Webhook }) {
           ) : null}
           {deliveries.data?.next_cursor ? <p className="muted">{`Showing the latest ${String(DELIVERIES_QUERY.limit)}.`}</p> : null}
         </Card>
-        {canWrite ? <EditEndpoint key={hook.updated_at} hook={hook} /> : null}
+        {canWrite ? <EditEndpoint hook={hook} /> : null}
       </div>
 
       {action?.kind === "test" ? (
@@ -331,6 +331,13 @@ function EditEndpoint({ hook }: { hook: Webhook }) {
   const update = useUpdateWebhook(hook.id);
   const [values, setValues] = useState<EndpointValues>(() => valuesOf(hook));
   const [asking, setAsking] = useState(false);
+  // The endpoint changes under the form (pause, resume, a test, a refresh): the
+  // form follows it only while nothing is being edited, so typed changes stay.
+  const [base, setBase] = useState(hook);
+  if (hook !== base) {
+    if (hook.updated_at !== base.updated_at && Object.keys(changedFields(base, values)).length === 0) setValues(valuesOf(hook));
+    setBase(hook);
+  }
   const body = changedFields(hook, values);
   const names = Object.keys(body).map((k) => (k === "event_types" ? "event types" : k));
   const dirty = names.length > 0;

@@ -26,7 +26,7 @@ export function SyncRunsTab({ userId }: { userId: string }) {
   return (
     <>
       {runs.isPending ? <p role="status">Loading</p> : null}
-      {runs.error !== null && runs.data === undefined ? <ErrorPanel error={runs.error} /> : null}
+      {runs.error !== null && runs.data === undefined ? <ErrorPanel error={runs.error} retry /> : null}
       {runs.data ? (
         <>
           <DataTable columns={columns} rows={runs.data.data} rowKey={(r) => String(r.id)} empty={<EmptyState title="No sync run yet" />} />

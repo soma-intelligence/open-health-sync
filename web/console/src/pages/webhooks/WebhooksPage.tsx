@@ -28,6 +28,7 @@ function CreateEndpoint({ onCreated, onClose }: { onCreated: (secret: string) =>
         </>
       }
       confirmLabel="Create endpoint"
+      dirty={values.url.trim() !== "" || values.description.trim() !== "" || values.eventTypes.length > 0}
       onConfirm={async () => {
         const url = values.url.trim();
         if (url === "") throw new Error("Enter the endpoint URL.");
@@ -96,7 +97,7 @@ export function WebhooksPage() {
         </div>
       </header>
       {query.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} /> : null}
+      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <Card title="Endpoints">
           <EndpointsTable rows={data.data} selectedId={selected?.id} onSelect={setSelected} />

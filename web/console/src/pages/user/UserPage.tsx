@@ -57,7 +57,7 @@ function UserView() {
     }
     return (
       <div className="page">
-        <ErrorPanel error={user.error} />
+        <ErrorPanel error={user.error} retry />
       </div>
     );
   }

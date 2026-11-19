@@ -289,3 +289,13 @@
     border-radius: 14px 14px 0 0;
   }
 }
+
+.offline-notice {
+  margin: 16px 32px 0;
+}
+
+@media (max-width: 767px) {
+  .offline-notice {
+    margin: 12px 16px 0;
+  }
+}

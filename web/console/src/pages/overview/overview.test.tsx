@@ -138,11 +138,18 @@ describe("overview", () => {
     });
   });
 
-  it("shows the API status and message when the pipeline call fails", async () => {
-    view({ status: 503, body: { title: "Service Unavailable", status: 503, detail: "the database is not reachable" } });
+  it("says what failed in words, with the API detail and a way to try again", async () => {
+    const { api } = view({ status: 503, body: { title: "Service Unavailable", status: 503, detail: "the database is not reachable" } });
     const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("The server is not ready yet. Try again in a moment.")).toBeInTheDocument();
     expect(within(alert).getByText("the database is not reachable")).toBeInTheDocument();
-    expect(screen.getByText(/HTTP 503/)).toBeInTheDocument();
+    // Said once: no raw status line beside the panel.
+    expect(screen.queryByText(/HTTP 503/)).not.toBeInTheDocument();
+    const calls = api.callsTo("GET /v1/pipeline").length;
+    await userEvent.setup().click(within(alert).getByRole("button", { name: "Try again" }));
+    await vi.waitFor(() => {
+      expect(api.callsTo("GET /v1/pipeline").length).toBeGreaterThan(calls);
+    });
     expect(screen.queryByRole("region", { name: "Pipeline, live" })).not.toBeInTheDocument();
     const pane = within(screen.getByRole("complementary", { name: "Inspector" }));
     expect(await pane.findByText("503")).toBeInTheDocument();

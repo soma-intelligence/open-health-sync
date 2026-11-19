@@ -181,6 +181,28 @@ describe("webhooks", () => {
     });
   });
 
+  it("keeps a typed URL in the settings form when the endpoint is paused meanwhile", async () => {
+    let current: Webhook = hook;
+    view(
+      {
+        [`GET ${BASE}`]: () => ({ body: current }),
+        [`PATCH ${BASE}`]: () => {
+          current = { ...current, status: "disabled", updated_at: "2026-10-02T08:00:00Z" };
+          return { body: current };
+        },
+      },
+      DETAIL,
+    );
+    const url = await screen.findByLabelText("Endpoint URL");
+    await userEvent.clear(url);
+    await userEvent.type(url, "https://typed.example.com/h");
+    await userEvent.click(screen.getByRole("button", { name: "Pause" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Pause" }));
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Endpoint URL")).toHaveValue("https://typed.example.com/h");
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+  });
+
   it("sends a test", async () => {
     const { api } = view({ [`POST ${BASE}/test`]: { status: 202, body: delivery(9) } }, DETAIL);
     await userEvent.click(await screen.findByRole("button", { name: "Send test" }));

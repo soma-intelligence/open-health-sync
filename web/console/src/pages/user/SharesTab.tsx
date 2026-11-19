@@ -26,7 +26,7 @@ export function SharesTab({ userId }: { userId: string }) {
   return (
     <>
       {shares.isPending ? <p role="status">Loading</p> : null}
-      {shares.error !== null && shares.data === undefined ? <ErrorPanel error={shares.error} /> : null}
+      {shares.error !== null && shares.data === undefined ? <ErrorPanel error={shares.error} retry /> : null}
       {shares.data ? (
         <>
           <DataTable columns={columns} rows={shares.data.data} rowKey={(s) => s.id} empty={<EmptyState title="No shares yet">Links the user makes to share a slice of their data appear here.</EmptyState>} />

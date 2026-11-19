@@ -33,7 +33,7 @@ export function TenantProviderSwitch({ provider }: { provider: AdminProvider }) 
 
   return (
     <Card title="This tenant">
-      {list.isError ? <ErrorPanel error={list.error} /> : null}
+      {list.isError ? <ErrorPanel error={list.error} retry /> : null}
       <div className="switch-row">
         <p className="switch-text">{text}</p>
         {canWrite && row ? (

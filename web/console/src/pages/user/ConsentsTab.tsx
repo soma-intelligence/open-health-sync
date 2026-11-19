@@ -27,7 +27,7 @@ export function ConsentsTab({ userId }: { userId: string }) {
   return (
     <div className="stack">
       <Card title="Current consents">
-        {consents.error !== null && consents.data === undefined ? <ErrorPanel error={consents.error} /> : null}
+        {consents.error !== null && consents.data === undefined ? <ErrorPanel error={consents.error} retry /> : null}
         {consents.isPending ? <p role="status">Loading</p> : null}
         {consents.data && consents.data.data.length === 0 ? <EmptyState title="No consent recorded yet" /> : null}
         {consents.data?.data.map((source) => (
@@ -44,7 +44,7 @@ export function ConsentsTab({ userId }: { userId: string }) {
         ))}
       </Card>
       <Card title="History">
-        {events.error !== null && events.data === undefined ? <ErrorPanel error={events.error} /> : null}
+        {events.error !== null && events.data === undefined ? <ErrorPanel error={events.error} retry /> : null}
         {events.isPending ? <p role="status">Loading</p> : null}
         {events.data ? (
           <>

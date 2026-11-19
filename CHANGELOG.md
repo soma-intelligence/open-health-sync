@@ -28,6 +28,11 @@ release may change the API, the configuration or the database schema.
   the API call behind it as cURL, TypeScript or Python, a command palette (Ctrl+K), Light, Dark and Auto themes, a
   tenant picker for instance admins, and a page for every setting. It replaces the hand-written page and its
   charts of a user's health data.
+- The console recovers from failures without a browser reload: every failed load says what happened in words
+  and offers Try again, a refresh that fails keeps the last figures and says how old they are, an offline
+  notice explains pages that wait, and the sign in page says when a session ended. Dialogs ask before Escape or
+  a click outside drops typed input, stay open while their request runs, and give the focus back on close; the
+  webhook settings form keeps typed changes when the endpoint changes underneath it.
 - `GET /v1/users` filters by `external_ref`, and `GET /v1/audit` filters by actor (`actor_type` and `actor_id`).
 
 ### Changed

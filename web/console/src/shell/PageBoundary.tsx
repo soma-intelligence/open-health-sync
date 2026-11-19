@@ -38,15 +38,23 @@ class Boundary extends Component<Props, State> {
     if (!this.state.failed) return this.props.children;
     return (
       <div className="page">
-        <h1 className="page-title">This page failed</h1>
+        <h1 className="page-title">Something went wrong on this page</h1>
         <ErrorPanel error={this.state.error} />
-        <p>
+        <p className="row-actions">
+          <Button
+            kind="primary"
+            onClick={() => {
+              window.location.reload();
+            }}
+          >
+            Reload page
+          </Button>
           <Button
             onClick={() => {
               this.setState({ error: null, failed: false, failedAt: null });
             }}
           >
-            Reload page
+            Try again
           </Button>
         </p>
       </div>

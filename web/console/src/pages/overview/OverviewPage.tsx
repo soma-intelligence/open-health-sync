@@ -9,6 +9,7 @@ import { Button } from "../../ui/Button";
 import { ErrorPanel } from "../../ui/ErrorPanel";
 import { Icon } from "../../ui/Icon";
 import { Pill } from "../../ui/Pill";
+import { RefreshFailed } from "../../ui/RefreshFailed";
 import { PIPELINE_KEY, usePipelineQuery, useProbe } from "./api";
 import { AttentionList } from "./AttentionList";
 import { GettingStarted } from "./GettingStarted";
@@ -39,6 +40,11 @@ export function OverviewPage() {
   }, [data, error]);
   useInspect(entry);
 
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: PIPELINE_KEY });
+    void queryClient.invalidateQueries({ queryKey: ["probe"] });
+  };
+
   return (
     <div className="page">
       <header className="page-head">
@@ -50,26 +56,23 @@ export function OverviewPage() {
           <Probe path="/healthz" ok="API live" bad="API down" />
           <Probe path="/readyz" ok="Ready" bad="Not ready" />
           <Button
-            onClick={() => {
-              void queryClient.invalidateQueries({ queryKey: PIPELINE_KEY });
-              void queryClient.invalidateQueries({ queryKey: ["probe"] });
-            }}
+            onClick={refresh}
+            disabled={pipeline.isFetching}
+            aria-busy={pipeline.isFetching}
           >
             <Icon name="refresh" size="sm" />
-            Refresh
+            {pipeline.isFetching && !pipeline.isPending ? "Refreshing" : "Refresh"}
           </Button>
         </div>
       </header>
       {pipeline.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? (
-        <>
-          <ErrorPanel error={error} />
-          {error instanceof ApiError ? <p className="muted">{`HTTP ${String(error.status)}`}</p> : null}
-        </>
+      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
+      {error !== null && data !== undefined ? (
+        <RefreshFailed error={error} updatedAt={pipeline.dataUpdatedAt} onRetry={refresh} busy={pipeline.isFetching} />
       ) : null}
       {data ? (
         <>
-          <PipelineBand pipeline={data} />
+          <PipelineBand pipeline={data} stale={error !== null} />
           <div className="overview-cards">
             <AttentionList items={attention(data)} />
             {steps.some((i) => !i.done) ? <GettingStarted items={steps} /> : null}

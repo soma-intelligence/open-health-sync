@@ -80,7 +80,7 @@ export function UsersPage() {
         </div>
       </header>
       {users.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} /> : null}
+      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <>
           <UsersTable

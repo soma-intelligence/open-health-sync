@@ -87,7 +87,7 @@ export function KeysPage() {
         </div>
       </header>
       {query.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} /> : null}
+      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <Card title="Keys">
           <KeysTable

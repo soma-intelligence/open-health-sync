@@ -154,6 +154,56 @@
   margin: 0;
 }
 
+.error-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.error-retry {
+  flex: none;
+  align-self: center;
+}
+
+/* ---------- notices: offline, a refresh that failed, a session that ended ---------- */
+.notice-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.notice-bar p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* ---------- a dialog asking before it drops what was typed ---------- */
+.dialog-discard {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  color: var(--ink);
+}
+
+.dialog-discard p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
 .error-id {
   margin-top: 2px;
   font-size: 12px;

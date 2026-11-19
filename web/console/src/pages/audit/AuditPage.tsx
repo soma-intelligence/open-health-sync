@@ -69,7 +69,7 @@ export function AuditPage() {
         </div>
       </header>
       {audit.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} /> : null}
+      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <Card title="Events">
           <AuditTable

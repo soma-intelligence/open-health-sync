@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { ApiError } from "../api/client";
+import { errorLine } from "../lib/errorText";
 import type { AdminTenant, AdminTenantList } from "../api/types";
 import { useApi, useSession } from "../session/SessionProvider";
 import { useToast } from "../ui/Toast";
@@ -23,7 +23,7 @@ export function TenantSwitcher() {
         if (live) setTenants(page.data);
       })
       .catch((e: unknown) => {
-        if (live) toast(e instanceof ApiError ? e.detail || e.message : "The tenants could not be loaded.", "bad");
+        if (live) toast(`The tenant list could not be loaded. ${errorLine(e, "")}`.trim(), "bad");
       });
     return () => {
       live = false;
@@ -41,7 +41,7 @@ export function TenantSwitcher() {
       await switchTenant(id);
       void navigate("/overview");
     } catch (e) {
-      toast(e instanceof ApiError ? e.detail || e.message : "The tenant could not be switched.", "bad");
+      toast(errorLine(e, "The tenant could not be switched."), "bad");
     } finally {
       setBusy(false);
     }

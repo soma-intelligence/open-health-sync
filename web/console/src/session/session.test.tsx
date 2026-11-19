@@ -182,6 +182,42 @@ describe("session", () => {
     });
   });
 
+  it("says the session ended after a 401 mid-visit, not on a plain sign in", async () => {
+    const api = fakeApi({
+      "GET /v1/users/u1": { status: 401, body: { title: "Unauthorized", detail: "session ended" } },
+      "GET /v1/setup": { status: 404, body: { title: "Not Found", detail: "x" } },
+      "POST /console/session": { status: 201, body: session },
+    });
+    function Probe() {
+      const client = useApi();
+      useQuery({ queryKey: ["user", "u1"], queryFn: () => client.get("/v1/users/u1") });
+      return <p>probe</p>;
+    }
+    const view = renderWithApp(<Probe />, { session, route: "/console/users/u1", api });
+    await waitFor(() => {
+      expect(view.path()).toBe("/console/sign-in");
+    });
+    expect(await screen.findByText(/Your session ended/)).toBeInTheDocument();
+  });
+
+  it("a first visit signed out shows no session-ended notice", async () => {
+    renderWithApp(null, { session: null, route: "/console/sign-in", api: signedOutApi() });
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.queryByText(/Your session ended/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the key after a network failure so Sign in can be pressed again", async () => {
+    const api = fakeApi({ "GET /v1/setup": { status: 404, body: { title: "Not Found", detail: "x" } } });
+    const failing: typeof fetch = (input, init) =>
+      String(input instanceof Request ? input.url : input).includes("/console/session") && init?.method === "POST"
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : api.fetch(input, init);
+    renderWithApp(null, { session: null, route: "/console/sign-in", api: { ...api, fetch: failing } });
+    await typeKey(KEY);
+    expect(await screen.findByText("Cannot reach the server. Check your connection, then try again.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tenant API key")).toHaveValue(KEY);
+  });
+
   it("a 401 drops every cached query but the session", async () => {
     const api = fakeApi({
       "GET /v1/users/u1": { status: 401, body: { title: "Unauthorized", detail: "session ended" } },

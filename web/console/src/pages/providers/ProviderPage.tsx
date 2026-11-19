@@ -79,7 +79,7 @@ function AdminProviderView({ slug }: { slug: string }) {
     }
     return (
       <div className="page">
-        <ErrorPanel error={error} />
+        <ErrorPanel error={error} retry />
       </div>
     );
   }
@@ -171,7 +171,7 @@ function TenantProvider({ slug }: { slug: string }) {
   if (list.data === undefined) {
     return (
       <div className="page">
-        <ErrorPanel error={list.error} />
+        <ErrorPanel error={list.error} retry />
       </div>
     );
   }

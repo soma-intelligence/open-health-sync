@@ -16,10 +16,12 @@ export interface ConfirmDialogProps {
   /** The write. A rejection is shown in the dialog, which stays open; a result closes it. */
   onConfirm: () => Promise<unknown>;
   onClose: () => void;
+  /** The body holds input the operator typed: Escape and a click outside ask before dropping it. */
+  dirty?: boolean;
 }
 
 /** Every write goes through one of these: it says what happens, and names what goes when it is a delete. */
-export function ConfirmDialog({ title, body, confirmLabel, danger, typed, onConfirm, onClose }: ConfirmDialogProps) {
+export function ConfirmDialog({ title, body, confirmLabel, danger, typed, onConfirm, onClose, dirty = false }: ConfirmDialogProps) {
   const formId = useId();
   const inputId = useId();
   const [text, setText] = useState("");
@@ -46,12 +48,15 @@ export function ConfirmDialog({ title, body, confirmLabel, danger, typed, onConf
       title={title}
       open
       onClose={onClose}
+      busy={busy}
+      dirty={dirty || text !== ""}
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>
+          {/* While the write is in flight the dialog stays: its answer, or its error, needs a place to land. */}
+          <Button kind="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" form={formId} kind={danger ? "danger" : "primary"} disabled={!ready || busy}>
+          <Button type="submit" form={formId} kind={danger ? "danger" : "primary"} disabled={!ready || busy} aria-busy={busy}>
             {confirmLabel}
           </Button>
         </>

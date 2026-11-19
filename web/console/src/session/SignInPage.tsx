@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation } from "react-router";
 
-import { ApiError } from "../api/client";
 import { BASENAME } from "../lib/basename";
+import { errorLine } from "../lib/errorText";
 import { useSetupState } from "../pages/setup/api";
 import { isApiKey } from "../pages/setup/setup";
 import "../pages/setup/setup.css";
@@ -11,7 +11,7 @@ import { safeReturnPath } from "./returnPath";
 import { useSession } from "./SessionProvider";
 
 export function SignInPage() {
-  const { status, signIn } = useSession();
+  const { status, expired, signIn } = useSession();
   const location = useLocation();
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -36,9 +36,10 @@ export function SignInPage() {
     try {
       await signIn(key);
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail || e.message : "The server could not be reached.");
+      // A refused key is cleared; after a network failure the key stays, so the operator only presses Sign in again.
+      if (!(e instanceof TypeError)) setKey("");
+      setError(errorLine(e, "The server could not be reached."));
     } finally {
-      setKey("");
       setBusy(false);
     }
   };
@@ -49,6 +50,11 @@ export function SignInPage() {
       <section className="setup-panel">
         <p className="muted">Open Health Sync console</p>
         <h1>Sign in</h1>
+        {expired ? (
+          <p className="notice-bar" role="status">
+            Your session ended, so you were signed out. Sign in again to go back to the page you were on.
+          </p>
+        ) : null}
         <form
           className="setup-form"
           autoComplete="off"

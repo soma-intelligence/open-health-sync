@@ -11,7 +11,7 @@ async function signIn(page: Page): Promise<void> {
 
 async function expectPage(page: Page, heading: string | RegExp): Promise<void> {
   await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
-  await expect(page.getByText("This page failed")).toHaveCount(0);
+  await expect(page.getByText("Something went wrong on this page")).toHaveCount(0);
   // Pages show a failed query inline, not through the boundary: wait for the loads, then look.
   await expect(page.getByText("Loading", { exact: true })).toHaveCount(0);
   await expect(page.locator(".error-panel")).toHaveCount(0);

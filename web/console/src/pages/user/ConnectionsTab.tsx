@@ -83,7 +83,7 @@ export function ConnectionsTab({ userId }: { userId: string }) {
   return (
     <>
       {connections.isPending ? <p role="status">Loading</p> : null}
-      {connections.error !== null && connections.data === undefined ? <ErrorPanel error={connections.error} /> : null}
+      {connections.error !== null && connections.data === undefined ? <ErrorPanel error={connections.error} retry /> : null}
       {connections.data ? (
         <DataTable
           columns={columns}
