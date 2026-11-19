@@ -8,7 +8,6 @@ import { expect, test, type Page } from "@playwright/test";
 // screenshots in out/audit/*.png; a probe never fails the run on a finding,
 // only when it cannot run at all.
 test.skip(process.env["OHS_UI_AUDIT"] !== "1", "OHS_UI_AUDIT is not set");
-test.describe.configure({ mode: "serial" });
 test.setTimeout(600_000);
 
 const out = `${process.env["OHS_UI_OUT"] ?? "out"}/audit`;
@@ -133,7 +132,7 @@ test("loading states: slow API (2.5 s per call)", async ({ page }) => {
   const user = await firstUserPath(page);
   await page.route("**/v1/**", async (route) => {
     await new Promise((r) => setTimeout(r, 2500));
-    await route.continue();
+    await route.continue().catch(() => undefined);
   });
   const seen: Record<string, string> = {};
   for (const [name, path] of [...PAGES, ["user", user] as [string, string]]) {
@@ -143,12 +142,13 @@ test("loading states: slow API (2.5 s per call)", async ({ page }) => {
     seen[name] = (await page.locator("main").innerText().catch(() => "")).slice(0, 300);
   }
   // A refresh while content is on screen: does the content stay?
-  await page.unroute("**/v1/**");
+  await page.unroute("**/v1/**", undefined).catch(() => undefined);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.goto("/console/overview");
   await idle(page);
   await page.route("**/v1/**", async (route) => {
     await new Promise((r) => setTimeout(r, 2500));
-    await route.continue();
+    await route.continue().catch(() => undefined);
   });
   await page.getByRole("button", { name: "Refresh" }).click();
   await page.waitForTimeout(600);
@@ -176,7 +176,8 @@ test("error states: every API call answers 500", async ({ page }) => {
   await page.waitForTimeout(1500);
   const retry = page.getByRole("button", { name: /retry|try again/i });
   seen["retry-buttons"] = String(await retry.count());
-  await page.unroute("**/v1/**");
+  await page.unroute("**/v1/**", undefined).catch(() => undefined);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
   if ((await retry.count()) > 0) {
     await retry.first().click();
     await idle(page);
@@ -190,7 +191,7 @@ test("refresh failure keeps the content on screen", async ({ page }) => {
   await signIn(page);
   await page.goto("/console/overview");
   await idle(page);
-  await page.route("**/v1/**", (route) => route.fulfill({ status: 503, body: "" }));
+  await page.route("**/v1/**", (route) => route.fulfill({ status: 503, body: "" }).catch(() => undefined));
   await page.getByRole("button", { name: "Refresh" }).click();
   await page.waitForTimeout(2000);
   await shot(page, "error-overview-refresh-failed", false);
