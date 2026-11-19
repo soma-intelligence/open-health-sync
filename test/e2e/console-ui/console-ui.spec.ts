@@ -8,14 +8,22 @@ const out = process.env["OHS_UI_OUT"] ?? "out";
 const key = process.env["OHS_UI_ADMIN_KEY"] ?? "";
 
 /** Errors the page reports while a test runs: uncaught exceptions, console errors, 5xx answers. */
+// Answers the console expects and handles: no session yet (401), and /v1/setup
+// left unmounted when OHS_SETUP_TOKEN is empty (404 reads as "off").
+const expected = [/\/console\/session$/, /\/v1\/setup$/];
+
 function watch(page: Page): string[] {
   const problems: string[] = [];
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
-  page.on("console", (m) => {
-    if (m.type() === "error") problems.push(`console: ${m.text()}`);
-  });
   page.on("response", (r) => {
-    if (r.status() >= 500) problems.push(`${String(r.status())} ${r.request().method()} ${r.url()}`);
+    const url = r.url();
+    if (r.status() >= 500 || (r.status() >= 400 && !expected.some((re) => re.test(new URL(url).pathname)))) {
+      problems.push(`${String(r.status())} ${r.request().method()} ${url}`);
+    }
+  });
+  page.on("console", (m) => {
+    // A failed resource is reported by the response listener with its URL.
+    if (m.type() === "error" && !m.text().startsWith("Failed to load resource")) problems.push(`console: ${m.text()}`);
   });
   return problems;
 }
@@ -49,8 +57,8 @@ test("sign-in page and a bad key", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/console\/sign-in/);
   await shot(page, "01-sign-in-bad-key");
-  // A refused key is a 401, which the browser logs; nothing else may fail.
-  expect(problems.filter((p) => !/401|Unauthorized/i.test(p))).toEqual([]);
+  // A refused key is a 401 on the sign-in call; nothing else may fail.
+  expect(problems.filter((p) => !/^401 /.test(p)), problems.join("\n")).toEqual([]);
 });
 
 for (const scheme of ["light", "dark"] as const) {
@@ -110,12 +118,12 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
     await page.keyboard.press("Escape");
 
-    // An unknown path inside the console.
+    expect(problems, problems.join("\n")).toEqual([]);
+
+    // An unknown path inside the console (its own 404 is the point).
     await page.goto("/console/no-such-page");
     await page.waitForLoadState("networkidle");
     await shot(page, `${scheme}-95-not-found`);
-
-    expect(problems, problems.join("\n")).toEqual([]);
   });
 }
 
