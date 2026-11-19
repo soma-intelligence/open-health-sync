@@ -45,3 +45,24 @@ jobs:
           name: console-ui
           path: test/e2e/console-ui/out
           retention-days: 14
+
+  console-audit:
+    # The UI audit probes (axe, keyboard, states, forms, phone width). Findings
+    # land in the artifact; the job only reports.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Console UI audit (compose stack + Playwright container)
+        run: test/e2e/console_ui.sh
+        env:
+          OHS_UI_AUDIT: "1"
+      - name: Audit output
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: console-audit
+          path: test/e2e/console-ui/out
+          retention-days: 14

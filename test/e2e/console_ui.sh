@@ -16,6 +16,9 @@
 # Screenshots and the HTML report land in $OHS_UI_OUT (default
 # test/e2e/console-ui/out).
 #
+# OHS_UI_AUDIT=1 also runs the audit probes (audit.spec.ts): axe, keyboard,
+# empty, loading, error, offline, session, forms, phone width, large text.
+#
 # Usage: test/e2e/console_ui.sh          (tears the stack down on exit)
 #        KEEP=1 test/e2e/console_ui.sh   (leaves it running)
 set -euo pipefail
@@ -53,7 +56,8 @@ out=$(e2e_compose exec -T ohs /ohs admin tenant create --name e2e-admin) || die 
 ADMIN_KEY=$(grep -o 'ohs_sk_[A-Za-z0-9]*' <<<"$out" | head -n 1)
 ADMIN_ID=$(grep -oE '\(id [0-9a-f-]{36}' <<<"$out" | cut -c5-)
 [ -n "$ADMIN_KEY" ] && [ -n "$ADMIN_ID" ] && ok "e2e-admin $ADMIN_ID" || die "no key or id: $out"
-e2e_compose exec -T ohs /ohs admin tenant create --name e2e-other >/dev/null || die "tenant e2e-other"
+out=$(e2e_compose exec -T ohs /ohs admin tenant create --name e2e-other) || die "tenant e2e-other"
+OTHER_KEY=$(grep -o "ohs_sk_[A-Za-z0-9]*" <<<"$out" | head -n 1)
 ok "e2e-other"
 
 step "3. data: seed --demo and the Apple Health fixture"
@@ -69,12 +73,12 @@ step "4. Playwright $PW_VERSION in Docker against $E2E_URL"
 rm -rf "$OUT"; mkdir -p "$OUT"
 set +e
 docker run --rm --network host --ipc host \
-  -e CI=1 -e OHS_UI_URL="$E2E_URL" -e OHS_UI_ADMIN_KEY="$ADMIN_KEY" -e OHS_UI_OUT=/out \
+  -e CI=1 -e OHS_UI_URL="$E2E_URL" -e OHS_UI_ADMIN_KEY="$ADMIN_KEY" -e OHS_UI_OTHER_KEY="$OTHER_KEY" -e OHS_UI_AUDIT="${OHS_UI_AUDIT:-0}" -e OHS_UI_OUT=/out \
   -v "$E2E_ROOT/test/e2e/console-ui:/src:ro" -v "$OUT:/out" \
   "$PW_IMAGE" bash -c "
     set -e
     mkdir -p /w && cp /src/package.json /src/playwright.config.ts /src/*.spec.ts /w/ && cd /w
-    npm install --no-audit --no-fund --loglevel=error @playwright/test@$PW_VERSION
+    npm install --no-audit --no-fund --loglevel=error @playwright/test@$PW_VERSION @axe-core/playwright@4.11.0
     npx playwright test
   " 2>&1 | tee "$E2E_WORK/playwright.log"
 rc=${PIPESTATUS[0]}
