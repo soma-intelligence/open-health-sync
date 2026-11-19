@@ -37,7 +37,8 @@ jobs:
   console:
     # The React console: lint, types, unit tests, and a build that must match
     # the committed internal/console/dist and src/api/schema.ts.
-    runs-on: ubuntu-latest
+    # Playwright 1.56 has no browser build for ubuntu 26.04 (ubuntu-latest now).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       # The end to end run needs an empty database of its own; same image as deploy/docker-compose.yml.
