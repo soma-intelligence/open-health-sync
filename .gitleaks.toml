@@ -13,4 +13,16 @@ regexes = [
   '''AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8''',
   # the Eight Sleep app's client secret, public in pyEight (connectors/eightsleep)
   '''f0954a3ed5763ba3d06834c73731a32f15f168f47d4f164751275def86db0c76''',
+  # test values built on the hex digits: tokens like 0123456789abcdefXYZ,
+  # keys like ohs_sk_0123456789abcdefABCD, a compose test password
+  '''0123456789abcdef''',
+  # the test encryption key: base64 of "0123456789abcdef0123456789abcdef"
+  '''MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=''',
+  # the invented API key of the console keys test
+  '''ohs_sk_Zz9YyQ1w2e3r4t5y6u7i8o9p0aSdFgHj''',
+  # the example signing secret of the Svix webhook docs, used by console tests
+  '''whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw''',
+  # names, not secrets: a cipher in docs/specs/vault.md, an AAD label in internal/vault
+  '''XChaCha20-Poly1305''',
+  '''ohs\.vault\.key\.v[0-9]+''',
 ]
