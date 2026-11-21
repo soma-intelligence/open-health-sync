@@ -597,6 +597,17 @@ are expected:
 - the Open Health Sync code systems are not published, so their codes cannot be checked;
 - a UCUM annotation such as `{steps}` is flagged as best practice to review.
 
+The golden files are written by hand from the mapping. To check what the server really serves,
+`make conformance` sends a clean synthetic dataset of every connector (`internal/synth`: two
+days, the multi-device and extreme-value scenarios) through a whole server on a fresh database,
+then reads back every FHIR Observation and keeps two of each shape (codes, categories, profiles,
+value type, unit, components), with each user's Patient, a `$everything` page, the Devices, a
+Provenance search and the CapabilityStatement. `scripts/fhir-validate.sh DIR` runs the HL7
+validator on those files the same way: R4 for all, the activity measure profile for the
+Observations the server marks as Physical Activity measures. The same run checks every Open
+mHealth data point against the official schemas ([open-mhealth.md](open-mhealth.md)). CI runs it
+on every pull request and push to `main` (the `conformance` job of `.github/workflows/ci.yml`).
+
 Run offline (`FHIR_VALIDATOR_TX=n/a`), the validator also says it cannot check the UCUM and LOINC
 codes; with the default terminology server it checks them.
 

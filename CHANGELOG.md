@@ -7,6 +7,13 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- `make conformance` checks what the server really serves: a clean synthetic dataset of every
+  connector goes through a whole server, every Open mHealth data point is checked against the
+  official schemas and the FHIR resources it served go through the official HL7 validator. CI
+  runs it on every pull request. See [docs/fhir.md](docs/fhir.md#validation).
+
 ## [0.3.0] - 2026-10-29
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
