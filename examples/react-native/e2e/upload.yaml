@@ -12,6 +12,8 @@ appId: org.openhealthsync.example.reactnative
 - extendedWaitUntil:
     visible: "Open Health Sync example"
     timeout: 180000
+# The field selects its text on focus: a tap puts the cursor where it lands, and
+# eraseText only removes what is before the cursor.
 - tapOn:
     id: "server-url"
 - eraseText: 80
