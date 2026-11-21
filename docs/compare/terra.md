@@ -96,6 +96,8 @@ HealthKit and uploads it. On Android the [Kotlin SDK](../sdks/kotlin.md#health-c
 reads Health Connect and uploads it (not yet run on a device), or your app follows the
 [upload contract](../connectors/health-connect.md) itself.
 
+Step by step, with the calls to make: [Move from the Terra API to a self-hosted aggregator](../how-to/migrate-from-terra.md).
+
 ## Try it
 
 The [quickstart](../../README.md#quickstart) starts an instance with Docker Compose and fills it

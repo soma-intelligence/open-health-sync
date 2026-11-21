@@ -35,30 +35,6 @@ release may change the API, the configuration or the database schema.
   webhook settings form keeps typed changes when the endpoint changes underneath it. A failed load of the
   Settings page no longer reloads in a loop (the inspector restarted it), which kept the page on Loading.
 - `GET /v1/users` filters by `external_ref`, and `GET /v1/audit` filters by actor (`actor_type` and `actor_id`).
-
-### Changed
-
-- The console signs in with a server session instead of keeping the key in the browser tab and sending it as a
-  bearer header. The key is sent once and never stored; the cookie is `HttpOnly` and requests need the CSRF
-  token. Plain http works only on `localhost`, `127.0.0.1` and `[::1]`; elsewhere sign in is refused until
-  `OHS_PUBLIC_URL` is the `https` address (a plain `http` public URL on a remote host is refused too).
-- The console is built from `web/console` into `internal/console/dist` (`make console`), which stays committed.
-  `make test-js` now runs the share viewer helpers only.
-- The first-run setup page no longer passes the key to the console: paste it on the console sign in page.
-
-## [0.3.0] - 2026-11-11
-
-Health data is sealed per user at rest (the vault), API keys take scopes, events stream over
-Server-Sent Events, lab results can be uploaded, Wahoo joins the connectors, and the Kotlin, React
-Native and Flutter SDKs read Health Connect and HealthKit. Each provider is also pulled on its own
-schedule, deleted and edited HealthKit samples leave the server, and a stress and fuzz pass fixed
-how `ohs` behaves under load, outages and bad input. Migrations `0043` to `0055` apply on start
-(`0050` rewrites `quantity_samples` once). Run `ohs vault seal` after the upgrade, and read the
-[release notes](docs/release-notes/v0.3.0.md) before you upgrade: they list every change in
-behaviour.
-
-### Added
-
 - Health data vault: every health value at rest is sealed under keys of one user
   ([security model](docs/security-model.md#health-data-vault), [spec](docs/specs/vault.md)).
   The rows of `ohs_data` (samples, sleep, workouts, nutrition, observations, daily summaries,
@@ -128,7 +104,6 @@ behaviour.
   compressed. The server SDKs gain `streamEvents` (TypeScript) and `stream_events` (Python);
   the Helm ingress defaults turn nginx buffering off and raise its read timeout. See
   docs/events-stream.md.
-
 - Lab results: `POST /v1/users/{id}/labs` (`data:write`; tenant key, or the user's own token
   with scope `upload`) takes FHIR R4 (a Bundle, a DiagnosticReport or an Observation of category
   laboratory; other categories are a 400 that says so) or a simple JSON form, and answers 202.
@@ -182,41 +157,6 @@ behaviour.
   minted it. An admin key can be reduced to `admin:read` or to its own tenant; one with `*` or
   `admin:write` still reaches every tenant. Migration `0051` adds `api_keys.scopes`. See
   [docs/api.md](docs/api.md#key-scopes).
-- The console's provider page shows the provider's sync schedule: how often it is pulled, with and
-  without notifications, how far each pull reads again, the catch-up after an outage, the backfill
-  of a new connection and the daily reconciliation. `GET /v1/admin/providers` and
-  `GET /v1/admin/providers/{provider}` serve it as `sync` (seconds, null for an upload from an
-  app). See [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
-- `deploy/Caddyfile`: Caddy with automatic TLS in front of the compose stack, and the routes to
-  keep on `ohs` when the host serves other pages too, so `/healthz` and `/readyz` are never
-  redirected. See [docs/self-hosting.md](docs/self-hosting.md#reverse-proxy).
-- Each provider is pulled on its own sync policy (`connector.SyncPolicy`): interval with and
-  without notifications, lookback for late data, catch-up bound, backfill length and an optional
-  daily reconciliation that widens the 00:00 UTC pull. Dexcom re-reads 6 hours (its readings
-  reach the API up to 3 hours late outside the US, so they were missed after the backfill),
-  OMRON 72 hours, Ultrahuman 48, Eight Sleep 36 and the others 24. Oura, WHOOP, Withings and
-  Dexcom are backfilled over 90 days, Polar and Suunto over the 28 days their APIs serve, and
-  Strava and Suunto are pulled less often to stay inside their rate limits. See
-  [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
-- A data quality score for every figure (`internal/quality`, no API change yet): the probability
-  that a figure is within its metric's tolerance of the truth, a grade, the source's bias and
-  random error in the figure's context, and calibrated 68 and 95% intervals. It combines published
-  error figures with citations and evidence tags, copy detection, agreement between a user's
-  sources (Bland-Altman, triple collocation), a gradient boosted residual model and split conformal
-  calibration. A leave one subject out backtest on GalaxyPPG, PPG-DaLiA and synthetic data
-  (`go test -tags bench ./internal/quality/bench`) publishes its numbers in
-  [docs/quality/report.md](docs/quality/report.md), and Walch et al. 2019, held out, scores the
-  frozen model in [docs/quality/walch-eval.md](docs/quality/walch-eval.md). See
-  [docs/quality.md](docs/quality.md). The score stays a probability with no NaN on any input:
-  the agreement estimators refuse a series with a NaN or an infinity, and the anchor's bias
-  update no longer overflows to NaN on a tiny spread or effective size.
-- A synthetic data generator for every documented provider (`internal/synth`): an invented
-  person's timeline rendered in each vendor's wire format, written from the vendor's published
-  documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
-  out of range and malformed values, unit variants and huge exports. `go test ./...` runs a light
-  version; the nightly `synthetic-data` workflow runs every scenario, and every provider
-  through a running server and database (`test/synthflow`). See
-  [docs/specs/synthetic-data.md](docs/specs/synthetic-data.md).
 - Authenticated routes are rate limited per credential (an API key by itself, a user's tokens
   together): 200 requests a second with a burst of 2,000 by default, answered with `429` and
   `Retry-After`. `OHS_RATE_LIMIT_API` changes or turns it off. The limit is kept per process.
@@ -255,6 +195,13 @@ behaviour.
 
 ### Changed
 
+- The console signs in with a server session instead of keeping the key in the browser tab and sending it as a
+  bearer header. The key is sent once and never stored; the cookie is `HttpOnly` and requests need the CSRF
+  token. Plain http works only on `localhost`, `127.0.0.1` and `[::1]`; elsewhere sign in is refused until
+  `OHS_PUBLIC_URL` is the `https` address (a plain `http` public URL on a remote host is refused too).
+- The console is built from `web/console` into `internal/console/dist` (`make console`), which stays committed.
+  `make test-js` now runs the share viewer helpers only.
+- The first-run setup page no longer passes the key to the console: paste it on the console sign in page.
 - ECG voltages, workout routes and heartbeat series are stored as one blob per series in
   `ohs_data.series_blobs` (migration `0053`): the points are encoded in columns (delta
   timestamps, values bit for bit), compressed with zstd in Go and sealed as one vault row under
@@ -266,7 +213,6 @@ behaviour.
   (`ohs vault status` counts them). Erasure, provider deletion, consent purge and retention
   remove the blobs. A route point's `id` is now its position in the route, and an
   `/rr-intervals` cursor from before the upgrade is refused.
-
 - A sample that carries no time zone (Eight Sleep, Suunto, any source that sends instants only)
   counts toward the day of the user's time zone when the user has one, and toward the UTC day
   only when the user has none: the order is the sample's zone, the user's, UTC, for the derived
@@ -283,38 +229,6 @@ behaviour.
   records adds next to nothing. Sleep sessions with their
   stages, workouts with their routes, ECG recordings, nutrition logs, provider daily summaries
   and deletions are still held for the length of the job.
-- The default compose file caps `ohs` at 1 GB (`mem_limit`, `OHS_MEM_LIMIT`), and `ohs` sets
-  `GOMEMLIMIT` itself to three quarters of the container's memory limit when it is unset or
-  empty, so the soft limit follows `OHS_MEM_LIMIT` (`OHS_GOMEMLIMIT` overrides it). Eight concurrent large uploads took the
-  process to 623 MB and had it killed by the host's out-of-memory killer, along with a process
-  of another container. [Memory](docs/self-hosting.md#memory) lists the profiles, the Raspberry
-  Pi one included.
-- Device uploads: past its share of the ingest slots (half by default,
-  `OHS_INGEST_TENANT_CONCURRENCY`) a tenant takes a slot only while one slot in eight (at least
-  one) stays free for the other tenants, so a lone tenant still uses the free slots and no
-  tenant can refuse the others' uploads; and a part may expand to at most 64 MiB once decompressed
-  instead of 512 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`, up to 512). Eight gzip bombs of 611 KB
-  held every slot of the instance for 14 s, and every other tenant's uploads got 503 meanwhile.
-  The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON, so they are not affected.
-- A call that fails because the database cannot be reached (Postgres restarting, out of
-  connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
-  429 keep the upload or the read. A pooled connection the server dropped mid-session (a
-  backend killed or restarted: pgx's "conn closed" at the next begin or commit) counts as an
-  outage too. Other failures stay 500, a refused database login, a protocol error and a
-  canceled request included.
-- Swift SDK: the anchored sync of one type is `AnchoredSync`, over `AnchoredChangeSource` and
-  `AppleHealthPartUploader`, so it is tested with fakes on every platform; `HealthKitSync` runs
-  it over `HKAnchoredObjectQuery`. `SyncReport` (same module, `OpenHealthSyncHealthKit`) now
-  compiles on every platform and gains `deletionsByType`, `deletionsUploaded` and
-  `deletionsPendingByType`. `UploadResult` gains `features`, `acceptsDeletionLines` and a
-  public initializer.
-- An upload to a full or read-only raw store (no space left, a quota, a read-only or
-  unwritable directory) answers 503 with `Retry-After: 60` instead of a 500 a client may give up
-  on; nothing is recorded, so the same part can be sent again once there is room.
-- A database that does not answer at all (a frozen host, a network partition) no longer holds
-  every request until it comes back (300 s and more in a stress run with Postgres paused): the
-  credential lookup gives up after 10 s with the same 503, and a new pool connection gives up
-  after 10 s (`connect_timeout` in `OHS_DATABASE_URL` overrides it).
 - `ohs serve` refuses to start on a database whose schema version differs from the binary's, and
   names the `ohs migrate` command to run. `/readyz` answers not ready while the database is
   behind the binary or its schema is dirty, without naming versions.
@@ -356,6 +270,131 @@ behaviour.
   pulled 8 times a day, and about 125 such connections spent the application's default 1,000 reads
   a day. At 2 reads a day per connection, about 400 connections fit, with room for the pulls webhook
   events start. See [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
+
+### Fixed
+
+- A retried or replayed job for an older raw object no longer overwrites a provider's newer
+  revision of a sleep session, workout, nutrition log or daily summary.
+- The duplicate check of an upload reads only the stored samples of the types the upload carries.
+  A sparse part spanning years (weight, VO2 max) read every stored sample of every type in that
+  span.
+- Daily summaries are recomputed in a fixed number of statements per upload instead of three per
+  touched day.
+- Multi-page exports look up the user, the types and the source policy once, not once per page.
+- Retention counted no row of a dropped chunk and missed `daily_summaries` chunks by one day when
+  the session time zone was not UTC.
+- Swift SDK: `requestAuthorization` no longer crashes on a correlation type.
+- The docs no longer say the mobile SDKs cover every API route.
+- An ETL worker claims the next job as soon as one ends instead of sleeping its idle interval.
+  With one job per user at a time, a user's backlog drained at about 0.6 jobs a second; 20 small
+  jobs of one user now take about 2 seconds instead of 30.
+- The Caddyfile set its default security headers only when all of them were missing, so a page
+  that sent one of its own lost the others; each header now has its own line.
+- Helm: labels and names are quoted, so a release or an override named like a YAML boolean or
+  number still renders, and `allowNewerSchema` takes effect only when set to `true`.
+- The ETL no longer collects the days an upload touches twice per batch: the second pass, which
+  only matters when the batch deleted samples, now runs only then. The time zone a sample names is
+  loaded once per process instead of once per sample, which read and parsed tzdata again for every
+  Apple Health, Polar and Dexcom sample.
+- An upload whose deletions reach old, compressed `quantity_samples` chunks no longer fails past
+  TimescaleDB's default limit of 100,000 decompressed tuples. A HealthKit round that removed months
+  of an app's samples rolled back the whole job, new samples included, and was parked after its
+  retries. The ETL now lifts the limit for the job's transaction when the batch has deletions, as
+  user deletion, retention and the consent purge already did.
+- A consent purge now deletes the record aliases (`ohs_data.record_aliases`) of the HealthKit
+  samples, workouts and nutrition logs it removes. They were left behind, and an alias keeps the
+  row's unkeyed content hash and start time, from which the purged value could be worked out.
+
+## [0.3.0] - 2026-11-21
+
+A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
+samples leave the server, a stress and fuzz pass fixed how `ohs` behaves under load, outages and
+bad input, and many figures are now validated. Migration `0043` applies on start. The compose file
+caps `ohs` at 1 GB, Garmin notifications need `OHS_GARMIN_INBOUND_TOKEN`, and an uploaded part may
+expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before you upgrade.
+
+### Added
+
+- The console's provider page shows the provider's sync schedule: how often it is pulled, with and
+  without notifications, how far each pull reads again, the catch-up after an outage, the backfill
+  of a new connection and the daily reconciliation. `GET /v1/admin/providers` and
+  `GET /v1/admin/providers/{provider}` serve it as `sync` (seconds, null for an upload from an
+  app). See [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
+- `deploy/Caddyfile`: Caddy with automatic TLS in front of the compose stack, and the routes to
+  keep on `ohs` when the host serves other pages too, so `/healthz` and `/readyz` are never
+  redirected. See [docs/self-hosting.md](docs/self-hosting.md#reverse-proxy).
+- Each provider is pulled on its own sync policy (`connector.SyncPolicy`): interval with and
+  without notifications, lookback for late data, catch-up bound, backfill length and an optional
+  daily reconciliation that widens the 00:00 UTC pull. Dexcom re-reads 6 hours (its readings
+  reach the API up to 3 hours late outside the US, so they were missed after the backfill),
+  OMRON 72 hours, Ultrahuman 48, Eight Sleep 36 and the others 24. Oura, WHOOP, Withings and
+  Dexcom are backfilled over 90 days, Polar and Suunto over the 28 days their APIs serve, and
+  Strava and Suunto are pulled less often to stay inside their rate limits. See
+  [docs/background-sync.md](docs/background-sync.md#sync-policy-per-provider).
+- A data quality score for every figure (`internal/quality`, no API change yet): the probability
+  that a figure is within its metric's tolerance of the truth, a grade, the source's bias and
+  random error in the figure's context, and calibrated 68 and 95% intervals. It combines published
+  error figures with citations and evidence tags, copy detection, agreement between a user's
+  sources (Bland-Altman, triple collocation), a gradient boosted residual model and split conformal
+  calibration. A leave one subject out backtest on GalaxyPPG, PPG-DaLiA and synthetic data
+  (`go test -tags bench ./internal/quality/bench`) publishes its numbers in
+  [docs/quality/report.md](docs/quality/report.md), and Walch et al. 2019, held out, scores the
+  frozen model in [docs/quality/walch-eval.md](docs/quality/walch-eval.md). See
+  [docs/quality.md](docs/quality.md). The score stays a probability with no NaN on any input:
+  the agreement estimators refuse a series with a NaN or an infinity, and the anchor's bias
+  update no longer overflows to NaN on a tiny spread or effective size.
+- A synthetic data generator for every documented provider (`internal/synth`): an invented
+  person's timeline rendered in each vendor's wire format, written from the vendor's published
+  documentation, with scenarios for DST and travel, several devices, gaps, duplicates, missing,
+  out of range and malformed values, unit variants and huge exports. `go test ./...` runs a light
+  version; the nightly `synthetic-data` workflow runs every scenario, and every provider
+  through a running server and database (`test/synthflow`). See
+  [docs/specs/synthetic-data.md](docs/specs/synthetic-data.md).
+- Documentation: nineteen how-to guides in `docs/how-to/` (Fitbit, Polar, Strava, Dexcom and
+  Xiaomi exports; HealthKit and Health Connect uploads from your own app; Samsung Health data;
+  FIT, GPX and TCX imports; Bluetooth devices without a phone; webhooks on new data; Open mHealth
+  JSON; MCP for remote agents; share links for a clinician; several wearables without double
+  counting; Docker Compose with HTTPS; Raspberry Pi 5; erasure and portability; moving from the
+  Terra API), a fuller README with an overview, use cases, comparison and FAQ, more answers in
+  `docs/faq.md`, and `llms.txt`, `AGENTS.md` and `CITATION.cff` at the repository root.
+- Documentation: how-to guides to convert an Apple Health export to CSV (#254) and to export
+  Eight Sleep data to CSV or SQL (#261); the docs site lists every endpoint in the sidebar and
+  serves a real 404 page (#275).
+
+### Changed
+
+- The default compose file caps `ohs` at 1 GB (`mem_limit`, `OHS_MEM_LIMIT`), and `ohs` sets
+  `GOMEMLIMIT` itself to three quarters of the container's memory limit when it is unset or
+  empty, so the soft limit follows `OHS_MEM_LIMIT` (`OHS_GOMEMLIMIT` overrides it). Eight concurrent large uploads took the
+  process to 623 MB and had it killed by the host's out-of-memory killer, along with a process
+  of another container. [Memory](docs/self-hosting.md#memory) lists the profiles, the Raspberry
+  Pi one included.
+- Device uploads: past its share of the ingest slots (half by default,
+  `OHS_INGEST_TENANT_CONCURRENCY`) a tenant takes a slot only while one slot in eight (at least
+  one) stays free for the other tenants, so a lone tenant still uses the free slots and no
+  tenant can refuse the others' uploads; and a part may expand to at most 64 MiB once decompressed
+  instead of 512 MiB (`OHS_INGEST_MAX_DECOMPRESSED_MIB`, up to 512). Eight gzip bombs of 611 KB
+  held every slot of the instance for 14 s, and every other tenant's uploads got 503 meanwhile.
+  The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON, so they are not affected.
+- A call that fails because the database cannot be reached (Postgres restarting, out of
+  connections) answers 503 with `Retry-After: 5` instead of 500, so clients that retry 503 and
+  429 keep the upload or the read. A pooled connection the server dropped mid-session (a
+  backend killed or restarted: pgx's "conn closed" at the next begin or commit) counts as an
+  outage too. Other failures stay 500, a refused database login, a protocol error and a
+  canceled request included.
+- Swift SDK: the anchored sync of one type is `AnchoredSync`, over `AnchoredChangeSource` and
+  `AppleHealthPartUploader`, so it is tested with fakes on every platform; `HealthKitSync` runs
+  it over `HKAnchoredObjectQuery`. `SyncReport` (same module, `OpenHealthSyncHealthKit`) now
+  compiles on every platform and gains `deletionsByType`, `deletionsUploaded` and
+  `deletionsPendingByType`. `UploadResult` gains `features`, `acceptsDeletionLines` and a
+  public initializer.
+- An upload to a full or read-only raw store (no space left, a quota, a read-only or
+  unwritable directory) answers 503 with `Retry-After: 60` instead of a 500 a client may give up
+  on; nothing is recorded, so the same part can be sent again once there is room.
+- A database that does not answer at all (a frozen host, a network partition) no longer holds
+  every request until it comes back (300 s and more in a stress run with Postgres paused): the
+  credential lookup gives up after 10 s with the same 503, and a new pool connection gives up
+  after 10 s (`connect_timeout` in `OHS_DATABASE_URL` overrides it).
 
 ### Fixed
 
@@ -482,37 +521,9 @@ behaviour.
 - Withings: a sleep session's resting heart rate is the night's lowest heart rate (`hr_min`),
   as for Oura, instead of the mean heart rate asleep (`hr_average`), which now stays in
   metadata. Sessions stored earlier keep the mean.
-- A retried or replayed job for an older raw object no longer overwrites a provider's newer
-  revision of a sleep session, workout, nutrition log or daily summary.
-- The duplicate check of an upload reads only the stored samples of the types the upload carries.
-  A sparse part spanning years (weight, VO2 max) read every stored sample of every type in that
-  span.
-- Daily summaries are recomputed in a fixed number of statements per upload instead of three per
-  touched day.
-- Multi-page exports look up the user, the types and the source policy once, not once per page.
-- Retention counted no row of a dropped chunk and missed `daily_summaries` chunks by one day when
-  the session time zone was not UTC.
-- Swift SDK: `requestAuthorization` no longer crashes on a correlation type.
-- The docs no longer say the mobile SDKs cover every API route.
-- An ETL worker claims the next job as soon as one ends instead of sleeping its idle interval.
-  With one job per user at a time, a user's backlog drained at about 0.6 jobs a second; 20 small
-  jobs of one user now take about 2 seconds instead of 30.
-- The Caddyfile set its default security headers only when all of them were missing, so a page
-  that sent one of its own lost the others; each header now has its own line.
-- Helm: labels and names are quoted, so a release or an override named like a YAML boolean or
-  number still renders, and `allowNewerSchema` takes effect only when set to `true`.
-- The ETL no longer collects the days an upload touches twice per batch: the second pass, which
-  only matters when the batch deleted samples, now runs only then. The time zone a sample names is
-  loaded once per process instead of once per sample, which read and parsed tzdata again for every
-  Apple Health, Polar and Dexcom sample.
-- An upload whose deletions reach old, compressed `quantity_samples` chunks no longer fails past
-  TimescaleDB's default limit of 100,000 decompressed tuples. A HealthKit round that removed months
-  of an app's samples rolled back the whole job, new samples included, and was parked after its
-  retries. The ETL now lifts the limit for the job's transaction when the batch has deletions, as
-  user deletion, retention and the consent purge already did.
-- A consent purge now deletes the record aliases (`ohs_data.record_aliases`) of the HealthKit
-  samples, workouts and nutrition logs it removes. They were left behind, and an alias keeps the
-  row's unkeyed content hash and start time, from which the purged value could be worked out.
+- Documentation: the Caddyfile comment now gives `OHS_TRUSTED_PROXIES=172.16.0.0/12` like the
+  self-hosting guide, the Polar and Fitbit pages give the pull interval with and without
+  notifications, and the WHOOP export guide points at the current quickstart.
 
 ### Security
 
@@ -521,6 +532,12 @@ behaviour.
   addresses by the IPv4 address they carry.
 - `github.com/klauspost/compress` 1.18.7 (GO-2026-5841). `govulncheck` found the vulnerable
   code unreachable from Open Health Sync; the bump keeps it so.
+- The build stage of `deploy/Dockerfile` moves to `golang:1.26.11-bookworm` (pinned by digest) and
+  `go.mod` to `toolchain go1.26.11`, for GO-2026-6859 in `net/http` (#277).
+- `github.com/andybalholm/brotli` 1.1.1 to 1.2.7 (GO-2026-6888) and
+  `github.com/klauspost/compress` 1.18.7 to 1.20.2 (GO-2026-6865) (#277).
+- Weekly dependency bumps: aws-sdk-go-v2 s3 1.114.4, smithy-go 1.28.6, distroless, golang and
+  timescaledb base digests, aws-cli 2.38.4 (#244); `next` 16.4.6 in the docs site (#277).
 
 ## [0.2.0] - 2026-10-21
 

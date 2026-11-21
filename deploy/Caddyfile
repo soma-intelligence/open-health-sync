@@ -2,7 +2,8 @@
 #
 # Caddy in front of the compose stack (ohs on 127.0.0.1:8080), with automatic
 # TLS. Replace health.example.org with your host name, set OHS_PUBLIC_URL to
-# https://health.example.org and OHS_TRUSTED_PROXIES to 127.0.0.1/32, then:
+# https://health.example.org and OHS_TRUSTED_PROXIES to 172.16.0.0/12 (requests
+# reach the container from the Docker bridge gateway), then:
 #   caddy run --config deploy/Caddyfile
 # See docs/self-hosting.md#reverse-proxy.
 

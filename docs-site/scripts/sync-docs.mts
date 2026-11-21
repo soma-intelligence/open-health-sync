@@ -461,6 +461,13 @@ sources["docs/how-to/garmin-export.md"] = [
       "Load a Garmin Connect account export (FIT files) into PostgreSQL: activities with distance, heart rate, GPS routes and power, queried in SQL or exported as CSV or Parquet. No Garmin API keys needed.",
   },
 ];
+sources["docs/how-to/eight-sleep-export.md"] = [
+  {
+    page: "(guides)/how-to/eight-sleep-export",
+    description:
+      "Export Eight Sleep Pod data (sleep stages, sleep score, heart rate, HRV, bed and room temperature) as CSV or Parquet and query it in PostgreSQL, from a self-hosted instance.",
+  },
+];
 for (const file of readdirSync(join(repo, "docs", "how-to")).sort()) {
   if (!file.endsWith(".md") || file === "README.md" || sources[`docs/how-to/${file}`]) continue;
   sources[`docs/how-to/${file}`] = [{ page: `(guides)/how-to/${file.replace(/\.md$/, "")}` }];
@@ -686,12 +693,17 @@ function firstParagraph(markdown: string): string {
     .map((p) => p.trim())
     .find((p) => p && !p.startsWith("#") && !p.startsWith("|") && !p.startsWith("<") && !p.startsWith("-"));
   if (!para) return "";
+  // Plain text: the description is a subtitle, a meta description and a line of llms.txt, where
+  // Markdown shows as is. A leading label such as "**Goal:**" goes, the sentence after it stays.
   const text = para
     .replace(/\s+/g, " ")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/`/g, "");
+    .replace(/`/g, "")
+    .replace(/^(\*\*|__)[^*_]+:\1\s*(\S)/, (_, _m, first: string) => first.toUpperCase())
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/(^|[\s(])([*_])([^*_\s](?:[^*_]*[^*_\s])?)\2(?=[\s.,;:!?)]|$)/g, "$1$3");
   // The first sentences that say something: "Slug `x`." alone does not.
-  const sentences = text.replace(/^Slug \S+\.\s*/, "").match(/[^.]+(\.|$)/g) ?? [text];
+  const sentences = text.replace(/^Slug \S+\.\s*/, "").match(/.+?(?:\.(?=\s|$)|$)/g) ?? [text];
   let out = "";
   for (const sentence of sentences) {
     out = `${out} ${sentence.trim()}`.trim();
