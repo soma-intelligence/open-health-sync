@@ -9,7 +9,7 @@ const quiet: Pipeline = {
   processing: { pending: 0, running: 0, parked: 0, rejected_records: 0 },
   storage: { raw_objects_24h: 12, raw_bytes_24h: 2_500_000 },
   delivery: { endpoints: 1, endpoints_failing: 0, endpoints_disabled: 0, pending: 0, parked: 0 },
-  data: { records: 0, users: 0, sources: 0, last_synced_at: null },
+  data: { records: 1234, users: 2, sources: 1, last_synced_at: "2026-10-13T11:00:00Z" },
 };
 
 const empty: Pipeline = {
@@ -27,7 +27,9 @@ test("pipelineStages: five stages, each with its state", () => {
   const stages = pipelineStages(quiet);
   expect(stages.map((s) => s.key)).toEqual(["sources", "sync", "processing", "storage", "delivery"]);
   expect(stages.map((s) => s.tone)).toEqual(["ok", "ok", "ok", "ok", "ok"]);
-  expect(stages[3]?.figures[0]?.value).toBe("2.5 MB");
+  expect(stages[3]?.figures[0]).toEqual({ label: "Records stored", value: "1,234" });
+  expect(stages[3]?.figures[2]?.value).toBe("2.5 MB");
+  expect(stages[0]?.figures[0]).toEqual({ label: "Sources with data", value: "1" });
   expect(stages.every((s) => s.role && STAGE_STATES[s.tone])).toBe(true);
 
   const busy = structuredClone(quiet);
@@ -41,8 +43,17 @@ test("pipelineStages: five stages, each with its state", () => {
   expect(s[1]?.figures[3]?.tone).toBe("bad");
   expect(s[1]?.figures[3]?.to).toBe("/console/jobs");
   // No source yet is a quiet start, not a fault: grey, never orange.
-  expect(pipelineStages({ ...quiet, sources: [] })[0]?.tone, "no provider on").toBe("off");
-  expect(pipelineStages({ ...quiet, sources: [] })[0]?.state).toBe("No source yet");
+  const none = { ...quiet, sources: [], data: { records: 0, users: 0, sources: 0, last_synced_at: null } };
+  expect(pipelineStages(none)[0]?.tone, "no provider on").toBe("off");
+  expect(pipelineStages(none)[0]?.state).toBe("No source yet");
+  // Records from an upload or a seed, with no provider on and no connection, make a source.
+  const seeded = { ...empty, data: { records: 34_691, users: 1, sources: 6, last_synced_at: "2026-10-13T11:00:00Z" } };
+  const s2 = pipelineStages(seeded);
+  expect(s2[0]?.tone).toBe("ok");
+  expect(s2[0]?.figures[0]?.value).toBe("6");
+  expect(s2[3]?.tone).toBe("ok");
+  expect(s2[3]?.figures[0]?.value).toBe("34,691");
+  expect(pipelineStages(empty)[3]?.state).toBe("Empty");
 });
 
 test("attention: what needs the operator, worst first", () => {
@@ -84,6 +95,8 @@ test("gettingStarted: five steps, each done by its own sign", () => {
   expect(done({ ...empty, sources: [{ ...device, connections: { active: 1 } }] })).toEqual(["connection"]);
   expect(done({ ...empty, sync: { ...empty.sync, succeeded_24h: 1 } })).toEqual(["data"]);
   expect(done({ ...empty, storage: { raw_objects_24h: 1, raw_bytes_24h: 10 } })).toEqual(["data"]);
+  expect(done({ ...empty, data: { records: 5, users: 1, sources: 1, last_synced_at: null } })).toEqual(["data"]);
+  expect(done({ ...empty, sources: [{ ...device, records: 5 }] }), "an upload is a source").toEqual(["connection"]);
   expect(done({ ...empty, delivery: { ...empty.delivery, endpoints: 1 } })).toEqual(["webhook"]);
 });
 

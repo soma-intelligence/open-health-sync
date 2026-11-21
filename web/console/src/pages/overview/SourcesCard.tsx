@@ -18,12 +18,14 @@ export function sourceState(s: Source): { tone: Tone; text: string } {
   if (s.paused_until) return { tone: "warn", text: "Paused" };
   if (!s.enabled) return { tone: "off", text: "Off" };
   if (active > 0) return { tone: "ok", text: "Live" };
+  // Records with no connection: app uploads or an import.
+  if (s.records > 0) return { tone: "ok", text: "Has data" };
   return { tone: "off", text: "No connection" };
 }
 
-/** Sources on this tenant: the ones turned on, and any still holding connections. */
+/** Sources on this tenant: the ones turned on, any still holding connections, and any with records. */
 export function SourcesCard({ sources }: { sources: readonly Source[] }) {
-  const shown = sources.filter((s) => s.enabled || Object.values(s.connections).some((n) => n > 0));
+  const shown = sources.filter((s) => s.enabled || s.records > 0 || Object.values(s.connections).some((n) => n > 0));
   return (
     <Card title="Sources" actions={<Link to="/providers">All providers</Link>}>
       {shown.length === 0 ? (
@@ -37,6 +39,9 @@ export function SourcesCard({ sources }: { sources: readonly Source[] }) {
                 <th scope="col" className="num">
                   Connections
                 </th>
+                <th scope="col" className="num">
+                  Records
+                </th>
                 <th scope="col">State</th>
               </tr>
             </thead>
@@ -47,6 +52,7 @@ export function SourcesCard({ sources }: { sources: readonly Source[] }) {
                   <tr key={s.slug} role="row">
                     <td role="cell">{s.name}</td>
                     <td role="cell" className="num" data-label="Connections">{formatCount(s.connections["active"] ?? 0)}</td>
+                    <td role="cell" className="num" data-label="Records">{formatCount(s.records)}</td>
                     <td role="cell" data-label="State">
                       <Pill tone={state.tone}>{state.text}</Pill>
                     </td>
