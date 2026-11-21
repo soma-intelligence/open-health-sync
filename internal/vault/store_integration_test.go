@@ -93,7 +93,7 @@ func (e *storeEnv) ensure(v *Vault, user uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := v.EnsureUser(ctx, tx, e.tenant, user); err != nil {
 		return err
 	}

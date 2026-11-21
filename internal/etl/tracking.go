@@ -120,16 +120,6 @@ func reserveFailedIDs(ctx context.Context, tx TxLike, n int) ([]int64, error) {
 // permanent reasons (internal/etl/automation).
 func permanentReason(code string) bool { return code == "parse" || code == "validation" }
 
-// anyRecoverable says whether a code fix may rescue one of the failures.
-func anyRecoverable(failed []FailedRecord) bool {
-	for _, f := range failed {
-		if !permanentReason(f.ReasonCode) {
-			return true
-		}
-	}
-	return false
-}
-
 // writeJobFailure records a whole raw object the ETL could not land: a row
 // with no line number and reason "job", so an all-failed object is visible
 // and reprocessable as one unit, not only as its per-line rows.

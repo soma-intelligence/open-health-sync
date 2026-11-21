@@ -59,7 +59,7 @@ func newStreamEnv(t *testing.T, opts api.StreamOptions) *streamEnv {
 }
 
 type frame struct {
-	id, event, data, comment string
+	id, event, data string
 }
 
 // stream is one open event stream.

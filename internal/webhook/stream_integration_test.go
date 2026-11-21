@@ -35,7 +35,7 @@ func TestEnqueueRecordsTheStream(t *testing.T) {
 	ctx := context.Background()
 	listener, err := pgx.ConnectConfig(ctx, e.pool.Config().ConnConfig.Copy())
 	require.NoError(t, err)
-	t.Cleanup(func() { listener.Close(context.Background()) })
+	t.Cleanup(func() { _ = listener.Close(context.Background()) })
 	_, err = listener.Exec(ctx, "LISTEN "+webhook.StreamChannel)
 	require.NoError(t, err)
 

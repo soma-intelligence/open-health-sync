@@ -378,7 +378,7 @@ func (s *sealRun) userVault(ctx context.Context, u sealUser) (*UserVault, error)
 	if err := inUserTx(ctx, s.pool, u, func(tx pgx.Tx) error { return s.v.EnsureUser(ctx, tx, u.tenant, u.user) }); err != nil {
 		return nil, err
 	}
-	s.v.evictUser(userRef{u.tenant, u.user})
+	s.v.evictUser(userRef(u))
 	return s.v.ForUser(ctx, u.tenant, u.user)
 }
 

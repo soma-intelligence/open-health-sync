@@ -116,7 +116,7 @@ func tableAt(sql, table string, from int) int {
 			return -1
 		}
 		end := i + j + len(q)
-		if end == len(sql) || !(sql[end] == '_' || sql[end] >= 'a' && sql[end] <= 'z') {
+		if end == len(sql) || sql[end] != '_' && (sql[end] < 'a' || sql[end] > 'z') {
 			return i + j
 		}
 		i = end
