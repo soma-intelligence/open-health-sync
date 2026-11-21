@@ -12,7 +12,7 @@ import { BellRing, Server } from 'lucide-react';
 The hosted Open Health Sync is in free beta with open sign-up: sign up, get an API key, and build on clean
 health data without running Postgres, a raw store or workers yourself. Anyone can
 [sign up free](https://app.openhealthsync.com/portal/signup?utm_source=docs&utm_medium=docs&utm_campaign=platform)
-and confirm their email. The beta runs on shared capacity, for test and demo data only.
+and confirm their email. The beta runs on shared capacity and accepts real user data.
 
 ## What the beta gives you
 
@@ -30,8 +30,16 @@ and confirm their email. The beta runs on shared capacity, for test and demo dat
 
 ## Before you join
 
-- **Test data only, for now.** Real user data opens once data processing terms and the
-  providers' production approvals are in place. Until then, use demo and synthetic users.
+- **Real user data is accepted.** You can send the data of real people, not only demo and
+  synthetic users. Know the limits before you do:
+  - It is not HIPAA compliant, no business associate agreement (BAA) is offered, and no
+    certification or audit (SOC 2, ISO 27001, HITRUST) is claimed.
+  - It runs as a single instance, with no stated uptime commitment.
+  - Data is kept until you delete it, or delete the user it belongs to. Nothing is deleted on a
+    schedule.
+
+  If you need a BAA, a certification or a contractual uptime, [self-host](/documentation/self-hosting)
+  the same server on infrastructure that meets your requirements.
 - **Free during the beta.** Pricing for later is not set, and nothing on this page is a
   commitment.
 - **Nothing to migrate.** Code written against the hosted service moves to a self-hosted

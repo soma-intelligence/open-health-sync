@@ -54,7 +54,8 @@ Fly.io and Railway steps are in [Deploy on a platform](docs/deploy-platforms.md)
 ## Don't want to run a server?
 
 <a id="hosted-beta"></a>Use the [free hosted beta](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=section):
-same API, nothing to install. Test data only for now.
+same API, nothing to install. It accepts real user data. It is not HIPAA compliant, offers no BAA
+and holds no certification: self-host the same server if you need those.
 
 ## Learn more
 
