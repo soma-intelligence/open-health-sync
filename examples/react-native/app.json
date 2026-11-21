@@ -10,6 +10,14 @@
     },
     "android": {
       "package": "org.openhealthsync.example.reactnative"
-    }
+    },
+    "plugins": [
+      [
+        "open-health-sync-react-native",
+        {
+          "healthShareUsageDescription": "OHS Example reads your health data to sync it to your Open Health Sync server."
+        }
+      ]
+    ]
   }
 }

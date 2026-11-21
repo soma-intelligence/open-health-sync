@@ -23,7 +23,7 @@ The app is a single file, [`App.tsx`](App.tsx).
 - A running Open Health Sync server, for example from the [repository quickstart](../../README.md#quickstart).
 - Expo Go on a phone, or an Android emulator or iOS simulator.
 
-Expo SDK 52, React Native 0.76. The SDK is installed from this repository
+Expo SDK 54, React Native 0.81. The SDK is installed from this repository
 (`"open-health-sync-react-native": "file:../../sdks/react-native"`); `metro.config.js` adds that
 folder to Metro's watch folders, and `tsconfig.json` points TypeScript at the SDK source.
 
@@ -84,8 +84,9 @@ Connect on Android through the Swift and Kotlin SDKs and uploads what changed
 it is a native module, so it needs a
 [development build](https://docs.expo.dev/develop/development-builds/introduction/)
 (`npx expo run:ios` or `npx expo run:android`), and React Native 0.80 or later with the New
-Architecture. This example is on Expo SDK 52 and React Native 0.76, below that floor, so it does
-not use the module. In Expo Go, `healthSync.isAvailable()` answers `false`.
+Architecture. This example is on Expo SDK 54 and React Native 0.81: a development build links
+the module, set up by the SDK's config plugin in `app.json`, but the screen still types the value
+by hand and does not call it. In Expo Go, `healthSync.isAvailable()` answers `false`.
 
 ## Checks
 
