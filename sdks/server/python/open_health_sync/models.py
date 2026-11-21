@@ -255,6 +255,10 @@ class Pipeline(TypedDict):
     storage: PipelineStorage
     # Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done.
     delivery: PipelineDelivery
+    # What the tenant has stored since its first record, whatever the way in (a connection, an
+    # app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+    # figures of the other stages are activity, not totals.
+    data: PipelineData
 
 
 class PipelineUser(TypedDict):
@@ -302,6 +306,21 @@ class PipelineDelivery(TypedDict):
     parked: int
 
 
+class PipelineData(TypedDict):
+    """What the tenant has stored since its first record, whatever the way in (a connection, an
+    app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+    figures of the other stages are activity, not totals.
+    """
+
+    records: int
+    # Users with at least one record.
+    users: int
+    # Providers with at least one record.
+    sources: int
+    # When the last record landed; null before the first.
+    last_synced_at: Optional[str]
+
+
 class PipelineSource(TypedDict):
     slug: str
     name: str
@@ -311,6 +330,9 @@ class PipelineSource(TypedDict):
     connections: Dict[str, int]
     # Active connections whose health is not ok.
     broken: int
+    # The tenant's records stored from this provider. A provider with records and no
+    # connection (app uploads, a demo seed) is listed for them.
+    records: int
     # Set while the provider's rate limit pauses every pull.
     paused_until: Optional[str]
 
@@ -2788,6 +2810,7 @@ __all__ = [
     "PageBase",
     "PasscodeProblem",
     "Pipeline",
+    "PipelineData",
     "PipelineDelivery",
     "PipelineProcessing",
     "PipelineSource",

@@ -170,14 +170,29 @@ func TestPipeline(t *testing.T) {
 		SELECT $1, id, gen_random_uuid(), 'test', '{}', s FROM ohs_core.webhook_endpoints,
 			unnest(ARRAY['pending', 'parked', 'done']) s WHERE url = 'https://a.example/failing'`, e.tenantA)
 
+	// Stored records, from the coverage summary: polar has data but no
+	// connection, oura's zero row is no data, and B's row is B's.
+	e.exec(`INSERT INTO ohs_sync.pull_coverage (tenant_id, user_id, provider, metric, date, records_count, last_synced_at) VALUES
+		($1, $2, 'apple_health', 'heart_rate', '2026-02-01', 30, '2026-02-02T06:00:00Z'),
+		($1, $2, 'apple_health', 'steps', '2026-02-02', 10, '2026-02-03T06:00:00Z'),
+		($1, $2, 'polar', 'heart_rate', '2026-02-01', 5, '2026-02-01T06:00:00Z'),
+		($1, $2, 'oura', 'steps', '2026-02-01', 0, '2026-02-04T06:00:00Z'),
+		($3, $4, 'withings', 'weight', '2026-02-01', 99, '2026-02-05T06:00:00Z')`,
+		e.tenantA, u, e.tenantB, other)
+
 	type pipeline struct {
-		Users   struct{ Active, Deleting int64 }
+		Users struct{ Active, Deleting int64 }
+		Data  struct {
+			Records, Users, Sources int64
+			LastSyncedAt            *time.Time `json:"last_synced_at"`
+		}
 		Sources []struct {
 			Slug        string
 			Name        string
 			Enabled     bool
 			Connections map[string]int64
 			Broken      int64
+			Records     int64
 			PausedUntil *time.Time `json:"paused_until"`
 		}
 		Sync struct {
@@ -206,18 +221,28 @@ func TestPipeline(t *testing.T) {
 	r.json(t, &p)
 	assert.Equal(t, int64(1), p.Users.Active)
 	assert.Equal(t, int64(1), p.Users.Deleting)
-	require.Len(t, p.Sources, 3, "%+v", p.Sources)
+	require.Len(t, p.Sources, 4, "%+v", p.Sources)
 	assert.Equal(t, "apple_health", p.Sources[0].Slug)
 	assert.True(t, p.Sources[0].Enabled)
 	assert.Equal(t, "Apple Health", p.Sources[0].Name)
+	assert.Equal(t, int64(40), p.Sources[0].Records)
+	assert.Equal(t, "polar", p.Sources[2].Slug, "listed for its records alone")
+	assert.Equal(t, int64(5), p.Sources[2].Records)
+	assert.Empty(t, p.Sources[2].Connections)
+	assert.Equal(t, int64(0), p.Sources[3].Records, "B's records are not counted")
+	assert.Equal(t, int64(45), p.Data.Records)
+	assert.Equal(t, int64(2), p.Data.Sources, "a zero row is no data")
+	assert.Equal(t, int64(1), p.Data.Users)
+	require.NotNil(t, p.Data.LastSyncedAt)
+	assert.Equal(t, "2026-02-03T06:00:00Z", p.Data.LastSyncedAt.UTC().Format(time.RFC3339))
 	oura := p.Sources[1]
 	assert.Equal(t, "oura", oura.Slug)
 	assert.False(t, oura.Enabled, "not enabled here, listed for its connections")
 	assert.Equal(t, map[string]int64{"active": 1, "needs_reauth": 1}, oura.Connections)
 	assert.Equal(t, int64(1), oura.Broken)
 	assert.NotNil(t, oura.PausedUntil)
-	assert.Equal(t, map[string]int64{"active": 1}, p.Sources[2].Connections, "B's connection is not counted")
-	assert.Nil(t, p.Sources[2].PausedUntil, "a pause that ended")
+	assert.Equal(t, map[string]int64{"active": 1}, p.Sources[3].Connections, "B's connection is not counted")
+	assert.Nil(t, p.Sources[3].PausedUntil, "a pause that ended")
 	assert.Equal(t, int64(1), p.Sync.Queued)
 	assert.Equal(t, int64(1), p.Sync.Running)
 	assert.Equal(t, int64(1), p.Sync.Retrying)
@@ -243,6 +268,7 @@ func TestPipeline(t *testing.T) {
 	assert.Equal(t, int64(1), p.Processing.Parked)
 	assert.Equal(t, int64(0), p.Delivery.Endpoints)
 	assert.Equal(t, int64(7), p.Storage.RawBytes24h)
+	assert.Equal(t, int64(99), p.Data.Records)
 
 	// Sync runs across users.
 	type runs struct {

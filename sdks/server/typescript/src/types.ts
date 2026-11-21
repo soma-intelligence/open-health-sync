@@ -211,6 +211,12 @@ export interface Pipeline {
   storage: PipelineStorage;
   /** Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done. */
   delivery: PipelineDelivery;
+  /**
+   * What the tenant has stored since its first record, whatever the way in (a connection, an
+   * app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+   * figures of the other stages are activity, not totals.
+   */
+  data: PipelineData;
 }
 
 export interface PipelineUser {
@@ -255,6 +261,21 @@ export interface PipelineDelivery {
   parked: number;
 }
 
+/**
+ * What the tenant has stored since its first record, whatever the way in (a connection, an
+ * app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+ * figures of the other stages are activity, not totals.
+ */
+export interface PipelineData {
+  records: number;
+  /** Users with at least one record. */
+  users: number;
+  /** Providers with at least one record. */
+  sources: number;
+  /** When the last record landed; null before the first. */
+  last_synced_at: string | null;
+}
+
 export interface PipelineSource {
   slug: string;
   name: string;
@@ -264,6 +285,11 @@ export interface PipelineSource {
   connections: Record<string, number>;
   /** Active connections whose health is not ok. */
   broken: number;
+  /**
+   * The tenant's records stored from this provider. A provider with records and no
+   * connection (app uploads, a demo seed) is listed for them.
+   */
+  records: number;
   /** Set while the provider's rate limit pauses every pull. */
   paused_until: string | null;
 }
