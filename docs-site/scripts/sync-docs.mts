@@ -461,6 +461,13 @@ sources["docs/how-to/garmin-export.md"] = [
       "Load a Garmin Connect account export (FIT files) into PostgreSQL: activities with distance, heart rate, GPS routes and power, queried in SQL or exported as CSV or Parquet. No Garmin API keys needed.",
   },
 ];
+sources["docs/how-to/eight-sleep-export.md"] = [
+  {
+    page: "(guides)/how-to/eight-sleep-export",
+    description:
+      "Export Eight Sleep Pod data (sleep stages, sleep score, heart rate, HRV, bed and room temperature) as CSV or Parquet and query it in PostgreSQL, from a self-hosted instance.",
+  },
+];
 for (const file of readdirSync(join(repo, "docs", "how-to")).sort()) {
   if (!file.endsWith(".md") || file === "README.md" || sources[`docs/how-to/${file}`]) continue;
   sources[`docs/how-to/${file}`] = [{ page: `(guides)/how-to/${file.replace(/\.md$/, "")}` }];
