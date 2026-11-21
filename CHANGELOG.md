@@ -7,6 +7,16 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- Documentation: nineteen how-to guides in `docs/how-to/` (Fitbit, Polar, Strava, Dexcom and
+  Xiaomi exports; HealthKit and Health Connect uploads from your own app; Samsung Health data;
+  FIT, GPX and TCX imports; Bluetooth devices without a phone; webhooks on new data; Open mHealth
+  JSON; MCP for remote agents; share links for a clinician; several wearables without double
+  counting; Docker Compose with HTTPS; Raspberry Pi 5; erasure and portability; moving from the
+  Terra API), a fuller README with an overview, use cases, comparison and FAQ, more answers in
+  `docs/faq.md`, and `llms.txt`, `AGENTS.md` and `CITATION.cff` at the repository root.
+
 ## [0.3.0] - 2026-10-29
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
