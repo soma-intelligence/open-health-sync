@@ -233,14 +233,6 @@
   border-radius: inherit;
 }
 
-.step a:focus-visible {
-  outline: none;
-}
-
-.step a:focus-visible::after {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
 
 .step a:hover {
   color: var(--op-accent-text);
