@@ -1,3 +1,4 @@
+import { useSession } from "../session/SessionProvider";
 import { BrandMark, Icon } from "../ui/Icon";
 
 export interface TopBarProps {
@@ -18,6 +19,9 @@ export function shortcutLabel(platform: string = typeof navigator === "undefined
 }
 
 export function TopBar({ narrow, menuOpen, navId, onMenu, inspectorOpen, onInspector, onSearch }: TopBarProps) {
+  const { session } = useSession();
+  // With the navigation folded away, the bar says which product and which tenant this is.
+  const scope = session?.acting_tenant.name;
   return (
     <header className="top">
       {narrow ? (
@@ -27,7 +31,10 @@ export function TopBar({ narrow, menuOpen, navId, onMenu, inspectorOpen, onInspe
           </button>
           <span className="brand">
             <BrandMark />
-            <span className="brand-name">Open Health Sync</span>
+            <span className="brand-text">
+              <span className="brand-name">Open Health Sync</span>
+              {scope ? <span className="brand-scope">{scope}</span> : null}
+            </span>
           </span>
         </>
       ) : null}

@@ -49,6 +49,21 @@
   white-space: nowrap;
 }
 
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.brand-scope {
+  font: 500 12px/1.3 var(--op-font);
+  letter-spacing: 0;
+  color: var(--op-fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .brand-mark {
   width: 26px;
   height: 26px;
@@ -108,9 +123,10 @@
   color: var(--op-fg);
 }
 
+/* A pressed toggle (the inspector): neutral, like the page you are on in the navigation. */
 .icon-btn.on {
-  color: var(--op-accent-text);
-  background: var(--op-accent-wash);
+  color: var(--op-fg);
+  background: var(--op-field);
 }
 
 .insp {
@@ -349,13 +365,32 @@
 
 /* ---------- under 768 px: the inspector is a bottom sheet ---------- */
 @media (max-width: 767px) {
+  .brand {
+    min-width: 0;
+    flex: 1;
+  }
+
   .brand-name {
-    display: none;
+    font: 600 13px/1.3 var(--op-font);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The search folds to its icon; its words stay as the button's name. */
+  .search {
+    flex: none;
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+    margin-left: auto;
   }
 
   .search span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
     overflow: hidden;
-    text-overflow: ellipsis;
+    clip-path: inset(50%);
     white-space: nowrap;
   }
 
@@ -388,8 +423,19 @@
     min-height: 44px;
   }
 
+  .icon-btn,
+  .search {
+    min-height: 44px;
+  }
+
   .icon-btn {
     width: 44px;
     height: 44px;
+  }
+}
+
+@media (pointer: coarse) and (max-width: 767px) {
+  .search {
+    width: 44px;
   }
 }
