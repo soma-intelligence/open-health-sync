@@ -40,7 +40,8 @@ for (const scheme of ["light", "dark"] as const) {
     await page.goto("/console/overview");
     await page.getByRole("group", { name: "Theme" }).getByRole("button", { name: scheme === "light" ? "Light" : "Dark" }).click();
     await expect(page.getByRole("region", { name: "Pipeline, live" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Needs you" })).toBeVisible();
+    // Needs you is a card when something does, one line under the stages when nothing does.
+    await expect(page.getByRole("heading", { name: "Needs you" }).or(page.getByText("Nothing needs you."))).toBeVisible();
     await page.waitForLoadState("networkidle");
     await page.screenshot({ path: resolve(out, `overview-${scheme}.png`) });
     if (review) await fullShot(page, resolve(out, `overview-full-${scheme}.png`));
