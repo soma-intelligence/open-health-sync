@@ -1067,3 +1067,37 @@ func TestListUsersByExternalRef(t *testing.T) {
 	require.Equal(t, http.StatusOK, r.code, string(r.body))
 	assert.JSONEq(t, `{"data":[],"next_cursor":null}`, string(r.body))
 }
+
+func TestListUsersStoredData(t *testing.T) {
+	e := newEnv(t)
+	a := e.user(e.tenantA, "a")
+	b := e.user(e.tenantA, "b")
+	other := e.user(e.tenantB, "b")
+	// a has records from two providers; b has a zero row only; B's user has
+	// records of its own tenant.
+	e.exec(`INSERT INTO ohs_sync.pull_coverage (tenant_id, user_id, provider, metric, date, records_count, last_synced_at) VALUES
+		($1, $2, 'apple_health', 'steps', '2026-02-01', 10, '2026-02-02T06:00:00Z'),
+		($1, $2, 'apple_health', 'heart_rate', '2026-02-01', 20, '2026-02-02T06:00:00Z'),
+		($1, $2, 'oura', 'steps', '2026-02-02', 3, '2026-02-03T08:00:00Z'),
+		($1, $3, 'oura', 'steps', '2026-02-02', 0, '2026-02-03T08:00:00Z'),
+		($4, $5, 'withings', 'weight', '2026-02-05', 9, '2026-02-06T08:00:00Z')`,
+		e.tenantA, a, b, e.tenantB, other)
+
+	type item struct {
+		ID         uuid.UUID  `json:"id"`
+		Sources    int64      `json:"sources"`
+		LastDataAt *time.Time `json:"last_data_at"`
+	}
+	var p page[item]
+	r := e.do("GET", "/v1/users", e.keyA, nil)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	r.json(t, &p)
+	require.Len(t, p.Data, 2)
+	byID := map[uuid.UUID]item{p.Data[0].ID: p.Data[0], p.Data[1].ID: p.Data[1]}
+	assert.Equal(t, int64(2), byID[a].Sources)
+	require.NotNil(t, byID[a].LastDataAt)
+	assert.Equal(t, "2026-02-03T08:00:00Z", byID[a].LastDataAt.UTC().Format(time.RFC3339))
+	assert.Equal(t, int64(0), byID[b].Sources, "a zero row is no data")
+	assert.Nil(t, byID[b].LastDataAt)
+	assert.Contains(t, string(r.body), `"last_data_at":null`)
+}

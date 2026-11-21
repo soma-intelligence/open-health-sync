@@ -133,6 +133,7 @@ from .models import (
     UpdateUserRequest,
     UpdateWebhookRequest,
     User,
+    UserListItem,
     UserToken,
     Webhook,
     WebhookDelivery,
@@ -340,7 +341,7 @@ class OpenHealthSync:
         *,
         external_ref: Optional[str] = None,
         limit: Optional[int] = None,
-    ) -> Iterator[User]:
+    ) -> Iterator[UserListItem]:
         """Every item of :meth:`list_users`, page after page, following ``next_cursor``."""
         return paginate(
             lambda cursor: self.list_users(

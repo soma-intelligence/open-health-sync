@@ -3,8 +3,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -126,11 +128,67 @@ func (s *server) listUsers(w http.ResponseWriter, r *http.Request) {
 		internalError(w, r, "api: list users", err)
 		return
 	}
-	out := make([]userJSON, 0, len(users))
+	ids := make([]uuid.UUID, 0, len(users))
 	for _, u := range users {
-		out = append(out, toUserJSON(u))
+		ids = append(ids, u.ID)
+	}
+	stored, err := s.storedByUser(r.Context(), p.TenantID, ids)
+	if err != nil {
+		internalError(w, r, "api: list users", err)
+		return
+	}
+	out := make([]userListItemJSON, 0, len(users))
+	for _, u := range users {
+		item := userListItemJSON{userJSON: toUserJSON(u)}
+		if st, ok := stored[u.ID]; ok {
+			item.Sources, item.LastDataAt = st.sources, &st.last
+		}
+		out = append(out, item)
 	}
 	writeJSON(w, http.StatusOK, newPage(out, next))
+}
+
+// userListItemJSON is a user of GET /v1/users, with what the coverage
+// summary holds for them.
+type userListItemJSON struct {
+	userJSON
+	// Sources counts the providers the user has records from.
+	Sources int64 `json:"sources"`
+	// LastDataAt is when the user's last record landed; null before the
+	// first.
+	LastDataAt *time.Time `json:"last_data_at"`
+}
+
+type userStored struct {
+	sources int64
+	last    time.Time
+}
+
+// storedByUser reads, for one page of users, the providers each has records
+// from and when the last one landed: one query on the coverage summary,
+// whose primary key leads with (tenant_id, user_id).
+func (s *server) storedByUser(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]userStored, error) {
+	out := make(map[uuid.UUID]userStored, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.d.Pool.Query(ctx, `SELECT user_id, count(DISTINCT provider), max(last_synced_at)
+		FROM ohs_sync.pull_coverage WHERE tenant_id = $1 AND user_id = ANY($2) AND records_count > 0
+		GROUP BY user_id`, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("coverage: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var st userStored
+		if err := rows.Scan(&id, &st.sources, &st.last); err != nil {
+			return nil, fmt.Errorf("coverage: %w", err)
+		}
+		st.last = st.last.UTC()
+		out[id] = st
+	}
+	return out, rows.Err()
 }
 
 func (s *server) getUser(w http.ResponseWriter, r *http.Request) {

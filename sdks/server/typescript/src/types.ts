@@ -687,6 +687,31 @@ export interface User {
   timezone_source: "explicit" | "learnt" | null;
 }
 
+/** A user of the list, with what the coverage report holds for them. */
+export interface UserListItem {
+  id: string;
+  external_ref: string | null;
+  status: "active" | "deleting";
+  created_at: string;
+  /**
+   * The user's IANA time zone, null when none is known. It is the zone of the local
+   * day of a sample that carries no zone of its own: daily totals take the sample's
+   * zone, then this one, then UTC.
+   */
+  timezone: string | null;
+  /**
+   * Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+   * when it was taken from the latest record of a device upload (Apple Health, Health
+   * Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+   * Null when `timezone` is.
+   */
+  timezone_source: "explicit" | "learnt" | null;
+  /** The providers the user has records from, whatever the way in. */
+  sources: number;
+  /** When the user's last record landed; null before the first. */
+  last_data_at: string | null;
+}
+
 export interface DeletionJob {
   job_id: string;
   user_id: string;
@@ -2391,7 +2416,7 @@ export interface ListProvidersResponse {
 }
 
 export interface ListUsersResponse {
-  data: User[];
+  data: UserListItem[];
   /** Null on the last page. */
   next_cursor: string | null;
 }

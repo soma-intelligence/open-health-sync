@@ -125,6 +125,7 @@ import type {
   UpdateUserRequest,
   UpdateWebhookRequest,
   User,
+  UserListItem,
   UserToken,
   Webhook,
   WebhookDelivery,
@@ -893,7 +894,7 @@ export class OpenHealthSync {
   iterUsers(
     params: Omit<ListUsersParams, "cursor"> = {},
     options?: RequestOptions,
-  ): AsyncGenerator<User> {
+  ): AsyncGenerator<UserListItem> {
     return paginate((cursor) => this.listUsers({ ...params, cursor }, options));
   }
 

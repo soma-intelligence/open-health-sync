@@ -12,6 +12,8 @@ release may change the API, the configuration or the database schema.
 - `GET /v1/pipeline` answers `data`: the records the tenant has stored, the users and the providers with
   records, and when the last one landed, whatever the way in (a connection, an app upload, a demo seed). Each
   source has `records`, and a provider with records but no connection is listed for them.
+- `GET /v1/users` gives each user `sources` (the providers they have records from) and `last_data_at` (when
+  their last record landed), from the coverage summary in one query per page.
 - Server settings can be saved from the console, and applied without a restart for the live ones
   ([console.md](docs/console.md#settings-saved-from-the-console)). For each setting the environment wins, then
   the console, then the default. Migration `0056` adds `ohs_core.instance_settings`; migration `0057` adds

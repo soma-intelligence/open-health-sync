@@ -715,6 +715,28 @@ class User(TypedDict):
     timezone_source: Optional[Literal["explicit", "learnt"]]
 
 
+class UserListItem(TypedDict):
+    """A user of the list, with what the coverage report holds for them."""
+
+    id: str
+    external_ref: Optional[str]
+    status: Literal["active", "deleting"]
+    created_at: str
+    # The user's IANA time zone, null when none is known. It is the zone of the local
+    # day of a sample that carries no zone of its own: daily totals take the sample's
+    # zone, then this one, then UTC.
+    timezone: Optional[str]
+    # Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+    # when it was taken from the latest record of a device upload (Apple Health, Health
+    # Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+    # Null when `timezone` is.
+    timezone_source: Optional[Literal["explicit", "learnt"]]
+    # The providers the user has records from, whatever the way in.
+    sources: int
+    # When the user's last record landed; null before the first.
+    last_data_at: Optional[str]
+
+
 class DeletionJob(TypedDict):
     job_id: str
     user_id: str
@@ -2451,7 +2473,7 @@ class ListProvidersResponse(TypedDict):
 
 
 class ListUsersResponse(TypedDict):
-    data: List[User]
+    data: List[UserListItem]
     # Null on the last page.
     next_cursor: Optional[str]
 
@@ -2877,6 +2899,7 @@ __all__ = [
     "UpdateUserRequest",
     "UpdateWebhookRequest",
     "User",
+    "UserListItem",
     "UserToken",
     "Webhook",
     "WebhookAttempt",
