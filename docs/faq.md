@@ -68,3 +68,60 @@ gives you is control: the data stays on infrastructure you choose, deletion and 
 calls, consent is enforced per source and category, and provider tokens are encrypted. Whether a
 deployment meets HIPAA or GDPR depends on how you run it. See the
 [security model](security-model.md).
+
+## How do I get Dexcom CGM data through an API?
+
+Connect a Dexcom account to Open Health Sync with your own Dexcom developer app: it pulls the
+readings from the Dexcom API v3, every hour, and serves them as JSON, CSV, Parquet or FHIR R4.
+A new Dexcom app works against the sandbox until Dexcom approves it. See
+[Get Dexcom CGM glucose readings through an API](how-to/dexcom-glucose-api.md).
+
+## How do I get Samsung Health data through an API?
+
+Samsung Health has no cloud API to pull from. It writes to Android's Health Connect, and your
+Android app uploads Health Connect records to Open Health Sync, where they keep the source slug
+`samsung_health`. See [Get Samsung Health data through an API](how-to/samsung-health-data.md).
+
+## How do I send HealthKit or Health Connect data to my own server?
+
+Your mobile app reads the on-device store and uploads gzip NDJSON parts to
+`POST /v1/ingest/apple-health` or `POST /v1/ingest/health-connect`. The Swift SDK does the
+HealthKit side for you. See [Sync HealthKit data from your iOS app](how-to/healthkit-ios-app-sync.md)
+and [Send Health Connect data to your own server](how-to/health-connect-to-server.md).
+
+## Can I run a health data API on a Raspberry Pi?
+
+Yes. A Raspberry Pi 5 with 4 GB runs the whole stack with Docker Compose and the
+`deploy/docker-compose.pi.yml` overlay. See
+[Self-host a health data API on a Raspberry Pi 5](how-to/raspberry-pi.md).
+
+## How do I get a webhook when new wearable data arrives?
+
+Register an endpoint with `POST /v1/webhooks` and subscribe to `data.written`. Each event is
+signed, names the user, provider and days that changed, and carries no health value. See
+[Get a webhook when new wearable data arrives](how-to/webhooks-new-data.md).
+
+## How do I read Bluetooth health devices without a phone?
+
+Run `ohs-bridge` on a Mac, a Linux machine, a Raspberry Pi or a Windows PC near the device. It
+reads standard Bluetooth heart rate, blood pressure, scale, glucose, thermometer and pulse
+oximeter profiles and uploads the readings. See
+[Record a Bluetooth heart rate strap, blood pressure cuff or scale without a phone](how-to/bluetooth-devices.md).
+
+## How do I avoid double counting when several wearables measure the same thing?
+
+Read through the merged view, the default: it keeps one source per figure when several measured
+it, and you set which source wins per metric with `PUT /v1/users/{id}/source-priorities`. See
+[Combine data from several wearables](how-to/merge-multiple-wearables.md).
+
+## How do I move from Terra to a self-hosted aggregator?
+
+Register your own vendor apps, create one user per person, replace Terra's widget with a connect
+session and its webhook destination with signed webhooks. See
+[Move from the Terra API to a self-hosted aggregator](how-to/migrate-from-terra.md).
+
+## How do I delete a user's health data?
+
+Call `DELETE /v1/users/{id}`: it cuts the user's access at once and a background job removes their
+raw files and records. Download the complete archive first if the person asked for a copy. See
+[Delete a user's health data](how-to/delete-user-data.md).
