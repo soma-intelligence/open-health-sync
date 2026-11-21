@@ -26,10 +26,12 @@ const (
 	MaxPasscodeFailures = 10
 )
 
-// The passcode hash: PBKDF2 with HMAC-SHA256.
+// The passcode hash: PBKDF2 with HMAC-SHA256. The iteration count is part of
+// each stored hash, so raising passcodeIterations only changes new passcodes:
+// a hash stored with an older count (100 000 before 0.3.0) still verifies.
 const (
 	passcodeScheme     = "pbkdf2-sha256"
-	passcodeIterations = 100000
+	passcodeIterations = 600000
 	passcodeSalt       = 16
 	passcodeKey        = 32
 	// A stored hash outside these iteration counts is not one of ours.

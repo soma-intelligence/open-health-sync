@@ -23,12 +23,15 @@ import (
 //
 //   - a provider table, with a provider column: its rows of the user and
 //     provider are deleted (normalized records, daily summaries, provider
-//     tombstones, failed records, raw object rows, ETL and pull jobs, pull
+//     tombstones, failed records, raw object rows, series blobs (an ECG's
+//     voltages and a workout's route carry the provider of their recording
+//     or workout), ETL and pull jobs, pull
 //     coverage, the sync log, push subscriptions, OAuth states, and the
 //     connection once it is disconnected);
 //   - a child table, listed in childTables: its rows hang off a parent row of
 //     a provider table (sleep phases, route points, track summaries, ECG
-//     voltages) and are deleted with the parent's rows;
+//     voltages not yet moved into a series blob) and are deleted with the
+//     parent's rows;
 //   - a kept table, listed in keptTables: its rows are the user's own, not
 //     any provider's (time tags, the order of sources, share links and
 //     their access history), and stay; a share link that holds records of
@@ -37,7 +40,10 @@ import (
 //
 // Daily summaries are per provider: a derived row sums one provider's own
 // samples (internal/etl/daily.go), so removing that provider's rows leaves the
-// other providers' summaries exact and nothing needs recomputing.
+// other providers' summaries exact and nothing needs recomputing. The sealed
+// hourly buckets (ohs_data.quantity_hourly_sealed) are per provider as well:
+// provider is part of their key, so they are a provider table here, deleted
+// with the samples they count, and the other providers' buckets stay exact.
 
 // childOf names the parent of a child table's rows: fk holds the parent's id.
 type childOf struct{ fk, parent string }

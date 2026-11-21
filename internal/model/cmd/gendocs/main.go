@@ -44,9 +44,20 @@ var tables = map[string]string{
 	"Observation":      "observations",
 }
 
-// notServed names the stored types that no REST route or MCP tool reads yet.
-var notServed = map[string]string{
-	"Observation": "No connector writes it yet, and no read route serves it (planned).",
+// seriesStored names the types stored as series blobs (migration 0053): the
+// points of one parent in one compressed row of ohs_data.series_blobs, by
+// kind. Their per-point table still holds the rows written before, until
+// `ohs vault seal` moves them.
+var seriesStored = map[string]string{
+	"RoutePoint":       "the route of one workout (kind 2)",
+	"ECGVoltageSample": "the voltages of one recording (kind 1)",
+	"HeartbeatSample":  "the beats of one series (kind 3)",
+}
+
+// tableNotes says, per stored type, what its table holds today and what
+// serves it, when that is not obvious.
+var tableNotes = map[string]string{
+	"Observation": "Lab results are its only rows today (canonical code `lab:...`, provider `labs`), served by `/labs` ([labs.md](labs.md)); no other connector writes it yet.",
 }
 
 // notes explain the fields whose meaning is not obvious from the name. The key
@@ -85,7 +96,10 @@ var notes = map[string]string{
 	"HeartbeatSample.RRMS":               "RR interval in milliseconds.",
 	"Observation.CanonicalCode":          "Controlled code, not free text.",
 	"Observation.UnitUCUM":               "UCUM unit of the value.",
-	"Observation.TypeConcept":            "`device`, `survey`, `ehr` or `derived`.",
+	"Observation.TypeConcept":            "`device`, `survey`, `ehr` or `derived`. A lab result is `ehr`.",
+	"Observation.ExternalID":             "The source's id of the record. Clear: an id carries no value.",
+	"Observation.ReportID":               "The source's id of the report (panel) a lab result belongs to. Clear, like ExternalID.",
+	"Observation.Replaceable":            "Writer instruction, not a column: the latest copy of the source record (same provider and external id) replaces every stored copy whole, also under another time (an amended lab result).",
 	"MapResult.HighFrequency":            "The result holds high volume data and is written with COPY.",
 	"MapResult.SourceKey":                "Raw object the batch was mapped from. Child records use it to find a parent that arrived in another object.",
 	"MapResult.Deletions":                "Provider records the provider deleted: their stored rows are removed and a tombstone in `ohs_data.deleted_records` keeps them from being written again.",
@@ -103,6 +117,12 @@ converts units, validates, de-duplicates and writes them to the ` + "`ohs_data`"
 schema. Every stored row carries ` + "`tenant_id`" + ` and ` + "`user_id`" + `; the two are
 set by the pipeline and are never part of a content hash. Times are UTC. A field
 typed as a pointer is optional and reads as null in the API when absent.
+
+A local calendar day (a daily total, the coverage of a day) is the day in the
+record's own time zone, the ` + "`timezone`" + ` of its metadata; else in the user's time
+zone (` + "`ohs_core.end_users.timezone`" + `, set through the API or learnt from device
+uploads); else in UTC. The zone a sample's day was taken in is stored with it
+(` + "`tz`" + `), so changing the user's zone moves no stored sample to another day.
 
 Field names below are the Go names used inside the pipeline, not the wire names:
 the JSON the API returns uses snake_case names, and some differ (for example
@@ -247,8 +267,12 @@ func writeType(w io.Writer, fset *token.FileSet, name string, doc *ast.CommentGr
 	if s := firstSentence(doc, name); s != "" {
 		fmt.Fprintf(w, "%s\n\n", s)
 	}
-	if t, ok := tables[name]; ok {
-		if note, unserved := notServed[name]; unserved {
+	if what, ok := seriesStored[name]; ok {
+		fmt.Fprintf(w, "Stored in `ohs_data.series_blobs`: one compressed blob per series, %s, sealed "+
+			"like any sealed row. Rows stored before 0.3.0 stay in `ohs_data.%s` until `ohs vault seal` moves them "+
+			"into their blob.\n\n", what, tables[name])
+	} else if t, ok := tables[name]; ok {
+		if note, noted := tableNotes[name]; noted {
 			fmt.Fprintf(w, "Stored in `ohs_data.%s`. %s\n\n", t, note)
 		} else {
 			fmt.Fprintf(w, "Stored in `ohs_data.%s`.\n\n", t)

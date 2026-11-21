@@ -24,6 +24,9 @@ type task struct {
 type Scheduler struct {
 	tasks  []task
 	jitter float64
+	// onTick, when set, is told at the top of every iteration of a task's
+	// loop, before the wait: the task's name and interval (Deps.OnTick).
+	onTick func(task string, interval time.Duration)
 }
 
 // NewScheduler returns an empty scheduler. jitter is the fraction of the
@@ -57,6 +60,9 @@ func (s *Scheduler) loop(ctx context.Context, t task) {
 	slog.InfoContext(ctx, "automation task starting", "task", t.name, "interval", t.interval)
 	wait := time.Duration(rand.Float64() * s.jitter * float64(t.interval))
 	for {
+		if s.onTick != nil {
+			s.onTick(t.name, t.interval)
+		}
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():

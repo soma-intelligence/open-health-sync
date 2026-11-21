@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// The Android side of open-health-sync-react-native: a Turbo Native Module over the Kotlin
+// SDK's health-connect module. React Native's Gradle plugin generates the module's spec
+// (NativeOpenHealthSyncSpec) from src/health/NativeOpenHealthSync.ts.
+
+ext.OpenHealthSync = [
+  // Health Connect needs API 26.
+  minSdkVersion: 26,
+  // androidx.health.connect:connect-client 1.1.0 asks for compileSdk 36.
+  compileSdkVersion: 36,
+]
+
+// compileSdk follows the app when it is newer; minSdk never goes below what Health Connect needs.
+def atLeast = { String prop ->
+  def own = OpenHealthSync[prop] as int
+  def app = rootProject.ext.has(prop) ? (rootProject.ext.get(prop) as int) : own
+  return Math.max(own, app)
+}
+
+apply plugin: "com.android.library"
+
+if (project.extensions.findByName("kotlin") == null) {
+  apply plugin: "kotlin-android"
+}
+
+apply plugin: "com.facebook.react"
+
+// Until the Kotlin SDK is on Maven Central it comes from a Maven repository on disk, filled
+// by local-maven.init.gradle (see the README): ohs.sdkMavenRepo in gradle.properties,
+// OHS_SDK_MAVEN_REPO, or local-maven/ next to this file. The app resolves this library's
+// dependencies with its own repositories, so the repository is added to every project.
+def sdkRepo = findProperty("ohs.sdkMavenRepo") ?: System.getenv("OHS_SDK_MAVEN_REPO")
+if (!sdkRepo && file("local-maven").isDirectory()) {
+  sdkRepo = file("local-maven").path
+}
+if (sdkRepo) {
+  rootProject.allprojects { p ->
+    p.repositories {
+      maven {
+        name = "ohsSdkLocal"
+        url = uri(sdkRepo)
+        content { includeGroup "org.openhealthsync" }
+      }
+    }
+  }
+}
+
+android {
+  namespace "org.openhealthsync.reactnative"
+
+  compileSdkVersion atLeast("compileSdkVersion")
+
+  defaultConfig {
+    minSdkVersion atLeast("minSdkVersion")
+  }
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+  // HealthConnectSync, with the client, the upload queue and the WorkManager job.
+  implementation "org.openhealthsync:open-health-sync-health-connect:0.1.0"
+  // ActivityResultRegistry, to show the Health Connect permission screen.
+  implementation "androidx.activity:activity:1.9.3"
+}

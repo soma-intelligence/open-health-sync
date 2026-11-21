@@ -27,7 +27,7 @@ scores, insights and products belong in what you build on top.
     Docker Compose, a Raspberry Pi 5, an S3 bucket or a single binary.
   </Card>
   <Card icon={<Plug />} title="Connect sources" href="/documentation/connectors">
-    Eighteen sources today: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom and more.
+    Nineteen sources today: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom and more.
   </Card>
   <Card icon={<Braces />} title="API reference" href="/documentation/api-reference">
     Every route, generated from the OpenAPI 3.1 file that leads the code.
@@ -61,33 +61,38 @@ written once, with the boring parts done properly.
 | Raw payloads | parsed, then thrown away | kept verbatim, so a user can be re-processed after a fix |
 | Is it done? | guess, or read the logs | `GET /coverage`: pending, parked and rejected counts |
 | Provider OAuth tokens | a plain column | sealed with AES-256-GCM |
+| Health records and raw payloads | readable by whoever reads the database | sealed under a key per user |
 | Delete a user | grep across tables and buckets | `DELETE /v1/users/{id}`, then poll the job |
 
 ## What ships today
 
 Everything below is in v0.3.0.
 
-<Status is="available" /> **Sources (eighteen):** [Apple Health](/documentation/connectors/apple-health) through your
+<Status is="available" /> **Sources (nineteen):** [Apple Health](/documentation/connectors/apple-health) through your
 iOS app or a Health app export, [Health Connect](/documentation/connectors/health-connect) through your Android app,
 [Withings](/documentation/connectors/withings), [Oura](/documentation/connectors/oura), [WHOOP](/documentation/connectors/whoop),
 [Strava](/documentation/connectors/strava), [Polar](/documentation/connectors/polar), [Fitbit](/documentation/connectors/fitbit),
 [Suunto](/documentation/connectors/suunto), [Ultrahuman](/documentation/connectors/ultrahuman), [intervals.icu](/documentation/connectors/intervals-icu),
-[Dexcom](/documentation/connectors/dexcom), [OMRON](/documentation/connectors/omron) and [Garmin](/documentation/connectors/garmin) over OAuth,
+[Dexcom](/documentation/connectors/dexcom), [OMRON](/documentation/connectors/omron), [Garmin](/documentation/connectors/garmin) and [Wahoo](/documentation/connectors/wahoo) over OAuth,
 [Eight Sleep](/documentation/connectors/eight-sleep) through the sign-in its app uses, [Xiaomi](/documentation/connectors/xiaomi) from the
 Mi Fitness data copy, [activity files](/documentation/connectors/activity-files) (FIT, GPX, TCX) and
-[Bluetooth devices](/documentation/connectors/bluetooth) on the standard health profiles. Some need keys that the
+[Bluetooth devices](/documentation/connectors/bluetooth) on the standard health profiles. Lab results are uploaded
+as FHIR R4 or JSON ([lab results](https://github.com/soma-intelligence/open-health-sync/blob/main/docs/labs.md)), and a [sandbox provider](/documentation/connectors/sandbox),
+off by default, runs the connect flow on synthetic data. Some need keys that the
 vendor gives to approved developers only: the [sources page](/documentation/connectors/sources)
 says which.
 
 <Status is="available" /> **Outputs:** the [REST API](/documentation/api-reference), the read-only
 [MCP server](/documentation/api-reference/mcp), [FHIR R4](/documentation/guides/fhir),
 [Open mHealth](/documentation/guides/open-mhealth), [CSV and Parquet exports](/documentation/guides/exports),
-[outgoing webhooks](/documentation/guides/webhooks) and [client SDKs](/documentation/sdks) for
-Kotlin, Swift, React Native and Flutter (installed from the repository, not from package
-registries yet).
+[outgoing webhooks](/documentation/guides/webhooks), a Server-Sent Events
+[event stream](https://github.com/soma-intelligence/open-health-sync/blob/main/docs/events-stream.md) and [client SDKs](/documentation/sdks) for Kotlin, Swift,
+React Native and Flutter (installed from the repository, not from package registries yet). The
+Swift SDK reads HealthKit, the Kotlin SDK reads Health Connect, and the React Native and Flutter
+health modules read both through them.
 
-<Status is="planned" /> **Next:** more connectors (Coros, a Garmin Personal API connector),
-then health records (EHR) through SMART on FHIR. The
+<Status is="planned" /> **Next:** a Garmin Personal API connector, then health records (EHR) through
+SMART on FHIR. The
 [sources page](/documentation/connectors/sources) tracks each one.
 
 <Callout title="Early preview">
@@ -108,9 +113,10 @@ database and raw store. Logs never contain tokens, keys or health values.
     by a business associate agreement. What it gives you: data stays on infrastructure you choose,
     `DELETE /v1/users/{id}` is a hard delete of raw files and rows, `OHS_RETENTION_DAYS` enforces a
     retention period, every query is scoped to a tenant and a user, keys and tokens are stored
-    hashed, and provider OAuth tokens are encrypted. Health records themselves are not encrypted
-    by `ohs`: use disk or database encryption, TLS in front of the API, and your own access
-    controls.
+    hashed, provider OAuth tokens are encrypted, and from 0.3.0 health records and raw payloads
+    are sealed per user ([security model](/documentation/concepts/security-model)). Ids, types,
+    times and units stay readable in the database: use disk or database encryption as well, TLS
+    in front of the API, and your own access controls.
   </Accordion>
   <Accordion title="What does it cost?">
     Nothing. The server is free and open source. You pay for wherever you run it, which can be a

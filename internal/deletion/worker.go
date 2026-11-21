@@ -15,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
+	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -33,6 +35,10 @@ const (
 	maxRevokeBudget     = 5 * time.Minute
 	defaultBackoff      = 5 * time.Second
 	maxBackoff          = 10 * time.Minute
+	// jobLimit is how long one deletion may hold the loop before the loop
+	// counts as hung (WithHeartbeat): a user with years of data and a slow
+	// raw store takes a while, never this long.
+	jobLimit = time.Hour
 )
 
 // Worker finishes the deletion jobs the API queued.
@@ -43,14 +49,18 @@ const (
 // transaction that takes the job row with FOR UPDATE SKIP LOCKED and
 // rechecks it is still unfinished, so exactly one worker completes it.
 // A crashed or failed attempt leaves the job pending for a later pass.
+// With a vault (WithVault), the user's keys go first, in a short transaction
+// committed before any of this.
 type Worker struct {
 	pool    *pgxpool.Pool
 	raw     rawstore.Store
 	revoker ConnectionRevoker
+	vault   *vault.Vault
 
 	interval time.Duration
 	backoff  time.Duration // first retry delay of a failing job; doubles, capped at maxBackoff
 	grace    time.Duration // how long a job in flight may go on once Run's context ends
+	loop     *ops.Loop     // heartbeat of Run, nil without WithHeartbeat
 
 	mu    sync.Mutex
 	fails map[uuid.UUID]failState
@@ -72,6 +82,21 @@ func NewWorker(pool *pgxpool.Pool, raw rawstore.Store, revoker ConnectionRevoker
 // The state is kept in memory, per job id.
 func (w *Worker) WithBackoff(d time.Duration) *Worker {
 	w.backoff = d
+	return w
+}
+
+// WithVault shreds the user's keys first, in a transaction of its own, so
+// whatever the job has not removed yet opens nowhere from then on. Without
+// it the keys go with the user row, at the end.
+func (w *Worker) WithVault(v *vault.Vault) *Worker {
+	w.vault = v
+	return w
+}
+
+// WithHeartbeat makes Run beat on l at every pass, and report the deletion in
+// flight as work that excuses a silent loop.
+func (w *Worker) WithHeartbeat(l *ops.Loop) *Worker {
+	w.loop = l
 	return w
 }
 
@@ -97,6 +122,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	t := time.NewTicker(w.interval)
 	defer t.Stop()
 	for {
+		w.loop.Tick()
 		n, err := w.pass(ctx, jobCtx)
 		if err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "deletion: pass failed", "error", err)
@@ -136,7 +162,9 @@ func (w *Worker) pass(ctx, jobCtx context.Context) (int, error) {
 			break
 		}
 		skip = append(skip, j.id.String())
+		busy := w.loop.Busy(jobLimit)
 		finished, err := w.run(jobCtx, j)
+		busy()
 		if err != nil {
 			if ctx.Err() != nil || jobCtx.Err() != nil {
 				// Shutdown cut the job short: not a failure, it stays
@@ -223,6 +251,11 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 	}
 	log := slog.With("job_id", j.id, "tenant_id", j.tenant, "user_id", j.user)
 
+	if w.vault != nil {
+		if err := w.shred(ctx, j); err != nil {
+			return false, err
+		}
+	}
 	if w.revoker != nil {
 		var n int
 		if err := w.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_sync.connections
@@ -315,6 +348,44 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 	}
 	log.InfoContext(ctx, "deletion: user deleted", "tables", len(tables))
 	return true, nil
+}
+
+// shred deletes the user's keys and commits. It takes the user row as the
+// row deletes do, so an ETL job holding it FOR SHARE finishes first and its
+// rows are among those that no longer open. A user already gone, or with no
+// keys left (an earlier attempt shredded them), is nothing to do.
+func (w *Worker) shred(ctx context.Context, j job) error {
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("shred: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var keys bool
+	err = tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM ohs_core.vault_keys k WHERE k.tenant_id = u.tenant_id AND k.user_id = u.id)
+		FROM ohs_core.end_users u WHERE u.tenant_id = $1 AND u.id = $2 FOR UPDATE`, j.tenant, j.user).Scan(&keys)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("shred: lock user: %w", err)
+	}
+	if !keys {
+		return nil
+	}
+	if err := w.vault.Shred(ctx, tx, j.tenant, j.user); err != nil {
+		return err
+	}
+	user := j.user
+	if err := audit.Record(ctx, tx, audit.Event{Tenant: j.tenant, User: &user, ActorType: audit.System,
+		ActorID: "deletion worker", Action: audit.VaultUserShredded, Detail: map[string]any{"job_id": j.id.String()}}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("shred: commit: %w", err)
+	}
+	slog.InfoContext(ctx, "deletion: user keys shredded", "job_id", j.id, "tenant_id", j.tenant, "user_id", j.user)
+	return nil
 }
 
 // revokeBudget is the time RevokeAll gets for n live connections, so a slow

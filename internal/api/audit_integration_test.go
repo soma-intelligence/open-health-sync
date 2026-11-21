@@ -101,3 +101,38 @@ func TestAuditLogRecordsAuthenticatedRequests(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, e.do("GET", "/v1/audit?"+q, e.keyA, nil).code, q)
 	}
 }
+
+func TestAuditFilterByActor(t *testing.T) {
+	e := newEnv(t)
+	k2, info2, err := e.store.CreateKeyInfo(context.Background(), e.tenantA)
+	require.NoError(t, err)
+	var ki auditPage
+	e.do("GET", "/v1/tenant", e.keyA, nil)
+	e.do("GET", "/v1/users", k2, nil)
+	e.do("GET", "/v1/users", k2, nil)
+
+	r := e.do("GET", "/v1/audit?limit=100&actor_type=api_key&actor_id="+info2.ID.String(), e.keyA, nil)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	r.json(t, &ki)
+	require.NotEmpty(t, ki.Data)
+	for _, ev := range ki.Data {
+		assert.Equal(t, audit.APIKey, ev.Actor.Type)
+		assert.Equal(t, info2.ID.String(), ev.Actor.ID)
+	}
+
+	var all auditPage
+	e.do("GET", "/v1/audit?limit=100&actor_type=api_key", e.keyA, nil).json(t, &all)
+	assert.Greater(t, len(all.Data), len(ki.Data), "a type alone keeps every key")
+
+	var none auditPage
+	e.do("GET", "/v1/audit?actor_type=user_token", e.keyA, nil).json(t, &none)
+	assert.Empty(t, none.Data)
+
+	r = e.do("GET", "/v1/audit?actor_id="+info2.ID.String(), e.keyA, nil)
+	require.Equal(t, http.StatusBadRequest, r.code, string(r.body))
+	assert.Contains(t, string(r.body), "actor_type")
+
+	r = e.do("GET", "/v1/audit?actor_type=bogus", e.keyA, nil)
+	require.Equal(t, http.StatusBadRequest, r.code, string(r.body))
+	assert.Contains(t, string(r.body), "actor_type")
+}

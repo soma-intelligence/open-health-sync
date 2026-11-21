@@ -5,6 +5,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	// Every connector registers itself.
 	_ "github.com/soma-intelligence/open-health-sync/connectors/all"
 
@@ -26,9 +31,11 @@ import (
 	"github.com/soma-intelligence/open-health-sync/connectors/applehealth"
 	"github.com/soma-intelligence/open-health-sync/connectors/bluetooth"
 	"github.com/soma-intelligence/open-health-sync/connectors/healthconnect"
+	"github.com/soma-intelligence/open-health-sync/connectors/labs"
 	"github.com/soma-intelligence/open-health-sync/connectors/selfreport"
 	"github.com/soma-intelligence/open-health-sync/connectors/xiaomi"
 	"github.com/soma-intelligence/open-health-sync/internal/api"
+	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -39,20 +46,24 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/memlimit"
+	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantproviders"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
 // Process tuning.
 const (
-	// ETLConcurrency is how many jobs each ETL tier runs at once.
+	// ETLConcurrency is how many jobs each ETL tier runs at once, unless
+	// OHS_ETL_CONCURRENCY says otherwise.
 	ETLConcurrency = 4
 	// ShutdownGrace bounds shutdown: the HTTP server waits this long for
 	// requests in flight and the ETL, deletion and pull workers for their
@@ -63,7 +74,10 @@ const (
 	// ShutdownGrace before it gives up on them (a call ignoring its context).
 	shutdownMargin = 3 * time.Second
 	// tracingFlush bounds the export of the last spans at exit.
-	tracingFlush      = 5 * time.Second
+	tracingFlush = 5 * time.Second
+	// auditFlush bounds the write of the audit events still queued once the
+	// HTTP server has stopped.
+	auditFlush        = 10 * time.Second
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 2 * time.Minute
 )
@@ -75,8 +89,9 @@ const (
 // (an unsettled job claim is reclaimed later). Run returns at most ShutdownGrace plus a small margin
 // after ctx ends, and closes the database pool last. It returns the first
 // error that stopped a role early.
-func Run(ctx context.Context, cfg config.Config) error {
-	return runWith(ctx, cfg, os.Stderr, options{grace: ShutdownGrace, margin: shutdownMargin, memLimit: true})
+func Run(ctx context.Context, cfg config.Config, start settings.Start) error {
+	return runWith(ctx, cfg, os.Stderr, options{grace: ShutdownGrace, margin: shutdownMargin, memLimit: true,
+		start: start, lookup: os.LookupEnv, environ: os.Environ()})
 }
 
 // Version is logged at start (set by ohs serve).
@@ -85,7 +100,7 @@ var Version = "dev"
 // newLogger is the process logger: JSON lines, durations as text ("10m0s")
 // rather than nanoseconds, and the request id and trace id of the context on
 // each line.
-func newLogger(w io.Writer, level slog.Level) *slog.Logger {
+func newLogger(w io.Writer, level slog.Leveler) *slog.Logger {
 	return slog.New(tracing.LogHandler(reqid.Handler(slog.NewJSONHandler(w, &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
@@ -105,6 +120,20 @@ type options struct {
 	// memLimit sets the runtime's soft memory limit from the container's
 	// when GOMEMLIMIT is unset (the process, not a test).
 	memLimit bool
+	// noMinStall holds every loop to three of its own intervals, without
+	// the one minute floor (ops.MinStall); jobLimit, when set, is how long a
+	// claimed ETL job excuses its loop, in place of jobBusyLimit.
+	noMinStall bool
+	jobLimit   time.Duration
+	// start is what Boot learned about the stored settings; lookup and
+	// environ are the environment the configuration was read from. Nil
+	// lookup and environ mean os.LookupEnv and os.Environ().
+	start   settings.Start
+	lookup  func(string) (string, bool)
+	environ []string
+	// reloadEvery is how often the live settings are read; zero means
+	// settings.ReloadEvery.
+	reloadEvery time.Duration
 }
 
 func run(ctx context.Context, cfg config.Config, logOut io.Writer) error {
@@ -112,11 +141,15 @@ func run(ctx context.Context, cfg config.Config, logOut io.Writer) error {
 }
 
 func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts options) error {
+	startedAt := time.Now().UTC()
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
 		return fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", cfg.LogLevel)
 	}
-	logger := newLogger(logOut, level)
+	// The level follows the live settings (OHS_LOG_LEVEL saved in the console).
+	levelVar := new(slog.LevelVar)
+	levelVar.Set(level)
+	logger := newLogger(logOut, levelVar)
 	slog.SetDefault(logger)
 	if opts.memLimit {
 		switch n, src := memlimit.Apply(os.LookupEnv, memlimit.DefaultCgroupRoot); src {
@@ -184,7 +217,24 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		}
 		pool.Close()
 	}()
+	// The vault: a process that runs api or etl opens keys. One that runs
+	// collect alone seals to public keys only and never calls the key
+	// provider, so it does not even open it.
+	canOpen := cfg.Roles["api"] || cfg.Roles["etl"]
+	var keyProvider vault.KeyProvider
+	if canOpen {
+		if keyProvider, err = vault.OpenProvider(ctx, cfg.Vault); err != nil {
+			return fmt.Errorf("OHS_VAULT_KEY_PROVIDER: %w", err)
+		}
+	}
+	keyVault := vault.New(pool, keyProvider, vault.Options{
+		CanOpen: canOpen, CacheUsers: cfg.Vault.CacheUsers, CacheTTL: cfg.Vault.CacheTTL,
+	})
 	store := tenant.New(pool)
+	if canOpen {
+		// Users are created with their keys.
+		store = store.WithVault(keyVault)
+	}
 	// The enabled connectors: the environment's keys, then what the console
 	// saved. Every role reads the set through Lookup, so a provider turned on
 	// or off applies without a restart.
@@ -198,12 +248,23 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	// The provider keys tenants brought for themselves, read the same way.
 	// Removing them sets the connections made with them needs_reauth.
 	tenantKeys := tenantkeys.New(ctx, tenantkeys.Options{Store: tenantkeys.NewPG(pool, box, collect.RetireTenantKeys)})
+	// The live settings, one per process: every consumer below reads them
+	// through a getter, so a value saved in the console applies without a
+	// restart. Run reloads them (goRole "settings" below).
+	live := settings.NewLive(settings.LiveOptions{
+		Store: settings.NewPG(pool, box), Env: opts.lookup, Environ: opts.environ, Config: cfg, Start: opts.start,
+	})
+	live.Subscribe(func(s settings.Snapshot) { levelVar.Set(s.LogLevel) })
 	collectDeps := collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: store,
 		Lookup:     providers.Lookup,
 		Allowed:    tenantProviders.Allowed,
 		TenantKeys: tenantKeys,
 		PublicURL:  cfg.PublicURL,
+		// Zero leaves each provider its own backfill window.
+		BackfillWindowFunc: func() time.Duration { return backfillWindowOf(live.BackfillDays()) },
+		// Raw objects are sealed to public keys: collect alone can.
+		Vault: keyVault,
 	}
 
 	if cfg.BootstrapTenant != "" {
@@ -211,6 +272,24 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			return err
 		}
 	}
+	if canOpen {
+		// A root key that does not open refuses the start, rather than
+		// failing every read and write later.
+		if err := keyVault.Ready(ctx); err != nil {
+			return fmt.Errorf("vault: the key provider does not open the tenant keys: %w", err)
+		}
+		if _, err := ensureVaultKeys(ctx, pool, keyVault); err != nil {
+			return fmt.Errorf("vault: giving keys to the tenants and users without: %w", err)
+		}
+		if ctx.Err() != nil {
+			// Stopped during the pass: nothing started, nothing failed.
+			return nil
+		}
+	}
+
+	// Events are written for the event stream unless it is off
+	// (OHS_STREAM_MAX=0), by every role that produces them.
+	webhook.SetStreamRecording(cfg.StreamMax >= 0)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -238,50 +317,128 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	goRole("providers", func() error { return providers.Run(ctx, providerset.ReloadEvery) })
 	goRole("tenant providers", func() error { return tenantProviders.Run(ctx, tenantproviders.ReloadEvery) })
 	goRole("tenant keys", func() error { return tenantKeys.Run(ctx, tenantkeys.ReloadEvery) })
+	if canOpen {
+		// Drops from the cache the users another process shredded.
+		goRole("vault", func() error { return keyVault.Listen(ctx) })
+	}
+
+	// The row this process keeps in process_heartbeats so the console shows
+	// what each process runs.
+	goRole("settings", func() error { return live.Run(ctx, cmp.Or(opts.reloadEvery, settings.ReloadEvery)) })
+	host, _ := os.Hostname()
+	var roles []string
+	for r, on := range cfg.Roles {
+		if on {
+			roles = append(roles, r)
+		}
+	}
+	heartbeat := settings.NewHeartbeatWriter(pool, live, settings.Heartbeat{
+		ID: uuid.New(), Host: host, Roles: roles, Version: Version, StartedAt: startedAt,
+	})
+	goRole("heartbeat", func() error { return heartbeat.Run(ctx, settings.HeartbeatEvery) })
 
 	etlMetrics := &automation.Metrics{}
+	// The heartbeats of the loops below and the worker metrics, served on
+	// the ops listener (OHS_OPS_LISTEN).
+	loops := ops.NewRegistry()
+	if opts.noMinStall {
+		loops.WithMinStall(0)
+	}
+	workerMetrics := ops.NewMetrics(loops)
+	if cfg.OpsListen != "" {
+		d := api.OpsDeps{Pool: pool, Raw: raw, Vault: keyVault, Stalled: stalledLoops(loops)}
+		if cfg.Metrics {
+			writers := []func(io.Writer){}
+			if cfg.Roles["etl"] {
+				writers = append(writers, func(w io.Writer) { ops.WriteSnapshot(w, "ohs_etl_", etlMetrics.Snapshot()) })
+			}
+			if canOpen {
+				writers = append(writers, keyVault.Metrics().Write)
+			}
+			d.Metrics = opsMetrics(workerMetrics, writers...)
+			goRole("queue backlog", func() error {
+				return sampleQueues(ctx, pool, cfg.Roles, workerMetrics, queueSampleEvery)
+			})
+		}
+		if err := serveOps(ctx, cfg, d, opts.grace, logger, goRole); err != nil {
+			cancel()
+			wg.Wait()
+			return err
+		}
+	}
 	if cfg.Roles["etl"] {
 		q := queue.NewETL(pool)
+		// Zero (a Config not built by Load) means the queue's default.
+		q.PerUser = cfg.ETLJobsPerUser
+		q.Hooks = etlHooks(loops, workerMetrics, cmp.Or(opts.jobLimit, jobBusyLimit))
 		for _, tier := range []string{queue.TierStandard, queue.TierHighFreq} {
-			w := etl.NewWorkerWith(pool, raw, q, tier, ETLConcurrency, etl.WithShutdownGrace(opts.grace),
-				etl.WithConsentRequired(cfg.ConsentRequired))
+			w := etl.NewWorkerWith(pool, raw, q, tier, etlConcurrency(cfg), etl.WithShutdownGrace(opts.grace),
+				etl.WithConsentRequiredFunc(live.ConsentRequired), etl.WithVault(keyVault),
+				etl.WithRowsWritten(workerMetrics.ETLRows))
 			goRole("etl "+tier, func() error { return w.Run(ctx) })
 		}
-		// Provider grants are revoked best effort before the user's rows go.
-		// A deletion cut short by shutdown stays pending for the next start.
-		dw := deletion.NewWorker(pool, raw, collectDeps).WithShutdownGrace(opts.grace)
+		// The user's keys are shredded first, then provider grants are
+		// revoked best effort before the user's rows go. A deletion cut
+		// short by shutdown stays pending for the next start.
+		dw := deletion.NewWorker(pool, raw, collectDeps).WithVault(keyVault).WithShutdownGrace(opts.grace).
+			WithHeartbeat(loops.Loop(loopDeletion, deletionPollEvery))
 		goRole("deletion", func() error { return dw.Run(ctx) })
 		// Records of a category whose consent was revoked are purged here.
-		cp := consent.NewPurger(pool)
-		goRole("consent purge", func() error { return cp.Run(ctx) })
+		cp := consent.NewPurger(pool).WithVault(keyVault)
+		purgeLoop := loops.Loop(loopConsentPurge, consent.DefaultPurgeEvery)
+		goRole("consent purge", func() error { return runConsentPurge(ctx, cp, purgeLoop) })
 		// Outgoing webhooks: deliveries are written with the change they
 		// announce, posted from here.
-		ww := webhook.NewWorker(pool, box, webhook.WorkerConfig{AllowPrivate: cfg.WebhookAllowPrivate})
+		wcfg := webhookWorkerConfig(cfg)
+		wcfg.PauseAfterFunc = live.WebhookPauseAfter
+		wcfg.Loop, wcfg.Observe = loops.Loop(loopWebhooks, webhookPollEvery), workerMetrics.WebhookDone
+		ww := webhook.NewWorker(pool, box, wcfg)
 		goRole("webhooks", func() error { return ww.Run(ctx) })
 		goRole("automation", func() error {
 			return automation.Start(ctx, automation.Deps{
-				Pool: pool, Store: raw, RetentionDays: cfg.RetentionDays, Metrics: etlMetrics,
-				AuditRetentionDays: cfg.AuditRetentionDays,
+				Pool: pool, Store: raw, Metrics: etlMetrics,
+				RetentionDaysFunc:      live.RetentionDays,
+				AuditRetentionDaysFunc: live.AuditRetentionDays,
+				// Zero means the default, negative keeps the rows for ever.
+				TrackingRetentionDaysFunc: live.TrackingRetentionDays,
+				PruneHeartbeats:           func(ctx context.Context) (int64, error) { return settings.PruneHeartbeats(ctx, pool) },
+				OnTick:                    loops.Task,
 			})
 		})
 	}
 
 	if cfg.Roles["collect"] {
-		sch := collect.NewScheduler(collectDeps, collect.SchedulerConfig{
-			ShutdownGrace: opts.grace,
-			PerProvider:   cfg.PullsPerProvider, BackfillPerProvider: cfg.BackfillsPerProvider,
-		})
+		scfg := schedulerConfig(cfg, opts.grace)
+		scfg.Hooks = pullHooks(loops, workerMetrics)
+		sch := collect.NewScheduler(collectDeps, scfg)
 		goRole("collect", func() error { return sch.Run(ctx) })
 	}
 
 	if cfg.Roles["api"] {
+		// The audit events of the high volume actions are written in batches.
+		// Closed once every role has stopped, the HTTP server included, and
+		// before the pool (deferred earlier) closes: that writes what is
+		// still queued.
+		auditWriter := audit.NewWriter(pool, audit.WriterOptions{OnError: func(err error, lost int) {
+			slog.Warn("audit: batch not written", "error", err, "lost_events", lost)
+		}})
+		defer func() {
+			actx, acancel := context.WithTimeout(context.WithoutCancel(ctx), auditFlush)
+			defer acancel()
+			if err := auditWriter.Close(actx); err != nil {
+				slog.Warn("audit: flush at shutdown", "error", err)
+			}
+		}()
 		deps := api.Deps{
 			Pool:      pool,
 			Store:     store,
 			Raw:       raw,
+			Vault:     keyVault,
 			Providers: providers,
-			Metrics:   cfg.Metrics,
-			Console:   cfg.Console,
+			// The one live settings of the process, and the routes that edit them.
+			Settings: live,
+			Metrics:  cfg.Metrics,
+			Console:  cfg.Console,
 			// read-only hides the console's write actions.
 			ConsoleReadOnly: cfg.ConsoleReadOnly,
 			Collect:         collect.NewHandlers(collectDeps),
@@ -290,7 +447,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			// Provider keys of one tenant, and their admin routes.
 			TenantKeys: tenantKeys,
 			PublicURL:  cfg.PublicURL,
-			Webhooks:   webhook.NewStore(pool, box),
+			Webhooks:   webhook.NewStore(pool, box, webhook.WithRotationGraceFunc(live.WebhookRotationGrace)),
 			// WebhookAllowPrivate relaxes the endpoint URL checks.
 			WebhookAllowPrivate: cfg.WebhookAllowPrivate,
 			// Zero (a Config not built by Load) means the api default.
@@ -305,7 +462,9 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			RateLimitInboundProvider: api.RateLimit(cfg.RateLimitInboundProvider),
 			RateLimitOAuth:           api.RateLimit(cfg.RateLimitOAuth),
 			TrustedProxies:           cfg.TrustedProxies,
+			Audit:                    auditWriter,
 		}
+		apiTuning(cfg, &deps, live)
 		if cfg.Roles["etl"] {
 			deps.ETLMetrics = etlMetrics
 		}
@@ -327,6 +486,9 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		if c, ok := providers.Lookup(selfreport.Slug); ok {
 			deps.SelfReport, _ = connector.AsDevice(c)
 		}
+		if c, ok := providers.Lookup(labs.Slug); ok {
+			deps.Labs, _ = connector.AsDevice(c)
+		}
 		if cfg.Metrics && cfg.MetricsListen != "" {
 			deps.MetricsMux = http.NewServeMux()
 		}
@@ -334,7 +496,19 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		if cfg.Metrics && cfg.MetricsListen == "" && cfg.MetricsToken == "" {
 			slog.Info("metrics: /metrics refuses scrapes until OHS_METRICS_TOKEN or OHS_METRICS_LISTEN is set")
 		}
+		if warn := untrustedProxyWarning(cfg.Listen, cfg.TrustedProxies); warn != "" {
+			slog.Warn("api: " + warn)
+		}
+		if cfg.StreamMax >= 0 {
+			// The event stream: one LISTEN connection, the streams of this
+			// process, ended when the server shuts down.
+			deps.Stream = api.NewStreamHub(pool, api.StreamOptions{Max: cfg.StreamMax, MaxPerTenant: cfg.StreamMaxPerTenant})
+			goRole("event stream", func() error { return deps.Stream.Run(ctx) })
+		}
 		srv := newHTTPServer(cfg.Listen, api.NewRouter(deps), logger)
+		if deps.Stream != nil {
+			srv.RegisterOnShutdown(deps.Stream.Close)
+		}
 		// Started first: its shutdown goroutine stops it if the API listener fails.
 		if deps.MetricsMux != nil {
 			if err := serveMetrics(ctx, cfg.MetricsListen, deps.MetricsMux, opts.grace, logger, goRole); err != nil {
@@ -392,6 +566,101 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	slog.Info("ohs stopped")
 	errOnce.Do(func() {}) // firstErr is final from here on
 	return firstErr
+}
+
+// userKeysBatch is how many users one transaction of the startup pass gives
+// keys to.
+const userKeysBatch = 500
+
+// ensureVaultKeys gives a key to every tenant that has none, each in a
+// committed transaction of its own, then keys to every active user that has
+// none (stored before the vault, or by a tool without one), one transaction
+// per batch, and returns how many users. A tenant key committed first is
+// unwrapped once and then served from the cache to every batch. A user being
+// deleted gets none. A ctx that ends during the pass is a shutdown, not a
+// failure: the pass stops and returns no error.
+func ensureVaultKeys(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) (int, error) {
+	if err := ensureTenantKeys(ctx, pool, v); err != nil {
+		if ctx.Err() != nil {
+			return 0, nil
+		}
+		return 0, err
+	}
+	total := 0
+	var after struct{ tenant, user uuid.UUID }
+	for {
+		users, err := ensureUserKeysBatch(ctx, pool, v, after.tenant, after.user)
+		if ctx.Err() != nil {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+		// Until a batch finds none: the cursor moves past every user seen,
+		// so one left out (it turned deleting) is never read again.
+		if len(users) == 0 {
+			return total, nil
+		}
+		total += len(users)
+		after.tenant, after.user = users[len(users)-1][0], users[len(users)-1][1]
+		slog.Info("vault: keys given to users that had none", "users", len(users), "done", total)
+	}
+}
+
+// ensureTenantKeys creates the missing tenant keys, one transaction each.
+func ensureTenantKeys(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) error {
+	rows, err := pool.Query(ctx, `
+		SELECT id FROM ohs_core.tenants t
+		WHERE NOT EXISTS (SELECT 1 FROM ohs_core.vault_keys k WHERE k.tenant_id = t.id AND k.user_id IS NULL)
+		ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return err
+	}
+	for _, t := range tenants {
+		if err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return v.EnsureTenant(ctx, tx, t) }); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureUserKeysBatch gives keys to the next batch of users after the cursor
+// (tenant, user) and returns them, in order. It takes them FOR SHARE: a
+// deletion starting meanwhile waits for the batch, and a user it already
+// turned deleting is left out.
+func ensureUserKeysBatch(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault, tenant, user uuid.UUID) ([][2]uuid.UUID, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+	rows, err := tx.Query(ctx, `
+		SELECT tenant_id, id FROM ohs_core.end_users u
+		WHERE status = 'active' AND (u.tenant_id, u.id) > ($2, $3)
+		  AND NOT EXISTS (SELECT 1 FROM ohs_core.vault_keys k WHERE k.tenant_id = u.tenant_id AND k.user_id = u.id)
+		ORDER BY tenant_id, id
+		LIMIT $1
+		FOR SHARE`, userKeysBatch, tenant, user)
+	if err != nil {
+		return nil, err
+	}
+	users, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) ([2]uuid.UUID, error) {
+		var x [2]uuid.UUID
+		return x, r.Scan(&x[0], &x[1])
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range users {
+		if err := v.EnsureUser(ctx, tx, u[0], u[1]); err != nil {
+			return nil, err
+		}
+	}
+	return users, tx.Commit(ctx)
 }
 
 // serveMetrics serves /metrics on an address of its own (OHS_METRICS_LISTEN),

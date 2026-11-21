@@ -23,6 +23,11 @@ Every request carries `Authorization: Bearer <secret>`, one of:
 A user token without the `read` scope gets 403 on `/mcp`. A user of another tenant, or a user
 being deleted, reads as `user not found`, with no data.
 
+A bearer secret is the only way in. The server implements no MCP OAuth flow: there is no
+authorization or token endpoint and no dynamic client registration, and a request without a
+valid secret gets a plain 401 with `WWW-Authenticate: Bearer`. A client that can only sign in
+through OAuth cannot connect; use one that lets you set a header, or `ohs mcp` over stdio.
+
 ### A personal token
 
 For your own agent, mint a user token whose only scope is `read`. Such a token may live up to 30
@@ -140,6 +145,7 @@ Arguments mirror the REST query parameters. Times take RFC 3339 or `YYYY-MM-DD` 
 | `get_sample_stats` | `user_id`, `type`, `start`, `end`, `interval`, `tz`, `provider`, `view` | count, sum, mean, min and max per hour or local day, one series per provider and source. 0.2.0 and later |
 | `get_coverage` | `user_id`, `provider`, `start`, `end` | records per provider per day, plus `pending_jobs`, `parked_jobs` and `rejected_records` (lines not stored) |
 | `get_tags` | `user_id`, `kind`, `start`, `end`, `cursor`, `limit` | the user's [time tags](time-tags.md) that overlap the window, ongoing ones included, as `GET /v1/users/{id}/tags` |
+| `get_lab_results` | `user_id`, `code`, `report`, `start`, `end`, `cursor`, `limit` | lab results, as `GET /v1/users/{id}/labs` (see [labs.md](labs.md)) |
 | `list_connections` | `user_id` | provider connections, status, last sync time and health |
 | `list_webhooks` | `deliveries` | the tenant's [webhook](webhooks.md) endpoints and their health; with `deliveries`, each one's 10 latest deliveries (tenant key only; endpoints are managed through the REST API) |
 

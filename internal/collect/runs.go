@@ -437,8 +437,20 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 		ORDER BY id DESC LIMIT 1`, tenantID, userID, provider).Scan(&existing)
 	switch {
 	case err == nil:
+		// A run waiting out a failure (hours, when the provider was down)
+		// is brought forward: sync now means now.
+		moved, err := queue.ExpeditePull(ctx, tx, existing)
+		if err != nil {
+			return SyncRun{}, false, err
+		}
 		run, err := scanRun(tx.QueryRow(ctx, `SELECT `+runCols+` FROM ohs_sync.pull_jobs WHERE id = $1`, existing))
-		return run, false, err
+		if err != nil || !moved {
+			return run, false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return SyncRun{}, false, fmt.Errorf("commit: %w", err)
+		}
+		return run, false, nil
 	case !errors.Is(err, pgx.ErrNoRows):
 		return SyncRun{}, false, fmt.Errorf("find manual run: %w", err)
 	}
@@ -458,4 +470,89 @@ func (d Deps) syncNow(ctx context.Context, tenantID, userID uuid.UUID, provider 
 		return SyncRun{}, false, fmt.Errorf("commit: %w", err)
 	}
 	return run, created, nil
+}
+
+// RetrySyncRun queues a failed or cancelled run of a user again with fresh
+// attempts and returns it. pgx.ErrNoRows when the user has no such run,
+// queue.ErrNotParked when the run is queued, running or succeeded, and
+// queue.ErrPullQueued when another run already covers its window. A run
+// whose connection no longer syncs is cancelled again by the worker.
+func (d Deps) RetrySyncRun(ctx context.Context, tenantID, userID uuid.UUID, id int64) (SyncRun, error) {
+	if _, err := d.SyncRun(ctx, tenantID, userID, id); err != nil {
+		return SyncRun{}, err
+	}
+	if err := queue.RetryPull(ctx, d.Pool, tenantID, id); err != nil {
+		if errors.Is(err, queue.ErrNoJob) {
+			return SyncRun{}, pgx.ErrNoRows
+		}
+		return SyncRun{}, err
+	}
+	return d.SyncRun(ctx, tenantID, userID, id)
+}
+
+// RetryFailedSyncRuns queues again the failed runs of one connection (see
+// queue.RetryParkedPulls) and reports how many.
+func (d Deps) RetryFailedSyncRuns(ctx context.Context, tenantID, userID uuid.UUID, provider string) (int64, error) {
+	return queue.RetryParkedPulls(ctx, d.Pool, tenantID, userID, provider)
+}
+
+// RetrySyncRun serves POST /v1/users/{id}/sync-runs/{run}/retry. Mount
+// behind auth.Middleware with auth.TenantKey. It queues a failed run again
+// and answers 202 with the run; 404 for no such run of the user, 409 when
+// the run did not fail or its window is already queued.
+func (h *Handlers) RetrySyncRun() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tenantID, userID, ok := h.caller(w, r)
+		if !ok {
+			return
+		}
+		id, err := strconv.ParseInt(r.PathValue("run"), 10, 64)
+		if err != nil || id <= 0 {
+			writeNotFound(w, "sync run not found")
+			return
+		}
+		run, err := h.d.RetrySyncRun(r.Context(), tenantID, userID, id)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			writeNotFound(w, "sync run not found")
+		case errors.Is(err, queue.ErrNotParked):
+			auth.WriteProblem(w, http.StatusConflict, http.StatusText(http.StatusConflict),
+				"only a failed or cancelled run can be retried")
+		case errors.Is(err, queue.ErrPullQueued):
+			auth.WriteProblem(w, http.StatusConflict, http.StatusText(http.StatusConflict),
+				"another run already covers this window")
+		case err != nil:
+			slog.ErrorContext(r.Context(), "collect: retry sync run", "tenant_id", tenantID, "user_id", userID, "error", err)
+			writeInternal(w)
+		default:
+			w.Header().Set("Location", fmt.Sprintf("/v1/users/%s/sync-runs/%d", userID, run.ID))
+			writeJSON(w, http.StatusAccepted, run)
+		}
+	})
+}
+
+// RetriedRuns is the answer of RetryFailedSyncRuns.
+type RetriedRuns struct {
+	// Retried is the number of failed runs queued again.
+	Retried int64 `json:"retried"`
+}
+
+// RetryFailedSyncRuns serves
+// POST /v1/users/{id}/connections/{provider}/sync-runs/retry. Mount behind
+// auth.Middleware with auth.TenantKey. It queues again every failed run of
+// the connection and answers 202 with how many.
+func (h *Handlers) RetryFailedSyncRuns() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tenantID, userID, ok := h.caller(w, r)
+		if !ok {
+			return
+		}
+		n, err := h.d.RetryFailedSyncRuns(r.Context(), tenantID, userID, r.PathValue("provider"))
+		if err != nil {
+			slog.ErrorContext(r.Context(), "collect: retry failed sync runs", "tenant_id", tenantID, "user_id", userID, "error", err)
+			writeInternal(w)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, RetriedRuns{Retried: n})
+	})
 }

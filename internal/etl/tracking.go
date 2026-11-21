@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
@@ -37,16 +38,20 @@ type FailedRecord struct {
 // recoverable.
 const failedRecordBatchSize = 100
 
+// failedShape is the write form of failed_records. Its identity is the row
+// id, which a multi-row INSERT does not give back in order, so a sealed write
+// reserves the ids first (reserveFailedIDs).
+var failedShape = newShape("failed_records",
+	[]string{"id", "tenant_id", "user_id", "provider", "raw_key", "line_number", "raw_payload", "reason_code", "error_message", "status"},
+	nil, nil)
+
 // writeFailedRecords inserts record failures into ohs_data.failed_records,
 // status pending.
-func writeFailedRecords(ctx context.Context, tx Execer, sc scope, rawKey string, records []FailedRecord) error {
-	const colCount = 9
+func writeFailedRecords(ctx context.Context, tx TxLike, sc scope, rawKey string, records []FailedRecord) error {
 	for i := 0; i < len(records); i += failedRecordBatchSize {
 		batch := records[i:min(i+failedRecordBatchSize, len(records))]
-		args := make([]any, 0, len(batch)*colCount)
-		phs := make([]string, 0, len(batch))
+		rows := make([][]any, len(batch))
 		for j, rec := range batch {
-			phs = append(phs, placeholders(j*colCount+1, colCount))
 			reason := rec.ReasonCode
 			if reason == "" {
 				reason = "unknown"
@@ -57,15 +62,57 @@ func writeFailedRecords(ctx context.Context, tx Execer, sc scope, rawKey string,
 			if rec.RawPayload != nil {
 				payload = model.ScrubJSON(rec.RawPayload)
 			}
-			args = append(args, sc.tenant, sc.user, sc.provider, rawKey, rec.LineNum, payload, reason, model.ScrubJSON(rec.Error), "pending")
+			rows[j] = []any{nil, sc.tenant, sc.user, sc.provider, rawKey, rec.LineNum, payload, reason, model.ScrubJSON(rec.Error), "pending"}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO ohs_data.failed_records
-			(tenant_id, user_id, provider, raw_key, line_number, raw_payload, reason_code, error_message, status) VALUES `+
-			strings.Join(phs, ", "), args...); err != nil {
+		if err := insertFailed(ctx, tx, sc, rows); err != nil {
 			return fmt.Errorf("insert failed_records: %w", err)
 		}
 	}
 	return nil
+}
+
+// insertFailed inserts failed_records rows (failedShape base rows, id unset).
+// Without keys the id is the column's default; with keys it is reserved
+// first, since it is the row's identity, and given OVERRIDING SYSTEM VALUE.
+func insertFailed(ctx context.Context, tx TxLike, sc scope, rows [][]any) error {
+	columns := failedShape.columns(sc)[1:]
+	override := ""
+	if sc.uv != nil {
+		columns, override = failedShape.columns(sc), " OVERRIDING SYSTEM VALUE"
+		ids, err := reserveFailedIDs(ctx, tx, len(rows))
+		if err != nil {
+			return err
+		}
+		for i := range rows {
+			rows[i][0] = ids[i]
+		}
+	}
+	args := make([]any, 0, len(rows)*len(columns))
+	phs := make([]string, 0, len(rows))
+	for j, r := range rows {
+		f, err := failedShape.finish(sc, r)
+		if err != nil {
+			return err
+		}
+		if sc.uv == nil {
+			f = f[1:]
+		}
+		phs = append(phs, placeholders(j*len(columns)+1, len(columns)))
+		args = append(args, f...)
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO ohs_data.failed_records (`+quoteCols(columns)+`)`+override+` VALUES `+
+		strings.Join(phs, ", "), args...)
+	return err
+}
+
+// reserveFailedIDs takes n ids from the failed_records sequence.
+func reserveFailedIDs(ctx context.Context, tx TxLike, n int) ([]int64, error) {
+	rows, err := tx.Query(ctx, `SELECT nextval(pg_get_serial_sequence('ohs_data.failed_records', 'id'))
+		FROM generate_series(1, $1)`, n)
+	if err != nil {
+		return nil, fmt.Errorf("reserve failed_records ids: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[int64])
 }
 
 // permanentReason says whether a failure reason is deterministic: the same
@@ -73,25 +120,12 @@ func writeFailedRecords(ctx context.Context, tx Execer, sc scope, rawKey string,
 // permanent reasons (internal/etl/automation).
 func permanentReason(code string) bool { return code == "parse" || code == "validation" }
 
-// anyRecoverable says whether a code fix may rescue one of the failures.
-func anyRecoverable(failed []FailedRecord) bool {
-	for _, f := range failed {
-		if !permanentReason(f.ReasonCode) {
-			return true
-		}
-	}
-	return false
-}
-
 // writeJobFailure records a whole raw object the ETL could not land: a row
 // with no line number and reason "job", so an all-failed object is visible
 // and reprocessable as one unit, not only as its per-line rows.
-func writeJobFailure(ctx context.Context, tx Execer, sc scope, rawKey, msg string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO ohs_data.failed_records
-		(tenant_id, user_id, provider, raw_key, line_number, reason_code, error_message, status)
-		VALUES ($1, $2, $3, $4, NULL, 'job', $5, 'pending')`,
-		sc.tenant, sc.user, sc.provider, rawKey, model.ScrubJSON(msg))
-	if err != nil {
+func writeJobFailure(ctx context.Context, tx TxLike, sc scope, rawKey, msg string) error {
+	row := []any{nil, sc.tenant, sc.user, sc.provider, rawKey, nil, nil, "job", model.ScrubJSON(msg), "pending"}
+	if err := insertFailed(ctx, tx, sc, [][]any{row}); err != nil {
 		return fmt.Errorf("insert job failure: %w", err)
 	}
 	return nil

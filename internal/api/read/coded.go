@@ -28,8 +28,10 @@ type CodedSample struct {
 	StorageUnit *string
 }
 
-func (s *CodedSample) dest() []any {
-	return append(s.Sample.dest(), &s.LOINCCode, &s.UCUMUnit, &s.StorageUnit)
+// codes are the destinations of the catalog codes codedSelect reads after
+// the sample's own columns.
+func (s *CodedSample) codes() []any {
+	return []any{&s.LOINCCode, &s.UCUMUnit, &s.StorageUnit}
 }
 
 // Kind is the table an observation record comes from. Its number orders
@@ -44,6 +46,8 @@ const (
 	KindDaily     Kind = 4
 	KindECG       Kind = 5
 	KindNutrition Kind = 6
+	// KindLab is a lab result (a row of ohs_data.observations, read.LabResult).
+	KindLab Kind = 7
 )
 
 // The two halves of a blood pressure reading.
@@ -66,6 +70,7 @@ type ObservationRecord struct {
 	// ECG is an ECG recording with its voltage samples.
 	ECG       *ECGRecordingDetail
 	Nutrition *NutritionLog
+	Lab       *LabResult
 }
 
 // ObservationFilter says which records a merged list holds.
@@ -82,11 +87,15 @@ type ObservationFilter struct {
 	Daily      bool
 	ECG        bool
 	Nutrition  bool
+	// Labs keeps lab results; LabCodes, when not nil, only those of these
+	// canonical codes (lab:loinc:<code>, lab:local:<code>).
+	Labs     bool
+	LabCodes []string
 }
 
 // AllObservations is the filter that keeps every record.
 func AllObservations() ObservationFilter {
-	return ObservationFilter{Quantities: true, Sleep: true, Workouts: true, Daily: true, ECG: true, Nutrition: true}
+	return ObservationFilter{Quantities: true, Sleep: true, Workouts: true, Daily: true, ECG: true, Nutrition: true, Labs: true}
 }
 
 // And is the filter that keeps what both f and g keep.
@@ -98,6 +107,22 @@ func (f ObservationFilter) And(g ObservationFilter) ObservationFilter {
 		Daily:      f.Daily && g.Daily,
 		ECG:        f.ECG && g.ECG,
 		Nutrition:  f.Nutrition && g.Nutrition,
+		Labs:       f.Labs && g.Labs,
+	}
+	if out.Labs {
+		switch {
+		case f.LabCodes == nil:
+			out.LabCodes = g.LabCodes
+		case g.LabCodes == nil:
+			out.LabCodes = f.LabCodes
+		default:
+			out.LabCodes = []string{}
+			for _, c := range f.LabCodes {
+				if slices.Contains(g.LabCodes, c) {
+					out.LabCodes = append(out.LabCodes, c)
+				}
+			}
+		}
 	}
 	if !out.Quantities {
 		return out
@@ -128,7 +153,8 @@ func (f ObservationFilter) And(g ObservationFilter) ObservationFilter {
 // Empty reports whether the filter keeps nothing.
 func (f ObservationFilter) Empty() bool {
 	q := f.Quantities && (f.Types == nil || len(f.Types) > 0)
-	return !q && !f.Sleep && !f.Workouts && !f.Daily && !f.ECG && !f.Nutrition
+	l := f.Labs && (f.LabCodes == nil || len(f.LabCodes) > 0)
+	return !q && !l && !f.Sleep && !f.Workouts && !f.Daily && !f.ECG && !f.Nutrition
 }
 
 // Blood pressure pairing. A systolic and a diastolic sample pair when they
@@ -143,6 +169,10 @@ func (f ObservationFilter) Empty() bool {
 // repeats a's time bounds on the subquery's alias as constants; since the two
 // samples start at the same time it changes no result, and it lets the
 // planner keep only the chunks in range.
+//
+// The device of a sealed sample is sealed, so two sealed samples compare
+// their source_key instead (the keyed hash of the sample's source: its
+// bundle, else its name, else its device), which a clear row leaves NULL.
 type bound func(alias string) string
 
 func (bd bound) on(alias string) string {
@@ -157,7 +187,8 @@ func bpMatch(a, b string, bd bound) string {
 		b + ".provider = " + a + ".provider AND " + b + ".start_date = " + a + ".start_date AND " +
 		b + ".end_date IS NOT DISTINCT FROM " + a + ".end_date AND " +
 		b + ".source_slug IS NOT DISTINCT FROM " + a + ".source_slug AND " +
-		b + ".device_id IS NOT DISTINCT FROM " + a + ".device_id" + bd.on(b)
+		b + ".device_id IS NOT DISTINCT FROM " + a + ".device_id AND " +
+		b + ".source_key IS NOT DISTINCT FROM " + a + ".source_key" + bd.on(b)
 }
 
 // firstOfKey: no sample of a's type and key has a lower id than a.
@@ -182,20 +213,11 @@ func absorbed(a string, bd bound) string {
 	return "(" + a + ".quantity_type = '" + Diastolic + "' AND " + firstOfKey(a, bd) + " AND " + hasKey(a, Systolic, bd) + ")"
 }
 
-// qualified prefixes every column of a column list with alias.
-func qualified(alias, cols string) string {
-	parts := strings.Split(cols, ",")
-	for i, p := range parts {
-		parts[i] = alias + "." + strings.TrimSpace(p)
-	}
-	return strings.Join(parts, ", ")
-}
-
-// codedSelect reads CodedSamples (alias q), then the id of the diastolic
-// partner of a paired systolic sample, then whether the row is the diastolic
-// half of a pair.
+// codedSelect reads CodedSamples (alias q: the sample through sampleSel,
+// then its catalog codes), then the id of the diastolic partner of a paired
+// systolic sample, then whether the row is the diastolic half of a pair.
 func codedSelect(bd bound) string {
-	return qualified("q", sampleCols) + `,
+	return sampleSel.List("q") + `,
 	(SELECT c.loinc_code FROM ohs_data.quantity_codes c WHERE c.canonical_code = q.quantity_type),
 	(SELECT c.ucum_unit FROM ohs_data.quantity_codes c WHERE c.canonical_code = q.quantity_type),
 	(SELECT c.storage_unit FROM ohs_data.quantity_codes c WHERE c.canonical_code = q.quantity_type),
@@ -224,7 +246,7 @@ func decodeObsCursor(c string) (time.Time, Kind, int64, error) {
 	t, err1 := time.Parse(time.RFC3339Nano, parts[0])
 	k, err2 := strconv.Atoi(parts[1])
 	id, err3 := strconv.ParseInt(parts[2], 10, 64)
-	if err1 != nil || err2 != nil || err3 != nil || k < int(KindQuantity) || k > int(KindNutrition) {
+	if err1 != nil || err2 != nil || err3 != nil || k < int(KindQuantity) || k > int(KindLab) {
 		return time.Time{}, 0, 0, ErrInvalidCursor
 	}
 	return t, Kind(k), id, nil
@@ -276,10 +298,10 @@ func cutPage(keys []obsKey, limit int) ([]obsKey, string) {
 }
 
 // Observations lists, in one page, the records f keeps: quantity samples,
-// sleep sessions, workouts, daily summaries, ECG recordings and nutrition
-// logs, ordered by time (a sample's start, a session's bedtime, a workout's
-// start, a day's date at midnight UTC, a recording's or a log's start), then
-// kind, then id. q.Type is
+// sleep sessions, workouts, daily summaries, ECG recordings, nutrition logs
+// and lab results, ordered by time (a sample's start, a session's bedtime, a
+// workout's start, a day's date at midnight UTC, a recording's or a log's
+// start, a lab result's collection), then kind, then id. q.Type is
 // ignored (it belongs in f). A systolic sample paired with a diastolic one
 // comes with it as Partner, and the diastolic one is not listed on its own,
 // so a pair is never split across pages. A page holds at most MaxECGPerPage
@@ -310,6 +332,7 @@ func Observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 		{"ohs_data.daily_summaries WHERE " + mine, "(summary_date::timestamp AT TIME ZONE 'UTC')"},
 		{"ohs_data.ecg_recordings WHERE " + mine, "start_date"},
 		{"ohs_data.nutrition_logs WHERE " + mine, "start_date"},
+		{"ohs_data.observations WHERE " + mine + " AND " + labCond, "ts"},
 	}
 	first := func(from time.Time) (time.Time, error) {
 		return firstFrom(ctx, db, sets, []any{tenantID, userID}, from)
@@ -430,11 +453,17 @@ func observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 		branch(KindWorkout, "ohs_data.workouts", "w", "w.start_date",
 			mergedOut(nil, func() string { return "NOT " + workoutFamily.covered(mp, "w", fusion.MetricWorkouts) }))
 	}
-	if f.Daily {
-		// A day's row stays when it holds a figure no better ranked row of the
-		// day holds; fetchRecords blanks the figures it does not own.
-		branch(KindDaily, "ohs_data.daily_summaries", "d", "(d.summary_date::timestamp AT TIME ZONE 'UTC')",
-			mergedOut(nil, func() string { return dailyOwnsAny(mp, "d") }))
+	// In the merged view a day's row stays when it holds a figure no better
+	// ranked row of the day holds (fetchRecords blanks the figures it does
+	// not own). The figures are sealed, so those keys are found on the opened
+	// rows and merged with the keys of the other kinds below.
+	var dailyKeys []obsKey
+	if f.Daily && pol == nil {
+		branch(KindDaily, "ohs_data.daily_summaries", "d", dailyUTC("d"), nil)
+	} else if f.Daily {
+		if dailyKeys, err = dailyOwnerKeys(ctx, db, tenantID, userID, n, after, *pol, n.Limit+1); err != nil {
+			return Page[ObservationRecord]{}, err
+		}
 	}
 	if f.ECG {
 		// No merged view: two recordings of one moment are two recordings.
@@ -444,26 +473,51 @@ func observations(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q
 		// No merged view either: two apps logging one meal are two entries.
 		branch(KindNutrition, "ohs_data.nutrition_logs", "n", "n.start_date", nil)
 	}
-	sql := "SELECT kind, ts, id FROM (" + strings.Join(branches, " UNION ALL ") + ") k ORDER BY ts, kind, id LIMIT " + limit
-	if pol != nil {
-		args = append([]any{customPlan}, args...)
-	}
-	rows, err := db.Query(ctx, sql, args...)
-	if err != nil {
-		return Page[ObservationRecord]{}, fmt.Errorf("read: observations: %w", err)
+	if f.Labs && (f.LabCodes == nil || len(f.LabCodes) > 0) {
+		// No merged view: each lab result is its own record.
+		where := []string{labCondOn("o")}
+		if f.LabCodes != nil {
+			where = append(where, "o.canonical_code = ANY("+arg(f.LabCodes)+"::text[])")
+		}
+		branch(KindLab, "ohs_data.observations", "o", "o.ts", where)
 	}
 	var keys []obsKey
-	for rows.Next() {
-		var k obsKey
-		if err := rows.Scan(&k.kind, &k.t, &k.id); err != nil {
-			rows.Close()
-			return Page[ObservationRecord]{}, fmt.Errorf("read: observations: scan: %w", err)
+	if len(branches) > 0 {
+		sql := "SELECT kind, ts, id FROM (" + strings.Join(branches, " UNION ALL ") + ") k ORDER BY ts, kind, id LIMIT " + limit
+		if pol != nil {
+			args = append([]any{customPlan}, args...)
 		}
-		keys = append(keys, k)
+		rows, err := db.Query(ctx, sql, args...)
+		if err != nil {
+			return Page[ObservationRecord]{}, fmt.Errorf("read: observations: %w", err)
+		}
+		for rows.Next() {
+			var k obsKey
+			if err := rows.Scan(&k.kind, &k.t, &k.id); err != nil {
+				rows.Close()
+				return Page[ObservationRecord]{}, fmt.Errorf("read: observations: scan: %w", err)
+			}
+			keys = append(keys, k)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return Page[ObservationRecord]{}, fmt.Errorf("read: observations: %w", err)
+		}
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return Page[ObservationRecord]{}, fmt.Errorf("read: observations: %w", err)
+	if len(dailyKeys) > 0 {
+		// Each list holds the first limit+1 keys of its kinds, so the first
+		// limit+1 of both are among them.
+		keys = append(keys, dailyKeys...)
+		slices.SortFunc(keys, func(a, b obsKey) int {
+			switch {
+			case obsAfter(a, b):
+				return 1
+			case obsAfter(b, a):
+				return -1
+			}
+			return 0
+		})
+		keys = keys[:min(len(keys), n.Limit+1)]
 	}
 	keys, out.NextCursor = cutPage(keys, n.Limit)
 	recs, err := fetchRecords(ctx, db, tenantID, userID, keys, pol)
@@ -559,6 +613,7 @@ func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k
 		spans[k.kind] = spans[k.kind].add(k.t)
 	}
 	out := map[obsKey]ObservationRecord{}
+	rd := keysFor(ctx, tenantID, userID)
 	if len(ids[KindQuantity]) > 0 {
 		samples, partners, err := fetchSamples(ctx, db, tenantID, userID, ids[KindQuantity], spans[KindQuantity], false)
 		if err != nil {
@@ -590,9 +645,9 @@ func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k
 		}
 	}
 	if len(ids[KindSleep]) > 0 {
-		err := fetchByIDs(ctx, db, "ohs_data.sleep_sessions", sleepCols, tenantID, userID, ids[KindSleep], spans[KindSleep], "bedtime_start", "timestamptz", func(r pgx.Rows) error {
+		err := fetchByIDs(ctx, db, "ohs_data.sleep_sessions", sleepSel.List("r"), tenantID, userID, ids[KindSleep], spans[KindSleep], "bedtime_start", "timestamptz", func(r pgx.Rows) error {
 			var s SleepSession
-			if err := r.Scan(s.dest()...); err != nil {
+			if err := sleepSel.Scan(ctx, rd, r, s.dest()); err != nil {
 				return err
 			}
 			s.utc()
@@ -604,9 +659,9 @@ func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k
 		}
 	}
 	if len(ids[KindWorkout]) > 0 {
-		err := fetchByIDs(ctx, db, "ohs_data.workouts", workoutCols, tenantID, userID, ids[KindWorkout], spans[KindWorkout], "start_date", "timestamptz", func(r pgx.Rows) error {
+		err := fetchByIDs(ctx, db, "ohs_data.workouts", workoutSel.List("r"), tenantID, userID, ids[KindWorkout], spans[KindWorkout], "start_date", "timestamptz", func(r pgx.Rows) error {
 			var w Workout
-			if err := r.Scan(w.dest()...); err != nil {
+			if err := workoutSel.Scan(ctx, rd, r, w.dest()); err != nil {
 				return err
 			}
 			w.utc()
@@ -617,38 +672,34 @@ func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k
 			return nil, err
 		}
 	}
-	if len(ids[KindDaily]) > 0 {
-		cols := dailyCols
-		var extra []any
-		if pol != nil {
-			// fetchByIDs binds $1 to $3.
-			args := []any{nil, nil, nil}
-			mp := bindMerge(*pol, nil, func(v any) string {
-				args = append(args, v)
-				return "$" + strconv.Itoa(len(args))
-			})
-			mp.window(spans[KindDaily].from, spans[KindDaily].to)
-			cols, extra = dailyMaskedCols(mp, "r"), args[3:]
+	if len(ids[KindDaily]) > 0 && pol != nil {
+		days, err := dailyMasked(ctx, db, tenantID, userID, ids[KindDaily], spans[KindDaily], *pol)
+		if err != nil {
+			return nil, err
 		}
-		err := fetchByIDs(ctx, db, "ohs_data.daily_summaries", cols, tenantID, userID, ids[KindDaily], spans[KindDaily], "summary_date", "date", func(r pgx.Rows) error {
+		for i := range days {
+			out[obsKey{kind: KindDaily, id: days[i].ID}] = ObservationRecord{Kind: KindDaily, Daily: &days[i]}
+		}
+	} else if len(ids[KindDaily]) > 0 {
+		err := fetchByIDs(ctx, db, "ohs_data.daily_summaries", dailySel.List("r"), tenantID, userID, ids[KindDaily], spans[KindDaily], "summary_date", "date", func(r pgx.Rows) error {
 			var d DailySummary
 			var day time.Time
-			if err := r.Scan(d.dest(&day)...); err != nil {
+			if err := dailySel.Scan(ctx, rd, r, d.dest(&day)); err != nil {
 				return err
 			}
 			d.finish(day)
 			out[obsKey{kind: KindDaily, id: d.ID}] = ObservationRecord{Kind: KindDaily, Daily: &d}
 			return nil
-		}, extra...)
+		})
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(ids[KindECG]) > 0 {
 		var recs []ECGRecording
-		err := fetchByIDs(ctx, db, "ohs_data.ecg_recordings", ecgCols, tenantID, userID, ids[KindECG], spans[KindECG], "start_date", "timestamptz", func(r pgx.Rows) error {
+		err := fetchByIDs(ctx, db, "ohs_data.ecg_recordings", ecgSel.List("r"), tenantID, userID, ids[KindECG], spans[KindECG], "start_date", "timestamptz", func(r pgx.Rows) error {
 			var e ecgRow
-			if err := r.Scan(e.dest()...); err != nil {
+			if err := ecgSel.Scan(ctx, rd, r, e.dest()); err != nil {
 				return err
 			}
 			recs = append(recs, e.finish())
@@ -667,13 +718,31 @@ func fetchRecords(ctx context.Context, db Querier, tenantID, userID uuid.UUID, k
 		}
 	}
 	if len(ids[KindNutrition]) > 0 {
-		err := fetchByIDs(ctx, db, "ohs_data.nutrition_logs", nutritionCols, tenantID, userID, ids[KindNutrition], spans[KindNutrition], "start_date", "timestamptz", func(r pgx.Rows) error {
+		err := fetchByIDs(ctx, db, "ohs_data.nutrition_logs", nutritionSel.List("r"), tenantID, userID, ids[KindNutrition], spans[KindNutrition], "start_date", "timestamptz", func(r pgx.Rows) error {
 			var x NutritionLog
-			if err := r.Scan(x.dest()...); err != nil {
+			if err := nutritionSel.Scan(ctx, rd, r, x.dest()); err != nil {
 				return err
 			}
 			x.utc()
 			out[obsKey{kind: KindNutrition, id: x.ID}] = ObservationRecord{Kind: KindNutrition, Nutrition: &x}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(ids[KindLab]) > 0 {
+		// The lab condition keeps a by-id read from returning another
+		// observation under a lab id.
+		err := fetchByIDs(ctx, db, "ohs_data.observations", labSel.List("r"), tenantID, userID, ids[KindLab], spans[KindLab], "ts", "timestamptz", func(r pgx.Rows) error {
+			x, err := scanLab(ctx, rd, r)
+			if err != nil {
+				return err
+			}
+			if !strings.HasPrefix(x.Code, "lab:") {
+				return nil
+			}
+			out[obsKey{kind: KindLab, id: x.ID}] = ObservationRecord{Kind: KindLab, Lab: &x}
 			return nil
 		})
 		if err != nil {
@@ -701,11 +770,12 @@ func fetchSamples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, i
 	defer rows.Close()
 	var out []*CodedSample
 	partners := map[int64]int64{}
+	keys := keysFor(ctx, tenantID, userID)
 	for rows.Next() {
 		var s CodedSample
 		var partner *int64
 		var half bool
-		if err := rows.Scan(append(s.dest(), &partner, &half)...); err != nil {
+		if err := sampleSel.Scan(ctx, keys, rows, s.dest(), append(s.codes(), &partner, &half)...); err != nil {
 			return nil, nil, fmt.Errorf("read: quantity samples: scan: %w", err)
 		}
 		s.utc()
@@ -724,11 +794,11 @@ func fetchSamples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, i
 }
 
 // fetchByIDs reads rows of table (alias r) by id, within span on timeCol
-// when it bounds anything; extra binds $4 onwards.
+// when it bounds anything.
 func fetchByIDs(ctx context.Context, db Querier, table, cols string, tenantID, userID uuid.UUID, ids []int64,
-	span timeSpan, timeCol, cast string, scan func(pgx.Rows) error, extra ...any) error {
-	cond, bounds := span.where("r."+timeCol, 3+len(extra), cast)
-	args := append(append([]any{tenantID, userID, ids}, extra...), bounds...)
+	span timeSpan, timeCol, cast string, scan func(pgx.Rows) error) error {
+	cond, bounds := span.where("r."+timeCol, 3, cast)
+	args := append([]any{tenantID, userID, ids}, bounds...)
 	rows, err := db.Query(ctx, `SELECT `+cols+` FROM `+table+` r
 		WHERE r.tenant_id = $1 AND r.user_id = $2 AND r.id = ANY($3::bigint[])`+cond, args...)
 	if err != nil {

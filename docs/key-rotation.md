@@ -15,8 +15,13 @@ key on a running instance without losing them.
 - **Policy**: your organization replaces keys on a schedule.
 - **Hygiene**: moving the key into a secret manager is a good moment to make a fresh one.
 
-Health records are not sealed with this key, and API keys and user tokens are stored as hashes:
-rotating it affects neither.
+API keys and user tokens are stored as hashes: rotating the key does not affect them. Health
+records are sealed by the [health data vault](security-model.md#health-data-vault) under keys of
+their own. When the vault's root key is derived from `OHS_ENCRYPTION_KEY` (no
+`OHS_VAULT_ROOT_KEY` and the `local` provider, the default), rotating this key changes the root
+key too: the keys derived from `OHS_PREVIOUS_ENCRYPTION_KEYS` keep opening the tenant keys, and
+`ohs admin rekey` rewraps them under the new derived root (step 5). No health record is
+rewritten.
 
 ## How it works
 
@@ -75,7 +80,8 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 
    It prints, for each sealed column, how many values it rewrote, how many were already under
    the new key, and how many no configured key opens (`failed`, each named by its row and left
-   as it is). It is safe to run again, and on a large instance it can be stopped and restarted:
+   as it is). With a derived vault root key it also rewraps the tenant keys under the new one
+   and says how many; wait for it to finish before step 7. It is safe to run again, and on a large instance it can be stopped and restarted:
    `--batch <rows>` sets how many rows it reads at once (default 100).
 6. **Check with `ohs doctor`.**
 
@@ -113,10 +119,24 @@ cannot open values with a key id header.
 | A process not restarted (step 4) | It keeps sealing with the old key, and cannot open what the others seal with the new one. | Restart it, then run `ohs admin rekey` again. |
 | `ohs admin rekey` not run (step 5) | Nothing breaks, but the old key stays needed: removing it later loses every value it still seals. | Run it before step 7. |
 | Old key removed before `ohs doctor` agrees (step 7) | Values still under the old key no longer open; `ohs admin rekey` reports them as `failed` and leaves them as they are. | Put the old key back in `OHS_PREVIOUS_ENCRYPTION_KEYS`, restart, run `ohs admin rekey`. |
-| The old key is lost | The values it sealed cannot be recovered. | Each affected user connects the provider again (the connection is replaced), each affected webhook endpoint gets a new secret (`POST /v1/webhooks/{webhook_id}/rotate-secret`), and the keys of each provider the console shows as refused are saved again from the console. Then `ohs admin rekey` and `ohs doctor` report no failure. |
+| The old key is lost | The values it sealed cannot be recovered. With a derived vault root key, the tenant keys it wrapped no longer open either: `api` and `etl` processes refuse to start and the health data they sealed is lost. | Each affected user connects the provider again (the connection is replaced), each affected webhook endpoint gets a new secret (`POST /v1/webhooks/{webhook_id}/rotate-secret`), and the keys of each provider the console shows as refused are saved again from the console. Then `ohs admin rekey` and `ohs doctor` report no failure. |
 
 `ohs admin rekey` never deletes a row. A value no key opens is reported, and the command exits
 with status 1 so a script notices.
+
+## The vault root key
+
+The vault's root key rotates on its own, with `ohs vault rotate root`: set the new root key
+(`OHS_VAULT_ROOT_KEY` or its file, with the replaced one in `OHS_VAULT_ROOT_KEY_PREVIOUS`, or a
+new version of the KMS key, the older version still usable), run the command, then restart every process. A running process keeps the old root
+key and fails once its key cache expires (`OHS_VAULT_CACHE_TTL`, 10 minutes by default). The
+command rewraps the tenant keys in seconds and rewrites no data. The first move from a derived
+root key to one of its own needs no previous key: the command also tries the keys derived from
+`OHS_ENCRYPTION_KEY` and `OHS_PREVIOUS_ENCRYPTION_KEYS`. `ohs vault rotate tenant <tenant id>`
+and `ohs vault rotate user <tenant id> <user id>` rotate one level down; after a user key
+rotation, `ohs vault reseal --user <user id>` rewrites that user's rows under the new version.
+Backups taken before a root key rotation still open with the old root key: destroy it once they
+have expired, or to make them unreadable.
 
 ## If the key is compromised
 

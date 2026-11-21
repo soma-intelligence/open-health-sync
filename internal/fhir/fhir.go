@@ -104,10 +104,12 @@ type Period struct {
 
 // Quantity is a FHIR Quantity.
 type Quantity struct {
-	Value  *float64 `json:"value,omitempty"`
-	Unit   string   `json:"unit,omitempty"`
-	System string   `json:"system,omitempty"`
-	Code   string   `json:"code,omitempty"`
+	Value *float64 `json:"value,omitempty"`
+	// Comparator is set on a lab result sent as "<5".
+	Comparator string `json:"comparator,omitempty"`
+	Unit       string `json:"unit,omitempty"`
+	System     string `json:"system,omitempty"`
+	Code       string `json:"code,omitempty"`
 }
 
 // Meta is a FHIR Meta.
@@ -142,9 +144,15 @@ type Observation struct {
 	ValueQuantity *Quantity   `json:"valueQuantity,omitempty"`
 	// ValueCodeableConcept is the value of a classification.
 	ValueCodeableConcept *CodeableConcept `json:"valueCodeableConcept,omitempty"`
-	DataAbsentReason     *CodeableConcept `json:"dataAbsentReason,omitempty"`
-	Device               *Reference       `json:"device,omitempty"`
-	Component            []Component      `json:"component,omitempty"`
+	// ValueString is the value of a lab result sent as text.
+	ValueString      string           `json:"valueString,omitempty"`
+	DataAbsentReason *CodeableConcept `json:"dataAbsentReason,omitempty"`
+	// Interpretation, Specimen and ReferenceRange are set on lab results.
+	Interpretation []CodeableConcept `json:"interpretation,omitempty"`
+	Specimen       *Reference        `json:"specimen,omitempty"`
+	Device         *Reference        `json:"device,omitempty"`
+	ReferenceRange []ReferenceRange  `json:"referenceRange,omitempty"`
+	Component      []Component       `json:"component,omitempty"`
 }
 
 // ObservationID is the stable id of the Observation made from the quantity

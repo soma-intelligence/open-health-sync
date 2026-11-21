@@ -49,6 +49,10 @@ configuration, or an instance running without the settings in
 - API keys (`ohs_sk_`) and user tokens (`ohs_ut_`) are stored as SHA-256 hashes only.
 - OAuth tokens are encrypted with AES-256-GCM under `OHS_ENCRYPTION_KEY`, bound to the tenant,
   user and provider. Losing the key loses the stored OAuth tokens; leaking it exposes them.
+- From 0.3.0, health records and raw payloads are sealed at rest per user by the health data
+  vault, under keys wrapped by a root key (derived from `OHS_ENCRYPTION_KEY` unless
+  `OHS_VAULT_ROOT_KEY` or a KMS provider is set). Ids, types, times and units stay in clear.
+  Losing the root key loses the health data.
 - Logs never contain tokens or health values. The only key ever logged is the one
   `OHS_BOOTSTRAP_TENANT` creates, once, at first start.
 - Every query on user data filters on `tenant_id` and `user_id`.

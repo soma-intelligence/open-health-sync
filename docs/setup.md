@@ -20,8 +20,8 @@ With docker compose, put both in `.env` (next to `OHS_ENCRYPTION_KEY`), run
 `docker compose -f deploy/docker-compose.yml up -d`, then open
 `http://localhost:8080/console/setup` (or your https address). Type the token and, optionally, a
 tenant name (default `default`). The page shows the tenant id and its API key with a copy button.
-**Store the key at once: it is not shown again.** The same browser tab is then signed in to the
-[console](console.md) with it until the tab closes. The first tenant is the
+**Store the key at once: it is not shown again.** The page does not hand the key to the console:
+open `/console` and paste the key on the sign in page. The first tenant is the
 [instance admin](console.md#the-instance-admin): from the console, its key turns providers on and
 saves their keys.
 
@@ -38,6 +38,32 @@ release), for example `/var/lib/ohs/secrets/setup-token` on a mounted folder. On
 the setup page. `OHS_ENCRYPTION_KEY_FILE` works the same way for the encryption key; back that
 file up with the database, since the stored OAuth tokens cannot be read without it. `ohs doctor`
 says which file each secret came from, without printing it.
+
+## The console without the setup page
+
+The [console](console.md) is the web page of an instance: it turns providers on and saves their
+keys, creates users and sends them a connection link, starts a sync, retries what is stuck,
+manages webhook endpoints and API keys, and shows the audit log. It is off by default
+(`OHS_CONSOLE=false`: `/console` answers 404), and the quickstart in the
+[README](../README.md#quickstart) leaves it off.
+
+An instance that already has a tenant, such as one filled by `ohs seed --demo`, needs no setup
+token. Turn the console on and sign in with the key you have:
+
+```sh
+# .env
+OHS_CONSOLE=true
+```
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.yml up -d
+```
+
+Then open `http://localhost:8080/console` and paste a tenant API key (`ohs_sk_...`): the one
+`ohs seed --demo` printed, or one from `ohs admin tenant create` or `ohs admin key create`.
+`OHS_CONSOLE=read-only` serves the same pages without any action. The console sees the one
+tenant of the key, and changing provider keys takes the key of an
+[instance admin](console.md#the-instance-admin) tenant.
 
 ## The routes
 
@@ -80,9 +106,9 @@ in [`api/openapi.yaml`](../api/openapi.yaml).
   `tenant.create`, actor `system` / `setup`, with the key's prefix only. It is written in the same
   transaction as the tenant, so a failed write creates nothing. A refused call (401, 409) is not
   an audit event, like any call without a valid credential.
-- **Same origin, strict headers.** `/console/setup` is a page of its own beside the console,
-  with the same Content-Security-Policy and headers. Its one script posts only to `/v1/setup` on
-  the same server, without cookies, and inserts the key as text.
+- **Same origin, strict headers.** `/console/setup` is a page of the console itself, served with
+  its Content-Security-Policy and headers. It posts only to `/v1/setup` on the same server,
+  without cookies or a session, and shows the key as text.
 - **Put HTTPS in front.** The token and the key cross the network in the request and the
   answer. On anything but `localhost`, serve the instance through a reverse proxy with TLS (see
   [self-hosting.md](self-hosting.md)) before you open the setup page.

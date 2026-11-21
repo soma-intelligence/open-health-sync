@@ -1,0 +1,90 @@
+/* The console's tokens. Every value comes from ohs-tokens.css (the OnePass design system with the
+   OHS green as the action colour). The short names below are the console's own vocabulary, kept so
+   each stylesheet reads the same; each one points at an --op-* token.
+   Contrast floors kept from the audit (WCAG 2.2 AA): --faint is text (4.5:1 or more on page, card and
+   nested card), --field-border is a control boundary (3:1 or more on card), --focus is a focus ring
+   (3:1 or more), --on-danger is text on a --danger fill (4.5:1 or more). */
+@import "./ohs-tokens.css";
+
+:root {
+  /* Fonts: the console ships its own files (no third-party request), registered as variable faces. */
+  --op-font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --op-font-display: "Inter Tight Variable", "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
+  --op-font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Surfaces */
+  --page: var(--op-bg);
+  --panel: var(--op-card);
+  --raised: var(--op-card-2);
+  --field: var(--op-field);
+  --hover: var(--op-card-2);
+  --line: var(--op-line);
+  --line-2: var(--op-line);
+  --scrim: var(--op-scrim);
+
+  /* Text */
+  --ink: var(--op-fg);
+  --ink-2: var(--op-fg);
+  --mint: var(--op-accent-wash);
+  --mint-line: transparent;
+  --warn-line: transparent;
+  --knob: #fff;
+  --muted: var(--op-fg-2);
+  /* Tertiary text. --op-fg-3 is 3.4:1 on a light card, under AA for text, so light uses fg-2 (6.4:1). */
+  --faint: var(--op-fg-2);
+  /* Field and control boundaries: 3.6:1 on the card, 3.3:1 on the page (light). */
+  --field-border: #86868b;
+
+  /* Action: the OHS green */
+  --accent: var(--op-accent);
+  --accent-hover: var(--op-accent-hover);
+  --on-accent: var(--op-accent-fg);
+  --accent-text: var(--op-accent-text);
+  --accent-wash: var(--op-accent-wash);
+  /* 5.2:1 on the card, 4.7:1 on the page. */
+  --focus: var(--op-focus);
+
+  /* States */
+  /* The light ok green is 4.5:1 on its wash over a card but 4.47:1 over a nested card: one step darker. */
+  --ok: #19692c;
+  --ok-wash: var(--op-ok-wash);
+  --warn: var(--op-warn);
+  --warn-soft: var(--op-warn-wash);
+  --danger: var(--op-bad);
+  --danger-soft: var(--op-bad-wash);
+  /* Text on a --danger fill: white on #C4001A is 6.2:1. */
+  --on-danger: #ffffff;
+  --idle: var(--op-idle);
+  --idle-wash: var(--op-idle-wash);
+  --info: var(--op-info);
+  --info-wash: var(--op-info-wash);
+
+  --shadow: var(--op-shadow);
+  --shadow-pop: var(--op-shadow-pop);
+
+  --font-sans: var(--op-font);
+  --font-display: var(--op-font-display);
+  --font-mono: var(--op-font-mono);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* fg-3 is 5.2:1 on the dark card and 4.8:1 on the nested card. */
+    --faint: var(--op-fg-3);
+    /* 3.9:1 on the card, 3.6:1 on the nested card. */
+    --field-border: #78787e;
+    --ok: var(--op-ok);
+    /* Dark text on the light red fill: 6.8:1. */
+    --on-danger: #230603;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --faint: var(--op-fg-3);
+  --field-border: #78787e;
+  --ok: var(--op-ok);
+  --on-danger: #230603;
+  color-scheme: dark;
+}

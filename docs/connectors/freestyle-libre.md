@@ -1,14 +1,19 @@
 # FreeStyle Libre (research notes)
 
 There is **no FreeStyle Libre connector**, because Abbott publishes no public developer API.
-This page records what was checked, in October 2026, and how Libre glucose readings can still
-reach Open Health Sync.
+This page records what was checked, in October 2026 and again on 2026-11-12, and how Libre
+glucose readings can still reach Open Health Sync.
 
 ## What exists
 
 - **LibreView** is Abbott's cloud for Libre readings, used by patients and clinics. Abbott
   offers no self-serve developer program for it. Data integrations exist only through
-  agreements Abbott makes with companies, and their terms are not public.
+  agreements Abbott makes with companies, and their terms are not public: Abbott's
+  [partnerships page](https://www.freestyle.abbott/en-us/partnerships.html) lists named partners
+  only. The
+  [LibreView terms of use](https://www2.libreview.com/files/documents/en-GB/pat-TOU_2025-06-17.html)
+  also forbid automated access to the service, so reading LibreView with the user's password is
+  not an option.
 - **LibreLinkUp** is Abbott's follower app, for caregivers. Community libraries call its
   private app API. That API is undocumented, unsupported and can change without notice, and
   using it means handling the user's Abbott password. Open Health Sync uses an app's private
@@ -24,6 +29,8 @@ reach Open Health Sync.
   to Health Connect depends on the app and the country; check it in the app's settings.
 - **iPhone**: when a Libre app writes glucose to Apple Health, the
   [Apple Health connector](apple-health.md) stores it as `blood_glucose`.
+- **LibreView report.** LibreView lets the user download their glucose history as a CSV file.
+  Open Health Sync has no import for it yet.
 
 ## Revisit
 

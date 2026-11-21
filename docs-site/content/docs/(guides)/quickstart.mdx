@@ -30,11 +30,13 @@ Every command below runs from the repository root.
 ### Create the configuration
 
 Copy the example file and put a fresh encryption key in it. The key seals provider OAuth tokens
-at rest: keep it with your backups.
+at rest, and the health records are sealed under keys derived from it: keep a copy apart from
+your database backups.
 
 ```sh
 cp .env.example .env
 sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
 ```
 
 </Step>

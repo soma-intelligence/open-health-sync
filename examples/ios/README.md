@@ -4,7 +4,8 @@ A small SwiftUI app that reads HealthKit and uploads it to Open Health Sync with
 [Swift SDK](../../docs/sdks/swift.md). It uses `HealthKitSync` from `OpenHealthSyncHealthKit`:
 
 - **Allow Health access** calls `requestAuthorization` for heart rate, steps, active energy,
-  sleep analysis and workouts.
+  sleep analysis, workouts, workout routes, ECG, heartbeat series, audiograms and, on iOS 18 and
+  later, state of mind.
 - **Sync now** calls `sync` for the types you ticked and shows the `SyncReport`: lines and parts
   uploaded, parts the server already held, samples skipped, lines per type and the batch ids.
   An error shows its HTTP status, title and request id.

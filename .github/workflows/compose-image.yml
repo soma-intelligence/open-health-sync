@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# The image deploy/docker-compose.yml runs by default must exist in the
+# registry: otherwise the quickstart of the default branch fails at its first
+# command. A release pull request names the version it is about to tag, so
+# this job fails from the merge until the tag is pushed and the release
+# workflow has published the image. That is its purpose: a red scheduled run
+# instead of a quickstart broken in silence.
+name: compose-image
+
+on:
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  default-image-exists:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The default OHS_VERSION image of the compose file exists
+        run: scripts/check-compose-image.sh

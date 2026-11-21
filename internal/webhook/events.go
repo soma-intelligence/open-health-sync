@@ -108,15 +108,20 @@ const enqueueSQL = `
 
 // Enqueue records ev for every endpoint that wants it, inside the caller's
 // transaction so the deliveries commit (or roll back) with the change they
-// announce. It returns how many deliveries were written.
+// announce, and for the event stream (recordStream). It returns how many
+// deliveries were written.
 func Enqueue(ctx context.Context, db Execer, ev Event) (int64, error) {
 	body, err := newPayload(ev)
 	if err != nil {
 		return 0, err
 	}
-	tag, err := db.Exec(ctx, enqueueSQL, ev.Tenant, ev.User, body.ID, ev.Type, mustJSON(body))
+	payload := mustJSON(body)
+	tag, err := db.Exec(ctx, enqueueSQL, ev.Tenant, ev.User, body.ID, ev.Type, payload)
 	if err != nil {
 		return 0, fmt.Errorf("enqueue webhook %s: %w", ev.Type, err)
+	}
+	if err := recordStream(ctx, db, ev, body.ID, payload); err != nil {
+		return 0, err
 	}
 	return tag.RowsAffected(), nil
 }

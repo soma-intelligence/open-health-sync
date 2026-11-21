@@ -64,7 +64,7 @@ func TestWithingsPullLands(t *testing.T) {
 	pull()
 
 	var failed int
-	require.NoError(t, e.pool.QueryRow(ctx,
+	require.NoError(t, e.read().QueryRow(ctx,
 		`SELECT count(*) FROM ohs_data.failed_records WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&failed))
 	assert.Equal(t, 0, failed)
 
@@ -85,7 +85,7 @@ func TestWithingsPullLands(t *testing.T) {
 
 	var unit, tz string
 	var value float64
-	require.NoError(t, e.pool.QueryRow(ctx, `
+	require.NoError(t, e.read().QueryRow(ctx, `
 		SELECT unit, value, metadata->>'timezone' FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND quantity_type = 'body_mass'`, e.tenant, e.user).Scan(&unit, &value, &tz))
 	assert.Equal(t, "kg", unit)
@@ -93,7 +93,7 @@ func TestWithingsPullLands(t *testing.T) {
 	assert.Equal(t, "Europe/Paris", tz)
 
 	var sleepTZ []string
-	rows, err := e.pool.Query(ctx, `SELECT metadata->>'timezone' FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user)
+	rows, err := e.read().Query(ctx, `SELECT metadata->>'timezone' FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user)
 	require.NoError(t, err)
 	for rows.Next() {
 		var s string
@@ -104,13 +104,13 @@ func TestWithingsPullLands(t *testing.T) {
 	assert.Equal(t, []string{"Europe/Paris", "Europe/Paris"}, sleepTZ)
 
 	var activity string
-	require.NoError(t, e.pool.QueryRow(ctx, `
+	require.NoError(t, e.read().QueryRow(ctx, `
 		SELECT activity_type, metadata->>'timezone' FROM ohs_data.workouts WHERE tenant_id = $1 AND user_id = $2`,
 		e.tenant, e.user).Scan(&activity, &tz))
 	assert.Equal(t, "running", activity, "the shared activity vocabulary")
 	assert.Equal(t, "Europe/Paris", tz)
 
-	require.NoError(t, e.pool.QueryRow(ctx, `
+	require.NoError(t, e.read().QueryRow(ctx, `
 		SELECT metadata->>'timezone' FROM ohs_data.ecg_recordings WHERE tenant_id = $1 AND user_id = $2`,
 		e.tenant, e.user).Scan(&tz))
 	assert.Equal(t, "Europe/Paris", tz)
@@ -140,7 +140,7 @@ func TestWithingsActivityTotalReplaced(t *testing.T) {
 		`{"date":"2026-03-01","timezone":"Europe/Paris","deviceid":"fake-watch-0001","steps":9500,"distance":7000,"calories":350}`))
 	assert.Equal(t, 3, e.count("quantity_samples"))
 	var value float64
-	require.NoError(t, e.pool.QueryRow(ctx, `
+	require.NoError(t, e.read().QueryRow(ctx, `
 		SELECT value FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND quantity_type = 'step_count'`, e.tenant, e.user).Scan(&value))
 	assert.InDelta(t, 9500, value, 1e-9)

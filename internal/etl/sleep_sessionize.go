@@ -142,38 +142,95 @@ var (
 	// sleepNightsAround lists the provider's stored sessions that reach into
 	// [$4, $5].
 	sleepNightsAround = `SELECT id, content_hash, bedtime_start, coalesce(bedtime_end, bedtime_start),
-		coalesce(metadata->>'synthesized' = 'true', false)
+		coalesce(synthesized, false)
 		FROM ohs_data.sleep_sessions
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
 		  AND bedtime_start <= $5 AND coalesce(bedtime_end, bedtime_start) >= $4`
 	// sleepPhasesTake removes the phases of a session built from stages, to be
-	// written again under the session of their night.
+	// written again under the session of their night. The phase and its
+	// duration may be sealed: the rows are opened in Go (openRows).
 	sleepPhasesTake = `DELETE FROM ohs_data.sleep_phases
 		WHERE tenant_id = $1 AND user_id = $2 AND session_id = $3
-		RETURNING phase, start_date, end_date, duration_s`
+		RETURNING content_hash, sealed, phase, start_date, end_date, duration_s`
 	sleepSessionDrop = `DELETE FROM ohs_data.sleep_sessions
 		WHERE tenant_id = $1 AND user_id = $2 AND id = $3`
 	sleepSessionExtend = `UPDATE ohs_data.sleep_sessions SET bedtime_end = $4
 		WHERE tenant_id = $1 AND user_id = $2 AND id = $3 AND (bedtime_end IS NULL OR bedtime_end < $4)`
-	// sleepFiguresFromStages sets the figures of the sessions $3 from their
-	// stages ($4 deep, $5 rem, $6 light, $7 awake): time asleep is the sum of
-	// the first three.
-	sleepFiguresFromStages = `UPDATE ohs_data.sleep_sessions s SET
-		total_sleep_seconds = f.deep + f.rem + f.light,
-		deep_sleep_seconds  = f.deep,
-		rem_sleep_seconds   = f.rem,
-		light_sleep_seconds = f.light,
-		awake_seconds       = f.awake
-		FROM (SELECT session_id,
-			coalesce(sum(duration_s) FILTER (WHERE phase = $4), 0) AS deep,
-			coalesce(sum(duration_s) FILTER (WHERE phase = $5), 0) AS rem,
-			coalesce(sum(duration_s) FILTER (WHERE phase = $6), 0) AS light,
-			coalesce(sum(duration_s) FILTER (WHERE phase = $7), 0) AS awake
-			FROM ohs_data.sleep_phases
-			WHERE tenant_id = $1 AND user_id = $2 AND session_id = ANY($3)
-			GROUP BY session_id) f
-		WHERE s.tenant_id = $1 AND s.user_id = $2 AND s.id = f.session_id`
+	// sleepStagesOf lists the stages of the sessions $3, for their figures.
+	sleepStagesOf = `SELECT session_id, content_hash, sealed, phase, duration_s FROM ohs_data.sleep_phases
+		WHERE tenant_id = $1 AND user_id = $2 AND session_id = ANY($3)`
+	sleepSessionsOf = `SELECT * FROM ohs_data.sleep_sessions
+		WHERE tenant_id = $1 AND user_id = $2 AND id = ANY($3)`
 )
+
+// sleepFiguresFromStages sets the figures of the sessions ids that have stages
+// from those stages: time asleep is the sum of deep, rem and light. The stages
+// and the sessions may be sealed, so the sums run in Go and each changed
+// session is written back (rewriteRow).
+func sleepFiguresFromStages(ctx context.Context, tx TxLike, sc scope, ids []int64) error {
+	stages, err := collectRows(openRows(ctx, tx, sc.uv, tPhases, sleepStagesOf, []any{sc.tenant, sc.user, ids}))
+	if err != nil {
+		return fmt.Errorf("sleep figures from stages: %w", err)
+	}
+	type figures struct{ deep, rem, light, awake int64 }
+	per := map[int64]*figures{}
+	for _, p := range stages {
+		id, _ := p.int("session_id")
+		f := per[id]
+		if f == nil {
+			f = &figures{}
+			per[id] = f
+		}
+		d, _ := p.int("duration_s")
+		switch p.text("phase") {
+		case model.SleepStageDeep:
+			f.deep += d
+		case model.SleepStageREM:
+			f.rem += d
+		case model.SleepStageLight:
+			f.light += d
+		case model.SleepStageAwake:
+			f.awake += d
+		}
+	}
+	if len(per) == 0 {
+		return nil
+	}
+	withStages := make([]int64, 0, len(per))
+	for id := range per {
+		withStages = append(withStages, id)
+	}
+	sessions, err := collectRows(openRows(ctx, tx, sc.uv, tSleep, sleepSessionsOf, []any{sc.tenant, sc.user, withStages}))
+	if err != nil {
+		return fmt.Errorf("sleep figures from stages: %w", err)
+	}
+	for _, s := range sessions {
+		id, _ := s.int("id")
+		f := per[id]
+		next := map[string]any{
+			"total_sleep_seconds": f.deep + f.rem + f.light,
+			"deep_sleep_seconds":  f.deep,
+			"rem_sleep_seconds":   f.rem,
+			"light_sleep_seconds": f.light,
+			"awake_seconds":       f.awake,
+		}
+		changed := false
+		for k, v := range next {
+			if !sameValue(s[k], v) {
+				s[k], changed = v, true
+			}
+		}
+		// A stored clear row is converted even when its figures hold, as the
+		// statement this replaces rewrote every session it touched.
+		if !changed && (sc.uv == nil || s["sealed"] != nil) {
+			continue
+		}
+		if err := rewriteRow(ctx, tx, sc, tSleep, s); err != nil {
+			return fmt.Errorf("sleep figures from stages: %w", err)
+		}
+	}
+	return nil
+}
 
 // writeSleepNights writes stages that name no session, and gathers the nights
 // of the batch's sessions without figures (sessions), as the comment at the
@@ -205,11 +262,7 @@ func (w *Writer) writeSleepNights(ctx context.Context, tx TxLike, sc scope, stag
 	if len(touched) == 0 {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, sleepFiguresFromStages, sc.tenant, sc.user, touched,
-		model.SleepStageDeep, model.SleepStageREM, model.SleepStageLight, model.SleepStageAwake); err != nil {
-		return fmt.Errorf("sleep figures from stages: %w", err)
-	}
-	return nil
+	return sleepFiguresFromStages(ctx, tx, sc, touched)
 }
 
 // storedNightSessions returns the provider's stored sessions within a gap of
@@ -232,6 +285,10 @@ func storedNightSessions(ctx context.Context, tx TxLike, sc scope, stages []mode
 	var stored []nightSession
 	for range 3 {
 		wantLo, wantHi := lo, hi
+		if err := convertLegacy(ctx, tx, sc, tSleep, `r.provider = $3 AND r.bedtime_start <= $5
+			AND coalesce(r.bedtime_end, r.bedtime_start) >= $4`, sc.provider, lo.Add(-sleepSessionGap), hi.Add(sleepSessionGap)); err != nil {
+			return nil, err
+		}
 		rows, err := tx.Query(ctx, sleepNightsAround, sc.tenant, sc.user, sc.provider,
 			lo.Add(-sleepSessionGap), hi.Add(sleepSessionGap))
 		if err != nil {
@@ -300,17 +357,17 @@ func (w *Writer) buildNight(ctx context.Context, tx TxLike, sc scope, n sleepNig
 		}
 	}
 	if target == nil {
-		s := nightSession{start: n.start, end: n.end, hash: model.ComputeContentHash(map[string]string{
+		s := nightSession{start: n.start, end: n.end, hash: sc.hash(model.ComputeContentHash(map[string]string{
 			"user_id":       sc.user.String(),
 			"provider":      sc.provider,
 			"bedtime_start": n.start.UTC().Format(time.RFC3339Nano),
 			"bedtime_end":   n.end.UTC().Format(time.RFC3339Nano),
-		})}
-		id, isNew, err := insertParentWithFallback(ctx, tx, sleepSessionInsert, []any{
+		}))}
+		id, isNew, err := writeSleepSession(ctx, tx, sc, []any{
 			sc.tenant, sc.user, sc.provider, sourceSlugOrProvider("", sc.provider), "", s.start, s.end,
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			s.hash, map[string]any{"synthesized": true},
-		}, sleepSessionSelect, sc.tenant, sc.user, s.hash, s.start)
+			s.hash, map[string]any{"synthesized": true}, sc.capturedAt(),
+		}, false)
 		if err != nil {
 			return nil, fmt.Errorf("insert sleep session: %w", err)
 		}
@@ -363,23 +420,16 @@ func (w *Writer) writeNightPhases(ctx context.Context, tx TxLike, sc scope, id i
 
 // takeBuiltSession deletes a session built from stages and returns its phases.
 func takeBuiltSession(ctx context.Context, tx TxLike, sc scope, id int64) ([]model.SleepPhase, error) {
-	rows, err := tx.Query(ctx, sleepPhasesTake, sc.tenant, sc.user, id)
+	rows, err := collectRows(openRows(ctx, tx, sc.uv, tPhases, sleepPhasesTake, []any{sc.tenant, sc.user, id}))
 	if err != nil {
 		return nil, fmt.Errorf("take sleep phases: %w", err)
 	}
-	phases, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (model.SleepPhase, error) {
-		var p model.SleepPhase
-		var end *time.Time
-		if err := r.Scan(&p.Phase, &p.StartDate, &end, &p.DurationS); err != nil {
-			return p, err
-		}
-		if end != nil {
-			p.EndDate = *end
-		}
-		return p, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("take sleep phases: %w", err)
+	phases := make([]model.SleepPhase, len(rows))
+	for i, r := range rows {
+		d, _ := r.int("duration_s")
+		phases[i] = model.SleepPhase{Phase: r.text("phase"), DurationS: int(d)}
+		phases[i].StartDate, _ = r["start_date"].(time.Time)
+		phases[i].EndDate, _ = r["end_date"].(time.Time)
 	}
 	if _, err := tx.Exec(ctx, sleepSessionDrop, sc.tenant, sc.user, id); err != nil {
 		return nil, fmt.Errorf("drop sleep session: %w", err)

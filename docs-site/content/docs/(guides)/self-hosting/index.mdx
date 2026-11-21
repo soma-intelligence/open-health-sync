@@ -42,7 +42,7 @@ payloads go to a local folder or an S3 compatible bucket. That is the whole stac
 | --- | --- | --- |
 | CPU | amd64 or arm64 | Images and binaries are published for both. |
 | Memory | 4 GB for the whole stack | A Raspberry Pi 5 with 4 GB runs it with the Pi overlay. |
-| Postgres | 17 with TimescaleDB | Compose pins `timescale/timescaledb:latest-pg17` by digest. Only hypertables are used: no continuous aggregates, no compression policies. |
+| Postgres | 17 with TimescaleDB | Compose pins `timescale/timescaledb:latest-pg17` by digest. Hypertables, a compression policy on `quantity_samples` (chunks older than 30 days) and the continuous aggregate `quantity_hourly`, kept for rows stored in clear before 0.3.0; sealed rows use the table `quantity_hourly_sealed`. |
 | Raw store | a writable folder, or an S3 bucket with `If-None-Match` | Writes are conditional and never overwrite. |
 | Docker Compose | v2.24 or later | Only for the compose setups. |
 

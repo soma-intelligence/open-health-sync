@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"io"
 	"net"
 	"net/http"
@@ -203,6 +204,11 @@ func start(t *testing.T) *env {
 	addr := l.Addr().String()
 	require.NoError(t, l.Close())
 	rawDir := "file://" + t.TempDir()
+	// A Config built here, not by Load: the vault settings are the ones Load
+	// derives from the encryption key alone.
+	encKey := bytes.Repeat([]byte{9}, 32)
+	vaultCfg, err := config.DerivedVault(encKey)
+	require.NoError(t, err)
 	cfg := config.Config{
 		DatabaseURL:   dbURL,
 		RawStore:      rawDir,
@@ -210,11 +216,12 @@ func start(t *testing.T) *env {
 		LogLevel:      "error",
 		PublicURL:     "http://" + addr,
 		Roles:         map[string]bool{"api": true, "collect": true, "etl": true},
-		EncryptionKey: bytes.Repeat([]byte{9}, 32),
+		EncryptionKey: encKey,
+		Vault:         vaultCfg,
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- app.Run(runCtx, cfg) }()
+	go func() { done <- app.Run(runCtx, cfg, settings.Start{}) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -559,24 +566,21 @@ func (e *env) inspect(r *providerReport) {
 			r.findings = append(r.findings, fmt.Sprintf("%d %s start before 2000 (Unix or FIT epoch dates)", n, tb.table))
 		}
 	}
+	// Values, metadata and sources are sealed when the instance holds vault
+	// keys, so the checks on them run on what the API serves (readAPI). Here
+	// only clear columns are read: content_hash is keyed per user, so the
+	// same record stored twice shares it.
 	q := ` FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND user_id = $2`
-	if n := count(`SELECT count(*)`+q+` AND (value = 'NaN' OR value = 'Infinity' OR value = '-Infinity')`, e.tenat, r.user); n > 0 {
-		r.broken = append(r.broken, fmt.Sprintf("%d quantity samples are NaN or infinite", n))
-	}
-	r.suspects = count(`SELECT count(*)`+q+` AND metadata->>'quality_flag' = 'suspect'`, e.tenat, r.user)
-
-	// The same value at the same instant from the same source, twice.
-	rows, err := e.pool.Query(ctx, `SELECT quantity_type, start_date, value, count(*)`+q+`
-		GROUP BY quantity_type, start_date, end_date, value, unit, source_name, source_bundle_id, device_model, external_id
+	rows, err := e.pool.Query(ctx, `SELECT quantity_type, start_date, count(*)`+q+`
+		GROUP BY quantity_type, start_date, end_date, unit, content_hash
 		HAVING count(*) > 1 ORDER BY 1, 2 LIMIT 20`, e.tenat, r.user)
 	require.NoError(e.t, err)
 	for rows.Next() {
 		var typ string
 		var at time.Time
-		var v float64
 		var n int
-		require.NoError(e.t, rows.Scan(&typ, &at, &v, &n))
-		r.findings = append(r.findings, fmt.Sprintf("stored twice: %s %s = %v, %d rows", typ, at.Format(time.RFC3339), v, n))
+		require.NoError(e.t, rows.Scan(&typ, &at, &n))
+		r.findings = append(r.findings, fmt.Sprintf("stored twice: %s %s, %d rows", typ, at.Format(time.RFC3339), n))
 	}
 	require.NoError(e.t, rows.Err())
 
@@ -605,11 +609,20 @@ func (e *env) readAPI(r *providerReport) {
 				break
 			}
 			var page struct {
-				Data       []json.RawMessage `json:"data"`
-				NextCursor *string           `json:"next_cursor"`
+				Data []struct {
+					Metadata map[string]any `json:"metadata"`
+				} `json:"data"`
+				NextCursor *string `json:"next_cursor"`
 			}
 			require.NoError(e.t, json.Unmarshal(b, &page))
 			got += int64(len(page.Data))
+			// A NaN or infinite value cannot reach JSON: the encoder would
+			// fail and the page would not be 200, which is reported above.
+			for _, d := range page.Data {
+				if d.Metadata["quality_flag"] == "suspect" {
+					r.suspects++
+				}
+			}
 			next = ""
 			if page.NextCursor != nil {
 				next = u + "/samples?view=all&limit=1000&type=" + url.QueryEscape(typ) + "&cursor=" + url.QueryEscape(*page.NextCursor)

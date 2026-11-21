@@ -6,7 +6,9 @@
 # (`${OHS_VERSION:-X.Y.Z}`), so `docker compose up` on the tagged checkout
 # pulls the image the tag publishes. server.json names the same version and image
 # tag, since the release publishes it to the MCP registry. The Helm chart's
-# appVersion (the image tag it runs by default) names it too.
+# appVersion (the image tag it runs by default) names it too. For a final
+# release (no -rc suffix), internal/db/released_migrations.txt lists exactly
+# the migrations of the tree and names the tag (`make released-migrations`).
 #
 #   scripts/check-release-version.sh v0.0.2
 set -euo pipefail
@@ -39,5 +41,17 @@ if [ "$chart_app" != "$version" ]; then
   echo "check-release-version: deploy/helm/ohs/Chart.yaml has appVersion '$chart_app', the tag is $version" >&2
   status=1
 fi
+case "$tag" in
+  *-*) ;; # a release candidate ships migrations that may still be renumbered
+  *)
+    released="$root/internal/db/released_migrations.txt"
+    on_disk="$(find "$root/internal/db/migrations" -name '*.up.sql' -exec basename {} \; | sed 's/_.*//' | sort -u)"
+    listed="$(grep -v '^#' "$released" 2>/dev/null | grep -v '^[[:space:]]*$' | sort -u || true)"
+    if [ "$on_disk" != "$listed" ] || ! grep -qx "# release $tag" "$released" 2>/dev/null; then
+      echo "check-release-version: internal/db/released_migrations.txt is not the list of migrations of $tag: run 'make released-migrations RELEASE_TAG=$tag'" >&2
+      status=1
+    fi
+    ;;
+esac
 [ "$status" -eq 0 ] && echo "check-release-version: $tag ok"
 exit "$status"

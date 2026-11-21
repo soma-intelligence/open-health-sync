@@ -15,13 +15,23 @@ struct HealthDataType: Identifiable {
         self.sampleType = sampleType
     }
 
-    static let all: [HealthDataType] = [
-        HealthDataType(name: "Heart rate", sampleType: HKQuantityType(.heartRate)),
-        HealthDataType(name: "Steps", sampleType: HKQuantityType(.stepCount)),
-        HealthDataType(name: "Active energy", sampleType: HKQuantityType(.activeEnergyBurned)),
-        HealthDataType(name: "Sleep", sampleType: HKCategoryType(.sleepAnalysis)),
-        HealthDataType(name: "Workouts", sampleType: HKObjectType.workoutType()),
-    ]
+    static let all: [HealthDataType] = {
+        var types = [
+            HealthDataType(name: "Heart rate", sampleType: HKQuantityType(.heartRate)),
+            HealthDataType(name: "Steps", sampleType: HKQuantityType(.stepCount)),
+            HealthDataType(name: "Active energy", sampleType: HKQuantityType(.activeEnergyBurned)),
+            HealthDataType(name: "Sleep", sampleType: HKCategoryType(.sleepAnalysis)),
+            HealthDataType(name: "Workouts", sampleType: HKObjectType.workoutType()),
+            HealthDataType(name: "Workout routes", sampleType: HKSeriesType.workoutRoute()),
+            HealthDataType(name: "ECG", sampleType: HKObjectType.electrocardiogramType()),
+            HealthDataType(name: "Heartbeat series", sampleType: HKSeriesType.heartbeat()),
+            HealthDataType(name: "Audiograms", sampleType: HKObjectType.audiogramSampleType()),
+        ]
+        if #available(iOS 18.0, *) {
+            types.append(HealthDataType(name: "State of mind", sampleType: HKObjectType.stateOfMindType()))
+        }
+        return types
+    }()
 
     static func name(forIdentifier identifier: String) -> String {
         return all.first(where: { $0.id == identifier })?.name ?? identifier

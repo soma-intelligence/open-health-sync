@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/rekey"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 )
 
 // DoctorOptions tunes Doctor.
@@ -113,6 +115,10 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 		if d := secretSources(cfg, get); d != "" {
 			report("secrets", nil, d)
 		}
+		if cfg.Vault.Provider == "local" && cfg.Vault.RootDerived {
+			fmt.Fprintln(out, "warn  vault: vault root key is derived from OHS_ENCRYPTION_KEY: one secret guards both "+
+				"(set OHS_VAULT_ROOT_KEY or OHS_VAULT_ROOT_KEY_FILE, or use a KMS provider)")
+		}
 	}
 
 	// Database and raw store use the raw variables so they are still checked
@@ -129,6 +135,7 @@ func Doctor(ctx context.Context, out io.Writer, o DoctorOptions) error {
 			doctorConnectors(out, report, o, cfg, strings.TrimRight(public, "/"))
 			if dbErr == nil {
 				doctorKeys(ctx, out, report, cfg, dbURL, o.Timeout)
+				doctorSettings(ctx, out, o, cfg, dbURL)
 			}
 		}
 	}
@@ -248,6 +255,61 @@ func doctorKeys(ctx context.Context, out io.Writer, report func(string, error, s
 			detail += fmt.Sprintf("; %d without a key id, which `ohs admin rekey` adds", total.Legacy)
 		}
 		report(name, nil, detail)
+	}
+}
+
+// doctorSettings lists the stored settings a process would not use: names no
+// release setting reads any more, and values that do not hold. Both are
+// warnings, never failures: a process starts without them.
+func doctorSettings(ctx context.Context, out io.Writer, o DoctorOptions, cfg config.Config, dbURL string) {
+	const name = "settings"
+	box, err := crypto.NewKeyring(cfg.EncryptionKey, cfg.PreviousEncryptionKeys...)
+	if err != nil {
+		return // the encryption keys check already failed
+	}
+	ctx, cancel := context.WithTimeout(ctx, 6*o.Timeout)
+	defer cancel()
+	pool, err := db.Open(ctx, dbURL)
+	if err != nil {
+		fmt.Fprintf(out, "warn  %s: cannot read the stored settings: %s\n", name, redact(err, dbURL))
+		return
+	}
+	defer pool.Close()
+	st, err := settings.NewPG(pool, box).Load(ctx)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
+		fmt.Fprintf(out, "skip  %s: the database is not migrated yet (ohs migrate up)\n", name)
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(out, "warn  %s: cannot read the stored settings: %s\n", name, redact(err, dbURL))
+		return
+	}
+	stored := make(map[string]string, len(st.Rows))
+	var invalid []settings.Invalid
+	for n, r := range st.Rows {
+		if r.OpenErr != nil {
+			if s, ok := config.LookupSetting(n); ok && s.Apply != config.ApplyBootstrap && !config.EnvSet(o.Lookup, n) {
+				invalid = append(invalid, settings.Invalid{Name: n, Message: "the stored value does not open with OHS_ENCRYPTION_KEY or OHS_PREVIOUS_ENCRYPTION_KEYS: save it again"})
+			}
+			continue
+		}
+		stored[n] = r.Value
+	}
+	_, bad, unknown, err := settings.Resolve(o.Lookup, o.Environ, stored)
+	if err != nil {
+		fmt.Fprintf(out, "warn  %s: the stored settings cannot be checked: %s\n", name, redact(err, dbURL))
+		return
+	}
+	invalid = append(invalid, bad...)
+	sort.Slice(invalid, func(i, j int) bool { return invalid[i].Name < invalid[j].Name })
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		fmt.Fprintf(out, "warn  %s: stored values no release setting reads any more: %s (remove them with PATCH /v1/admin/settings {%q: null})\n",
+			name, strings.Join(unknown, ", "), unknown[0])
+	}
+	for _, inv := range invalid {
+		fmt.Fprintf(out, "warn  %s: stored value skipped: %s: %s\n", name, inv.Name, strings.TrimPrefix(inv.Message, inv.Name+": "))
 	}
 }
 

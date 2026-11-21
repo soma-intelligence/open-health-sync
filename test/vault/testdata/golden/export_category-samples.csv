@@ -1,0 +1,7 @@
+type,value_int,value_label,start_date,end_date,source_name,external_id,metadata,provider,source,device
+menstrual_flow,3,medium,2026-09-01T08:00:00Z,2026-09-01T09:00:00Z,Health,golden-flow-0,{},apple_health,apple_health,
+menstrual_flow,3,medium,2026-09-02T08:00:00Z,2026-09-02T09:00:00Z,Health,golden-flow-1,{},apple_health,apple_health,
+menstrual_flow,3,medium,2026-09-03T08:00:00Z,2026-09-03T09:00:00Z,Health,golden-flow-2,{},apple_health,apple_health,
+menstrual_flow,3,medium,2026-09-04T08:00:00Z,2026-09-04T09:00:00Z,Health,golden-flow-3,{},apple_health,apple_health,
+menstrual_flow,3,medium,2026-09-29T08:00:00Z,2026-09-29T09:00:00Z,Health,golden-flow-4,{},apple_health,apple_health,
+menstrual_flow,3,medium,2026-09-30T08:00:00Z,2026-09-30T09:00:00Z,Health,golden-flow-5,{},apple_health,apple_health,

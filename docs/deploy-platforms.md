@@ -41,8 +41,9 @@ Its health check is `/readyz` (database and raw store).
   volume. Device uploads that hit that window get an error and retry.
 - **Disk snapshots are not a database backup.** Render advises against restoring a disk snapshot
   that backs a database: it may come back corrupted. Take backups as described in
-  [Backup and restore](backup-and-restore.md), and keep `OHS_ENCRYPTION_KEY` with
-  them: without it, stored OAuth tokens cannot be read.
+  [Backup and restore](backup-and-restore.md), and keep `OHS_ENCRYPTION_KEY` safe, apart
+  from them: without it, stored OAuth tokens cannot be read, nor the health data while the vault
+  root key is derived from it.
 - **The container runs as root.** Render and Fly.io mount volumes owned by root, and ohs must
   write to its raw store, so `render.yaml` and `deploy/fly/fly.toml` build with
   `IMAGE_UID=0` (a build argument of `deploy/Dockerfile`, default `65532`, the distroless

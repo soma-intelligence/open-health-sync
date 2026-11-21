@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // Parent and child families: sleep sessions and their phases, workouts and
@@ -30,19 +31,24 @@ var sleepSessionColumns = []string{
 	"total_sleep_seconds", "deep_sleep_seconds", "rem_sleep_seconds",
 	"light_sleep_seconds", "awake_seconds", "sleep_score",
 	"hrv_avg_ms", "resting_hr", "respiratory_rate", "spo2_avg",
-	"content_hash", "metadata",
+	"content_hash", "metadata", "captured_at",
 }
 
+var sleepShape = newShape(tSleep, sleepSessionColumns, sleepPromoted, deriveSleep)
+
 var (
-	sleepSessionInsert = insertHead(tSleep, sleepSessionColumns) + placeholders(1, len(sleepSessionColumns)) +
-		doNothing(hyperConflict("bedtime_start")) + " RETURNING id"
-	// sleepSessionReplace is the insert of a Replaceable session: on conflict
-	// the stored figures are replaced (latestWins); a copy that changes nothing
-	// returns no row and resolves through sleepSessionSelect.
-	sleepSessionReplace = insertHead(tSleep, sleepSessionColumns) + placeholders(1, len(sleepSessionColumns)) +
-		latestWins(tSleep, hyperConflict("bedtime_start"), sleepFigures) + " RETURNING id"
-	sleepSessionSelect = `SELECT id FROM ohs_data.sleep_sessions
-		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND bedtime_start = $4`
+	// sleepSessionAdvance moves the capture time of a Replaceable session
+	// its new copy left as it was forward (see newerCapture).
+	sleepSessionAdvance = `UPDATE ohs_data.sleep_sessions SET captured_at = $5
+		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND bedtime_start = $4
+		  AND ` + newerCapture("captured_at", "$5::timestamptz")
+	// sleepSessionNewer finds a stored copy of a Replaceable session that came
+	// from an object captured after this one ($7): the row under the same key
+	// ($3, $4), or the same provider record ($5, $6) under any key.
+	sleepSessionNewer = `SELECT id FROM ohs_data.sleep_sessions
+		WHERE tenant_id = $1 AND user_id = $2 AND captured_at > $7
+		  AND ((content_hash = $3 AND bedtime_start = $4) OR ($6 <> '' AND provider = $5 AND external_id = $6))
+		ORDER BY captured_at DESC LIMIT 1`
 	// sleepSessionSupersede removes the other stored copies of a Replaceable
 	// session: same provider record, another (content_hash, bedtime_start)
 	// key, which is what a night whose start moved leaves behind. The dedup
@@ -71,6 +77,89 @@ var sleepFigures = []string{
 	"hrv_avg_ms", "resting_hr", "respiratory_rate", "spo2_avg",
 }
 
+// sleepSessionRow is the base row of a session, in sleepSessionColumns order.
+func sleepSessionRow(sc scope, p string, s model.SleepSession) []any {
+	return []any{
+		sc.tenant, sc.user, p, sourceSlugOrProvider("", p), s.ExternalID, s.BedtimeStart, nullTime(s.BedtimeEnd),
+		s.TotalSleepSeconds, s.DeepSleepSeconds, s.REMSleepSeconds,
+		s.LightSleepSeconds, s.AwakeSeconds, s.SleepScore,
+		s.HRVAvgMs, s.RestingHR, s.RespiratoryRate, s.SpO2Avg,
+		s.ContentHash, normalizeMetadata(s.Metadata), sc.capturedAt(),
+	}
+}
+
+// writeSleepSession inserts one session, or upserts a Replaceable one: on
+// conflict the stored figures are replaced (latest wins), and a copy that
+// changes nothing resolves to the stored row.
+func writeSleepSession(ctx context.Context, tx TxLike, sc scope, base []any, replace bool) (int64, bool, error) {
+	return writeParent(ctx, tx, sc, sleepShape, "bedtime_start", hyperConflict("bedtime_start"), sleepFigures, sleepFollowMetadata, replace, base)
+}
+
+// parentInsert is the single-row insert of a parent of s, clear or sealed,
+// ending with tail and RETURNING id.
+func parentInsert(s *shape, sealed bool, tail string) string {
+	columns := s.columnsFor(sealed)
+	return insertHead(s.t.Name, columns) + placeholders(1, len(columns)) + tail + " RETURNING id"
+}
+
+// The clear statements of the parents, as writeParent builds them without
+// keys. A Replaceable row takes the replace form: on conflict the stored
+// figures are replaced (latestWins); a copy that changes nothing returns no
+// row and resolves to the stored one.
+var (
+	sleepSessionInsert  = parentInsert(sleepShape, false, doNothing(hyperConflict("bedtime_start")))
+	sleepSessionReplace = parentInsert(sleepShape, false, latestWins(tSleep, hyperConflict("bedtime_start"), sleepFigures, sleepFollowMetadata))
+	workoutInsert       = parentInsert(workoutShape, false, doNothing(hyperConflict("start_date")))
+	workoutReplace      = parentInsert(workoutShape, false, latestWins(tWorkouts, hyperConflict("start_date"), workoutFigures, workoutFollowMetadata))
+)
+
+// workoutFollowMetadata are the promoted columns of a workout that a clear
+// upsert replaces with its metadata.
+var workoutFollowMetadata = []string{"worn"}
+
+// sleepFollowMetadata are the promoted columns of a session that a clear
+// upsert replaces with its metadata.
+var sleepFollowMetadata = []string{"worn", "synthesized"}
+
+// writeParent writes one parent row (base, in s.base order, with a
+// content_hash and timeCol column) with RETURNING id, and resolves a row that
+// was already stored by its content hash and timeCol. It returns the id and
+// whether a row was written. A Replaceable row (replace) upserts with latest
+// wins: in SQL without keys (extra are the promoted columns that follow
+// metadata), merged in Go with the stored row with keys.
+func writeParent(ctx context.Context, tx TxLike, sc scope, s *shape, timeCol, conflict string, figures, extra []string, replace bool, base []any) (int64, bool, error) {
+	hash, _ := base[s.index["content_hash"]].(string)
+	at, _ := base[s.index[timeCol]].(time.Time)
+	tail := doNothing(conflict)
+	if replace {
+		tail = latestWins(s.t.Name, conflict, figures, extra)
+		if sc.uv != nil {
+			stored, err := storedRows(ctx, tx, sc, s.t.Name, timeCol, "timestamptz", "", []string{hash}, []time.Time{at}, nil, at, at)
+			if err != nil {
+				return 0, false, err
+			}
+			if copies := stored[keyOf(hash, at)]; len(copies) > 0 {
+				st := copies[0]
+				merged, changed := s.mergeStored(base, st, figures)
+				if !changed {
+					id, _ := st.int("id")
+					return id, false, nil
+				}
+				base = merged
+			}
+			tail = s.latestWinsSealed(conflict, figures)
+		}
+	}
+	row, err := s.finish(sc, base)
+	if err != nil {
+		return 0, false, err
+	}
+	insert := parentInsert(s, sc.uv != nil, tail)
+	selectSQL := fmt.Sprintf(`SELECT id FROM %s WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND %s = $4`,
+		qualified(s.t.Name), timeCol)
+	return insertParentWithFallback(ctx, tx, insert, row, selectSQL, sc.tenant, sc.user, hash, at)
+}
+
 // writeSleepWithPhases inserts sleep sessions, then their phases. Stages that
 // name no session, and the nights of sessions without figures, go through
 // writeSleepNights (sleep_sessionize.go).
@@ -89,17 +178,29 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 
 	for _, s := range sessions {
 		p := sc.providerOr(s.Provider)
-		insert := sleepSessionInsert
 		if s.Replaceable {
-			insert = sleepSessionReplace
+			// A copy older than the stored one changes nothing: neither the
+			// session nor its phases. The phases it carries are counted with it.
+			_, stale, err := newerParent(ctx, tx, sc, sleepSessionNewer, s.ContentHash, s.BedtimeStart, p, s.ExternalID)
+			if err != nil {
+				return fmt.Errorf("look up newer sleep session: %w", err)
+			}
+			if stale {
+				c.add(tSleep, 0, 1)
+				dropped := 0
+				for _, i := range byParent[s.ContentHash] {
+					if !attached[i] {
+						attached[i] = true
+						dropped++
+					}
+				}
+				if dropped > 0 {
+					c.add(tPhases, 0, dropped)
+				}
+				continue
+			}
 		}
-		parentID, isNew, err := insertParentWithFallback(ctx, tx, insert, []any{
-			sc.tenant, sc.user, p, sourceSlugOrProvider("", p), s.ExternalID, s.BedtimeStart, nullTime(s.BedtimeEnd),
-			s.TotalSleepSeconds, s.DeepSleepSeconds, s.REMSleepSeconds,
-			s.LightSleepSeconds, s.AwakeSeconds, s.SleepScore,
-			s.HRVAvgMs, s.RestingHR, s.RespiratoryRate, s.SpO2Avg,
-			s.ContentHash, normalizeMetadata(s.Metadata),
-		}, sleepSessionSelect, sc.tenant, sc.user, s.ContentHash, s.BedtimeStart)
+		parentID, isNew, err := writeSleepSession(ctx, tx, sc, sleepSessionRow(sc, p, s), s.Replaceable)
 		if err != nil {
 			return fmt.Errorf("insert sleep session: %w", err)
 		}
@@ -107,6 +208,11 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 			c.add(tSleep, 1, 0)
 		} else {
 			c.add(tSleep, 0, 1)
+			if s.Replaceable {
+				if err := advanceParent(ctx, tx, sc, sleepSessionAdvance, s.ContentHash, s.BedtimeStart); err != nil {
+					return fmt.Errorf("advance capture time of sleep session: %w", err)
+				}
+			}
 		}
 		windows = append(windows, sleepWindow{id: parentID, hash: s.ContentHash, start: s.BedtimeStart, end: s.BedtimeEnd})
 		if s.TotalSleepSeconds == nil && p == sc.provider {
@@ -158,6 +264,26 @@ func (w *Writer) writeSleepWithPhases(ctx context.Context, tx TxLike, sc scope, 
 	return nil
 }
 
+// newerParent reports whether a Replaceable parent is stale: a copy of it is
+// stored from a raw object captured after the one being written, under the
+// same key or, with an external id, as the same provider record under any
+// key. It returns that stored row's id. A write whose capture time is unknown
+// is never stale.
+func newerParent(ctx context.Context, tx TxLike, sc scope, lookup, hash string, start time.Time, provider, externalID string) (int64, bool, error) {
+	if sc.captured.IsZero() {
+		return 0, false, nil
+	}
+	var id int64
+	err := tx.QueryRow(ctx, lookup, sc.tenant, sc.user, hash, start, provider, externalID, sc.captured).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
 // replaceSleepChildren runs after a Replaceable session is upserted to
 // parentID, before its phases are written. It deletes the stored copies of the
 // same provider record under another key (with an ExternalID only), then
@@ -189,7 +315,7 @@ func replaceSleepChildren(ctx context.Context, tx TxLike, sc scope, provider str
 	keep := make([]string, len(own))
 	for i, ph := range own {
 		ph.ParentContentHash = s.ContentHash
-		keep[i] = model.SleepPhaseContentHash(ph)
+		keep[i] = sc.hash(model.SleepPhaseContentHash(ph))
 	}
 	if superseded == nil {
 		superseded = []int64{}
@@ -263,6 +389,8 @@ func containingSleepWindow(windows []sleepWindow, p model.SleepPhase) (int64, bo
 
 var sleepPhaseColumns = []string{"tenant_id", "user_id", "session_id", "phase", "start_date", "end_date", "duration_s", "content_hash"}
 
+var sleepPhaseShape = newShape(tPhases, sleepPhaseColumns, nil, nil)
+
 // writeSleepPhases inserts phases under a resolved session. Each phase is
 // identified by the session it is written under (parentHash), whether or not
 // the mapper stamped it, so sibling stages of different nights never collide.
@@ -270,9 +398,15 @@ func (w *Writer) writeSleepPhases(ctx context.Context, tx TxLike, sc scope, sess
 	rows := make([][]any, len(phases))
 	for i, p := range phases {
 		p.ParentContentHash = parentHash
-		rows[i] = []any{sc.tenant, sc.user, sessionID, p.Phase, p.StartDate, nullTime(p.EndDate), p.DurationS, model.SleepPhaseContentHash(p)}
+		row, err := sleepPhaseShape.finish(sc, []any{sc.tenant, sc.user, sessionID, p.Phase, p.StartDate, nullTime(p.EndDate), p.DurationS,
+			sc.hash(model.SleepPhaseContentHash(p))})
+		if err != nil {
+			return 0, 0, err
+		}
+		rows[i] = row
 	}
-	return w.insertBatches(ctx, tx, tPhases, insertHead(tPhases, sleepPhaseColumns), doNothing(plainConflict), len(sleepPhaseColumns), rows)
+	columns := sleepPhaseShape.columns(sc)
+	return w.insertBatches(ctx, tx, tPhases, insertHead(tPhases, columns), doNothing(plainConflict), len(columns), rows)
 }
 
 // --- workouts -> route_points ---
@@ -282,32 +416,26 @@ var workoutColumns = []string{
 	"start_date", "end_date", "duration_s",
 	"active_energy_kcal", "distance_m", "avg_heart_rate",
 	"max_heart_rate", "avg_speed_mps", "elevation_gain_m",
-	"vo2_max", "content_hash", "metadata",
+	"vo2_max", "content_hash", "metadata", "captured_at",
 }
 
+var workoutShape = newShape(tWorkouts, workoutColumns, parentPromoted, deriveWorkout)
+
 var (
-	workoutInsert = insertHead(tWorkouts, workoutColumns) + placeholders(1, len(workoutColumns)) +
-		doNothing(hyperConflict("start_date")) + " RETURNING id"
-	// workoutReplace is the insert of a Replaceable workout: on conflict the
-	// stored figures are replaced (latestWins); a copy that changes nothing
-	// returns no row and resolves through workoutSelect.
-	workoutReplace = insertHead(tWorkouts, workoutColumns) + placeholders(1, len(workoutColumns)) +
-		latestWins(tWorkouts, hyperConflict("start_date"), workoutFigures) + " RETURNING id"
-	workoutSelect = `SELECT id FROM ohs_data.workouts
-		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND start_date = $4`
+	// workoutAdvance is sleepSessionAdvance for workouts.
+	workoutAdvance = `UPDATE ohs_data.workouts SET captured_at = $5
+		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND start_date = $4
+		  AND ` + newerCapture("captured_at", "$5::timestamptz")
+	// workoutNewer is sleepSessionNewer for workouts.
+	workoutNewer = `SELECT id FROM ohs_data.workouts
+		WHERE tenant_id = $1 AND user_id = $2 AND captured_at > $7
+		  AND ((content_hash = $3 AND start_date = $4) OR ($6 <> '' AND provider = $5 AND external_id = $6))
+		ORDER BY captured_at DESC LIMIT 1`
 	// workoutSupersede removes the other stored copies of a Replaceable
 	// workout (same provider record, another key: its start moved).
 	workoutSupersede = `DELETE FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND external_id = $4 AND id <> $5
 		RETURNING id`
-	// workoutRoutesAdopt moves the route points of superseded copies ($4) to
-	// the kept workout ($3).
-	workoutRoutesAdopt = `UPDATE ohs_data.route_points SET workout_id = $3
-		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($4)`
-	// workoutRoutesDrop deletes the route points of superseded copies when the
-	// new copy carries its own route.
-	workoutRoutesDrop = `DELETE FROM ohs_data.route_points
-		WHERE tenant_id = $1 AND user_id = $2 AND workout_id = ANY($3)`
 	// workoutTracksDrop deletes the derived track summaries of superseded
 	// copies; they are rebuilt from the route points.
 	workoutTracksDrop = `DELETE FROM ohs_data.workout_tracks
@@ -332,18 +460,43 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 	}
 
 	for _, wk := range workouts {
+		// A Replaceable workout's new copy replaces the stored figures (latest
+		// wins); a copy that changes nothing resolves to the stored row.
 		p := sc.providerOr(wk.Provider)
-		insert := workoutInsert
 		if wk.Replaceable {
-			insert = workoutReplace
+			// A copy older than the stored one changes nothing: neither the
+			// workout nor its route. The points it carries are counted with it.
+			_, stale, err := newerParent(ctx, tx, sc, workoutNewer, wk.ContentHash, wk.StartDate, p, wk.ExternalID)
+			if err != nil {
+				return fmt.Errorf("look up newer workout: %w", err)
+			}
+			if stale {
+				c.add(tWorkouts, 0, 1)
+				dropped := 0
+				drop := byParent[wk.ContentHash]
+				if len(workouts) == 1 {
+					drop = append(drop[:len(drop):len(drop)], byParent[""]...)
+				}
+				for _, i := range drop {
+					if !attached[i] {
+						attached[i] = true
+						dropped++
+					}
+				}
+				if dropped > 0 {
+					c.add(tRoutes, 0, dropped)
+				}
+				continue
+			}
 		}
-		parentID, isNew, err := insertParentWithFallback(ctx, tx, insert, []any{
-			sc.tenant, sc.user, p, sourceSlugOrProvider(model.Slug(wk.SourceSlug), p), nullString(wk.DeviceID), wk.ExternalID, wk.ActivityType,
-			wk.StartDate, nullTime(wk.EndDate), wk.DurationS,
-			wk.ActiveEnergyKcal, wk.DistanceM, wk.AvgHeartRate,
-			wk.MaxHeartRate, wk.AvgSpeedMps, wk.ElevationGainM,
-			wk.VO2Max, wk.ContentHash, normalizeMetadata(wk.Metadata),
-		}, workoutSelect, sc.tenant, sc.user, wk.ContentHash, wk.StartDate)
+		parentID, isNew, err := writeParent(ctx, tx, sc, workoutShape, "start_date", hyperConflict("start_date"),
+			workoutFigures, workoutFollowMetadata, wk.Replaceable, []any{
+				sc.tenant, sc.user, p, sourceSlugOrProvider(model.Slug(wk.SourceSlug), p), nullString(wk.DeviceID), wk.ExternalID, wk.ActivityType,
+				wk.StartDate, nullTime(wk.EndDate), wk.DurationS,
+				wk.ActiveEnergyKcal, wk.DistanceM, wk.AvgHeartRate,
+				wk.MaxHeartRate, wk.AvgSpeedMps, wk.ElevationGainM,
+				wk.VO2Max, wk.ContentHash, normalizeMetadata(wk.Metadata), sc.capturedAt(),
+			})
 		if err != nil {
 			return fmt.Errorf("insert workout: %w", err)
 		}
@@ -351,6 +504,11 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 			c.add(tWorkouts, 1, 0)
 		} else {
 			c.add(tWorkouts, 0, 1)
+			if wk.Replaceable {
+				if err := advanceParent(ctx, tx, sc, workoutAdvance, wk.ContentHash, wk.StartDate); err != nil {
+					return fmt.Errorf("advance capture time of workout: %w", err)
+				}
+			}
 		}
 
 		var own []model.RoutePoint
@@ -374,7 +532,7 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 			}
 		}
 		if len(own) > 0 {
-			n, k, err := w.writeRoutePoints(ctx, tx, sc, parentID, own)
+			n, k, err := w.writeRoutePoints(ctx, tx, sc, parentID, p, own)
 			if err != nil {
 				return fmt.Errorf("insert route points: %w", err)
 			}
@@ -396,8 +554,8 @@ func (w *Writer) writeWorkoutsWithRoutes(ctx context.Context, tx TxLike, sc scop
 
 // supersedeWorkout deletes the stored copies of a Replaceable workout's
 // provider record under another key than parentID's, and their derived
-// tracks. Their route points move to parentID, or are deleted when the new
-// copy carries its own route (hasRoute).
+// tracks. Their routes move to parentID, merged into its own, or are
+// deleted when the new copy carries its own route (hasRoute).
 func supersedeWorkout(ctx context.Context, tx TxLike, sc scope, provider, externalID string, parentID int64, hasRoute bool) error {
 	rows, err := tx.Query(ctx, workoutSupersede, sc.tenant, sc.user, provider, externalID, parentID)
 	if err != nil {
@@ -410,13 +568,19 @@ func supersedeWorkout(ctx context.Context, tx TxLike, sc scope, provider, extern
 	if len(superseded) == 0 {
 		return nil
 	}
+	// The route of a superseded copy is dropped when the new copy carries
+	// its own, else it moves to the kept workout (merged into its route).
+	from := make([]seriesRef, len(superseded))
+	for i, id := range superseded {
+		from[i] = routeSeries(id, provider)
+	}
 	if hasRoute {
-		_, err = tx.Exec(ctx, workoutRoutesDrop, sc.tenant, sc.user, superseded)
+		err = deleteSeries(ctx, tx, sc, series.Route, superseded)
 	} else {
-		_, err = tx.Exec(ctx, workoutRoutesAdopt, sc.tenant, sc.user, parentID, superseded)
+		err = moveSeries(ctx, tx, sc, routeSeries(parentID, provider), from)
 	}
 	if err != nil {
-		return fmt.Errorf("supersede workout route points: %w", err)
+		return fmt.Errorf("supersede workout route: %w", err)
 	}
 	if _, err := tx.Exec(ctx, workoutTracksDrop, sc.tenant, sc.user, superseded); err != nil {
 		return fmt.Errorf("supersede workout tracks: %w", err)
@@ -443,16 +607,21 @@ func (w *Writer) writeOrphanRoutePoints(ctx context.Context, tx TxLike, sc scope
 			maxTS = p.Timestamp
 		}
 	}
+	lo, hi := maxTS.Add(routeAttachTolerance), minTS.Add(-routeAttachTolerance)
+	if err := convertLegacy(ctx, tx, sc, tWorkouts, `r.start_date <= $3 AND COALESCE(r.end_date, r.start_date) >= $4`, lo, hi); err != nil {
+		return err
+	}
 	var workoutID int64
+	var provider string
 	err := tx.QueryRow(ctx, `
-		SELECT id FROM ohs_data.workouts
+		SELECT id, provider FROM ohs_data.workouts
 		WHERE tenant_id = $1 AND user_id = $2
 		  AND start_date <= $3
 		  AND COALESCE(end_date, start_date) >= $4
 		ORDER BY start_date DESC
 		LIMIT 1`,
-		sc.tenant, sc.user, maxTS.Add(routeAttachTolerance), minTS.Add(-routeAttachTolerance),
-	).Scan(&workoutID)
+		sc.tenant, sc.user, lo, hi,
+	).Scan(&workoutID, &provider)
 	if errors.Is(err, pgx.ErrNoRows) {
 		slog.DebugContext(ctx, "route points skipped, no parent workout", "count", len(pts))
 		c.add(tRoutes, 0, len(pts))
@@ -461,24 +630,12 @@ func (w *Writer) writeOrphanRoutePoints(ctx context.Context, tx TxLike, sc scope
 	if err != nil {
 		return fmt.Errorf("orphan route points lookup: %w", err)
 	}
-	n, k, err := w.writeRoutePoints(ctx, tx, sc, workoutID, pts)
+	n, k, err := w.writeRoutePoints(ctx, tx, sc, workoutID, provider, pts)
 	if err != nil {
 		return fmt.Errorf("insert orphan route points: %w", err)
 	}
 	c.add(tRoutes, n, k)
 	return nil
-}
-
-var routePointColumns = []string{"tenant_id", "user_id", "workout_id", "timestamp", "latitude", "longitude", "altitude_m", "speed_mps", "course_deg", "content_hash"}
-
-// writeRoutePoints inserts route points under a resolved workout, using COPY
-// above the threshold.
-func (w *Writer) writeRoutePoints(ctx context.Context, tx TxLike, sc scope, workoutID int64, points []model.RoutePoint) (written, skipped int, err error) {
-	row := func(sc scope, p model.RoutePoint) []any {
-		return []any{sc.tenant, sc.user, workoutID, p.Timestamp, p.Latitude, p.Longitude, p.AltitudeM, p.SpeedMps, p.CourseDeg, model.RoutePointContentHash(p)}
-	}
-	return copyOrInsert(ctx, w, tx, sc, tRoutes, routePointColumns, hyperConflict(`"timestamp"`), points, row,
-		func(p model.RoutePoint) (string, time.Time) { return model.RoutePointContentHash(p), p.Timestamp })
 }
 
 // --- ecg_recordings -> ecg_samples ---
@@ -489,12 +646,7 @@ var ecgColumns = []string{
 	"number_of_measurements", "voltage_path", "content_hash", "metadata",
 }
 
-var (
-	ecgInsert = insertHead(tECG, ecgColumns) + placeholders(1, len(ecgColumns)) +
-		doNothing(hyperConflict("start_date")) + " RETURNING id"
-	ecgSelect = `SELECT id FROM ohs_data.ecg_recordings
-		WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3 AND start_date = $4`
-)
+var ecgShape = newShape(tECG, ecgColumns, nil, nil)
 
 // writeECGWithSamples inserts ECG recordings, then their voltage samples.
 // Samples whose recording arrived in a different object are linked to a stored
@@ -508,11 +660,11 @@ func (w *Writer) writeECGWithSamples(ctx context.Context, tx TxLike, sc scope, r
 	}
 
 	for _, ecg := range recordings {
-		parentID, isNew, err := insertParentWithFallback(ctx, tx, ecgInsert, []any{
+		parentID, isNew, err := writeParent(ctx, tx, sc, ecgShape, "start_date", hyperConflict("start_date"), nil, nil, false, []any{
 			sc.tenant, sc.user, sc.provider, sourceSlugOrProvider("", sc.provider), ecg.StartDate, nullTime(ecg.EndDate), ecg.Classification,
 			ecg.SymptomsStatus, ecg.AverageHeartRate, ecg.SamplingFrequency,
 			ecg.NumberOfMeasurements, ecg.VoltagePath, ecg.ContentHash, normalizeMetadata(ecg.Metadata),
-		}, ecgSelect, sc.tenant, sc.user, ecg.ContentHash, ecg.StartDate)
+		})
 		if err != nil {
 			return fmt.Errorf("insert ecg recording: %w", err)
 		}
@@ -538,7 +690,7 @@ func (w *Writer) writeECGWithSamples(ctx context.Context, tx TxLike, sc scope, r
 			}
 		}
 		if len(own) > 0 {
-			n, k, err := w.writeECGVoltageSamples(ctx, tx, sc, parentID, ecg.ContentHash, ecg.StartDate, own)
+			n, k, err := w.writeECGVoltageSamples(ctx, tx, sc, parentID, sc.provider, ecg.StartDate, own)
 			if err != nil {
 				return fmt.Errorf("insert ecg voltage samples: %w", err)
 			}
@@ -574,6 +726,7 @@ func (w *Writer) writeOrphanECGVoltageSamples(ctx context.Context, tx TxLike, sc
 			ecgID     int64
 			recHash   string
 			recStart  time.Time
+			provider  string
 			err       error
 			lookupKey string
 		)
@@ -582,17 +735,20 @@ func (w *Writer) writeOrphanECGVoltageSamples(ctx context.Context, tx TxLike, sc
 			lookupKey = "content_hash"
 			recHash = parentHash
 			err = tx.QueryRow(ctx, `
-				SELECT id, start_date FROM ohs_data.ecg_recordings
+				SELECT id, start_date, provider FROM ohs_data.ecg_recordings
 				WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3
 				ORDER BY start_date DESC LIMIT 1`,
-				sc.tenant, sc.user, parentHash).Scan(&ecgID, &recStart)
+				sc.tenant, sc.user, parentHash).Scan(&ecgID, &recStart, &provider)
 		case sourceKey != "":
 			lookupKey = "voltage_path"
+			if err := convertLegacy(ctx, tx, sc, tECG, `r.voltage_path = $3`, sourceKey); err != nil {
+				return err
+			}
 			err = tx.QueryRow(ctx, `
-				SELECT id, content_hash, start_date FROM ohs_data.ecg_recordings
+				SELECT id, content_hash, start_date, provider FROM ohs_data.ecg_recordings
 				WHERE tenant_id = $1 AND user_id = $2 AND voltage_path = $3
 				ORDER BY start_date DESC LIMIT 1`,
-				sc.tenant, sc.user, sourceKey).Scan(&ecgID, &recHash, &recStart)
+				sc.tenant, sc.user, sourceKey).Scan(&ecgID, &recHash, &recStart, &provider)
 		default:
 			slog.DebugContext(ctx, "ecg voltage skipped, no parent hash or source key", "count", len(group))
 			c.add(tECGSamples, 0, len(group))
@@ -606,37 +762,11 @@ func (w *Writer) writeOrphanECGVoltageSamples(ctx context.Context, tx TxLike, sc
 		if err != nil {
 			return fmt.Errorf("orphan ecg voltage lookup by %s: %w", lookupKey, err)
 		}
-		n, k, err := w.writeECGVoltageSamples(ctx, tx, sc, ecgID, recHash, recStart, group)
+		n, k, err := w.writeECGVoltageSamples(ctx, tx, sc, ecgID, provider, recStart, group)
 		if err != nil {
 			return fmt.Errorf("insert orphan ecg voltage samples: %w", err)
 		}
 		c.add(tECGSamples, n, k)
 	}
 	return nil
-}
-
-var ecgSampleColumns = []string{"tenant_id", "user_id", "ecg_id", "ts", "time_since_sample_start", "voltage_uv", "content_hash"}
-
-// writeECGVoltageSamples inserts voltage samples under a resolved recording.
-// Every sample is identified by the recording it is written under (parentHash),
-// whether or not the mapper stamped it: the 512 Hz offset grid is the same for
-// every recording, so an unparented hash would collide across recordings. ts is
-// the recording start plus the sample's offset.
-func (w *Writer) writeECGVoltageSamples(ctx context.Context, tx TxLike, sc scope, ecgID int64, parentHash string, recStart time.Time, samples []model.ECGVoltageSample) (written, skipped int, err error) {
-	owned := make([]model.ECGVoltageSample, len(samples))
-	for i, s := range samples {
-		s.ParentContentHash = parentHash
-		owned[i] = s
-	}
-	// Rounded to the microsecond Postgres stores, so a sample resolved against
-	// the stored recording gets the same ts as one written with it in-batch.
-	base := recStart.Round(time.Microsecond)
-	ts := func(s model.ECGVoltageSample) time.Time {
-		return base.Add(time.Duration(s.TimeSinceSampleStart * float64(time.Second))).Round(time.Microsecond)
-	}
-	row := func(sc scope, s model.ECGVoltageSample) []any {
-		return []any{sc.tenant, sc.user, ecgID, ts(s), s.TimeSinceSampleStart, s.VoltageUV, model.ECGVoltageSampleContentHash(s)}
-	}
-	return copyOrInsert(ctx, w, tx, sc, tECGSamples, ecgSampleColumns, hyperConflict("ts"), owned, row,
-		func(s model.ECGVoltageSample) (string, time.Time) { return model.ECGVoltageSampleContentHash(s), ts(s) })
 }
