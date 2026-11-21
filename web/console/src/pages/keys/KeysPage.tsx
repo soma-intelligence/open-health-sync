@@ -22,7 +22,7 @@ function RevokeKey({ target, onClose }: { target: APIKey; onClose: () => void })
   return (
     <ConfirmDialog
       title="Revoke this key?"
-      body="Every service using it is refused at once, and so is every user token it minted. This cannot be undone."
+      body={`${target.name ? `${target.name}: e` : "E"}very service using it is refused at once, and so is every user token it minted. This cannot be undone.`}
       confirmLabel="Revoke key"
       danger
       typed={target.prefix}
@@ -53,7 +53,7 @@ export function KeysPage() {
     if (selected) {
       return {
         kind: "keys",
-        title: `${selected.prefix}...`,
+        title: selected.name ?? `${selected.prefix}...`,
         id: selected.id,
         request: { method: "GET", path: KEYS_PATH },
         response: selected,

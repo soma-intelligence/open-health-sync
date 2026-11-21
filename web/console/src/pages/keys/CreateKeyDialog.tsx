@@ -31,12 +31,17 @@ export interface CreateKeyDialogProps {
   onClose: () => void;
 }
 
+/** The most characters a key name holds, as the API refuses past it. */
+export const KEY_NAME_MAX = 100;
+
 /** The confirmation for POST /v1/keys. The key goes to the parent in state and not to the mutation cache. */
 export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
   const { session } = useSession();
   const isAdmin = useIsAdmin();
   const create = useCreateKey();
   const expiresId = useId();
+  const nameId = useId();
+  const [name, setName] = useState("");
   const accessName = useId();
   const sessionScopes = knownScopes(session?.key_scopes ?? []);
   const readScopes = readOnlyScopes(sessionScopes, isAdmin);
@@ -48,7 +53,7 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
     <ConfirmDialog
       title="New API key"
       confirmLabel="Create key"
-      dirty={chosen.length > 0 || day !== ""}
+      dirty={name.trim() !== "" || chosen.length > 0 || day !== ""}
       onClose={() => {
         create.reset();
         onClose();
@@ -56,6 +61,24 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
       body={
         <div className="key-form">
           <p className="muted">A key of this tenant can do at most what this session&apos;s key does. Treat it as a password.</p>
+          <div className="field">
+            <label htmlFor={nameId}>Name</label>
+            <input
+              id={nameId}
+              className="input"
+              autoComplete="off"
+              aria-required="true"
+              maxLength={KEY_NAME_MAX}
+              aria-describedby={`${nameId}-help`}
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+              }}
+            />
+            <p id={`${nameId}-help`} className="muted small">
+              What the key is for, such as Production backend or CI.
+            </p>
+          </div>
           <fieldset className="access-picker">
             <legend>Access</legend>
             {readScopes.length > 0 ? (
@@ -123,9 +146,11 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
         </div>
       }
       onConfirm={async () => {
+        const named = name.trim();
+        if (named === "") throw new Error("Name the key: say what it is for.");
         const scopes = scopesFor(access, chosen, sessionScopes, isAdmin);
         if (scopes.length === 0) throw new Error("Pick at least one scope.");
-        const body: CreateKeyRequest = { scopes };
+        const body: CreateKeyRequest = { name: named, scopes };
         if (day !== "") {
           const at = expiryOf(day);
           if (Number.isNaN(Date.parse(at)) || Date.parse(at) <= Date.now()) throw new Error("Pick an expiry date in the future.");
