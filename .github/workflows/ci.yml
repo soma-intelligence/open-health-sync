@@ -37,7 +37,9 @@ jobs:
   console:
     # The React console: lint, types, unit tests, and a build that must match
     # the committed internal/console/dist and src/api/schema.ts.
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not ubuntu-latest: Playwright 1.56 has no Chromium build
+    # for Ubuntu 26.04 ("Playwright does not support chromium on ubuntu26.04").
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       # The end to end run needs an empty database of its own; same image as deploy/docker-compose.yml.
@@ -232,7 +234,7 @@ jobs:
             "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
           echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum --check -
           tar -xzf kubeconform.tar.gz kubeconform
-          ./kubeconform -strict -summary -kubernetes-version 1.31.0 -skip ServiceMonitor default.yaml all-optional.yaml
+          ./kubeconform -strict -summary -kubernetes-version 1.31.0 -skip ServiceMonitor,PodMonitor default.yaml all-optional.yaml
       - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: ohs
