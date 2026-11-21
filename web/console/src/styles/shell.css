@@ -383,6 +383,8 @@
     padding: 0;
     justify-content: center;
     margin-left: auto;
+    border-color: transparent;
+    background: transparent;
   }
 
   .search span {

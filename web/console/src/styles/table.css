@@ -119,13 +119,26 @@
 /* ---------- inputs: filled field, a visible 1px boundary, a 2px green focus ring ---------- */
 .list-search {
   display: flex;
-  flex-wrap: wrap;
   gap: var(--op-s2);
+  min-width: 0;
 }
 
 .list-search .input {
-  flex: 1 1 240px;
+  flex: 1 1 200px;
+  min-width: 0;
   max-width: 360px;
+}
+
+/* A search in a card header takes the rest of the line, and a whole line when it wraps. */
+.card-r:has(.list-search) {
+  flex: 1 1 320px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.card-r .list-search {
+  flex: 1;
+  justify-content: flex-end;
 }
 
 .input,
@@ -266,6 +279,7 @@ textarea.input {
   .data-table td:first-child {
     display: block;
     padding-bottom: var(--op-s2);
+    text-align: left;
   }
 
   .data-table td:first-child::before,
@@ -277,7 +291,7 @@ textarea.input {
     display: none;
   }
 
-  .data-table td.num {
+  .data-table td {
     text-align: right;
   }
 
