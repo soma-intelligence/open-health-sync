@@ -31,13 +31,19 @@ appId: org.openhealthsync.example.reactnative
 - hideKeyboard
 - tapOn:
     id: "upload"
-- extendedWaitUntil:
-    visible: "Stored"
+# The result card is under the form: on a small emulator screen, with Android's edge to
+# edge layout, it starts below the navigation bar, so scroll to it.
+- scrollUntilVisible:
+    element:
+      text: "Stored"
+    direction: DOWN
     timeout: 60000
 - assertNotVisible: "Upload failed"
 - tapOn:
     id: "send-again"
-- extendedWaitUntil:
-    visible: "Duplicate \\(already stored\\)"
+- scrollUntilVisible:
+    element:
+      text: "Duplicate \\(already stored\\)"
+    direction: DOWN
     timeout: 60000
 - assertNotVisible: "Upload failed"
