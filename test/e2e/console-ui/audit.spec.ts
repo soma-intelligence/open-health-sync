@@ -341,7 +341,8 @@ test("context kept: search, back button, tabs", async ({ page }) => {
   await signIn(page);
   await page.goto("/console/users");
   await idle(page);
-  await page.getByLabel("External id").fill("demo");
+  // The search matches the external id exactly: a prefix like "demo" finds no one.
+  await page.getByLabel("External id").fill("demo-user");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await idle(page);
   const searchUrl = page.url();
