@@ -158,7 +158,8 @@ func TestMACLabelSeparation(t *testing.T) {
 	if k.MAC("a\x00\x00\x00\x01x") == k.MAC("a", x) {
 		t.Fatal("label and part boundaries collide")
 	}
-	if k.MAC("a", x) != k.MAC("a", x) {
+	first, second := k.MAC("a", x), k.MAC("a", x)
+	if first != second {
 		t.Fatal("MAC is not deterministic")
 	}
 	other, err := GenerateUserKeys(1)

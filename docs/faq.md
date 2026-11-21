@@ -81,7 +81,5 @@ deployment meets HIPAA or GDPR depends on how you run it. See the
 
 ## Can I put real user data on the hosted beta?
 
-Not yet: test data only for now. Real user data opens once data processing terms and the
-providers' production approvals are in place. The hosted beta at app.openhealthsync.com is not
-HIPAA compliant, offers no BAA, claims no certification, runs as a single instance and has no
-published legal terms yet. What you send is kept until you delete it. See [what the hosted beta does with data](hosted-beta.md).
+Yes. The hosted beta at app.openhealthsync.com accepts real user data. It is not HIPAA
+compliant, offers no BAA, claims no certification and runs as a single instance. What you send is kept until you delete it. See [what the hosted beta does with data](hosted-beta.md).

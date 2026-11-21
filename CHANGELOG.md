@@ -24,6 +24,17 @@ release may change the API, the configuration or the database schema.
   `actor_tenant_id` and the actions `session.create`, `session.read`, `session.delete` and `session.tenant`
   ([audit-log.md](docs/audit-log.md#console-sessions)).
 - `OHS_CONSOLE=read-only` is now enforced by the server for every session (403).
+- A new React console ([console.md](docs/console.md)): a navigation, the page and an inspector that shows
+  the API call behind it as cURL, TypeScript or Python, a command palette (Ctrl+K), Light, Dark and Auto themes, a
+  tenant picker for instance admins, and a page for every setting. It replaces the hand-written page and its
+  charts of a user's health data.
+- The console recovers from failures without a browser reload: every failed load says what happened in words
+  and offers Try again, a refresh that fails keeps the last figures and says how old they are, an offline
+  notice explains pages that wait, and the sign in page says when a session ended. Dialogs ask before Escape or
+  a click outside drops typed input, stay open while their request runs, and give the focus back on close; the
+  webhook settings form keeps typed changes when the endpoint changes underneath it. A failed load of the
+  Settings page no longer reloads in a loop (the inspector restarted it), which kept the page on Loading.
+- `GET /v1/users` filters by `external_ref`, and `GET /v1/audit` filters by actor (`actor_type` and `actor_id`).
 
 ### Changed
 
@@ -31,6 +42,8 @@ release may change the API, the configuration or the database schema.
   bearer header. The key is sent once and never stored; the cookie is `HttpOnly` and requests need the CSRF
   token. Plain http works only on `localhost`, `127.0.0.1` and `[::1]`; elsewhere sign in is refused until
   `OHS_PUBLIC_URL` is the `https` address (a plain `http` public URL on a remote host is refused too).
+- The console is built from `web/console` into `internal/console/dist` (`make console`), which stays committed.
+  `make test-js` now runs the share viewer helpers only.
 - The first-run setup page no longer passes the key to the console: paste it on the console sign in page.
 
 ## [0.3.0] - 2026-11-11

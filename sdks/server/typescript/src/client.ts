@@ -241,6 +241,8 @@ interface Call {
 
 /** Query and header parameters of {@link OpenHealthSync.listUsers}. */
 export interface ListUsersParams {
+  /** Only the user with exactly this `external_ref` (at most one row). */
+  externalRef?: string;
   /** The next_cursor of the previous page. */
   cursor?: string;
   limit?: number;
@@ -878,6 +880,7 @@ export class OpenHealthSync {
       method: "GET",
       path: "/v1/users",
       query: {
+        external_ref: params.externalRef,
         cursor: params.cursor,
         limit: params.limit,
       },

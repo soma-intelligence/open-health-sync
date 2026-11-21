@@ -193,6 +193,10 @@ paths:
       x-required-scope: "users:read"
       summary: List the tenant's end users, oldest first
       parameters:
+        - name: external_ref
+          in: query
+          description: Only the user with exactly this `external_ref` (at most one row).
+          schema: { type: string }
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -361,6 +365,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/Webhook" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -523,6 +528,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/WebhookDelivery" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -5088,6 +5094,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/Webhook" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -5304,6 +5311,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/WebhookDelivery" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -5567,6 +5575,14 @@ paths:
         - name: action
           in: query
           description: An exact action (`data.export`), or a prefix ending in a dot (`data.`).
+          schema: { type: string }
+        - name: actor_type
+          in: query
+          description: Only events of this kind of credential.
+          schema: { type: string, enum: [api_key, user_token, admin, system, share_link] }
+        - name: actor_id
+          in: query
+          description: Only events of this credential (a key id, a token id). Needs `actor_type`, else 400.
           schema: { type: string }
         - name: since
           in: query

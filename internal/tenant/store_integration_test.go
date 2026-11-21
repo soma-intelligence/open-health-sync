@@ -160,7 +160,7 @@ func TestListUsersPagination(t *testing.T) {
 	cursor := ""
 	pages := 0
 	for {
-		users, next, err := s.ListUsers(ctx, a.ID, cursor, 3)
+		users, next, err := s.ListUsers(ctx, a.ID, tenant.UserFilter{}, cursor, 3)
 		require.NoError(t, err)
 		for _, u := range users {
 			require.Equal(t, a.ID, u.TenantID)
@@ -175,12 +175,12 @@ func TestListUsersPagination(t *testing.T) {
 	require.Equal(t, 3, pages)
 	require.Equal(t, want, got)
 
-	all, next, err := s.ListUsers(ctx, a.ID, "", 0)
+	all, next, err := s.ListUsers(ctx, a.ID, tenant.UserFilter{}, "", 0)
 	require.NoError(t, err)
 	require.Len(t, all, 7)
 	require.Empty(t, next)
 
-	_, _, err = s.ListUsers(ctx, a.ID, "!!!", 10)
+	_, _, err = s.ListUsers(ctx, a.ID, tenant.UserFilter{}, "!!!", 10)
 	require.ErrorIs(t, err, tenant.ErrInvalidCursor)
 }
 
@@ -502,4 +502,28 @@ func TestPurgeIdempotencyDropsExpiredRows(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	require.Equal(t, []string{"fresh"}, keys)
+}
+
+func TestListUsersByExternalRef(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	a, _, _ := s.CreateTenant(ctx, "A")
+	b, _, _ := s.CreateTenant(ctx, "B")
+	_, err := s.CreateUser(ctx, a.ID, "a")
+	require.NoError(t, err)
+	ub, err := s.CreateUser(ctx, a.ID, "b")
+	require.NoError(t, err)
+	_, err = s.CreateUser(ctx, b.ID, "b")
+	require.NoError(t, err)
+
+	got, next, err := s.ListUsers(ctx, a.ID, tenant.UserFilter{ExternalRef: "b"}, "", 10)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, ub.ID, got[0].ID)
+	require.Empty(t, next)
+
+	got, next, err = s.ListUsers(ctx, a.ID, tenant.UserFilter{ExternalRef: "zz"}, "", 10)
+	require.NoError(t, err)
+	require.Empty(t, got)
+	require.Empty(t, next)
 }

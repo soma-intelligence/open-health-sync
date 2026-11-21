@@ -1,94 +1,115 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package console serves the admin console at /console (docs/console.md):
-// one HTML page, two JavaScript modules and one stylesheet, embedded in the
-// binary. The page holds no server-side state and has no auth of its own: it
-// asks for a tenant API key once, trades it at POST /console/session for an
-// HttpOnly session cookie and a CSRF token it keeps in memory, and calls the
-// documented API routes on the same origin with them. In read-only
-// mode the page refuses any request but GET and shows no action. Beside it,
-// /console/setup is the separate first-run page: it posts the setup token to
-// POST /v1/setup and shows the first tenant's API key once. Both are mounted
-// only when OHS_CONSOLE is true or read-only.
+// Package console serves the admin console at /console (docs/console.md): a
+// React single page app, built by Vite from web/console into dist/ and
+// embedded in the binary. The page holds no server-side state and has no auth
+// of its own: it asks for a tenant API key once, trades it at POST
+// /console/session for an HttpOnly session cookie and a CSRF token it keeps in
+// memory, and calls the documented API routes on the same origin with them.
+// Every path under /console that is not a built file answers index.html (the
+// client router reads the URL), except under assets/, where a missing file is
+// a plain 404 so a stale page never runs HTML as script. Hashed files under
+// assets/ are immutable; everything else is revalidated. The first-run page,
+// /console/setup, is a route of the same app: it posts the setup token to
+// POST /v1/setup and shows the first tenant's API key once. The console is
+// mounted only when OHS_CONSOLE is true or read-only.
 package console
 
 import (
-	"bytes"
 	"embed"
+	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 )
 
-//go:embed static/index.html static/app.mjs static/lib.mjs static/console.css static/setup.html static/setup.mjs
-var static embed.FS
-
-// Modes of the page, in its ohs-console-mode meta tag.
-const (
-	ModeManage   = "manage"
-	ModeReadOnly = "read-only"
-)
-
-// modeTag is the meta tag of index.html that Mount sets to the mode.
-const modeTag = `<meta name="ohs-console-mode" content="` + ModeManage + `">`
+// dist is the Vite build (make console); it is committed so a plain go build
+// needs no Node.
+//
+//go:embed all:dist
+var dist embed.FS
 
 // CSP is the Content-Security-Policy of every console response: no inline
 // script or style, no third-party origin, no framing, no form submission.
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; " +
 	"img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
-type asset struct {
-	file, contentType, cacheControl string
+const (
+	cacheRevalidate = "no-cache"
+	cacheImmutable  = "public, max-age=31536000, immutable"
+)
+
+// contentTypes are the only extensions served from dist; a file with another
+// extension is 404.
+var contentTypes = map[string]string{
+	".js":    "text/javascript; charset=utf-8",
+	".css":   "text/css; charset=utf-8",
+	".woff2": "font/woff2",
+	".svg":   "image/svg+xml",
+	".html":  "text/html; charset=utf-8",
 }
 
-// assets are the only files served under /console/; any other path is 404,
-// so there is no directory listing and no path to traverse.
-var assets = map[string]asset{
-	"":            {"static/index.html", "text/html; charset=utf-8", "no-store"},
-	"app.mjs":     {"static/app.mjs", "text/javascript; charset=utf-8", "no-cache"},
-	"lib.mjs":     {"static/lib.mjs", "text/javascript; charset=utf-8", "no-cache"},
-	"console.css": {"static/console.css", "text/css; charset=utf-8", "no-cache"},
-	"setup":       {"static/setup.html", "text/html; charset=utf-8", "no-store"},
-	"setup.mjs":   {"static/setup.mjs", "text/javascript; charset=utf-8", "no-cache"},
-}
+// missingAsset lists the extensions of a file the page could load as code or
+// style: when dist lacks it, the answer is a 404 and never the index, so a
+// stale or foreign script path never gets HTML back.
+var missingAsset = map[string]bool{".js": true, ".mjs": true, ".css": true, ".woff2": true}
 
-// Mount registers GET /console and GET /console/{asset} on mux (HEAD
-// follows GET). readOnly serves the page without write actions.
-func Mount(mux *http.ServeMux, readOnly bool) {
-	page, err := static.ReadFile(assets[""].file)
-	if err != nil || !bytes.Contains(page, []byte(modeTag)) {
-		panic("console: index.html lacks its mode tag")
-	}
-	if readOnly {
-		page = bytes.Replace(page, []byte(modeTag),
-			[]byte(`<meta name="ohs-console-mode" content="`+ModeReadOnly+`">`), 1)
-	}
-	mux.HandleFunc("GET /console", func(w http.ResponseWriter, r *http.Request) { serve(w, "", page) })
-	mux.HandleFunc("GET /console/{asset...}", func(w http.ResponseWriter, r *http.Request) {
-		serve(w, r.PathValue("asset"), page)
+// Mount registers GET /console and GET /console/{path...} on mux (HEAD follows
+// GET). The more specific /console/session routes keep their own handlers.
+func Mount(mux *http.ServeMux) {
+	mux.HandleFunc("GET /console", func(w http.ResponseWriter, r *http.Request) { serve(w, "") })
+	mux.HandleFunc("GET /console/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		serve(w, r.PathValue("path"))
 	})
 }
 
-// serve writes one asset; page is the index page in the mode of the mount.
-func serve(w http.ResponseWriter, name string, page []byte) {
+// serve writes the answer for name, the path under /console/.
+func serve(w http.ResponseWriter, name string) {
 	h := w.Header()
 	h.Set("Content-Security-Policy", CSP)
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("X-Frame-Options", "DENY")
-	a, ok := assets[name]
-	if !ok {
-		h.Set("Cache-Control", "no-store")
-		http.Error(w, "404 page not found", http.StatusNotFound)
+	name = strings.TrimSuffix(name, "/")
+	if name != "" && !fs.ValidPath(name) {
+		notFound(w)
 		return
 	}
-	body := page
 	if name != "" {
-		var err error
-		if body, err = static.ReadFile(a.file); err != nil { // cannot happen: the files are embedded at build time
-			http.Error(w, "console asset missing", http.StatusInternalServerError)
+		if info, err := fs.Stat(dist, path.Join("dist", name)); err == nil && !info.IsDir() {
+			ct, ok := contentTypes[path.Ext(name)]
+			if !ok {
+				notFound(w)
+				return
+			}
+			cache := cacheRevalidate
+			if strings.HasPrefix(name, "assets/") {
+				cache = cacheImmutable
+			}
+			writeFrom(w, dist, path.Join("dist", name), ct, cache)
+			return
+		}
+		if name == "assets" || strings.HasPrefix(name, "assets/") || missingAsset[path.Ext(name)] {
+			notFound(w)
 			return
 		}
 	}
-	h.Set("Content-Type", a.contentType)
-	h.Set("Cache-Control", a.cacheControl)
+	writeFrom(w, dist, "dist/index.html", contentTypes[".html"], cacheRevalidate)
+}
+
+func notFound(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "404 page not found", http.StatusNotFound)
+}
+
+func writeFrom(w http.ResponseWriter, fsys fs.FS, file, contentType, cache string) {
+	body, err := fs.ReadFile(fsys, file)
+	if err != nil { // dist has no index.html: the build was not run
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, "console assets missing", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", cache)
 	_, _ = w.Write(body)
 }

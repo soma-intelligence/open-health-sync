@@ -89,6 +89,8 @@ New actions may be added; treat an unknown one as `config.read` or `config.write
 `GET /v1/audit` with a tenant key, newest first, paged with `cursor` and `limit` (1 to 1000,
 default 100). Filters:
 
+- `actor_type` (`api_key`, `user_token`, `admin`, `system`, `share_link`) and `actor_id`: the
+  events of one credential; `actor_id` needs `actor_type` (400 otherwise);
 - `user_id`: one end user;
 - `action`: an exact action (`data.export`) or a prefix ending in a dot (`data.`);
 - `since`, `until`: RFC 3339 times or `YYYY-MM-DD` dates (`until` is exclusive).

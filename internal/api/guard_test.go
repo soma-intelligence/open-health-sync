@@ -459,9 +459,14 @@ type execRecorder struct {
 	mu    sync.Mutex
 	rows  int
 	block chan struct{}
+	// entered, when set, receives once per Exec before it blocks.
+	entered chan struct{}
 }
 
 func (e *execRecorder) Exec(_ context.Context, _ string, args ...any) (pgconn.CommandTag, error) {
+	if e.entered != nil {
+		e.entered <- struct{}{}
+	}
 	if e.block != nil {
 		<-e.block
 	}
@@ -505,7 +510,7 @@ func TestAuditBufferedAndSynchronousEvents(t *testing.T) {
 // A read whose event finds the writer's queue full is not lost: it is
 // written in the request instead.
 func TestAuditQueueFullFallsBackToASynchronousWrite(t *testing.T) {
-	db := &execRecorder{block: make(chan struct{})}
+	db := &execRecorder{block: make(chan struct{}), entered: make(chan struct{}, 4)}
 	w := audit.NewWriter(db, audit.WriterOptions{Queue: 1, Batch: 1, Interval: time.Hour})
 	g := newGuardServer(t, nil, func(d *Deps) { d.Audit = w })
 	g.s.sink = nil
@@ -513,8 +518,14 @@ func TestAuditQueueFullFallsBackToASynchronousWrite(t *testing.T) {
 	read := audit.Event{ActorType: audit.APIKey, Action: audit.DataRead, Status: 200}
 
 	// The loop takes the first event and waits in the database; the second
-	// fills the queue.
+	// fills the queue. Wait for the loop to hold the first one, or the second
+	// can find the queue still full and go to the synchronous write.
 	g.s.record(req, read)
+	select {
+	case <-db.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the writer never took the first event")
+	}
 	require.Eventually(t, func() bool {
 		g.s.record(req, read)
 		return g.s.metrics.auditFailures.Load() > 0

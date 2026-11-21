@@ -22,6 +22,10 @@ make lint         # golangci-lint with .golangci.yml, integration files included
 make integration  # tests tagged integration, need Docker (testcontainers)
 ```
 
+Working on the admin console (`web/console`) also needs Node.js 22 (`web/console/.nvmrc`); `make
+console` builds it into `internal/console/dist`, and nothing else needs Node. See
+[docs/console.md](docs/console.md#working-on-the-console).
+
 Without Docker, point `OHS_TEST_DATABASE_URL` at a running TimescaleDB server (a user allowed to
 create databases) and the integration tests use it instead of a container.
 

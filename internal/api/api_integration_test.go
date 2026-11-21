@@ -1047,3 +1047,23 @@ func TestIdempotentStoreSkipsInactiveUser(t *testing.T) {
 		`SELECT count(*) FROM ohs_core.idempotency_keys WHERE tenant_id = $1 AND key = 'race-1'`, e.tenantA).Scan(&n))
 	assert.Zero(t, n)
 }
+
+func TestListUsersByExternalRef(t *testing.T) {
+	e := newEnv(t)
+	e.user(e.tenantA, "a")
+	b := e.user(e.tenantA, "b")
+	e.user(e.tenantB, "b")
+	e.user(e.tenantB, "zz")
+
+	var p page[userJSON]
+	r := e.do("GET", "/v1/users?external_ref=b", e.keyA, nil)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	r.json(t, &p)
+	require.Len(t, p.Data, 1)
+	assert.Equal(t, b, p.Data[0].ID)
+	assert.Nil(t, p.NextCursor)
+
+	r = e.do("GET", "/v1/users?external_ref=zz", e.keyA, nil)
+	require.Equal(t, http.StatusOK, r.code, string(r.body))
+	assert.JSONEq(t, `{"data":[],"next_cursor":null}`, string(r.body))
+}

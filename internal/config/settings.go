@@ -177,7 +177,7 @@ var registry = []Setting{
 	// Retention
 	intSetting("OHS_RETENTION_DAYS", "Data retention (days)", "Retention", "Delete raw files and normalized data older than this many days. 0 keeps everything.", "0", 0, math.MaxInt, ApplyLive),
 	intSetting("OHS_AUDIT_RETENTION_DAYS", "Audit retention (days)", "Retention", "Delete audit events older than this many days, once a day. 0 keeps every event.", "365", 0, math.MaxInt, ApplyLive),
-	intSetting("OHS_TRACKING_RETENTION_DAYS", "Sync log retention (days)", "Retention", "Delete sync log rows and finished processing jobs older than this many days, once a day. A value under 14 counts as 14, a negative value keeps them for ever.", strconv.Itoa(DefaultTrackingRetentionDays), noLowerBound, MaxTrackingRetentionDays, ApplyLive),
+	intSetting("OHS_TRACKING_RETENTION_DAYS", "Sync log retention (days)", "Retention", "Delete sync log rows and finished processing jobs older than this many days, once a day. 0 means the default (90), 1 to 13 count as 14, a negative value keeps them for ever.", strconv.Itoa(DefaultTrackingRetentionDays), noLowerBound, MaxTrackingRetentionDays, ApplyLive),
 
 	// Consent
 	boolSetting("OHS_CONSENT_REQUIRED", "Require consent", "Consent", "Store nothing from a source until the user's consent for it is recorded.", "false", ApplyLive),
