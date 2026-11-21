@@ -279,7 +279,7 @@ The routes behind the page, for admin keys only (403 otherwise):
 
 A `PATCH` answers 200 with the new revision and the names that need a restart; 428 without `If-Match`; 412 when the
 revision moved (read again, then retry); 409 naming each setting that is bootstrap or set by the environment; 422 with
-one message per invalid value. See [api.md](api.md#admin-settings). Each `PATCH` is written to the
+one message per invalid value. See [api.md](api.md#running-the-instance). Each `PATCH` is written to the
 [audit log](audit-log.md) with the names it changed, never the values.
 
 ## Security model
