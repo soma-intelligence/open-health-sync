@@ -173,6 +173,13 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	}
 	var staleDays map[dayKey]*time.Location
 	if len(acc.Deletions) > 0 {
+		// A deletion may reach rows in compressed chunks: one of HealthKit's
+		// can span months of a user's segment. Lift the decompression cap for
+		// this transaction, as the other deletion paths do, or the DELETE fails
+		// past the default limit and takes the whole upload with it.
+		if _, err := tx.Exec(ctx, `SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0`); err != nil {
+			return nil, fmt.Errorf("apply deletions: %w", err)
+		}
 		apply := applyDeletions
 		if acc.AliasExternalIDs {
 			apply = applyAliasDeletions
@@ -253,9 +260,12 @@ func (w *Writer) WriteAccumulated(ctx context.Context, tx TxLike, sc scope, acc 
 	}
 	// The days whose additive samples a deletion removed are summed again.
 	// The days the batch's own samples touch are left to the caller, which
-	// derives them after this write.
-	for k := range touchedDays(sc, acc) {
-		delete(staleDays, k)
+	// derives them after this write. Most batches delete nothing, so the
+	// batch's days are only collected when there is something to subtract.
+	if len(staleDays) > 0 {
+		for k := range touchedDays(sc, acc) {
+			delete(staleDays, k)
+		}
 	}
 	if len(staleDays) > 0 {
 		n, k, err := deriveDailySummaries(ctx, tx, sc, staleDays)

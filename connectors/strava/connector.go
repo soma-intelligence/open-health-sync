@@ -182,11 +182,18 @@ func (c *Connector) Slug() string { return Slug }
 
 // SyncPolicy implements connector.SyncPolicied.
 // Application rate limits are low (1,000 reads a day by default), activities
-// are uploaded and edited late, and notifications cover new ones.
+// are uploaded and edited late, and notifications cover new ones. Push counts
+// as healthy per connection, only while that athlete's own events arrive
+// (PushSilence), and most athletes do not post every day: a shorter interval
+// without push would apply to nearly every connection. At 3 hours that was 8
+// reads a day each, so about 125 connections spent the whole budget. Both
+// intervals are 12 hours: a pull reads one page of GET /athlete/activities,
+// so each connection costs 2 reads a day whatever its athlete does, about
+// 400 connections fit with room for the pulls webhook events start.
 func (c *Connector) SyncPolicy() connector.SyncPolicy {
 	return connector.SyncPolicy{
 		PullEvery:            12 * time.Hour,
-		PullEveryWithoutPush: 3 * time.Hour,
+		PullEveryWithoutPush: 12 * time.Hour,
 		Lookback:             24 * time.Hour,
 		Reconcile:            7 * 24 * time.Hour,
 	}
