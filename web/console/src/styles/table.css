@@ -24,10 +24,8 @@
 
 .data-table th {
   text-align: left;
-  font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--faint);
+  font: 500 12px/1.4 var(--op-font);
+  color: var(--op-fg-2);
   padding: 0 var(--op-s3) var(--op-s2);
   white-space: nowrap;
 }

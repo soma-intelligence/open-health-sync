@@ -190,7 +190,4 @@ kbd {
     padding: var(--op-s5) var(--op-s4) 96px;
   }
 
-  .page-title {
-    font-size: 24px;
-  }
 }

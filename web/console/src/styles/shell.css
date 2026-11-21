@@ -44,7 +44,7 @@
   display: flex;
   align-items: center;
   gap: var(--op-s2);
-  font: 600 15px var(--op-font-display);
+  font: 600 17px var(--op-font-display);
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
@@ -137,7 +137,7 @@
   align-items: center;
   gap: var(--op-s2);
   padding: 0 var(--op-s2) var(--op-s3);
-  font: 600 15px var(--op-font-display);
+  font: 600 17px var(--op-font-display);
   letter-spacing: -0.01em;
 }
 
@@ -226,8 +226,6 @@
 .nav-heading {
   margin: var(--op-s3) var(--op-s2) var(--op-s1);
   font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   color: var(--faint);
 }
 
@@ -248,9 +246,10 @@
   color: var(--op-fg);
 }
 
+/* The page you are on: a neutral grey pill, never the accent (the accent is for the action). */
 .nav-link.on {
-  background: var(--op-accent-wash);
-  color: var(--op-accent-text);
+  background: var(--op-field);
+  color: var(--op-fg);
   font-weight: 600;
 }
 
@@ -262,7 +261,7 @@
 }
 
 .nav-link.on .nav-count {
-  color: var(--op-accent-text);
+  color: var(--op-fg-2);
 }
 
 .nav-count.bad {
