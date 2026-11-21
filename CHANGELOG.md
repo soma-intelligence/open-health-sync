@@ -9,6 +9,11 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- Health Connect body composition: `LeanBodyMass`, `BoneMass` and `BodyWaterMass` lines are
+  stored as `lean_body_mass`, `bone_mass` and `water_mass` instead of skipped. The Withings app
+  writes its muscle mass as `LeanBodyMass` (bone is not in it), so its lines are stored as
+  `muscle_mass`, the name the Withings connector uses. A line an earlier version skipped is stored
+  when the app uploads it again.
 - `GET /v1/pipeline` answers `data`: the records the tenant has stored, the users and the providers with
   records, and when the last one landed, whatever the way in (a connection, an app upload, a demo seed). Each
   source has `records`, and a provider with records but no connection is listed for them.

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
@@ -235,6 +236,72 @@ func TestMapMenstruation(t *testing.T) {
 	bad["time"] = "soon"
 	_, err := New().Map(connector.RawRecord{UserID: testUser, Fields: bad})
 	require.Error(t, err)
+}
+
+// TestMapBodyComposition: the mass records of a body composition scale. The
+// Withings app writes muscle mass as LeanBodyMass (bone is not in it), so its
+// line is stored as muscle_mass; another app's LeanBodyMass stays lean_body_mass.
+func TestMapBodyComposition(t *testing.T) {
+	at := time.Date(2026, 3, 2, 6, 50, 0, 0, time.UTC)
+	for id, want := range map[string]struct {
+		qt     string
+		v      float64
+		source string
+	}{
+		"lb-1": {"muscle_mass", 55.1, "withings"},
+		"bo-1": {"bone_mass", 2.9, "withings"},
+		"bw-1": {"water_mass", 40.2, "withings"},
+		"lb-2": {"lean_body_mass", 58.3, "com_example_scale"},
+	} {
+		t.Run(id, func(t *testing.T) {
+			res := mapOne(t, lines(t)[id])
+			require.Len(t, res.QuantitySamples, 1)
+			s := res.QuantitySamples[0]
+			require.Equal(t, want.qt, s.QuantityType)
+			require.Equal(t, want.v, s.Value)
+			require.Equal(t, want.source, s.SourceSlug)
+			require.Equal(t, id, s.ExternalID)
+			if id != "lb-2" {
+				require.Equal(t, at, s.StartDate)
+				require.Equal(t, "Withings Body Comp", s.DeviceID)
+				require.Equal(t, "scale", s.Metadata["device_type"])
+			}
+			// The record type stays in metadata, so a muscle_mass row shows it came
+			// from a LeanBodyMass record.
+			require.Equal(t, lines(t)[id]["recordType"], s.Metadata["record_type"])
+			require.Equal(t, 60, s.Metadata["utc_offset_minutes"])
+
+			v, unit, err := model.ToStorageUnit(s.QuantityType, s.Value, s.Unit)
+			require.NoError(t, err)
+			require.Equal(t, "kg", unit)
+			require.Equal(t, want.v, v)
+			require.Empty(t, etl.ValidateMapResultAt(&res, at.Add(time.Hour)), "inside the type's bands")
+		})
+	}
+
+	// The same weigh-in from the Withings API is stored under the same names, so
+	// the merged view can rank one against the other.
+	lean := lines(t)["lb-1"]
+	lean["metadata"].(map[string]any)["dataOrigin"] = "com.withings.wiscale2.beta"
+	require.Equal(t, "muscle_mass", mapOne(t, lean).QuantitySamples[0].QuantityType, "any Withings package")
+
+	// An edited weigh-in keeps its id: a new value replaces the stored one.
+	edited := lines(t)["bo-1"]
+	edited["massKilograms"] = 3.0
+	a, b := mapOne(t, lines(t)["bo-1"]).QuantitySamples[0], mapOne(t, edited).QuantitySamples[0]
+	require.Equal(t, a.ContentHash, b.ContentHash)
+	require.True(t, b.Replaceable)
+}
+
+func TestMapBodyCompositionErrors(t *testing.T) {
+	// A mass record carries massKilograms; another field is no value.
+	noValue := instantLine("BoneMass", "weightKilograms", 3, "")
+	_, err := New().Map(connector.RawRecord{UserID: testUser, Fields: noValue})
+	require.EqualError(t, err, "health_connect: BoneMass id-BoneMass: no value")
+
+	// Zero is mapped, and refused by validation (a mass is above zero).
+	zero := mapOne(t, instantLine("BodyWaterMass", "massKilograms", 0, ""))
+	require.NotEmpty(t, etl.Rejections(etl.ValidateMapResultAt(&zero, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))))
 }
 
 func TestMapDeletionAndUnknown(t *testing.T) {
