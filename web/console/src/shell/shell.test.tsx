@@ -182,7 +182,7 @@ describe("shell", () => {
 
   it("unknown console path shows Not found inside the shell", () => {
     renderWithApp(null, { session: tenantSession, route: "/console/nowhere" });
-    expect(screen.getByRole("heading", { name: "Not found" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Page not found", level: 1 })).toBeInTheDocument();
     expect(nav()).toBeInTheDocument();
   });
 
