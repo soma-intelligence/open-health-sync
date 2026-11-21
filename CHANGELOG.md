@@ -281,6 +281,9 @@ release may change the API, the configuration or the database schema.
 
 ### Fixed
 
+- Health Connect: a time equal to the zero instant (`0001-01-01T00:00:00Z`, at any offset) is
+  refused as unreadable instead of mapping to a sample with no start date
+  ([#281](https://github.com/soma-intelligence/open-health-sync/issues/281)).
 - A retried or replayed job for an older raw object no longer overwrites a provider's newer
   revision of a sleep session, workout, nutrition log or daily summary.
 - The duplicate check of an upload reads only the stored samples of the types the upload carries.

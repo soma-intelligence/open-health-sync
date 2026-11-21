@@ -85,7 +85,8 @@ Example lines:
 A line of another record type is stored and skipped, so an app can send more than this list;
 unknown fields are ignored. A line that is not a JSON object, or has no `recordType`, refuses
 the whole part with 400. A supported record without `metadata.id` or with unreadable times
-fails at processing.
+fails at processing. The zero instant (`0001-01-01T00:00:00Z`, at any offset) counts as
+unreadable.
 
 ## Mapping notes
 
