@@ -76,6 +76,16 @@ a {
   color: var(--op-accent-text);
 }
 
+/* Links that stand alone (breadcrumb, card header, inspector, sign in) get a 24 px target. */
+.crumbs a,
+.card-r a,
+.insp-sec a,
+.setup-form > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
 .mono,
 code,
 pre {

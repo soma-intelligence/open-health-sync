@@ -222,8 +222,8 @@
 
 .set-toggle {
   appearance: none;
-  width: 32px;
-  height: 18px;
+  width: 40px;
+  height: 24px;
   border-radius: 999px;
   /* The off track is the control's only boundary: it needs 3:1 like a field border. */
   background: var(--field-border);
@@ -238,8 +238,8 @@
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 14px;
-  height: 14px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--knob);
   box-shadow: var(--op-shadow);
@@ -251,7 +251,7 @@
 }
 
 .set-toggle:checked::after {
-  transform: translateX(14px);
+  transform: translateX(16px);
 }
 
 .set-toggle:disabled {

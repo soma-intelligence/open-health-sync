@@ -206,6 +206,7 @@
 }
 
 .step {
+  position: relative;
   display: flex;
   gap: var(--op-s2);
   align-items: center;
@@ -214,10 +215,27 @@
   background: var(--op-card-2);
 }
 
+/* The whole tile is the link's target, not only its words. */
 .step a {
   color: var(--op-fg);
   font-weight: 600;
   text-decoration: none;
+}
+
+.step a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.step a:focus-visible {
+  outline: none;
+}
+
+.step a:focus-visible::after {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .step a:hover {
