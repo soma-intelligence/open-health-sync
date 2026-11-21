@@ -101,6 +101,16 @@
   color: var(--danger);
 }
 
+/* A label, not a state: Demo. */
+.pill.info {
+  background: var(--info-wash);
+  color: var(--info);
+}
+
+.pill.info::before {
+  display: none;
+}
+
 .pill.plain::before {
   display: none;
 }

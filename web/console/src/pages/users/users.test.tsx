@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 
-import type { ConsoleSession, User } from "../../api/types";
+import type { ConsoleSession, User, UserListItem } from "../../api/types";
 import { AppShell } from "../../shell/AppShell";
 import { fakeApi, type FakeApi, type FakeCall, type FakeHandler } from "../../test/fake-api";
 import sessionJson from "../../test/fixtures/session.json";
@@ -13,7 +13,7 @@ import { UsersPage } from "./UsersPage";
 const session = sessionJson as ConsoleSession;
 const readOnly = readOnlyJson as ConsoleSession;
 
-function user(n: number, over: Partial<User> = {}): User {
+function user(n: number, over: Partial<UserListItem> = {}): UserListItem {
   return {
     id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
     external_ref: `person-${String(n)}`,
@@ -21,6 +21,8 @@ function user(n: number, over: Partial<User> = {}): User {
     created_at: "2026-10-01T08:30:00Z",
     timezone: null,
     timezone_source: null,
+    sources: 0,
+    last_data_at: null,
     ...over,
   };
 }
@@ -65,6 +67,24 @@ describe("users", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Previous" }));
     expect(await screen.findByText("person-1")).toBeInTheDocument();
+  });
+
+  it("shows each user's sources and last data, and marks demo users", async () => {
+    const recent = new Date(Date.now() - 2 * 3600_000).toISOString();
+    view({
+      "GET /v1/users": {
+        body: { data: [user(1, { external_ref: "demo-user", sources: 6, last_data_at: recent }), user(2)], next_cursor: null },
+      },
+    });
+    const demo = await screen.findByRole("row", { name: /demo-user/ });
+    expect(within(demo).getByText("Demo")).toBeInTheDocument();
+    expect(within(demo).getByText("6")).toBeInTheDocument();
+    expect(within(demo).getByText("2 h ago")).toBeInTheDocument();
+    const plain = screen.getByRole("row", { name: /person-2/ });
+    expect(within(plain).queryByText("Demo")).not.toBeInTheDocument();
+    expect(within(plain).getByText("None yet")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Sources" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Last data" })).toBeInTheDocument();
   });
 
   it("searches by external id", async () => {
