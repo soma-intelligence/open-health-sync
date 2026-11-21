@@ -7,23 +7,7 @@ release may change the API, the configuration or the database schema.
 
 ## [Unreleased]
 
-### Added
-
-- Documentation: nineteen how-to guides in `docs/how-to/` (Fitbit, Polar, Strava, Dexcom and
-  Xiaomi exports; HealthKit and Health Connect uploads from your own app; Samsung Health data;
-  FIT, GPX and TCX imports; Bluetooth devices without a phone; webhooks on new data; Open mHealth
-  JSON; MCP for remote agents; share links for a clinician; several wearables without double
-  counting; Docker Compose with HTTPS; Raspberry Pi 5; erasure and portability; moving from the
-  Terra API), a fuller README with an overview, use cases, comparison and FAQ, more answers in
-  `docs/faq.md`, and `llms.txt`, `AGENTS.md` and `CITATION.cff` at the repository root.
-
-### Fixed
-
-- Documentation: the Caddyfile comment now gives `OHS_TRUSTED_PROXIES=172.16.0.0/12` like the
-  self-hosting guide, the Polar and Fitbit pages give the pull interval with and without
-  notifications, and the WHOOP export guide points at the current quickstart.
-
-## [0.3.0] - 2026-10-29
+## [0.3.0] - 2026-11-21
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
 samples leave the server, a stress and fuzz pass fixed how `ohs` behaves under load, outages and
@@ -68,6 +52,16 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
   version; the nightly `synthetic-data` workflow runs every scenario, and every provider
   through a running server and database (`test/synthflow`). See
   [docs/specs/synthetic-data.md](docs/specs/synthetic-data.md).
+- Documentation: nineteen how-to guides in `docs/how-to/` (Fitbit, Polar, Strava, Dexcom and
+  Xiaomi exports; HealthKit and Health Connect uploads from your own app; Samsung Health data;
+  FIT, GPX and TCX imports; Bluetooth devices without a phone; webhooks on new data; Open mHealth
+  JSON; MCP for remote agents; share links for a clinician; several wearables without double
+  counting; Docker Compose with HTTPS; Raspberry Pi 5; erasure and portability; moving from the
+  Terra API), a fuller README with an overview, use cases, comparison and FAQ, more answers in
+  `docs/faq.md`, and `llms.txt`, `AGENTS.md` and `CITATION.cff` at the repository root.
+- Documentation: how-to guides to convert an Apple Health export to CSV (#254) and to export
+  Eight Sleep data to CSV or SQL (#261); the docs site lists every endpoint in the sidebar and
+  serves a real 404 page (#275).
 
 ### Changed
 
@@ -229,6 +223,9 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
 - Withings: a sleep session's resting heart rate is the night's lowest heart rate (`hr_min`),
   as for Oura, instead of the mean heart rate asleep (`hr_average`), which now stays in
   metadata. Sessions stored earlier keep the mean.
+- Documentation: the Caddyfile comment now gives `OHS_TRUSTED_PROXIES=172.16.0.0/12` like the
+  self-hosting guide, the Polar and Fitbit pages give the pull interval with and without
+  notifications, and the WHOOP export guide points at the current quickstart.
 
 ### Security
 
@@ -237,6 +234,12 @@ expand to 64 MiB: read the [release notes](docs/release-notes/v0.3.0.md) before 
   addresses by the IPv4 address they carry.
 - `github.com/klauspost/compress` 1.18.7 (GO-2026-5841). `govulncheck` found the vulnerable
   code unreachable from Open Health Sync; the bump keeps it so.
+- The build stage of `deploy/Dockerfile` moves to `golang:1.26.11-bookworm` (pinned by digest) and
+  `go.mod` to `toolchain go1.26.11`, for GO-2026-6859 in `net/http` (#277).
+- `github.com/andybalholm/brotli` 1.1.1 to 1.2.7 (GO-2026-6888) and
+  `github.com/klauspost/compress` 1.18.7 to 1.20.2 (GO-2026-6865) (#277).
+- Weekly dependency bumps: aws-sdk-go-v2 s3 1.114.4, smithy-go 1.28.6, distroless, golang and
+  timescaledb base digests, aws-cli 2.38.4 (#244); `next` 16.4.6 in the docs site (#277).
 
 ## [0.2.0] - 2026-10-21
 
