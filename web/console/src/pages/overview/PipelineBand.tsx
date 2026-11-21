@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { Pipeline } from "../../api/types";
 import type { Tone } from "../../lib/classify";
 import { relTime } from "../../lib/format";
@@ -20,8 +22,9 @@ export function pipelineSummary(stages: readonly Stage[]): { tone: Tone; text: s
 /**
  * The pipeline as a light card: one tile per stage in the order data flows, each with its state chip.
  * stale: the last refresh failed, so the figures are the last ones that came back, not live ones.
+ * foot: one line under the stages (the page puts "Nothing needs you" there when the list is empty).
  */
-export function PipelineBand({ pipeline, stale = false }: { pipeline: Pipeline; stale?: boolean }) {
+export function PipelineBand({ pipeline, stale = false, foot }: { pipeline: Pipeline; stale?: boolean; foot?: ReactNode }) {
   const stages = pipelineStages(pipeline);
   const summary = pipelineSummary(stages);
   const label = stale ? "Pipeline, last known" : "Pipeline, live";
@@ -36,11 +39,12 @@ export function PipelineBand({ pipeline, stale = false }: { pipeline: Pipeline; 
         </div>
       </header>
       <div className="card-b">
-        <div className="stages">
-          {stages.map((stage) => (
-            <StageCard key={stage.key} stage={stage} />
+        <ol className="stages" aria-label="Stages, in the order data flows">
+          {stages.map((stage, i) => (
+            <StageCard key={stage.key} stage={stage} step={i + 1} />
           ))}
-        </div>
+        </ol>
+        {foot ? <div className="pipeline-foot">{foot}</div> : null}
       </div>
     </section>
   );

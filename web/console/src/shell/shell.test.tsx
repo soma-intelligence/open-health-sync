@@ -111,7 +111,7 @@ describe("shell", () => {
       .map((q) => q.queryKey[0]);
     // The overview is open now and loads the new tenant's own data; the old users are gone.
     expect(keys).toContain("session");
-    expect(keys).not.toContain("users");
+    expect(view.queryClient.getQueryData(["users"])).toBeUndefined();
   });
 
   it("has no switcher for a tenant that is not an admin", () => {

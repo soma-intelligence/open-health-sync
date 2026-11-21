@@ -16,28 +16,36 @@ function Figure({ figure }: { figure: StageFigure }) {
   );
 }
 
-/** One stage of the pipeline: its state chip, the headline figure drawn large and the rest small. */
-export function StageCard({ stage }: { stage: Stage }) {
+/**
+ * One stage of the pipeline: its place in the flow, its state chip, the headline figure drawn large
+ * and the rest small. A wide card lays the stages as columns, a narrower one as rows (overview.css).
+ */
+export function StageCard({ stage, step }: { stage: Stage; step: number }) {
   const titleId = useId();
   const [head, ...rest] = stage.figures;
   const big = splitFigure(head?.value);
   return (
-    <article className={`stage ${stage.tone}`} aria-labelledby={titleId}>
+    <li className={`stage ${stage.tone}`} aria-labelledby={titleId}>
       <div className="stage-h">
+        <span className="stage-step" aria-hidden="true">
+          {step}
+        </span>
         <h3 id={titleId}>{stage.title}</h3>
         <Pill tone={stage.tone}>{stage.state}</Pill>
       </div>
-      <p className="stage-big">
-        <span className="stage-num">{big.figure}</span>
-        {big.unit ? <span className="stage-unit">{big.unit}</span> : null}
-      </p>
-      <p className="stage-cap">{head?.label}</p>
-      <p className="stage-role">{stage.role}</p>
+      <div className="stage-main">
+        <p className="stage-big">
+          <span className="stage-num">{big.figure}</span>
+          {big.unit ? <span className="stage-unit">{big.unit}</span> : null}
+        </p>
+        <p className="stage-cap">{head?.label}</p>
+        <p className="stage-role">{stage.role}</p>
+      </div>
       <dl className="stage-list">
         {rest.map((f) => (
           <Figure key={f.label} figure={f} />
         ))}
       </dl>
-    </article>
+    </li>
   );
 }
