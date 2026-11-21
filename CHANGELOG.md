@@ -17,6 +17,12 @@ release may change the API, the configuration or the database schema.
   Terra API), a fuller README with an overview, use cases, comparison and FAQ, more answers in
   `docs/faq.md`, and `llms.txt`, `AGENTS.md` and `CITATION.cff` at the repository root.
 
+### Fixed
+
+- Documentation: the Caddyfile comment now gives `OHS_TRUSTED_PROXIES=172.16.0.0/12` like the
+  self-hosting guide, the Polar and Fitbit pages give the pull interval with and without
+  notifications, and the WHOOP export guide points at the current quickstart.
+
 ## [0.3.0] - 2026-10-29
 
 A reliability release. Each provider is pulled on its own schedule, deleted and edited HealthKit
