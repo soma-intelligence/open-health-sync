@@ -168,14 +168,6 @@ function Detail({ hook }: { hook: Webhook }) {
             >
               {on ? "Pause" : "Resume"}
             </Button>
-            <Button
-              kind="danger"
-              onClick={() => {
-                setAction({ kind: "delete" });
-              }}
-            >
-              Delete
-            </Button>
           </div>
         ) : null}
       </header>
@@ -210,6 +202,22 @@ function Detail({ hook }: { hook: Webhook }) {
           {deliveries.data?.next_cursor ? <p className="muted">{`Showing the latest ${String(DELIVERIES_QUERY.limit)}.`}</p> : null}
         </Card>
         {canWrite ? <EditEndpoint hook={hook} /> : null}
+        {canWrite ? (
+          // Apart from the everyday actions, at the bottom: the one that cannot be undone.
+          <Card title="Delete this endpoint">
+            <p className="muted">It stops receiving events and its delivery history is deleted. To stop deliveries for a while, Pause it instead.</p>
+            <div className="button-row">
+              <Button
+                kind="danger"
+                onClick={() => {
+                  setAction({ kind: "delete" });
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </Card>
+        ) : null}
       </div>
 
       {action?.kind === "test" ? (
