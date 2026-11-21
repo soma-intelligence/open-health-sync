@@ -14,11 +14,12 @@ const session = sessionJson as ConsoleSession;
 const quiet: Pipeline = {
   generated_at: "2026-10-13T12:00:00Z",
   users: { active: 2, deleting: 0 },
-  sources: [{ slug: "oura", name: "Oura", kinds: ["oauth"], enabled: true, connections: { active: 2 }, broken: 0, paused_until: null }],
+  sources: [{ slug: "oura", name: "Oura", kinds: ["oauth"], enabled: true, connections: { active: 2 }, broken: 0, records: 0, paused_until: null }],
   sync: { queued: 1, running: 0, retrying: 0, rate_limited: 0, failed_24h: 0, succeeded_24h: 40 },
   processing: { pending: 0, running: 0, parked: 0, rejected_records: 0 },
   storage: { raw_objects_24h: 12, raw_bytes_24h: 2_500_000 },
   delivery: { endpoints: 1, endpoints_failing: 0, endpoints_disabled: 0, pending: 0, parked: 0 },
+  data: { records: 0, users: 0, sources: 0, last_synced_at: null },
 };
 
 const fresh: Pipeline = {

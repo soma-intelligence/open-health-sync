@@ -2401,9 +2401,10 @@ export interface paths {
         /**
          * The tenant's pipeline, stage by stage
          * @description Counts of the tenant's work at each stage, in the order data flows: the sources (providers
-         *     that are on, and any provider still holding the tenant's connections), the sync runs, the
-         *     processing jobs, the raw archive and the webhook deliveries. Counts only, never a health
-         *     value. The console's overview is this answer.
+         *     that are on, any provider still holding the tenant's connections and any provider with the
+         *     tenant's records), the sync runs, the processing jobs, the raw archive, the webhook deliveries
+         *     and the records stored. Counts only, never a health value. The console's overview is this
+         *     answer.
          *
          */
         get: operations["getPipeline"];
@@ -4217,6 +4218,8 @@ export interface components {
         APIKey: {
             /** Format: uuid */
             id: string;
+            /** @description What the key is for. Null for a key created without a name. */
+            name: string | null;
             /** @description The start of the key, kept in clear to tell keys apart. */
             prefix: string;
             /** Format: date-time */
@@ -4254,6 +4257,10 @@ export interface components {
          */
         KeyScopes: components["schemas"]["KeyScope"][];
         CreateKeyRequest: {
+            /** @description What the key is for ("Production backend", "CI"): at most 100 characters once trimmed.
+             *     Absent, null or blank: the key has no name. The console asks for one.
+             *      */
+            name?: string | null;
             /**
              * Format: date-time
              * @description When the key stops working by itself (RFC 3339, in the future). Absent or null: the
@@ -4381,6 +4388,29 @@ export interface components {
                 /** Format: int64 */
                 parked: number;
             };
+            /** @description What the tenant has stored since its first record, whatever the way in (a connection, an
+             *     app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+             *     figures of the other stages are activity, not totals.
+             *      */
+            data: {
+                /** Format: int64 */
+                records: number;
+                /**
+                 * Format: int64
+                 * @description Users with at least one record.
+                 */
+                users: number;
+                /**
+                 * Format: int64
+                 * @description Providers with at least one record.
+                 */
+                sources: number;
+                /**
+                 * Format: date-time
+                 * @description When the last record landed; null before the first.
+                 */
+                last_synced_at: string | null;
+            };
         };
         PipelineSource: {
             slug: string;
@@ -4396,6 +4426,13 @@ export interface components {
              * @description Active connections whose health is not ok.
              */
             broken: number;
+            /**
+             * Format: int64
+             * @description The tenant's records stored from this provider. A provider with records and no
+             *     connection (app uploads, a demo seed) is listed for them.
+             *
+             */
+            records: number;
             /**
              * Format: date-time
              * @description Set while the provider's rate limit pauses every pull.
@@ -4843,6 +4880,19 @@ export interface components {
              * @enum {string|null}
              */
             timezone_source: "explicit" | "learnt" | null;
+        };
+        /** @description A user of the list, with what the coverage report holds for them. */
+        UserListItem: components["schemas"]["User"] & {
+            /**
+             * Format: int64
+             * @description The providers the user has records from, whatever the way in.
+             */
+            sources: number;
+            /**
+             * Format: date-time
+             * @description When the user's last record landed; null before the first.
+             */
+            last_data_at: string | null;
         };
         DeletionJob: {
             /** Format: uuid */
@@ -6733,7 +6783,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageBase"] & {
-                        data?: components["schemas"]["User"][];
+                        data?: components["schemas"]["UserListItem"][];
                     };
                 };
             };

@@ -4,11 +4,12 @@ import { attention, gettingStarted, needsYou, pipelineStages, STAGE_STATES } fro
 const quiet: Pipeline = {
   generated_at: "2026-10-13T12:00:00Z",
   users: { active: 2, deleting: 0 },
-  sources: [{ slug: "oura", name: "Oura", kinds: ["oauth"], enabled: true, connections: { active: 2 }, broken: 0, paused_until: null }],
+  sources: [{ slug: "oura", name: "Oura", kinds: ["oauth"], enabled: true, connections: { active: 2 }, broken: 0, records: 0, paused_until: null }],
   sync: { queued: 1, running: 0, retrying: 0, rate_limited: 0, failed_24h: 0, succeeded_24h: 40 },
   processing: { pending: 0, running: 0, parked: 0, rejected_records: 0 },
   storage: { raw_objects_24h: 12, raw_bytes_24h: 2_500_000 },
   delivery: { endpoints: 1, endpoints_failing: 0, endpoints_disabled: 0, pending: 0, parked: 0 },
+  data: { records: 0, users: 0, sources: 0, last_synced_at: null },
 };
 
 const empty: Pipeline = {
@@ -19,6 +20,7 @@ const empty: Pipeline = {
   processing: { pending: 0, running: 0, parked: 0, rejected_records: 0 },
   storage: { raw_objects_24h: 0, raw_bytes_24h: 0 },
   delivery: { endpoints: 0, endpoints_failing: 0, endpoints_disabled: 0, pending: 0, parked: 0 },
+  data: { records: 0, users: 0, sources: 0, last_synced_at: null },
 };
 
 test("pipelineStages: five stages, each with its state", () => {
@@ -46,7 +48,7 @@ test("pipelineStages: five stages, each with its state", () => {
 test("attention: what needs the operator, worst first", () => {
   expect(attention(quiet)).toEqual([]);
   const p = structuredClone(quiet);
-  p.sources.push({ slug: "withings", name: "Withings", kinds: ["oauth", "push"], enabled: false, connections: { active: 3 }, broken: 0, paused_until: null });
+  p.sources.push({ slug: "withings", name: "Withings", kinds: ["oauth", "push"], enabled: false, connections: { active: 3 }, broken: 0, records: 0, paused_until: null });
   const [oura] = p.sources as [Pipeline["sources"][number]];
   oura.connections["needs_reauth"] = 1;
   p.processing.parked = 2;
@@ -61,7 +63,7 @@ test("attention: what needs the operator, worst first", () => {
   expect(attention({ ...quiet, sources: [] })[0]?.text).toMatch(/No cloud provider is on/);
   const devices: Pipeline = {
     ...quiet,
-    sources: [{ slug: "apple_health", name: "Apple Health", kinds: ["device"], enabled: true, connections: {}, broken: 0, paused_until: null }],
+    sources: [{ slug: "apple_health", name: "Apple Health", kinds: ["device"], enabled: true, connections: {}, broken: 0, records: 0, paused_until: null }],
   };
   expect(attention(devices)[0]?.text, "app uploads do not count").toMatch(/No cloud provider is on/);
 });
@@ -73,8 +75,8 @@ test("gettingStarted: five steps, each done by its own sign", () => {
   expect(items.map((i) => i.to)).toEqual(["/console/providers", "/console/users", "/console/users", "/console/users", "/console/webhooks"]);
 
   const done = (p: Pipeline) => gettingStarted(p).filter((i) => i.done).map((i) => i.id);
-  const device = { slug: "apple_health", name: "Apple Health", kinds: ["device" as const], enabled: true, connections: {}, broken: 0, paused_until: null };
-  const oura = { slug: "oura", name: "Oura", kinds: ["oauth" as const], enabled: true, connections: {}, broken: 0, paused_until: null };
+  const device = { slug: "apple_health", name: "Apple Health", kinds: ["device" as const], enabled: true, connections: {}, broken: 0, records: 0, paused_until: null };
+  const oura = { slug: "oura", name: "Oura", kinds: ["oauth" as const], enabled: true, connections: {}, broken: 0, records: 0, paused_until: null };
   expect(done({ ...empty, sources: [device] }), "an app upload source is not a provider").toEqual([]);
   expect(done({ ...empty, sources: [oura] })).toEqual(["provider"]);
   expect(done({ ...empty, sources: [{ ...oura, enabled: false }] })).toEqual([]);
