@@ -30,9 +30,9 @@ export function SourcesCard({ sources }: { sources: readonly Source[] }) {
         <EmptyState title="No source on yet">Turn on a provider so users can connect.</EmptyState>
       ) : (
         <div className="table-scroll">
-          <table className="data-table sources-table">
-            <thead>
-              <tr>
+          <table className="data-table sources-table" role="table">
+            <thead role="rowgroup">
+              <tr role="row">
                 <th scope="col">Source</th>
                 <th scope="col" className="num">
                   Connections
@@ -40,14 +40,14 @@ export function SourcesCard({ sources }: { sources: readonly Source[] }) {
                 <th scope="col">State</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {shown.map((s) => {
                 const state = sourceState(s);
                 return (
-                  <tr key={s.slug}>
-                    <td>{s.name}</td>
-                    <td className="num">{formatCount(s.connections["active"] ?? 0)}</td>
-                    <td>
+                  <tr key={s.slug} role="row">
+                    <td role="cell">{s.name}</td>
+                    <td role="cell" className="num" data-label="Connections">{formatCount(s.connections["active"] ?? 0)}</td>
+                    <td role="cell" data-label="State">
                       <Pill tone={state.tone}>{state.text}</Pill>
                     </td>
                   </tr>

@@ -8,6 +8,8 @@ import { Icon } from "./Icon";
 
 export interface ErrorPanelProps {
   error: unknown;
+  /** What failed, in a sentence, above the reason: "The users did not load." */
+  title?: string;
   /**
    * A way out. A function is called as is; true reloads every query on the
    * page that failed. Left out for a write: the form that sent it stays open
@@ -17,12 +19,13 @@ export interface ErrorPanelProps {
 }
 
 /** A failed request or render: what happened in words, the server's detail and request id when there is one, and a retry. */
-export function ErrorPanel({ error, retry }: ErrorPanelProps) {
+export function ErrorPanel({ error, retry, title }: ErrorPanelProps) {
   const { message, detail } = errorText(error);
   return (
     <div className="error-panel" role="alert">
       <Icon name="alert" />
       <div className="error-text">
+        {title ? <p className="error-title">{title}</p> : null}
         <p className="error-detail">{message}</p>
         {detail ? <p className="error-id">{detail}</p> : null}
         {error instanceof ApiError && error.requestId ? (

@@ -205,3 +205,98 @@ textarea.input {
     min-height: 44px;
   }
 }
+
+/* ---------- under 600 px of page width: each row is a card, one label and value per line ---------- */
+@container page (max-width: 599px) {
+  .table-scroll {
+    overflow-x: visible;
+    margin: 0;
+    padding: 0;
+  }
+
+  .data-table,
+  .data-table tbody,
+  .data-table tr,
+  .data-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .data-table tbody tr {
+    padding: var(--op-s3) 0;
+    border-top: 1px solid var(--op-line);
+  }
+
+  .data-table tbody tr:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .data-table td,
+  .data-table th:first-child,
+  .data-table td:first-child,
+  .data-table td:last-child {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--op-s3);
+    padding: var(--op-s1) 0;
+    border-top: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table td::before {
+    content: attr(data-label);
+    flex: none;
+    font: 500 12px/1.4 var(--op-font);
+    color: var(--op-fg-2);
+  }
+
+  /* The first cell names the row: full width, no label. */
+  .data-table td:first-child {
+    display: block;
+    padding-bottom: var(--op-s2);
+  }
+
+  .data-table td:first-child::before,
+  .data-table td.row-actions-cell::before {
+    content: none;
+  }
+
+  .data-table td:empty {
+    display: none;
+  }
+
+  .data-table td.num {
+    text-align: right;
+  }
+
+  .data-table .row-actions-cell {
+    position: static;
+    justify-content: flex-end;
+    background: transparent;
+    padding-top: var(--op-s2);
+  }
+
+  .data-table tbody tr:hover td {
+    background: transparent;
+  }
+
+  .data-table tbody tr.selected {
+    background: var(--op-accent-wash);
+  }
+
+  .data-table tbody tr.selected td {
+    background: transparent;
+  }
+}

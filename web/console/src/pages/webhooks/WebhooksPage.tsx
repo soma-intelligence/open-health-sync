@@ -97,13 +97,11 @@ export function WebhooksPage() {
           ) : null}
         </div>
       </header>
-      {query.isPending ? <Skeleton count={3} /> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
-      {data ? (
-        <Card title="Endpoints">
-          <EndpointsTable rows={data.data} selectedId={selected?.id} onSelect={setSelected} />
-        </Card>
-      ) : null}
+      <Card title="Endpoints">
+        {query.isPending ? <Skeleton count={3} /> : null}
+        {error !== null && data === undefined ? <ErrorPanel title="The endpoints did not load." error={error} retry /> : null}
+        {data ? <EndpointsTable rows={data.data} selectedId={selected?.id} onSelect={setSelected} /> : null}
+      </Card>
       {creating ? (
         <CreateEndpoint
           onCreated={(value) => {

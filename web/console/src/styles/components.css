@@ -512,3 +512,8 @@
     opacity: 1;
   }
 }
+
+.error-title {
+  font-weight: 600;
+  color: var(--op-fg);
+}

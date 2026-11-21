@@ -85,22 +85,22 @@ export function KeysPage() {
           ) : null}
         </div>
       </header>
-      {query.isPending ? (
-        <Skeleton count={3} />
-      ) : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
-      {data ? (
-        <Card>
-          <KeysTable
-            rows={data.data}
-            sessionPrefix={session?.key_prefix ?? ""}
-            selectedId={selected?.id}
-            onSelect={setSelected}
-            {...(canWrite ? { onRevoke: setRevoking } : {})}
-          />
-          {canWrite ? <p className="card-hint">The key of this session cannot revoke itself: sign in with another key first.</p> : null}
-        </Card>
-      ) : null}
+      <Card title="Keys">
+        {query.isPending ? <Skeleton count={3} /> : null}
+        {error !== null && data === undefined ? <ErrorPanel title="The keys did not load." error={error} retry /> : null}
+        {data ? (
+          <>
+            <KeysTable
+              rows={data.data}
+              sessionPrefix={session?.key_prefix ?? ""}
+              selectedId={selected?.id}
+              onSelect={setSelected}
+              {...(canWrite ? { onRevoke: setRevoking } : {})}
+            />
+            {canWrite ? <p className="card-hint">The key of this session cannot revoke itself: sign in with another key first.</p> : null}
+          </>
+        ) : null}
+      </Card>
       {creating ? (
         <CreateKeyDialog
           onCreated={(value) => {

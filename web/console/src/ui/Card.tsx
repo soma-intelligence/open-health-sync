@@ -14,9 +14,9 @@ export function Card({ title, actions, children, className, level = 2 }: CardPro
   const Heading = level === 3 ? "h3" : "h2";
   return (
     <section className={className === undefined ? "card" : `card ${className}`}>
-      {title ? (
+      {title || actions ? (
         <header className="card-h">
-          <Heading>{title}</Heading>
+          {title ? <Heading>{title}</Heading> : null}
           {actions ? <div className="card-r">{actions}</div> : null}
         </header>
       ) : null}

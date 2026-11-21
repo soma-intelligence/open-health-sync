@@ -76,25 +76,28 @@ export function DataTable<T>({ columns, rows, rowKey, onSelect, selectedKey, to,
 
   const cellClass = (c: Column<T>) => [c.className, c.actions ? "row-actions-cell" : undefined].filter(Boolean).join(" ") || undefined;
 
-  // The wrapper scrolls the table inside its card: on a phone every column and action stays reachable.
+  // The wrapper scrolls the table inside its card. Under 600 px of page width the CSS lays each row
+  // out as a card (label and value per line), so the explicit roles keep the table semantics that
+  // display: block would drop, and each cell carries its column name for the label.
   return (
     <div className="table-scroll">
-      <table className="data-table" tabIndex={0} onKeyDown={onKeyDown}>
-        <thead>
-          <tr>
+      <table className="data-table" role="table" tabIndex={0} onKeyDown={onKeyDown}>
+        <thead role="rowgroup">
+          <tr role="row">
             {columns.map((c) => (
-              <th key={c.key} scope="col" className={cellClass(c)}>
+              <th key={c.key} scope="col" role="columnheader" className={cellClass(c)}>
                 {c.header}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {rows.map((row) => {
             const key = rowKey(row);
             return (
               <tr
                 key={key}
+                role="row"
                 aria-current={key === selectedKey ? "true" : undefined}
                 className={key === selectedKey ? "selected" : undefined}
                 onClick={(e) => {
@@ -106,7 +109,7 @@ export function DataTable<T>({ columns, rows, rowKey, onSelect, selectedKey, to,
                 }}
               >
                 {columns.map((c, i) => (
-                  <td key={c.key} className={cellClass(c)}>
+                  <td key={c.key} role="cell" className={cellClass(c)} data-label={c.header || undefined}>
                     {to && i === 0 ? (
                       <Link className="row-link" to={routerPath(to(row))} tabIndex={-1}>
                         {c.cell(row)}
