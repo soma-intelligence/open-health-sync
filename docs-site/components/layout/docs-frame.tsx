@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import type { NavRoot } from "@/lib/nav-model";
@@ -49,17 +48,11 @@ export function DocsFrame({ nav, children }: { nav: NavRoot[]; children: ReactNo
         <div className="ohs-drawer-scrim" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
           <div className="ohs-drawer" id={drawerId} role="dialog" aria-modal="true" aria-label="Menu">
             <nav className="ohs-drawer-links" aria-label="Site">
-              {headerLinks.map((link) =>
-                "external" in link ? (
-                  <a key={link.id} href={link.href} className="ohs-drawer-link">
-                    {link.label}
-                  </a>
-                ) : (
-                  <Link key={link.id} href={link.href} className="ohs-drawer-link">
-                    {link.label}
-                  </Link>
-                ),
-              )}
+              {headerLinks.map((link) => (
+                <a key={link.id} href={link.href} className="ohs-drawer-link">
+                  {link.label}
+                </a>
+              ))}
             </nav>
             <a href={signupHref} className="ohs-btn ohs-btn-primary ohs-btn-block">
               Sign up

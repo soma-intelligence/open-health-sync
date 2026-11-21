@@ -2,33 +2,21 @@
 import { useSearchContext } from "fumadocs-ui/contexts/search";
 import { Menu, Search, X } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
-import { consoleUrl, docsHref, docsRoute, repoUrl, signupUrl } from "@/lib/shared";
+import { consoleUrl, docsRoute, latestVersion, repoUrl, signupUrl, siteUrl } from "@/lib/shared";
 
-/** Header links, the same as the portal's and the console's: guides, API, console, source. */
+/**
+ * Header links, the same as the portal's: the project site, the console of the hosted beta and the
+ * source. Guides, API reference and hosted platform are the three roots at the top of the sidebar.
+ */
 export const headerLinks = [
-  { id: "guides", label: "Guides", href: docsHref("/documentation") },
-  { id: "api", label: "API", href: docsHref("/documentation/api-reference") },
-  { id: "console", label: "Console", href: consoleUrl, external: true },
-  { id: "github", label: "GitHub", href: repoUrl, external: true },
+  { id: "site", label: "Site", href: siteUrl },
+  { id: "console", label: "Console", href: consoleUrl },
+  { id: "github", label: "GitHub", href: repoUrl },
 ] as const;
 
 export const signupHref = `${signupUrl}?utm_source=docs&utm_medium=docs&utm_campaign=header`;
-
-/** Which header link the page is under: the API reference, or the guides around it. */
-export function activeLink(pathname: string): "guides" | "api" | undefined {
-  const rel = !docsRoute
-    ? pathname
-    : pathname === docsRoute
-      ? "/"
-      : pathname.startsWith(`${docsRoute}/`)
-        ? pathname.slice(docsRoute.length)
-        : undefined;
-  if (rel === undefined || /^\/platform(\/|$)/.test(rel)) return undefined;
-  return /^\/api-reference(\/|$)/.test(rel) ? "api" : "guides";
-}
 
 /** "⌘K" on Apple devices, "Ctrl K" elsewhere; set after hydration so the server HTML stays stable. */
 function useShortcutLabel() {
@@ -45,8 +33,6 @@ export function Header({
   /** the drawer of the sidebar, under 1024 px */
   menu?: { open: boolean; controls: string; toggle: () => void };
 }) {
-  const pathname = usePathname();
-  const active = activeLink(pathname);
   const { setOpenSearch } = useSearchContext();
   const shortcut = useShortcutLabel();
 
@@ -67,28 +53,22 @@ export function Header({
       <Link href={docsRoute || "/"} className="ohs-brand-link" aria-label="Open Health Sync documentation">
         <Logo />
       </Link>
+      {latestVersion ? (
+        <a href={`${repoUrl}/releases/tag/v${latestVersion}`} className="ohs-version" title="Release notes on GitHub">
+          v{latestVersion}
+        </a>
+      ) : null}
       <button type="button" className="ohs-search-btn" onClick={() => setOpenSearch(true)}>
         <Search aria-hidden="true" />
         <span>Search docs and API</span>
         <kbd>{shortcut}</kbd>
       </button>
       <nav className="ohs-header-nav" aria-label="Site">
-        {headerLinks.map((link) =>
-          "external" in link ? (
-            <a key={link.id} href={link.href} className="ohs-header-link">
-              {link.label}
-            </a>
-          ) : (
-            <Link
-              key={link.id}
-              href={link.href}
-              className="ohs-header-link"
-              aria-current={active === link.id ? "page" : undefined}
-            >
-              {link.label}
-            </Link>
-          ),
-        )}
+        {headerLinks.map((link) => (
+          <a key={link.id} href={link.href} className="ohs-header-link">
+            {link.label}
+          </a>
+        ))}
       </nav>
       <button
         type="button"

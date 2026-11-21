@@ -168,6 +168,24 @@ kbd {
   color: var(--op-fg-2);
   font: var(--op-text-caption);
 }
+.ohs-version {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: calc(-1 * var(--op-s2));
+  padding: 0 var(--op-s2);
+  border-radius: var(--op-r-chip);
+  background: var(--op-field);
+  color: var(--op-fg-2);
+  font: var(--op-text-caption);
+  font-family: var(--op-font-mono);
+  font-weight: 400;
+  text-decoration: none;
+  flex: none;
+}
+.ohs-version:hover {
+  color: var(--op-fg);
+}
 .ohs-search-btn {
   display: flex;
   align-items: center;
@@ -242,6 +260,11 @@ kbd {
   .ohs-search-icon {
     display: inline-grid;
     margin-left: auto;
+  }
+}
+@media (max-width: 479px) {
+  .ohs-version {
+    display: none;
   }
 }
 @media (max-width: 359px) {
@@ -324,9 +347,12 @@ kbd {
   color: var(--op-fg);
   font-weight: 600;
 }
+.ohs-root[aria-current] {
+  background: var(--op-field);
+}
 .ohs-root[aria-current] .ohs-root-icon {
-  background: var(--op-accent-wash);
-  color: var(--op-accent-text);
+  background: var(--op-card);
+  color: var(--op-fg);
 }
 
 .ohs-nav-section {
@@ -417,8 +443,8 @@ details[open] > summary .ohs-caret {
   color: var(--op-fg);
 }
 .ohs-nav-item[aria-current="page"] {
-  background: var(--op-accent-wash);
-  color: var(--op-accent-text);
+  background: var(--op-field);
+  color: var(--op-fg);
   font-weight: 600;
 }
 .ohs-nav-name {
@@ -503,10 +529,15 @@ details[open] > summary .ohs-caret {
 }
 .ohs-drawer-links {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--op-s1);
 }
 .ohs-drawer-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  box-sizing: border-box;
   padding: var(--op-s2) var(--op-s3);
   border-radius: var(--op-r-control);
   background: var(--op-card-2);
@@ -514,6 +545,14 @@ details[open] > summary .ohs-caret {
   font: var(--op-text-body);
   font-weight: 500;
   text-decoration: none;
+}
+
+.ohs-drawer :is(.ohs-nav-item, .ohs-nav-group-btn, .ohs-nav-section-btn, .ohs-root) {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+.ohs-drawer .ohs-btn {
+  min-height: 44px;
 }
 
 /* ---------- page ---------- */
@@ -614,6 +653,8 @@ details[open] > summary .ohs-caret {
 }
 .ohs-toc-list a {
   display: block;
+  min-height: 24px;
+  box-sizing: border-box;
   padding: var(--op-s1) 0 var(--op-s1) var(--op-s3);
   border-left: 2px solid var(--op-line);
   color: var(--op-fg-2);
@@ -630,8 +671,8 @@ details[open] > summary .ohs-caret {
   color: var(--op-fg);
 }
 .ohs-toc-list a[aria-current] {
-  border-left-color: var(--op-accent);
-  color: var(--op-accent-text);
+  border-left-color: var(--op-fg);
+  color: var(--op-fg);
   font-weight: 600;
 }
 .ohs-toc-inline {
@@ -747,6 +788,10 @@ details[open] > summary .ohs-caret {
   font: var(--op-text-body);
   font-weight: 700;
 }
+/* heading self-links: at least 24 px tall (WCAG 2.5.8) */
+.ohs-prose.prose :where(h2, h3, h4) a {
+  padding-block: 2px;
+}
 .ohs-prose.prose :where(a:not(.not-prose *)) {
   color: var(--op-accent-text);
   font-weight: 500;
@@ -788,11 +833,31 @@ details[open] > summary .ohs-caret {
 .ohs-docs figure.shiki code {
   font: var(--op-text-code);
 }
-@media (max-width: 767px) {
-  /* room at the end of each line for the copy button, which sits over the first one */
-  .ohs-docs figure.shiki {
-    --padding-right: var(--op-s6);
-  }
+/* the copy button: in a corner of the block's own colour, so a long line ends under it cleanly */
+.ohs-docs figure.shiki > .absolute {
+  top: 0;
+  right: 0;
+  padding: var(--op-s2);
+  border-radius: 0;
+  background: inherit;
+  backdrop-filter: none;
+  color: var(--op-fg-2);
+}
+.ohs-docs figure.shiki > .absolute button {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--op-s2);
+  background: var(--op-field);
+}
+.ohs-docs figure.shiki > .absolute button:hover {
+  color: var(--op-fg);
+}
+.ohs-docs figure.shiki:has(> .absolute) {
+  --padding-right: 44px;
+}
+/* github-dark comments (#6A737D) read at 3.5:1 on the dark code surface: lifted above 4.5:1 */
+.dark .ohs-docs .shiki code span:is([style*="--shiki-dark:#6A737D" i], [style*="--shiki-dark: #6A737D" i]) {
+  color: #9ea7b3;
 }
 
 /* ---------- tiles (docs home, 404, home) ---------- */
@@ -961,9 +1026,13 @@ a.ohs-tile:hover {
   flex: none;
   color: var(--op-fg-2);
 }
+.ohs-search-field:focus-within {
+  box-shadow: inset 0 -2px 0 var(--op-focus);
+}
 .ohs-search-field input {
   flex: 1;
   min-width: 0;
+  min-height: 28px;
   border: 0;
   outline: 0;
   background: transparent;
@@ -1101,6 +1170,13 @@ a.ohs-tile:hover {
   gap: var(--op-s6);
   align-items: start;
 }
+.ohs-endpoint-top {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.ohs-endpoint-top > :not(.ohs-endpoint-bar) {
+  max-width: 75ch;
+}
 .ohs-endpoint-ref {
   min-width: 0;
 }
@@ -1115,6 +1191,10 @@ a.ohs-tile:hover {
   }
   .ohs-endpoint-code {
     position: static;
+    order: 1;
+  }
+  .ohs-endpoint-ref {
+    order: 2;
   }
 }
 .ohs-endpoint-bar {
@@ -1151,7 +1231,6 @@ a.ohs-tile:hover {
   box-shadow: var(--op-shadow);
 }
 .ohs-code-panel figure.shiki {
-  --padding-right: var(--op-s6);
   margin: 0;
   box-shadow: none;
   background: var(--op-card-2);
@@ -1180,6 +1259,7 @@ a.ohs-tile:hover {
   background: var(--op-field);
 }
 .ohs-segmented button {
+  min-height: 28px;
   padding: var(--op-s1) var(--op-s3);
   border: 0;
   border-radius: var(--op-s2);
@@ -1200,6 +1280,8 @@ a.ohs-tile:hover {
   gap: var(--op-s1);
 }
 .ohs-status {
+  min-height: 24px;
+  min-width: 40px;
   padding: 0 var(--op-s2);
   border: 0;
   border-radius: var(--op-r-chip);
@@ -1220,6 +1302,16 @@ a.ohs-tile:hover {
 .ohs-status[aria-selected="true"][data-tone="bad"] {
   background: var(--op-bad-wash);
   color: var(--op-bad);
+}
+/* fumadocs-openapi controls inside the reference: type toggles, heading links, the property filter */
+.ohs-endpoint-ref button,
+.ohs-endpoint-ref input {
+  min-height: 24px;
+}
+.ohs-endpoint-ref :is(h2, h3, h4) a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
 }
 .ohs-code-empty {
   margin: 0;

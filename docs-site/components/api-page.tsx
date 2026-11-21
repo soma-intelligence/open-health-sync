@@ -2,6 +2,7 @@
 import { useCodeUsage, useOperation, useResponseExamples } from "fumadocs-openapi/operation";
 import { type CodeUsageGenerator, createCodeUsageGeneratorRegistry } from "fumadocs-openapi/requests/generators";
 import { curl } from "fumadocs-openapi/requests/generators/curl";
+import { javascript } from "fumadocs-openapi/requests/generators/javascript";
 import { python } from "fumadocs-openapi/requests/generators/python";
 import { createOpenAPIPage } from "fumadocs-openapi/ui";
 import { DynamicCodeBlock } from "fumadocs-ui/components/dynamic-codeblock";
@@ -39,9 +40,11 @@ const swift: CodeUsageGenerator = {
 };
 
 const codeUsages = createCodeUsageGeneratorRegistry();
+// The order of the tabs: the shell first, then the three languages most apps call the API from.
 codeUsages.add("curl", curl);
-codeUsages.add("swift", swift);
+codeUsages.add("javascript", javascript);
 codeUsages.add("python", python);
+codeUsages.add("swift", swift);
 
 const storageKey = "ohs-docs-code-lang";
 
@@ -64,7 +67,7 @@ function onTabKey(e: KeyboardEvent<HTMLDivElement>) {
 }
 
 /**
- * The right column of an endpoint: the request in cURL, Swift or Python, then an example response
+ * The right column of an endpoint: the request in cURL, JavaScript, Python or Swift, then an example response
  * for each status. No "try it" runner: an instance only answers cross-origin requests for
  * /openapi.yaml, so each sample has a copy button instead.
  */
@@ -164,16 +167,22 @@ function EndpointBar({ method, path }: { method: string; path: string }) {
   );
 }
 
-/** An endpoint in two columns: the reference on the left, the code on the right. */
+/**
+ * An endpoint: the method, path and description across the top, then two columns, the reference on
+ * the left and the code on the right. Under 1200 px the code comes before the parameters, so a
+ * phone reaches a working request without scrolling through every field.
+ */
 export const APIPage = createOpenAPIPage({
   playground: { enabled: false },
   codeUsages,
   content: {
     renderOperationLayout: (slots, { path, method }) => (
       <div className="ohs-endpoint-grid">
-        <div className="ohs-endpoint-ref">
+        <div className="ohs-endpoint-top">
           <EndpointBar method={method} path={path} />
           {slots.description}
+        </div>
+        <div className="ohs-endpoint-ref">
           {slots.authSchemes}
           {slots.parameters}
           {slots.body}

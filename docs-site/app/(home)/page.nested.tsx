@@ -7,7 +7,7 @@ import { latestVersion, repoUrl, signupUrl } from "@/lib/shared";
 
 // The README's "Sources and outputs" table, in short.
 const available = [
-  "Eighteen sources: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom, OMRON and more",
+  "Nineteen sources: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom, OMRON and more",
   "REST API described by OpenAPI 3.1",
   "Read-only MCP server",
   "FHIR R4 and Open mHealth",
