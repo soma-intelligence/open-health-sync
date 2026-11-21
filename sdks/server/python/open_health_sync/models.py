@@ -153,6 +153,8 @@ class TenantKey(TypedDict):
 
 class APIKey(TypedDict):
     id: str
+    # What the key is for. Null for a key created without a name.
+    name: Optional[str]
     # The start of the key, kept in clear to tell keys apart.
     prefix: str
     created_at: str
@@ -167,6 +169,9 @@ class APIKey(TypedDict):
 
 
 class CreateKeyRequest(TypedDict, total=False):
+    # What the key is for ("Production backend", "CI"): at most 100 characters once trimmed.
+    # Absent, null or blank: the key has no name. The console asks for one.
+    name: Optional[str]
     # When the key stops working by itself (RFC 3339, in the future). Absent or null: the
     # key lives until it is revoked.
     expires_at: Optional[str]
@@ -177,6 +182,8 @@ class CreateKeyRequest(TypedDict, total=False):
 
 class CreatedAPIKey(TypedDict):
     id: str
+    # What the key is for. Null for a key created without a name.
+    name: Optional[str]
     # The start of the key, kept in clear to tell keys apart.
     prefix: str
     created_at: str

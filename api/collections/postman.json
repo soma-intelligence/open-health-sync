@@ -3837,7 +3837,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"expires_at\": \"2026-01-01T00:00:00Z\",\n  \"scopes\": [\n    \"*\"\n  ]\n}",
+              "raw": "{\n  \"expires_at\": \"2026-01-01T00:00:00Z\",\n  \"name\": \"example\",\n  \"scopes\": [\n    \"*\"\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"

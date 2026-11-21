@@ -14,6 +14,9 @@ release may change the API, the configuration or the database schema.
   source has `records`, and a provider with records but no connection is listed for them.
 - `GET /v1/users` gives each user `sources` (the providers they have records from) and `last_data_at` (when
   their last record landed), from the coverage summary in one query per page.
+- API keys have a name: `name` on `POST /v1/keys` and the admin route (at most 100 characters, trimmed; blank is
+  none) and on every key listed. Migration `0059` adds the nullable `ohs_core.api_keys.name`; keys created before
+  it, or without a name, list `null`. The console asks for a name and shows it in the keys table.
 - Server settings can be saved from the console, and applied without a restart for the live ones
   ([console.md](docs/console.md#settings-saved-from-the-console)). For each setting the environment wins, then
   the console, then the default. Migration `0056` adds `ohs_core.instance_settings`; migration `0057` adds

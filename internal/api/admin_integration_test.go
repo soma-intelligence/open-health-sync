@@ -41,6 +41,7 @@ type tenantInfo struct {
 
 type keyInfo struct {
 	ID        uuid.UUID  `json:"id"`
+	Name      *string    `json:"name"`
 	Prefix    string     `json:"prefix"`
 	RevokedAt *time.Time `json:"revoked_at"`
 	Current   bool       `json:"current"`
@@ -86,7 +87,8 @@ func TestTenantAndKeys(t *testing.T) {
 	r.json(t, &keys)
 	require.Len(t, keys.Data, 2)
 	assert.NotContains(t, string(r.body), created.Key, "a listing never holds a secret")
-	assert.Equal(t, http.StatusBadRequest, e.do("POST", "/v1/keys", e.keyA, `{"name":"x"}`).code)
+	assert.Nil(t, created.Name, "a key created without a name has none")
+	assert.Equal(t, http.StatusBadRequest, e.do("POST", "/v1/keys", e.keyA, `{"label":"x"}`).code)
 
 	// The key making the call cannot revoke itself.
 	r = e.do("DELETE", "/v1/keys/"+a.Key.ID.String(), e.keyA, nil)
@@ -122,6 +124,35 @@ func TestTenantAndKeys(t *testing.T) {
 	}
 	assert.Equal(t, 2, actions[audit.KeyCreate], "%+v", page.Data)
 	assert.Equal(t, 5, actions[audit.KeyRevoke], "%+v", page.Data)
+}
+
+// A key's name says what it is for: trimmed, listed, at most 100
+// characters; blank is no name.
+func TestKeyName(t *testing.T) {
+	e := newEnv(t)
+	r := e.do("POST", "/v1/keys", e.keyA, `{"name":"  Production backend  "}`)
+	require.Equal(t, http.StatusCreated, r.code, string(r.body))
+	var named keyInfo
+	r.json(t, &named)
+	require.NotNil(t, named.Name)
+	assert.Equal(t, "Production backend", *named.Name)
+	var keys struct{ Data []keyInfo }
+	r = e.do("GET", "/v1/keys", e.keyA, nil)
+	r.json(t, &keys)
+	require.Len(t, keys.Data, 2)
+	require.NotNil(t, keys.Data[1].Name)
+	assert.Equal(t, "Production backend", *keys.Data[1].Name)
+	assert.Nil(t, keys.Data[0].Name)
+	r = e.do("POST", "/v1/keys", e.keyA, `{"name":"`+strings.Repeat("k", 101)+`"}`)
+	assert.Equal(t, http.StatusBadRequest, r.code, string(r.body))
+	assert.Contains(t, string(r.body), "name is at most 100 characters")
+	r = e.do("POST", "/v1/keys", e.keyA, `{"name":"   "}`)
+	require.Equal(t, http.StatusCreated, r.code, string(r.body))
+	var blank keyInfo
+	r.json(t, &blank)
+	assert.Nil(t, blank.Name)
+	require.Equal(t, http.StatusNoContent, e.do("DELETE", "/v1/keys/"+named.ID.String(), e.keyA, nil).code)
+	require.Equal(t, http.StatusNoContent, e.do("DELETE", "/v1/keys/"+blank.ID.String(), e.keyA, nil).code)
 }
 
 func TestPipeline(t *testing.T) {

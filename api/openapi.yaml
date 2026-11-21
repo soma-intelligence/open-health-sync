@@ -6291,9 +6291,13 @@ components:
 
     APIKey:
       type: object
-      required: [id, prefix, created_at, last_used_at, revoked_at, expires_at, scopes, current]
+      required: [id, name, prefix, created_at, last_used_at, revoked_at, expires_at, scopes, current]
       properties:
         id: { type: string, format: uuid }
+        name:
+          type: [string, "null"]
+          maxLength: 100
+          description: What the key is for. Null for a key created without a name.
         prefix: { type: string, description: "The start of the key, kept in clear to tell keys apart." }
         created_at: { type: string, format: date-time }
         last_used_at: { type: [string, "null"], format: date-time }
@@ -6343,6 +6347,11 @@ components:
       type: object
       additionalProperties: false
       properties:
+        name:
+          type: [string, "null"]
+          description: |
+            What the key is for ("Production backend", "CI"): at most 100 characters once trimmed.
+            Absent, null or blank: the key has no name. The console asks for one.
         expires_at:
           type: [string, "null"]
           format: date-time

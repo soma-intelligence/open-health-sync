@@ -206,7 +206,9 @@ func TestAdminTenantKeys(t *testing.T) {
 	r.json(t, &own)
 	assert.Equal(t, blue.ID, own.ID)
 	assert.Equal(t, http.StatusCreated, e.do("POST", keys, e.keyA, `{}`).code)
-	assert.Equal(t, http.StatusBadRequest, e.do("POST", keys, e.keyA, `{"name":"x"}`).code)
+	assert.Equal(t, http.StatusBadRequest, e.do("POST", keys, e.keyA, `{"label":"x"}`).code)
+	r = e.do("POST", keys, e.keyA, `{"name":"`+strings.Repeat("k", 101)+`"}`)
+	assert.Equal(t, http.StatusBadRequest, r.code, string(r.body))
 
 	var list struct{ Data []keyInfo }
 	r = e.do("GET", keys, e.keyA, nil)

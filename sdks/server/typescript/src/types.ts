@@ -87,6 +87,8 @@ export interface TenantKey {
 
 export interface APIKey {
   id: string;
+  /** What the key is for. Null for a key created without a name. */
+  name: string | null;
   /** The start of the key, kept in clear to tell keys apart. */
   prefix: string;
   created_at: string;
@@ -112,6 +114,11 @@ export type KeyScopes = KeyScope[];
 
 export interface CreateKeyRequest {
   /**
+   * What the key is for ("Production backend", "CI"): at most 100 characters once trimmed.
+   * Absent, null or blank: the key has no name. The console asks for one.
+   */
+  name?: string | null;
+  /**
    * When the key stops working by itself (RFC 3339, in the future). Absent or null: the
    * key lives until it is revoked.
    */
@@ -125,6 +132,8 @@ export interface CreateKeyRequest {
 
 export interface CreatedAPIKey {
   id: string;
+  /** What the key is for. Null for a key created without a name. */
+  name: string | null;
   /** The start of the key, kept in clear to tell keys apart. */
   prefix: string;
   created_at: string;
