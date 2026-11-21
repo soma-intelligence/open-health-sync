@@ -76,6 +76,13 @@ describe("shell", () => {
   it("marks a read only session", () => {
     renderWithApp(null, { session: readOnlySession });
     expect(within(nav()).getByText("Read only")).toBeInTheDocument();
+    // And says above the page why the write buttons are missing.
+    expect(screen.getByRole("note")).toHaveTextContent("This console is read only");
+  });
+
+  it("shows no read only notice to a session that may write", () => {
+    renderWithApp(null);
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 
   it("lists tenants for an admin and switches", async () => {

@@ -117,8 +117,13 @@ export function NavPane({ id }: { id: string }) {
             <span className="nav-tenant-name">{tenant.name}</span>
             <span className="nav-tenant-role">{tenant.admin ? "Instance admin" : "Tenant"}</span>
           </div>
-          {session.read_only ? <Pill tone="warn">Read only</Pill> : null}
         </div>
+        {/* On its own line: beside the name it cut the tenant name short. */}
+        {session.read_only ? (
+          <div>
+            <Pill tone="off">Read only</Pill>
+          </div>
+        ) : null}
         {admin ? <TenantSwitcher /> : null}
         {acting.id !== tenant.id ? <p className="nav-acting">{`Acting as ${acting.name}`}</p> : null}
       </div>

@@ -408,12 +408,20 @@
   }
 }
 
-.offline-notice {
+.offline-notice,
+.readonly-notice {
   margin: var(--op-s4) var(--op-s6) 0;
+  max-width: calc(1120px - 2 * var(--op-s6));
+}
+
+.readonly-notice {
+  background: var(--op-card-2);
+  box-shadow: inset 0 0 0 1px var(--op-line);
 }
 
 @media (max-width: 767px) {
-  .offline-notice {
+  .offline-notice,
+  .readonly-notice {
     margin: var(--op-s3) var(--op-s4) 0;
   }
 }
