@@ -693,12 +693,17 @@ function firstParagraph(markdown: string): string {
     .map((p) => p.trim())
     .find((p) => p && !p.startsWith("#") && !p.startsWith("|") && !p.startsWith("<") && !p.startsWith("-"));
   if (!para) return "";
+  // Plain text: the description is a subtitle, a meta description and a line of llms.txt, where
+  // Markdown shows as is. A leading label such as "**Goal:**" goes, the sentence after it stays.
   const text = para
     .replace(/\s+/g, " ")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/`/g, "");
+    .replace(/`/g, "")
+    .replace(/^(\*\*|__)[^*_]+:\1\s*(\S)/, (_, _m, first: string) => first.toUpperCase())
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/(^|[\s(])([*_])([^*_\s](?:[^*_]*[^*_\s])?)\2(?=[\s.,;:!?)]|$)/g, "$1$3");
   // The first sentences that say something: "Slug `x`." alone does not.
-  const sentences = text.replace(/^Slug \S+\.\s*/, "").match(/[^.]+(\.|$)/g) ?? [text];
+  const sentences = text.replace(/^Slug \S+\.\s*/, "").match(/.+?(?:\.(?=\s|$)|$)/g) ?? [text];
   let out = "";
   for (const sentence of sentences) {
     out = `${out} ${sentence.trim()}`.trim();

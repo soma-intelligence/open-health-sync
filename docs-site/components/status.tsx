@@ -1,8 +1,8 @@
 import { cn } from "@/lib/cn";
 
 const styles = {
-  available: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  planned: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  available: "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+  planned: "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300",
   soon: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
   beta: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
 } as const;

@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use Open Health Sync in your work, please cite it as below."
+type: software
+title: "Open Health Sync"
+abstract: >-
+  Open Health Sync is an open source, self-hosted health data aggregator. It collects data from
+  wearables and health apps (Apple Health, Health Connect, Garmin, Oura, WHOOP, Fitbit, Withings,
+  Polar, Strava, Dexcom and others) and serves it in one data model through a REST API, FHIR R4,
+  Open mHealth, signed webhooks, CSV and Parquet exports and a read-only MCP server. It is one Go
+  binary plus PostgreSQL.
+authors:
+  - name: "Open Health Sync contributors"
+version: "0.3.0"
+license: AGPL-3.0-only
+repository-code: "https://github.com/soma-intelligence/open-health-sync"
+url: "https://openhealthsync.com"
+keywords:
+  - health data
+  - wearables
+  - health data aggregator
+  - self-hosted
+  - fhir
+  - open mhealth
+  - apple health
+  - health connect
+  - mcp

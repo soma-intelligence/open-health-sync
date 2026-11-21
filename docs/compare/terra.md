@@ -92,6 +92,8 @@ starts with that step ([connectors](../connectors/README.md)). Apple Health and 
 data comes from your mobile app, through the [Swift and Kotlin SDKs](../sdks/README.md) or the
 upload contract.
 
+Step by step, with the calls to make: [Move from the Terra API to a self-hosted aggregator](../how-to/migrate-from-terra.md).
+
 ## Try it
 
 The [quickstart](../../README.md#quickstart) starts an instance with Docker Compose and fills it
