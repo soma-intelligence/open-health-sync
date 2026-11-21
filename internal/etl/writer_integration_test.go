@@ -29,7 +29,7 @@ func (e *env) writeFor(tenant, user uuid.UUID, cfg WriterConfig, acc *model.MapR
 	tx, err := e.pool.Begin(ctx)
 	require.NoError(e.t, err)
 	defer tx.Rollback(ctx) //nolint:errcheck
-	c, err := NewWriter(cfg).WriteAccumulated(ctx, tx, scope{tenant: tenant, user: user, provider: "dev"}, acc)
+	c, err := NewWriter(cfg).WriteAccumulated(ctx, tx, scope{tenant: tenant, user: user, provider: "dev", uv: e.keys(tenant, user)}, acc)
 	require.NoError(e.t, err)
 	require.NoError(e.t, tx.Commit(ctx))
 	return c
@@ -57,7 +57,7 @@ func points(n int, base time.Time) []model.QuantitySample {
 func (e *env) scalar(sql string, args ...any) any {
 	e.t.Helper()
 	var v any
-	require.NoError(e.t, e.pool.QueryRow(context.Background(), sql, args...).Scan(&v))
+	require.NoError(e.t, e.read().QueryRow(context.Background(), sql, args...).Scan(&v))
 	return v
 }
 
@@ -95,7 +95,7 @@ func TestWriter_ReplaceableQuantityLatestWins(t *testing.T) {
 	// Not replaceable: first write wins.
 	e.write(smallCopy, &model.MapResult{QuantitySamples: []model.QuantitySample{dayFigure("fixed", day, 1, false)}})
 	e.write(smallCopy, &model.MapResult{QuantitySamples: []model.QuantitySample{dayFigure("fixed", day, 2, false)}})
-	assert.EqualValues(t, 1, e.scalar(`SELECT value FROM ohs_data.quantity_samples WHERE content_hash = 'fixed'`))
+	assert.EqualValues(t, 1, e.scalar(`SELECT value FROM ohs_data.quantity_samples WHERE content_hash = $1`, e.hash("fixed")))
 }
 
 func TestWriter_ReplaceableAboveTheCopyThresholdStillReplaces(t *testing.T) {
@@ -127,7 +127,7 @@ func TestWriter_ReplaceableDailySummaryAndNutritionMerge(t *testing.T) {
 	}})
 	var gotSteps int
 	var gotKcal float64
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT step_count, active_kcal FROM ohs_data.daily_summaries WHERE tenant_id = $1`, e.tenant).Scan(&gotSteps, &gotKcal))
 	assert.Equal(t, 12000, gotSteps)
 	assert.Equal(t, 300.0, gotKcal)
@@ -190,13 +190,13 @@ func TestWriter_SleepWithPhases(t *testing.T) {
 	assert.Equal(t, TableCount{Written: 4, Skipped: 1}, c["sleep_phases"])
 
 	var s2ID int64
-	require.NoError(t, e.pool.QueryRow(context.Background(),
-		`SELECT id FROM ohs_data.sleep_sessions WHERE content_hash = 's2'`).Scan(&s2ID))
+	require.NoError(t, e.read().QueryRow(context.Background(),
+		`SELECT id FROM ohs_data.sleep_sessions WHERE content_hash = $1`, e.hash("s2")).Scan(&s2ID))
 	assert.EqualValues(t, 2, e.scalar(`SELECT count(*) FROM ohs_data.sleep_phases WHERE session_id = $1 AND tenant_id = $2`, s2ID, e.tenant))
 	// s2 came with no figures, so it takes them from its stages; s1 gained
 	// none and keeps none.
 	assert.EqualValues(t, 3600, e.scalar(`SELECT total_sleep_seconds FROM ohs_data.sleep_sessions WHERE id = $1`, s2ID))
-	assert.Nil(t, e.scalar(`SELECT total_sleep_seconds FROM ohs_data.sleep_sessions WHERE content_hash = 's1'`))
+	assert.Nil(t, e.scalar(`SELECT total_sleep_seconds FROM ohs_data.sleep_sessions WHERE content_hash = $1`, e.hash("s1")))
 	assert.EqualValues(t, true, e.scalar(`SELECT metadata->'synthesized' FROM ohs_data.sleep_sessions WHERE bedtime_start = $1`, n1.Add(-48*time.Hour)))
 
 	// Replaying resolves the existing parents and skips everything.
@@ -263,10 +263,10 @@ func TestWriter_ECGWithSamples(t *testing.T) {
 	assert.Equal(t, 2, c["ecg_samples"].Written)
 
 	// ts is the recording start plus the offset.
-	var ts time.Time
-	require.NoError(t, e.pool.QueryRow(context.Background(),
-		`SELECT ts FROM ohs_data.ecg_samples WHERE tenant_id = $1 ORDER BY ts DESC LIMIT 1`, e.tenant).Scan(&ts))
-	assert.WithinDuration(t, start.Add(time.Second/512), ts, time.Microsecond)
+	var start64 time.Time
+	require.NoError(t, e.read().QueryRow(context.Background(),
+		`SELECT end_at FROM ohs_data.series_blobs WHERE tenant_id = $1 AND kind = 1`, e.tenant).Scan(&start64))
+	assert.WithinDuration(t, start.Add(time.Second/512), start64, time.Microsecond)
 
 	// Orphans linked by parent content hash.
 	c = e.write(smallCopy, &model.MapResult{ECGSamples: []model.ECGVoltageSample{sample(2, "ecg1")}})
@@ -344,7 +344,7 @@ func TestWriter_QuantityDedupsAgainstCompressedChunks(t *testing.T) {
 	assert.Equal(t, TableCount{Skipped: 1}, c["quantity_samples"])
 
 	assert.Equal(t, 311, e.count("quantity_samples"))
-	assert.EqualValues(t, 250, e.scalar(`SELECT value FROM ohs_data.quantity_samples WHERE content_hash = 'd1'`))
+	assert.EqualValues(t, 250, e.scalar(`SELECT value FROM ohs_data.quantity_samples WHERE content_hash = $1`, e.hash("d1")))
 }
 
 func TestWriter_QuantityConcurrentJobsOfOneUserWriteOnce(t *testing.T) {
@@ -352,6 +352,7 @@ func TestWriter_QuantityConcurrentJobsOfOneUserWriteOnce(t *testing.T) {
 	base := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
 	const writers = 4
 	results := make(chan Counts, writers)
+	uv := e.keys(e.tenant, e.user)
 	for range writers {
 		go func() {
 			ctx := context.Background()
@@ -361,7 +362,7 @@ func TestWriter_QuantityConcurrentJobsOfOneUserWriteOnce(t *testing.T) {
 				return
 			}
 			defer tx.Rollback(ctx) //nolint:errcheck
-			c, err := NewWriter(smallCopy).WriteAccumulated(ctx, tx, scope{tenant: e.tenant, user: e.user, provider: "dev"},
+			c, err := NewWriter(smallCopy).WriteAccumulated(ctx, tx, scope{tenant: e.tenant, user: e.user, provider: "dev", uv: uv},
 				&model.MapResult{QuantitySamples: points(200, base)})
 			if err != nil || tx.Commit(ctx) != nil {
 				results <- nil
@@ -407,7 +408,7 @@ func TestWriter_ReplaceableWorkoutLatestWins(t *testing.T) {
 	// Not replaceable: first write wins.
 	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("running", &d1, nil, false, "fixed")}})
 	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk("cycling", &d2, nil, false, "fixed")}})
-	assert.Equal(t, "running", e.scalar(`SELECT activity_type FROM ohs_data.workouts WHERE content_hash = 'fixed'`))
+	assert.Equal(t, "running", e.scalar(`SELECT activity_type FROM ohs_data.workouts WHERE content_hash = $1`, e.hash("fixed")))
 }
 
 // A Replaceable sleep session re-sent with new figures and a new hypnogram
@@ -429,9 +430,9 @@ func TestWriter_ReplaceableSleepLatestWins(t *testing.T) {
 			DurationS: int((to - from).Seconds()), ParentContentHash: hash}
 	}
 	phases := func() []any {
-		rows, err := e.pool.Query(context.Background(), `SELECT p.phase || '@' || extract(epoch FROM p.end_date - p.start_date)::int
+		rows, err := e.read().Query(context.Background(), `SELECT p.phase || '@' || extract(epoch FROM p.end_date - p.start_date)::int
 			FROM ohs_data.sleep_phases p JOIN ohs_data.sleep_sessions s ON s.id = p.session_id
-			WHERE p.tenant_id = $1 AND p.user_id = $2 AND s.content_hash = 'night' ORDER BY p.start_date`, e.tenant, e.user)
+			WHERE p.tenant_id = $1 AND p.user_id = $2 AND s.content_hash = $3 ORDER BY p.start_date`, e.tenant, e.user, e.hash("night"))
 		require.NoError(t, err)
 		var out []any
 		for rows.Next() {
@@ -443,7 +444,7 @@ func TestWriter_ReplaceableSleepLatestWins(t *testing.T) {
 		return out
 	}
 	q := func(sql string) any {
-		return e.scalar(sql+` FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2 AND content_hash = 'night'`, e.tenant, e.user)
+		return e.scalar(sql+` FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND user_id = $2 AND content_hash = $3`, e.tenant, e.user, e.hash("night"))
 	}
 
 	c := e.write(smallCopy, &model.MapResult{
@@ -511,8 +512,8 @@ func TestWriter_ReplaceableSleepLatestWins(t *testing.T) {
 	e.write(smallCopy, &model.MapResult{SleepSessions: []model.SleepSession{night(start, ip(100), nil, fp(10), false, "fixed")}})
 	c = e.write(smallCopy, &model.MapResult{SleepSessions: []model.SleepSession{night(start, ip(200), nil, fp(20), false, "fixed")}})
 	assert.Equal(t, TableCount{Skipped: 1}, c["sleep_sessions"])
-	assert.EqualValues(t, 100, e.scalar(`SELECT total_sleep_seconds FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND content_hash = 'fixed'`, e.tenant))
-	assert.EqualValues(t, 10, e.scalar(`SELECT sleep_score FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND content_hash = 'fixed'`, e.tenant))
+	assert.EqualValues(t, 100, e.scalar(`SELECT total_sleep_seconds FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND content_hash = $2`, e.tenant, e.hash("fixed")))
+	assert.EqualValues(t, 10, e.scalar(`SELECT sleep_score FROM ohs_data.sleep_sessions WHERE tenant_id = $1 AND content_hash = $2`, e.tenant, e.hash("fixed")))
 }
 
 // A Replaceable workout whose start moved supersedes the stored copy of the
@@ -530,6 +531,6 @@ func TestWriter_ReplaceableWorkoutMovedStartSupersedes(t *testing.T) {
 	})
 	e.write(smallCopy, &model.MapResult{Workouts: []model.Workout{wk(start.Add(5 * time.Minute))}})
 	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.workouts WHERE tenant_id = $1`, e.tenant))
-	assert.EqualValues(t, 1, e.scalar(`SELECT count(*) FROM ohs_data.route_points r JOIN ohs_data.workouts w ON w.id = r.workout_id
-		WHERE r.tenant_id = $1 AND w.start_date = $2`, e.tenant, start.Add(5*time.Minute)))
+	assert.EqualValues(t, 1, e.scalar(`SELECT sum(r.point_count) FROM ohs_data.series_blobs r JOIN ohs_data.workouts w ON w.id::text = r.parent
+		WHERE r.tenant_id = $1 AND r.kind = 2 AND w.start_date = $2`, e.tenant, start.Add(5*time.Minute)))
 }

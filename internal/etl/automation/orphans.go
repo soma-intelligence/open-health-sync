@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,12 +34,26 @@ const (
 // Only rows created in the last OrphanWindow are examined: an older row
 // without a job is not a lost upload, and the anti-join stays bounded. The
 // opposite check (store files without a row) is FileScanner.
+//
+// The scan is incremental: after a pass that read its whole range without an
+// error, the next one starts where it ended (less scanOverlap), so a run reads
+// the rows of the last minutes, not seven days of them. The mark lives in
+// memory only: a new process scans the whole window first, so nothing is
+// missed across a crash, and the whole window is scanned again every
+// FullEvery to catch what an incremental pass cannot see (a row committed
+// later than the overlap, a user who became active again).
 type OrphanScanner struct {
 	Pool    *pgxpool.Pool
 	Metrics *Metrics
 	Now     func() time.Time
 	// Grace overrides orphanGrace when positive.
 	Grace time.Duration
+	// FullEvery overrides OrphanFullEvery when positive.
+	FullEvery time.Duration
+
+	mu       sync.Mutex
+	mark     time.Time // rows created before it were examined by an earlier pass
+	lastFull time.Time
 }
 
 // OrphanResult is the outcome of one scan.
@@ -48,6 +63,9 @@ type OrphanResult struct {
 
 // OrphanWindow bounds how far back the scan looks.
 const OrphanWindow = 7 * 24 * time.Hour
+
+// OrphanFullEvery is how often the scan reads the whole OrphanWindow again.
+const OrphanFullEvery = 6 * time.Hour
 
 // Run queues the orphans found in one scan.
 func (s *OrphanScanner) Run(ctx context.Context) (OrphanResult, error) {
@@ -61,13 +79,31 @@ func (s *OrphanScanner) Run(ctx context.Context) (OrphanResult, error) {
 		grace = orphanGrace
 	}
 
-	n, err := s.enqueueOrphans(ctx, now.Add(-OrphanWindow), now.Add(-grace))
+	fullEvery := s.FullEvery
+	if fullEvery <= 0 {
+		fullEvery = OrphanFullEvery
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	since, before := now.Add(-OrphanWindow), now.Add(-grace)
+	full := s.mark.IsZero() || now.Sub(s.lastFull) >= fullEvery
+	if !full && s.mark.After(since) {
+		since = s.mark
+	}
+
+	n, err := s.enqueueOrphans(ctx, since, before)
 	res.Enqueued = n
 	if s.Metrics != nil {
 		s.Metrics.OrphansEnqueued.Add(int64(n))
 	}
 	if err != nil {
 		return res, err
+	}
+	// Only a pass that finished moves the mark: after a failure the same
+	// range is read again.
+	s.mark = before.Add(-scanOverlap)
+	if full {
+		s.lastFull = now
 	}
 	if n > 0 {
 		slog.InfoContext(ctx, "orphan raw objects queued", "jobs", n)
@@ -85,7 +121,7 @@ type rawRow struct {
 }
 
 // enqueueOrphans walks raw_objects by id, one page at a time, and queues every
-// row older than before that has no job.
+// row created in [since, before) that has no job.
 func (s *OrphanScanner) enqueueOrphans(ctx context.Context, since, before time.Time) (int, error) {
 	total := 0
 	var after int64

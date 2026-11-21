@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "accepted_intervals": 120,
+      "end_date": "2026-09-30T22:01:35.102Z",
+      "intervals": 120,
+      "mean_heart_rate_bpm": 75.047,
+      "mean_rr_ms": 799.5,
+      "pnn50_percent": null,
+      "provider": "apple_health",
+      "rmssd_ms": null,
+      "sdnn_ms": null,
+      "series_id": "golden-series",
+      "start_date": "2026-09-30T22:00:00Z",
+      "successive_pairs": 0
+    }
+  ],
+  "next_cursor": null
+}

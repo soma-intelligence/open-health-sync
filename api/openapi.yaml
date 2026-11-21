@@ -13,6 +13,18 @@ info:
     or `read`, and call the user routes. A tenant key on a user route, or a user token on
     a tenant route, gets 403.
 
+    **Key scopes.** An API key holds scopes, chosen when it is created: `["*"]` (the default,
+    everything) or a list of `tenant:read`, `users:read`, `users:write`, `tokens:write`,
+    `data:read`, `data:write`, `data:delete`, `connections:read`, `connections:write`,
+    `webhooks:read`, `webhooks:write`, `exports:read`, `exports:write`, `keys:read`,
+    `keys:write`, `audit:read`, `admin:read` and `admin:write`. A `:write` scope also grants
+    the `:read` of the same resource. Each operation that takes a credential needs exactly one
+    scope, its `x-required-scope`; a key without it gets 403 with a `detail` naming the scope,
+    and the refusal is in the audit log with `missing_scope`. A user token never does more
+    than the key that minted it: minting needs `data:write` for `upload`, `connections:write`
+    for `connect` and `data:read` for `read`, and each call with the token is checked against
+    that key's scopes. See docs/api.md.
+
     **Lists** are ordered by time ascending and paged with `cursor` and `limit` (default
     100, at most 1000; a larger limit is a 400). Every list answers
     `{"data": [...], "next_cursor": "..." | null}`; pass `next_cursor` back as `cursor`
@@ -39,7 +51,17 @@ info:
     **Errors** are RFC 9457 `application/problem+json`. A user, workout or sleep session
     of another tenant is a 404, never a 403. Any operation answers 503 with `Retry-After`
     (seconds) while the instance cannot reach its database; the same request can be sent
-    again then.
+    again then. Any operation that takes a credential answers 429 with `Retry-After` (seconds)
+    when the credential is over its rate limit (200 requests a second by default, counted per
+    API key and per user for user tokens, by each server process on its own); nothing was
+    done, send the request again after the delay. A refused credential answers 429 in place of
+    401 once its client address presented too many of them; a valid one is never refused for
+    that.
+
+    **Caching and compression.** Every response to a request that takes a credential carries
+    `Cache-Control: no-store`. JSON, NDJSON, FHIR, CSV and YAML responses of 1 KiB and more are
+    gzipped for a client that sends `Accept-Encoding: gzip`; every response carries
+    `Vary: Accept-Encoding`. Parquet files and zip archives are sent as they are.
 
     **Request ids.** Every response carries `X-Request-Id` (the caller's own when it is 1
     to 128 letters, digits, `-`, `_` or `.`, else a fresh one); a problem body repeats it as
@@ -66,6 +88,7 @@ tags:
   - name: read
   - name: tags
   - name: self-reports
+  - name: labs
   - name: shares
   - name: fhir
   - name: omh
@@ -77,6 +100,7 @@ tags:
   - name: pipeline
   - name: admin
   - name: audit
+  - name: console
   - name: ops
 security:
   - tenantKey: []
@@ -108,6 +132,7 @@ paths:
     get:
       tags: [providers]
       operationId: listProviders
+      x-required-scope: "tenant:read"
       summary: Connectors enabled on this instance
       description: |
         The connectors enabled on this instance, less those an instance admin turned off for the
@@ -131,6 +156,7 @@ paths:
     post:
       tags: [users]
       operationId: createUser
+      x-required-scope: "users:write"
       summary: Create an end user
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -164,8 +190,13 @@ paths:
     get:
       tags: [users]
       operationId: listUsers
+      x-required-scope: "users:read"
       summary: List the tenant's end users, oldest first
       parameters:
+        - name: external_ref
+          in: query
+          description: Only the user with exactly this `external_ref` (at most one row).
+          schema: { type: string }
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -191,6 +222,7 @@ paths:
     get:
       tags: [users]
       operationId: getUser
+      x-required-scope: "users:read"
       summary: Get one end user
       responses:
         "200":
@@ -201,9 +233,40 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [users]
+      operationId: updateUser
+      x-required-scope: "users:write"
+      summary: Set or clear an end user's time zone
+      description: |
+        `timezone` is the zone of the local day of a sample that carries no zone of its own
+        (a cloud source that reports instants only): the ETL takes the sample's zone, then the
+        user's, then UTC. Setting it here makes it the developer's explicit choice
+        (`timezone_source` `explicit`), which a device upload never replaces; `null` clears
+        it, and the zone may then be learnt again from the user's device uploads.
+
+        The zone applies to what is written from then on. A stored sample keeps the day it
+        was attributed to, and the daily summaries already derived are not recomputed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateUserRequest" }
+      responses:
+        "200":
+          description: The user after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
     delete:
       tags: [users]
       operationId: deleteUser
+      x-required-scope: "data:delete"
       summary: Hard-delete an end user
       description: |
         The user's status becomes `deleting` at once: reads of their data return 404 and
@@ -237,6 +300,7 @@ paths:
     get:
       tags: [users]
       operationId: getDeletion
+      x-required-scope: "data:delete"
       summary: Status of a deletion
       description: |
         Poll until `status` is `done`: the user's raw files and rows are gone (with `provider`
@@ -256,6 +320,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: createWebhook
+      x-required-scope: "webhooks:write"
       summary: Register a webhook endpoint
       description: |
         The endpoint receives a signed POST for each event of `event_types` (empty or absent:
@@ -287,6 +352,7 @@ paths:
     get:
       tags: [webhooks]
       operationId: listWebhooks
+      x-required-scope: "webhooks:read"
       summary: The tenant's webhook endpoints
       description: Oldest first, on one page (`next_cursor` is always null).
       responses:
@@ -299,6 +365,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/Webhook" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -309,6 +376,7 @@ paths:
     get:
       tags: [webhooks]
       operationId: getWebhook
+      x-required-scope: "webhooks:read"
       summary: One webhook endpoint
       responses:
         "200":
@@ -322,6 +390,7 @@ paths:
     patch:
       tags: [webhooks]
       operationId: updateWebhook
+      x-required-scope: "webhooks:write"
       summary: Change a webhook endpoint
       description: |
         Absent fields stay as they are. `enabled: false` disables the endpoint and parks its
@@ -345,6 +414,7 @@ paths:
     delete:
       tags: [webhooks]
       operationId: deleteWebhook
+      x-required-scope: "webhooks:write"
       summary: Delete a webhook endpoint
       description: The endpoint and its deliveries are deleted; nothing more is sent to it.
       responses:
@@ -359,10 +429,26 @@ paths:
     post:
       tags: [webhooks]
       operationId: rotateWebhookSecret
+      x-required-scope: "webhooks:write"
       summary: Replace the signing secret
       description: |
         The new secret signs every request from now on, retries of earlier events included.
-        Shown only in this response.
+        Shown only in this response. The secret it replaces also signs for the instance's grace
+        period (24 hours unless `OHS_WEBHOOK_ROTATION_GRACE_HOURS` says otherwise), so a receiver
+        can switch without refusing a request; `previous_secret_expires_at` says until when.
+        With `expire_previous` true the replaced secret stops at once: the rotation after a leak.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expire_previous:
+                  type: boolean
+                  default: false
+                  description: End the replaced secret at once instead of after the grace period.
       responses:
         "200":
           description: The new secret.
@@ -373,9 +459,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [secret]
+                required: [secret, previous_secret_expires_at]
                 properties:
                   secret: { type: string, examples: ["whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"] }
+                  previous_secret_expires_at:
+                    type: [string, "null"]
+                    format: date-time
+                    description: Until when the replaced secret also signs; null when it stopped at once.
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -386,6 +477,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: testWebhook
+      x-required-scope: "webhooks:write"
       summary: Send a test event
       description: |
         Queues a test event for this endpoint alone, whatever its event types. Without a body (or
@@ -414,6 +506,7 @@ paths:
     get:
       tags: [webhooks]
       operationId: listWebhookDeliveries
+      x-required-scope: "webhooks:read"
       summary: The endpoint's deliveries
       description: |
         Newest first (unlike the data lists). Finished deliveries are kept 30 days.
@@ -435,6 +528,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/WebhookDelivery" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -448,6 +542,7 @@ paths:
     get:
       tags: [webhooks]
       operationId: getWebhookDelivery
+      x-required-scope: "webhooks:read"
       summary: One delivery with its payload and attempts
       description: |
         The delivery, the exact JSON body it sends (`payload`) and its attempts, oldest first: status
@@ -470,6 +565,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: replayWebhookDelivery
+      x-required-scope: "webhooks:write"
       summary: Send a finished delivery's event again, as a new delivery
       description: |
         Queues a new delivery of a `done` or `parked` delivery's event: same `event_id` (so the same
@@ -498,6 +594,7 @@ paths:
     post:
       tags: [webhooks]
       operationId: retryWebhookDelivery
+      x-required-scope: "webhooks:write"
       summary: Send a finished delivery again
       description: |
         A `done` or `parked` delivery is sent again from its first attempt, with its original
@@ -513,18 +610,65 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/events/stream:
+    get:
+      tags: [webhooks]
+      operationId: streamEvents
+      x-required-scope: "webhooks:read"
+      summary: The tenant's events as a Server-Sent Events stream
+      description: |
+        The events webhooks carry, as they happen, over one long-lived response
+        (`text/event-stream`): no public receiver needed. Each event is one SSE block whose
+        `id` is the event id (the `webhook-id` of its deliveries), whose `event` is its type
+        and whose `data` is the JSON body a webhook delivery posts, on one line. Thin like
+        webhooks: never a health value. The stream starts with `retry: 3000` and a comment, and
+        sends a comment every 15 seconds while idle. `Last-Event-ID` (or `last_event_id`)
+        replays what came after that event within the last 24 hours, then goes on live; an id
+        the window does not hold, or more than 10,000 missed events, sends one
+        `stream.reset` event (`{"reason": ..., "window_hours": 24}`) and goes on live. A client
+        that stops reading is disconnected; a stream ends after an hour or when the server
+        shuts down, and the client reconnects with `Last-Event-ID`. Delivery is at most once
+        per connection: deduplicate on the id, and use webhooks where every event must arrive.
+        Not compressed, `Cache-Control: no-store`. See docs/events-stream.md.
+      parameters:
+        - $ref: "#/components/parameters/StreamTypes"
+        - name: user_id
+          in: query
+          description: Only the events about this user.
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/StreamLastEventID"
+        - $ref: "#/components/parameters/StreamLastEventIDQuery"
+      responses:
+        "200": { $ref: "#/components/responses/EventStream" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: The event stream is off on this instance (`OHS_STREAM_MAX=0`).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/StreamTooMany" }
+        "503": { $ref: "#/components/responses/StreamUnavailable" }
+
   /v1/users/{id}/tokens:
     parameters:
       - $ref: "#/components/parameters/UserID"
     post:
       tags: [tokens]
       operationId: mintUserToken
+      x-required-scope: "tokens:write"
       summary: Mint a user token
       description: |
         Returns an opaque `ohs_ut_` token for one active user, shown only in this response
         (`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token
         whose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI
-        agent configuration (MCP). `Idempotency-Key` is ignored here.
+        agent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working
+        when it expires, when it is revoked (`id` names it), when its user is deleted, or when
+        the API key that minted it is revoked or expires. The key must hold the key scope each
+        token scope stands for (`data:write` for `upload`, `connections:write` for `connect`,
+        `data:read` for `read`), else 403; each call made with the token is then checked against
+        the scopes of that key.
       requestBody:
         required: true
         content:
@@ -544,6 +688,52 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "413": { $ref: "#/components/responses/TooLarge" }
+    delete:
+      tags: [tokens]
+      operationId: revokeUserTokens
+      x-required-scope: "tokens:write"
+      summary: Revoke every token of a user
+      description: |
+        Every token of the user that is still valid is refused from now on. Recorded in the audit
+        log as `token.revoke`.
+      responses:
+        "200":
+          description: Revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked: { type: integer, minimum: 0, description: How many tokens were still valid. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/tokens/{token_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: token_id
+        in: path
+        required: true
+        description: |
+          The `id` the mint response gave: the first 16 hex characters of the token's SHA-256
+          hash, which is also how the audit log names the token (`actor.id`).
+        schema: { type: string, pattern: "^[0-9a-f]{16}$" }
+    delete:
+      tags: [tokens]
+      operationId: revokeUserToken
+      x-required-scope: "tokens:write"
+      summary: Revoke one token of a user
+      description: |
+        The token is refused from now on. Revoking a revoked or expired token changes nothing. An
+        id of no token of this user is a 404. Recorded in the audit log as `token.revoke`, with
+        `token_id` in `detail`.
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/users/{id}/connections:
     parameters:
@@ -551,6 +741,7 @@ paths:
     get:
       tags: [connections]
       operationId: listConnections
+      x-required-scope: "connections:read"
       summary: The user's provider connections
       responses:
         "200":
@@ -574,6 +765,7 @@ paths:
     get:
       tags: [connections]
       operationId: getFreshness
+      x-required-scope: "connections:read"
       summary: How up to date each of the user's sources is
       description: |
         One entry per provider connection, then one per device source (Apple Health) that uploaded,
@@ -608,6 +800,7 @@ paths:
     post:
       tags: [connections]
       operationId: startConnection
+      x-required-scope: "connections:write"
       summary: Start connecting a provider
       description: |
         Returns the provider's consent URL. Send the user there; after consent the user
@@ -646,6 +839,7 @@ paths:
     delete:
       tags: [connections]
       operationId: deleteConnection
+      x-required-scope: "connections:write"
       summary: Disconnect a provider
       description: |
         Revokes the provider grant (best effort) and stops pulling. By default the data
@@ -685,6 +879,7 @@ paths:
     get:
       tags: [consent]
       operationId: listConsents
+      x-required-scope: "users:read"
       summary: The user's consent per source and data category
       description: |
         Every source the user has recorded consent for, with the state of each data
@@ -716,6 +911,7 @@ paths:
     get:
       tags: [consent]
       operationId: listConsentHistory
+      x-required-scope: "users:read"
       summary: Every consent change of the user, newest first
       description: |
         One event per category granted or revoked, with the credential that made the change
@@ -748,6 +944,7 @@ paths:
     put:
       tags: [consent]
       operationId: setConsent
+      x-required-scope: "users:write"
       summary: Set the categories the user allows from a source
       description: |
         `granted` becomes the whole list: every category left out is revoked. From then on
@@ -786,6 +983,7 @@ paths:
     delete:
       tags: [consent]
       operationId: revokeConsent
+      x-required-scope: "users:write"
       summary: Revoke every category of a source
       description: The same as a PUT with `granted` empty.
       parameters:
@@ -812,6 +1010,7 @@ paths:
     delete:
       tags: [users]
       operationId: deleteProviderData
+      x-required-scope: "data:delete"
       summary: Erase a user's data from one provider
       description: |
         Erases everything the user holds from one provider without touching any connection:
@@ -844,6 +1043,7 @@ paths:
     post:
       tags: [connections]
       operationId: createConnectSession
+      x-required-scope: "connections:write"
       summary: Create a link to the hosted connection page
       description: |
         Returns a link to a page served by Open Health Sync where the user picks a provider and goes
@@ -875,6 +1075,7 @@ paths:
     post:
       tags: [connections]
       operationId: syncConnection
+      x-required-scope: "connections:write"
       summary: Sync a connection now
       description: |
         Queues a pull of the connection ahead of routine work and answers with the sync run; follow it
@@ -914,12 +1115,41 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/users/{id}/connections/{provider}/sync-runs/retry:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    post:
+      tags: [connections]
+      operationId: retryFailedSyncRuns
+      x-required-scope: "connections:write"
+      summary: Retry the failed sync runs of a connection
+      description: |
+        Queues again every `failed` run of the user's connection to the provider, with fresh
+        attempts, and answers with how many. Runs cancelled because the connection stopped are
+        left alone, and so is a run whose window another queued or running run already covers.
+        Of several failed runs for one window only the latest is queued. 0 when nothing failed.
+      responses:
+        "202":
+          description: How many runs were queued again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [retried]
+                properties:
+                  retried: { type: integer, format: int64 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/sync-runs:
     parameters:
       - $ref: "#/components/parameters/UserID"
     get:
       tags: [connections]
       operationId: listSyncRuns
+      x-required-scope: "connections:read"
       summary: The user's sync history
       description: |
         Every pull of the user's connections, newest first: what started it, its window, its status,
@@ -962,6 +1192,7 @@ paths:
     get:
       tags: [connections]
       operationId: getSyncRun
+      x-required-scope: "connections:read"
       summary: One sync run
       responses:
         "200":
@@ -973,12 +1204,160 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/sync-runs/{run_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [connections]
+      operationId: retrySyncRun
+      x-required-scope: "connections:write"
+      summary: Retry a failed sync run
+      description: |
+        Queues a `failed` or `cancelled` run again with fresh attempts and answers with it; follow
+        it at the `Location` header. A pull gives up after 5 attempts, or after about three days
+        of a provider that is down. 409 when the run is queued, running or succeeded, or when
+        another queued or running run already covers its window. A run whose connection no longer
+        syncs is cancelled again.
+      responses:
+        "202":
+          description: The run, queued again.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/users/{id}/labs:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [labs]
+      operationId: createLabs
+      x-required-scope: "data:write"
+      summary: Upload lab results
+      description: |
+        Lab results as FHIR R4 or as the simple JSON form (docs/labs.md). A body with a
+        `resourceType` is read as FHIR: a Bundle, a DiagnosticReport or an Observation, with
+        category laboratory (a DiagnosticReport of another diagnostic service section, or an
+        Observation of another category, is a 400 naming it). Any other body is the simple
+        form, `{"reports": [...]}`. At most 100 reports, 500 results per report and 2000
+        results in all, in at most 1 MiB.
+
+        Each result is stored once per `id`: a result sent again with the same `id` (an
+        amended or corrected copy) replaces the stored one when its upload is newer, so the
+        latest upload wins. The body goes through the same processing as an upload, so the
+        answer is 202 and the results show once it is processed. The same body sent again is
+        a duplicate and is stored once. A tenant key uploads for any user of the tenant; a
+        user token with scope `upload` only for its own user, and another user is a 404.
+        Values are health data: never logged, never quoted in an error. While the user's lab
+        results are being deleted the answer is 409 and nothing is kept.
+      security:
+        - tenantKey: []
+        - userToken: [upload]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/LabUpload"
+                - $ref: "#/components/schemas/FHIRLabUpload"
+          application/fhir+json:
+            schema: { $ref: "#/components/schemas/FHIRLabUpload" }
+      responses:
+        "202":
+          description: Stored, and queued for processing.
+          headers:
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabUploadResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The user's lab results are being deleted, or an idempotent request with this key is in progress.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/IdempotencyMismatch" }
+    get:
+      tags: [labs]
+      operationId: listLabs
+      x-required-scope: "data:read"
+      summary: The user's lab results
+      description: |
+        One result per test, as last uploaded, by collection time then id. `start` and `end`
+        bound the collection time. Any other query parameter is a 400.
+      parameters:
+        - name: code
+          in: query
+          description: A LOINC code (2093-3), or the source's own code for a result without one.
+          schema: { type: string, examples: ["2093-3"] }
+        - name: report
+          in: query
+          description: The source's report id.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page, by collection time.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabResultPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/labs/reports/{report_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: report_id
+        in: path
+        required: true
+        description: The source's report id.
+        schema: { type: string }
+    get:
+      tags: [labs]
+      operationId: getLabReport
+      x-required-scope: "data:read"
+      summary: One lab report with its results
+      description: |
+        The report's fields come from its most recently uploaded result. A report id the user
+        has no result of is a 404.
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/samples:
     parameters:
       - $ref: "#/components/parameters/UserID"
     get:
       tags: [read]
       operationId: listSamples
+      x-required-scope: "data:read"
       summary: Quantity samples of one type
       parameters:
         - name: type
@@ -1008,6 +1387,7 @@ paths:
     get:
       tags: [read]
       operationId: sampleStats
+      x-required-scope: "data:read"
       summary: Statistics of one quantity type per hour or per local day
       description: |
         Count, sum, mean, min and max of the samples whose start falls in each interval. With
@@ -1072,6 +1452,7 @@ paths:
     get:
       tags: [read]
       operationId: listCategorySamples
+      x-required-scope: "data:read"
       summary: Category samples (events)
       parameters:
         - name: type
@@ -1100,6 +1481,7 @@ paths:
     get:
       tags: [read]
       operationId: listSleep
+      x-required-scope: "data:read"
       summary: Sleep sessions
       parameters:
         - $ref: "#/components/parameters/Start"
@@ -1128,6 +1510,7 @@ paths:
     get:
       tags: [read]
       operationId: listSleepPhases
+      x-required-scope: "data:read"
       summary: Phases of one sleep session
       parameters:
         - $ref: "#/components/parameters/Start"
@@ -1151,6 +1534,7 @@ paths:
     get:
       tags: [read]
       operationId: listWorkouts
+      x-required-scope: "data:read"
       summary: Workouts
       parameters:
         - name: type
@@ -1183,6 +1567,7 @@ paths:
     get:
       tags: [read]
       operationId: getWorkoutRoute
+      x-required-scope: "data:read"
       summary: GPS route of one workout
       parameters:
         - $ref: "#/components/parameters/Start"
@@ -1206,6 +1591,7 @@ paths:
     get:
       tags: [read]
       operationId: listNutrition
+      x-required-scope: "data:read"
       summary: Nutrition logs
       description: |
         Food and drink entries from Apple Health and Health Connect. Each nutrient has one
@@ -1233,6 +1619,7 @@ paths:
     get:
       tags: [read]
       operationId: listDaily
+      x-required-scope: "data:read"
       summary: Daily summaries
       description: |
         In the merged view (the default), one summary per local calendar day: each figure
@@ -1262,6 +1649,7 @@ paths:
     get:
       tags: [read]
       operationId: listRRIntervals
+      x-required-scope: "data:read"
       summary: Beat-to-beat (RR) intervals
       description: |
         The stored RR intervals of the user's heartbeat series, one per beat, by beat time (beats
@@ -1293,6 +1681,7 @@ paths:
     get:
       tags: [read]
       operationId: listHRV
+      x-required-scope: "data:read"
       summary: Heart rate variability derived from the RR intervals
       description: |
         One record per heartbeat series: the time domain HRV measures (RMSSD, SDNN, pNN50) and the
@@ -1326,6 +1715,7 @@ paths:
     get:
       tags: [read]
       operationId: listMenstrualCycles
+      x-required-scope: "data:read"
       summary: Menstrual cycles derived from the recorded flow
       description: |
         Derived at read time from the `menstrual_flow` category samples, so it always agrees with
@@ -1359,6 +1749,7 @@ paths:
     get:
       tags: [read]
       operationId: listECGRecordings
+      x-required-scope: "data:read"
       summary: ECG recordings, metadata only
       description: |
         The user's ECG recordings (Apple Watch, Withings) by start time, then id, without their
@@ -1391,6 +1782,7 @@ paths:
     get:
       tags: [read]
       operationId: getECGRecording
+      x-required-scope: "data:read"
       summary: One ECG recording with its voltage samples
       description: |
         One recording and its stored voltage samples, in offset order, as two parallel arrays:
@@ -1413,6 +1805,7 @@ paths:
     get:
       tags: [read]
       operationId: getSourcePriorities
+      x-required-scope: "data:read"
       summary: The order of sources the merged view ranks by
       description: |
         The user's own orders, keyed by metric (a quantity type, `sleep` or `workouts`), by
@@ -1432,6 +1825,7 @@ paths:
     put:
       tags: [read]
       operationId: putSourcePriorities
+      x-required-scope: "data:write"
       summary: Replace the user's orders of sources
       description: |
         Replaces every order of the user; `{"priorities": {}}` goes back to the built-in
@@ -1467,6 +1861,7 @@ paths:
     get:
       tags: [read]
       operationId: getCoverage
+      x-required-scope: "data:read"
       summary: What has landed, per provider and day, and what is still processing
       description: |
         Record counts per provider per local day, and `pending_jobs`, the user's work not
@@ -1500,6 +1895,7 @@ paths:
     post:
       tags: [tags]
       operationId: createTimeTag
+      x-required-scope: "data:write"
       summary: Record a time tag
       description: |
         A time tag is an interval that gives context to the user's data: an illness, a trip,
@@ -1540,6 +1936,7 @@ paths:
     get:
       tags: [tags]
       operationId: listTimeTags
+      x-required-scope: "data:read"
       summary: The user's time tags
       description: |
         By `start_at`, then id. With `start` and `end`, the tags that overlap the window
@@ -1574,6 +1971,7 @@ paths:
     get:
       tags: [tags]
       operationId: getTimeTag
+      x-required-scope: "data:read"
       summary: One time tag
       responses:
         "200":
@@ -1587,6 +1985,7 @@ paths:
     patch:
       tags: [tags]
       operationId: updateTimeTag
+      x-required-scope: "data:write"
       summary: Change a time tag
       description: |
         Absent members stay as they are; null clears `label`, `timezone`, `note` or `end_at`
@@ -1612,6 +2011,7 @@ paths:
     delete:
       tags: [tags]
       operationId: deleteTimeTag
+      x-required-scope: "data:write"
       summary: Delete a time tag
       responses:
         "204": { description: Deleted. }
@@ -1625,6 +2025,7 @@ paths:
     post:
       tags: [self-reports]
       operationId: createSelfReports
+      x-required-scope: "data:write"
       summary: Record the user's own ratings
       description: |
         1 to 100 self reports: how the person feels, their mood, stress, energy, sleep
@@ -1674,6 +2075,7 @@ paths:
     post:
       tags: [shares]
       operationId: createShare
+      x-required-scope: "exports:write"
       summary: Make a share link of the user's records
       description: |
         A SMART Health Link (HL7 FHIR IG "SMART Health Cards and Links", STU1) that the person
@@ -1720,6 +2122,7 @@ paths:
     get:
       tags: [shares]
       operationId: listShares
+      x-required-scope: "exports:read"
       summary: The user's share links
       description: |
         Oldest first, every status. Never a link, a key or a passcode: the server does not
@@ -1745,6 +2148,7 @@ paths:
     get:
       tags: [shares]
       operationId: getShare
+      x-required-scope: "exports:read"
       summary: One share link, with its latest accesses
       description: |
         The share and its 50 latest manifest requests, newest first, each with the name the
@@ -1761,6 +2165,7 @@ paths:
     delete:
       tags: [shares]
       operationId: revokeShare
+      x-required-scope: "exports:write"
       summary: Revoke a share link
       description: |
         The link stops working at once and its file is removed; the share stays listed as
@@ -1777,15 +2182,17 @@ paths:
     get:
       tags: [fhir]
       operationId: searchFHIRObservations
+      x-required-scope: "data:read"
       summary: The user's records as FHIR R4 Observations
       description: |
         The user's records as one FHIR R4 (4.0.1) `searchset` Bundle of Observations,
         `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
         panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
         workouts (`workout-`), daily summaries (`daily-`), ECG recordings with their
-        voltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a
-        sample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or
-        a meal's start), then by kind and id.
+        voltage samples (`ecg-`), nutrition logs (`nutrition-`) and lab results (`lab-`),
+        merged in time order (a sample's start, a bedtime, a workout's start, a day at
+        midnight UTC, a recording's or a meal's start, a specimen's collection), then by kind
+        and id.
         Paged like every list: the Bundle's `next` link carries the cursor, and there is no
         `next` link on the last page; `total` is left out. A blood pressure pair is never
         split across pages, and its two samples are not listed on their own. A page holds at
@@ -1810,7 +2217,7 @@ paths:
             A FHIR token `system|code` matched against `Observation.code`: a LOINC code
             (`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure
             panels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG
-            recordings), a quantity type
+            recordings; any LOINC code also finds the lab results of that test), a quantity type
             (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
             like `type`), or a record type
             (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
@@ -1822,8 +2229,9 @@ paths:
           description: |
             An HL7 observation category code, bare or as
             `http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,
-            `laboratory`, `activity` (activity samples, workouts and daily summaries) or `survey`
-            (self reports). One value. Another code of that system is an empty Bundle; anything
+            `laboratory` (lab results, and the samples of laboratory types), `activity`
+            (activity samples, workouts and daily summaries) or `survey` (self reports). One
+            value. Another code of that system is an empty Bundle; anything
             else is a 400.
           schema: { type: string, examples: [vital-signs] }
         - $ref: "#/components/parameters/Start"
@@ -1850,11 +2258,13 @@ paths:
         required: true
         description: |
           The Observation id, as the Bundle gives it: `qs-`, `bp-` (the systolic sample's
-          id), `sleep-`, `workout-`, `daily-`, `ecg-` or `nutrition-`, then the stored row id.
+          id), `sleep-`, `workout-`, `daily-`, `ecg-`, `nutrition-` or `lab-`, then the stored
+          row id.
         schema: { type: string, examples: [qs-1234, bp-1235, sleep-77, ecg-12] }
     get:
       tags: [fhir]
       operationId: readFHIRObservation
+      x-required-scope: "data:read"
       summary: One FHIR R4 Observation
       description: |
         The Observation an entry's `fullUrl` points to. Not the user's, not an id of these
@@ -1873,6 +2283,67 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/fhir/DiagnosticReport:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [fhir]
+      operationId: searchFHIRDiagnosticReports
+      x-required-scope: "data:read"
+      summary: The user's lab reports as FHIR R4 DiagnosticReports
+      description: |
+        One `searchset` Bundle of DiagnosticReports, one per lab report, each referencing the
+        Observations (`lab-` ids) of its results, by the report's earliest collection time
+        then id. Results sent without a report have no DiagnosticReport. Paged like the
+        Observation search. See docs/labs.md.
+      parameters:
+        - name: category
+          in: query
+          description: |
+            `LAB` (bare or with the system `http://terminology.hl7.org/CodeSystem/v2-0074`) or
+            `laboratory` (bare or with the observation category system). Another code of
+            those systems is an empty Bundle; another system is a 400. One value.
+          schema: { type: string, examples: [LAB] }
+        - $ref: "#/components/parameters/Start"
+        - $ref: "#/components/parameters/End"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRDiagnosticReportBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/users/{id}/fhir/DiagnosticReport/{report_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - name: report_id
+        in: path
+        required: true
+        description: |
+          The DiagnosticReport id, as the Bundle gives it: `labreport-` then the first 40 hex
+          digits of the SHA-256 of the source's report id.
+        schema: { type: string, pattern: "^labreport-[0-9a-f]{40}$" }
+    get:
+      tags: [fhir]
+      operationId: readFHIRDiagnosticReport
+      x-required-scope: "data:read"
+      summary: One FHIR R4 DiagnosticReport
+      responses:
+        "200":
+          description: The DiagnosticReport.
+          content:
+            application/fhir+json:
+              schema: { $ref: "#/components/schemas/FHIRDiagnosticReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/users/{id}/fhir/Patient/{patient_id}:
     parameters:
       - $ref: "#/components/parameters/UserID"
@@ -1880,6 +2351,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRPatient
+      x-required-scope: "data:read"
       summary: The user as a FHIR R4 Patient
       description: |
         The user as a Patient: `id` is the user id, `active` is true, and `identifier` is the
@@ -1902,12 +2374,14 @@ paths:
     get:
       tags: [fhir]
       operationId: everythingFHIRPatient
+      x-required-scope: "data:read"
       summary: The Patient and all their records, as FHIR R4 resources
       description: |
         One page of a `searchset` Bundle: on the first page the Patient, then the page's
         Observations (`search.mode` `match`, the list and the cursor of the Observation
-        search), then the Devices they reference (each once per page) and the Provenance of
-        each Observation (`include`). Follow the `next` link until there is none: no
+        search), the DiagnosticReports of the page's lab results (`match`), then the Devices
+        they reference (each once per page) and the Provenance of each Observation
+        (`include`). Follow the `next` link until there is none: no
         Observation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.
       parameters:
         - $ref: "#/components/parameters/Start"
@@ -1932,6 +2406,7 @@ paths:
     get:
       tags: [fhir]
       operationId: searchFHIRDevices
+      x-required-scope: "data:read"
       summary: The devices the user's records came from, as FHIR R4 Devices
       description: |
         A `searchset` Bundle of the devices named by the provenance of the user's quantity
@@ -1963,6 +2438,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRDevice
+      x-required-scope: "data:read"
       summary: One FHIR R4 Device
       description: |
         The Device an Observation references. A device none of the user's records names is a
@@ -1983,6 +2459,7 @@ paths:
     get:
       tags: [fhir]
       operationId: searchFHIRProvenance
+      x-required-scope: "data:read"
       summary: The Provenance of one Observation
       description: |
         A `searchset` Bundle holding the Provenance of the Observation `target` names, or no
@@ -2015,6 +2492,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRProvenance
+      x-required-scope: "data:read"
       summary: One FHIR R4 Provenance
       description: The Provenance of one Observation; an Observation that does not exist is a 404.
       responses:
@@ -2033,6 +2511,7 @@ paths:
     get:
       tags: [fhir]
       operationId: readFHIRCapabilityStatement
+      x-required-scope: "data:read"
       summary: The FHIR R4 CapabilityStatement of the user's FHIR base
       description: What the FHIR routes serve (read only), as a CapabilityStatement.
       responses:
@@ -2051,6 +2530,7 @@ paths:
     get:
       tags: [omh]
       operationId: listOMHDataPoints
+      x-required-scope: "data:read"
       summary: The user's records as Open mHealth data points
       description: |
         The user's records as Open mHealth data points (a `header` and a `body` that follows one
@@ -2095,10 +2575,11 @@ paths:
         description: The list to export. Another name is a 404.
         schema:
           type: string
-          enum: [samples, category-samples, sleep, workouts, nutrition, daily, ecg]
+          enum: [samples, category-samples, sleep, workouts, nutrition, daily, ecg, labs]
     get:
       tags: [exports]
       operationId: exportDataset
+      x-required-scope: "exports:read"
       summary: One list of the user as a CSV or Parquet file
       description: |
         Every record of one list in `[start, end)`, as one file streamed in a single response
@@ -2143,6 +2624,7 @@ paths:
     get:
       tags: [exports]
       operationId: getUserArchive
+      x-required-scope: "exports:read"
       summary: Everything held about one user, as one zip file
       description: |
         The answer to a data portability request: one zip file streamed in a single response
@@ -2175,10 +2657,41 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users/{id}/events/stream:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [webhooks]
+      operationId: streamUserEvents
+      x-required-scope: "data:read"
+      summary: One user's events as a Server-Sent Events stream
+      description: |
+        `GET /v1/events/stream` limited to the events about one user, for a tenant key or for
+        that user's token with scope `read` (an app that streams to its own user without a
+        backend in between). A user token reads only its own user, and another user is a 404.
+        Same framing, heartbeat, resume and limits as the tenant stream; the streams count
+        against the tenant's cap. See docs/events-stream.md.
+      security:
+        - tenantKey: []
+        - userToken: [read]
+      parameters:
+        - $ref: "#/components/parameters/StreamTypes"
+        - $ref: "#/components/parameters/StreamLastEventID"
+        - $ref: "#/components/parameters/StreamLastEventIDQuery"
+      responses:
+        "200": { $ref: "#/components/responses/EventStream" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/StreamTooMany" }
+        "503": { $ref: "#/components/responses/StreamUnavailable" }
+
   /v1/ingest/apple-health:
     post:
       tags: [ingest]
       operationId: ingestAppleHealth
+      x-required-scope: "data:write"
       summary: Upload one part of an Apple Health export
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one data type per part.
@@ -2257,6 +2770,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestHealthConnect
+      x-required-scope: "data:write"
       summary: Upload one part of Android Health Connect records
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one Health Connect record per
@@ -2330,6 +2844,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestXiaomi
+      x-required-scope: "data:write"
       summary: Upload one part of a Mi Fitness data copy
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one row of the Mi Fitness data
@@ -2403,6 +2918,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestActivityFiles
+      x-required-scope: "data:write"
       summary: Upload one activity file (FIT, GPX or TCX)
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated) holding one activity file on one
@@ -2482,6 +2998,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestBluetooth
+      x-required-scope: "data:write"
       summary: Upload one part of Bluetooth device values
       description: |
         One gzip NDJSON part (at most 64 MiB, never truncated), one characteristic value a
@@ -2940,6 +3457,7 @@ paths:
     post:
       tags: [mcp]
       operationId: mcp
+      x-required-scope: "data:read"
       summary: Read-only MCP server (Streamable HTTP, stateless)
       security:
         - tenantKey: []
@@ -2950,7 +3468,8 @@ paths:
         token needs the `read` scope and reads only its own user. Tools: `list_users`,
         `list_quantity_types`, `get_samples`, `get_category_samples`, `get_sleep`,
         `get_workouts`, `get_workout_route`, `get_nutrition`, `get_daily`, `get_rr_intervals`,
-        `get_hrv`, `get_menstrual_cycles`, `get_tags`, `get_coverage`, `list_connections`. Each
+        `get_hrv`, `get_menstrual_cycles`, `get_tags`, `get_lab_results`, `get_coverage`,
+        `list_connections`. Each
         tool result is JSON text with `records`, `next_cursor` and `truncated`. A refusal (missing `user_id`, another tenant's user, `limit` above 1000)
         is a tool error inside a 200, as MCP prescribes. A request the transport refuses (a
         body that is not JSON-RPC, an `Accept` without both `application/json` and
@@ -2981,6 +3500,7 @@ paths:
     get:
       tags: [tenant]
       operationId: getTenant
+      x-required-scope: "tenant:read"
       summary: The tenant of the calling key
       description: |
         The tenant the key belongs to, whether it is the instance admin (the one tenant whose keys
@@ -2998,6 +3518,7 @@ paths:
     get:
       tags: [tenant]
       operationId: listKeys
+      x-required-scope: "keys:read"
       summary: The tenant's API keys
       description: |
         Every key of the tenant, revoked ones included, newest first. Only the prefix of a key is
@@ -3019,17 +3540,21 @@ paths:
     post:
       tags: [tenant]
       operationId: createKey
+      x-required-scope: "keys:write"
       summary: Create an API key for the tenant
       description: |
         A new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in
-        this answer only. To rotate: deploy the new key, then revoke the old one. Recorded in the
-        audit log as `key.create`.
+        this answer only. To rotate: deploy the new key, then revoke the old one. With
+        `expires_at` the key stops working by itself at that time; without, it lives until it is
+        revoked. With `scopes` the key does only what they allow; without, what the calling key
+        does. A key never creates a key holding a scope it lacks itself: that is a 403 naming
+        the scope. Recorded in the audit log as `key.create`.
       requestBody:
         required: false
-        description: Empty, or an empty object.
+        description: Empty, or the options of the key.
         content:
           application/json:
-            schema: { type: object, additionalProperties: false }
+            schema: { $ref: "#/components/schemas/CreateKeyRequest" }
       responses:
         "201":
           description: "The key, with its secret. Sent with `Cache-Control: no-store`."
@@ -3051,11 +3576,12 @@ paths:
     delete:
       tags: [tenant]
       operationId: revokeKey
+      x-required-scope: "keys:write"
       summary: Revoke an API key
       description: |
-        Every call with the key is refused from now on. A key cannot revoke itself (409): revoke it
-        with another key of the tenant. Revoking a revoked key changes nothing. Recorded in the
-        audit log as `key.revoke`.
+        Every call with the key is refused from now on, and so is every user token the key minted.
+        A key cannot revoke itself (409): revoke it with another key of the tenant. Revoking a
+        revoked key changes nothing. Recorded in the audit log as `key.revoke`.
       responses:
         "204": { description: Revoked. }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -3067,6 +3593,7 @@ paths:
     get:
       tags: [pipeline]
       operationId: getPipeline
+      x-required-scope: "connections:read"
       summary: The tenant's pipeline, stage by stage
       description: |
         Counts of the tenant's work at each stage, in the order data flows: the sources (providers
@@ -3086,6 +3613,7 @@ paths:
     get:
       tags: [pipeline]
       operationId: listTenantSyncRuns
+      x-required-scope: "connections:read"
       summary: Sync runs of every user of the tenant
       description: |
         The sync runs of all the tenant's users, newest first, each with its user. Filter by
@@ -3123,6 +3651,7 @@ paths:
     get:
       tags: [pipeline]
       operationId: listETLJobs
+      x-required-scope: "connections:read"
       summary: Processing jobs of the tenant
       description: |
         The jobs that turn stored raw payloads into records, newest first. `parked` (the default)
@@ -3161,6 +3690,7 @@ paths:
     post:
       tags: [pipeline]
       operationId: retryParkedETLJobs
+      x-required-scope: "connections:write"
       summary: Retry every parked processing job
       description: |
         Queues every parked job of the tenant again with fresh attempts, or only one provider's. A
@@ -3197,6 +3727,7 @@ paths:
     post:
       tags: [pipeline]
       operationId: retryETLJob
+      x-required-scope: "connections:write"
       summary: Retry one parked processing job
       description: Queues the job again with fresh attempts. Only a parked job can be retried (409 otherwise).
       responses:
@@ -3210,10 +3741,166 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/admin/settings:
+    get:
+      tags: [admin]
+      operationId: listAdminSettings
+      x-required-scope: "admin:read"
+      summary: Every runtime setting of this instance and where its value comes from (instance admin)
+      description: |
+        Only a key of the instance admin tenant may call it (403 otherwise). Every setting of the
+        registry, in registry order, with its effective value, its source (`env`, `console` or
+        `default`), and when it applies (`live` within moments, `restart` at the next start,
+        `bootstrap` only from the environment). A secret is never served: `value` is `"set"` or
+        null. The `ETag` is the settings revision; send it back as `If-Match` on `PATCH`.
+      responses:
+        "200":
+          description: The settings.
+          headers:
+            ETag:
+              description: The settings revision, quoted.
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminSettings" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    patch:
+      tags: [admin]
+      operationId: updateAdminSettings
+      x-required-scope: "admin:write"
+      summary: Save settings, all or nothing (instance admin)
+      description: |
+        The body maps setting names to a new value (a string) or null (back to the default).
+        `If-Match` carries the revision you read (`"5"` or `W/"5"`): 428 without it, 400 when it is
+        malformed or `*`, 412 when the revision moved (the problem carries the current `ETag`).
+        Nothing is stored unless every change passes: 409 when a setting is `bootstrap` or set by
+        the environment, 422 when a value is refused or the combination is invalid, each with one
+        entry per setting at fault. An empty string is a 422: send null. A secret is sealed with
+        `OHS_ENCRYPTION_KEY` and never served back. Recorded in the audit log as `config.write`
+        with the names that changed, never their values.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: The settings revision, quoted. `W/"<revision>"` is accepted.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminSettingsPatch" }
+      responses:
+        "200":
+          description: Saved. A body that changes nothing answers the unchanged revision and two empty lists.
+          headers:
+            ETag:
+              description: The new settings revision, quoted.
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revision, changed, restart_required]
+                properties:
+                  revision: { type: integer, format: int64 }
+                  changed:
+                    type: array
+                    description: The names saved or reset, sorted.
+                    items: { type: string }
+                  restart_required:
+                    type: array
+                    description: The names of `changed` that apply at the next start of each process, sorted.
+                    items: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: "A setting is not the console's to change (`bootstrap: ...` or `env: ...`)."
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/AdminSettingsProblem" }
+        "412":
+          description: The revision moved. `ETag` is the current one.
+          headers:
+            ETag:
+              description: The current settings revision, quoted; send it back as `If-Match` to retry.
+              schema: { type: string }
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: A value, or the combination, is refused. One entry per setting.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/AdminSettingsProblem" }
+        "428":
+          description: No `If-Match`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500":
+          description: The settings could not be read or saved.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/admin/settings/export:
+    get:
+      tags: [admin]
+      operationId: exportAdminSettings
+      x-required-scope: "admin:read"
+      summary: The settings as an .env file (instance admin)
+      description: |
+        The first line is `# Open Health Sync settings, revision <n>`; then, per section, a line
+        `# <Section>` and per setting a comment and `OHS_X=<value>`. A secret is never written: a
+        set one gets `# set, value not exported` and an empty assignment.
+      responses:
+        "200":
+          description: The .env file.
+          headers:
+            Content-Disposition:
+              schema: { type: string, const: 'attachment; filename="ohs.env"' }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/admin/processes:
+    get:
+      tags: [admin]
+      operationId: listAdminProcesses
+      x-required-scope: "admin:read"
+      summary: The processes of this instance and the settings each one runs (instance admin)
+      description: |
+        Every process that reported within the last two minutes, by start time then id.
+        `behind` is true when it started before the last change to a `restart` setting;
+        `stale` when its live revision trails the stored one for over a minute.
+      responses:
+        "200":
+          description: The processes.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminProcesses" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /v1/admin/providers:
     get:
       tags: [admin]
       operationId: listAdminProviders
+      x-required-scope: "admin:read"
       summary: Every provider of this build and how it stands (instance admin)
       description: |
         Only a key of the instance admin tenant may call it (403 otherwise; `ohs admin tenant list`
@@ -3243,6 +3930,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminProvider
+      x-required-scope: "admin:read"
       summary: One provider and how it stands (instance admin)
       responses:
         "200":
@@ -3256,6 +3944,7 @@ paths:
     patch:
       tags: [admin]
       operationId: updateAdminProvider
+      x-required-scope: "admin:write"
       summary: Save a provider's keys, or turn it on or off (instance admin)
       description: |
         `keys` sets each named key (null removes it); keys left out are kept. The new keys are
@@ -3288,6 +3977,7 @@ paths:
     delete:
       tags: [admin]
       operationId: forgetAdminProvider
+      x-required-scope: "admin:write"
       summary: Forget what the console saved for a provider (instance admin)
       description: |
         Deletes the keys and the switch saved for the provider. Environment variables are not
@@ -3307,6 +3997,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenants
+      x-required-scope: "admin:read"
       summary: Every tenant of the instance, oldest first (instance admin)
       description: |
         Only a key of an instance admin tenant may call the `/v1/admin/tenants` routes (403
@@ -3334,6 +4025,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenant
+      x-required-scope: "admin:write"
       summary: Create a tenant and its first API key (instance admin)
       description: |
         A new tenant, never an instance admin (making one stays `ohs admin tenant`, run on the
@@ -3367,6 +4059,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenant
+      x-required-scope: "admin:read"
       summary: One tenant (instance admin)
       responses:
         "200":
@@ -3384,6 +4077,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantPipeline
+      x-required-scope: "admin:read"
       summary: A tenant's pipeline, stage by stage (instance admin)
       description: The answer the tenant's own key gets from GET /v1/pipeline.
       responses:
@@ -3402,6 +4096,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantKeys
+      x-required-scope: "admin:read"
       summary: A tenant's API keys (instance admin)
       description: |
         Every key of the tenant, revoked ones included, oldest first. `current` is true only for the
@@ -3424,17 +4119,20 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantKey
+      x-required-scope: "admin:write"
       summary: Create an API key for a tenant (instance admin)
       description: |
         As `ohs admin key create --tenant` makes. The whole key is in this answer only;
-        `Idempotency-Key` is not honoured. Recorded as `key.create` in the caller's audit log and in
-        the tenant's.
+        `Idempotency-Key` is not honoured. With `expires_at` the key stops working by itself at
+        that time. With `scopes` the key does only what they allow; without, everything (`["*"]`).
+        An admin grants any scope, one its own key lacks included. Recorded as `key.create` in
+        the caller's audit log and in the tenant's.
       requestBody:
         required: false
-        description: Empty, or an empty object.
+        description: Empty, or the options of the key.
         content:
           application/json:
-            schema: { type: object, additionalProperties: false }
+            schema: { $ref: "#/components/schemas/CreateKeyRequest" }
       responses:
         "201":
           description: "The key, with its secret. Sent with `Cache-Control: no-store`."
@@ -3458,9 +4156,11 @@ paths:
     delete:
       tags: [admin]
       operationId: revokeAdminTenantKey
+      x-required-scope: "admin:write"
       summary: Revoke a tenant's API key (instance admin)
       description: |
-        Every call with the key is refused from now on. Revoking a revoked key changes nothing. The
+        Every call with the key is refused from now on, and so is every user token the key minted.
+        Revoking a revoked key changes nothing. The
         key making the call cannot be revoked (409). A key of another tenant is a 404. Recorded as
         `key.revoke` in the caller's audit log and in the tenant's.
       responses:
@@ -3476,6 +4176,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantDemoUser
+      x-required-scope: "admin:write"
       summary: Fill a user of a tenant with synthetic data (instance admin)
       description: |
         What `ohs seed --demo --tenant` does: the tenant's user with `external_ref` is reused, or
@@ -3515,6 +4216,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantProviders
+      x-required-scope: "admin:read"
       summary: The providers of one tenant, each with its switch (instance admin)
       description: |
         Every provider the instance knows, in the order of `GET /v1/admin/providers`, with the
@@ -3543,6 +4245,7 @@ paths:
     patch:
       tags: [admin]
       operationId: updateAdminTenantProvider
+      x-required-scope: "admin:write"
       summary: Turn a provider off, or back on, for one tenant (instance admin)
       description: |
         While a provider is off for a tenant, `GET /v1/providers` and the connect page leave it
@@ -3574,6 +4277,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantProviderKeys
+      x-required-scope: "admin:read"
       summary: A tenant's own keys for a provider, without their values (instance admin)
       description: |
         Whether the tenant has keys of its own for the provider and how they stand. No value is
@@ -3593,6 +4297,7 @@ paths:
     put:
       tags: [admin]
       operationId: putAdminTenantProviderKeys
+      x-required-scope: "admin:write"
       summary: Set or replace a tenant's own keys for a provider (instance admin)
       description: |
         The tenant's users then connect the provider through the tenant's OAuth application
@@ -3631,6 +4336,7 @@ paths:
     delete:
       tags: [admin]
       operationId: deleteAdminTenantProviderKeys
+      x-required-scope: "admin:write"
       summary: Remove a tenant's own keys for a provider (instance admin)
       description: |
         The tenant's new connections go back to the instance's keys (or the provider is no longer
@@ -3656,6 +4362,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantUsers
+      x-required-scope: "admin:read"
       summary: List the tenant's end users, oldest first (instance admin, one tenant)
       description: |
         `GET /v1/users` (`listUsers`) for the tenant of `tenant_id`, read with an
@@ -3685,6 +4392,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantUser
+      x-required-scope: "admin:write"
       summary: Create an end user (instance admin, one tenant)
       description: |
         `POST /v1/users` (`createUser`) for the tenant of `tenant_id`, run with an
@@ -3730,6 +4438,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantUser
+      x-required-scope: "admin:read"
       summary: Get one end user (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}` (`getUser`) for the tenant of `tenant_id`, read with an
@@ -3748,6 +4457,7 @@ paths:
     delete:
       tags: [admin]
       operationId: deleteAdminTenantUser
+      x-required-scope: "admin:write"
       summary: Hard-delete an end user (instance admin, one tenant)
       description: |
         `DELETE /v1/users/{id}` (`deleteUser`) for the tenant of `tenant_id`, run with an
@@ -3776,6 +4486,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantDaily
+      x-required-scope: "admin:read"
       summary: Daily summaries (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/daily` (`listDaily`) for the tenant of `tenant_id`, read with an
@@ -3806,6 +4517,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantSamples
+      x-required-scope: "admin:read"
       summary: Quantity samples of one type (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/samples` (`listSamples`) for the tenant of `tenant_id`, read with an
@@ -3841,6 +4553,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantSampleStats
+      x-required-scope: "admin:read"
       summary: Statistics of one quantity type per hour or per local day (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/samples/stats` (`sampleStats`) for the tenant of `tenant_id`, read with an
@@ -3900,6 +4613,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantSleep
+      x-required-scope: "admin:read"
       summary: Sleep sessions (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/sleep` (`listSleep`) for the tenant of `tenant_id`, read with an
@@ -3930,6 +4644,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantWorkouts
+      x-required-scope: "admin:read"
       summary: Workouts (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/workouts` (`listWorkouts`) for the tenant of `tenant_id`, read with an
@@ -3964,6 +4679,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantNutrition
+      x-required-scope: "admin:read"
       summary: Nutrition logs (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/nutrition` (`listNutrition`) for the tenant of `tenant_id`, read with an
@@ -3993,6 +4709,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantCoverage
+      x-required-scope: "admin:read"
       summary: What has landed, per provider and day, and what is still processing (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/coverage` (`getCoverage`) for the tenant of `tenant_id`, read with an
@@ -4024,6 +4741,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantConnections
+      x-required-scope: "admin:read"
       summary: The user's provider connections (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/connections` (`listConnections`) for the tenant of `tenant_id`, read with an
@@ -4053,6 +4771,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantFreshness
+      x-required-scope: "admin:read"
       summary: How up to date each of the user's sources is (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/freshness` (`getFreshness`) for the tenant of `tenant_id`, read with an
@@ -4089,6 +4808,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantDeletion
+      x-required-scope: "admin:read"
       summary: Status of a deletion (instance admin, one tenant)
       description: |
         `GET /v1/deletions/{job_id}` (`getDeletion`) for the tenant of `tenant_id`, read with an
@@ -4112,6 +4832,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantSyncRuns
+      x-required-scope: "admin:read"
       summary: The user's sync history (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/sync-runs` (`listSyncRuns`) for the tenant of `tenant_id`, read with an
@@ -4156,6 +4877,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantSyncRun
+      x-required-scope: "admin:read"
       summary: One sync run (instance admin, one tenant)
       description: |
         `GET /v1/users/{id}/sync-runs/{run_id}` (`getSyncRun`) for the tenant of `tenant_id`, read with an
@@ -4172,6 +4894,38 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/admin/tenants/{tenant_id}/users/{id}/sync-runs/{run_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [admin]
+      operationId: retryAdminTenantSyncRun
+      x-required-scope: "admin:write"
+      summary: Retry a failed sync run (instance admin, one tenant)
+      description: |
+        `POST /v1/users/{id}/sync-runs/{run_id}/retry` (`retrySyncRun`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "202":
+          description: The run, queued again.
+          headers:
+            Location: { schema: { type: string }, description: The run. }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /v1/admin/tenants/{tenant_id}/users/{id}/connect-sessions:
     parameters:
       - $ref: "#/components/parameters/TenantID"
@@ -4179,6 +4933,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantConnectSession
+      x-required-scope: "admin:write"
       summary: Create a link to the hosted connection page (instance admin, one tenant)
       description: |
         `POST /v1/users/{id}/connect-sessions` (`createConnectSession`) for the tenant of `tenant_id`, run with an
@@ -4210,6 +4965,7 @@ paths:
     post:
       tags: [admin]
       operationId: syncAdminTenantConnection
+      x-required-scope: "admin:write"
       summary: Sync a connection now (instance admin, one tenant)
       description: |
         `POST /v1/users/{id}/connections/{provider}/sync` (`syncConnection`) for the tenant of `tenant_id`, run with an
@@ -4247,6 +5003,36 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}/sync-runs/retry:
+    parameters:
+      - $ref: "#/components/parameters/TenantID"
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/Provider"
+    post:
+      tags: [admin]
+      operationId: retryAdminTenantFailedSyncRuns
+      x-required-scope: "admin:write"
+      summary: Retry the failed sync runs of a connection (instance admin, one tenant)
+      description: |
+        `POST /v1/users/{id}/connections/{provider}/sync-runs/retry` (`retryFailedSyncRuns`) for the tenant of `tenant_id`, run with an
+        instance admin key: the same body, parameters and answer as the tenant's own key
+        gets; a `Location` points at the admin route. Recorded in the caller's audit log
+        and, actor `admin`, in the tenant's.
+        See docs/admin-api.md.
+      responses:
+        "202":
+          description: How many runs were queued again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [retried]
+                properties:
+                  retried: { type: integer, format: int64 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}:
     parameters:
       - $ref: "#/components/parameters/TenantID"
@@ -4255,6 +5041,7 @@ paths:
     delete:
       tags: [admin]
       operationId: deleteAdminTenantConnection
+      x-required-scope: "admin:write"
       summary: Disconnect a provider (instance admin, one tenant)
       description: |
         `DELETE /v1/users/{id}/connections/{provider}` (`deleteConnection`) for the tenant of `tenant_id`, run with an
@@ -4290,6 +5077,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantWebhooks
+      x-required-scope: "admin:read"
       summary: The tenant's webhook endpoints (instance admin, one tenant)
       description: |
         `GET /v1/webhooks` (`listWebhooks`) for the tenant of `tenant_id`, read with an
@@ -4306,6 +5094,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/Webhook" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -4313,6 +5102,7 @@ paths:
     post:
       tags: [admin]
       operationId: createAdminTenantWebhook
+      x-required-scope: "admin:write"
       summary: Register a webhook endpoint (instance admin, one tenant)
       description: |
         `POST /v1/webhooks` (`createWebhook`) for the tenant of `tenant_id`, run with an
@@ -4350,6 +5140,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantWebhook
+      x-required-scope: "admin:read"
       summary: One webhook endpoint (instance admin, one tenant)
       description: |
         `GET /v1/webhooks/{webhook_id}` (`getWebhook`) for the tenant of `tenant_id`, read with an
@@ -4368,6 +5159,7 @@ paths:
     patch:
       tags: [admin]
       operationId: updateAdminTenantWebhook
+      x-required-scope: "admin:write"
       summary: Change a webhook endpoint (instance admin, one tenant)
       description: |
         `PATCH /v1/webhooks/{webhook_id}` (`updateWebhook`) for the tenant of `tenant_id`, run with an
@@ -4393,6 +5185,7 @@ paths:
     delete:
       tags: [admin]
       operationId: deleteAdminTenantWebhook
+      x-required-scope: "admin:write"
       summary: Delete a webhook endpoint (instance admin, one tenant)
       description: |
         `DELETE /v1/webhooks/{webhook_id}` (`deleteWebhook`) for the tenant of `tenant_id`, run with an
@@ -4413,6 +5206,7 @@ paths:
     post:
       tags: [admin]
       operationId: rotateAdminTenantWebhookSecret
+      x-required-scope: "admin:write"
       summary: Replace the signing secret (instance admin, one tenant)
       description: |
         `POST /v1/webhooks/{webhook_id}/rotate-secret` (`rotateWebhookSecret`) for the tenant of `tenant_id`, run with an
@@ -4420,6 +5214,18 @@ paths:
         gets; a `Location` points at the admin route. Recorded in the caller's audit log
         and, actor `admin`, in the tenant's.
         See docs/admin-api.md.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expire_previous:
+                  type: boolean
+                  default: false
+                  description: End the replaced secret at once instead of after the grace period.
       responses:
         "200":
           description: The new secret.
@@ -4430,9 +5236,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [secret]
+                required: [secret, previous_secret_expires_at]
                 properties:
                   secret: { type: string, examples: ["whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"] }
+                  previous_secret_expires_at:
+                    type: [string, "null"]
+                    format: date-time
+                    description: Until when the replaced secret also signs; null when it stopped at once.
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -4444,6 +5255,7 @@ paths:
     post:
       tags: [admin]
       operationId: testAdminTenantWebhook
+      x-required-scope: "admin:write"
       summary: Send a test event (instance admin, one tenant)
       description: |
         `POST /v1/webhooks/{webhook_id}/test` (`testWebhook`) for the tenant of `tenant_id`, run with an
@@ -4474,6 +5286,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantWebhookDeliveries
+      x-required-scope: "admin:read"
       summary: The endpoint's deliveries (instance admin, one tenant)
       description: |
         `GET /v1/webhooks/{webhook_id}/deliveries` (`listWebhookDeliveries`) for the tenant of `tenant_id`, read with an
@@ -4498,6 +5311,7 @@ paths:
                   - $ref: "#/components/schemas/PageBase"
                   - properties:
                       data:
+                        type: array
                         items: { $ref: "#/components/schemas/WebhookDelivery" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -4512,6 +5326,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminTenantWebhookDelivery
+      x-required-scope: "admin:read"
       summary: One delivery with its payload and attempts (instance admin, one tenant)
       description: |
         `GET /v1/webhooks/{webhook_id}/deliveries/{delivery_id}` (`getWebhookDelivery`) for the tenant of `tenant_id`, read with an
@@ -4536,6 +5351,7 @@ paths:
     post:
       tags: [admin]
       operationId: retryAdminTenantWebhookDelivery
+      x-required-scope: "admin:write"
       summary: Send a finished delivery again (instance admin, one tenant)
       description: |
         `POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/retry` (`retryWebhookDelivery`) for the tenant of `tenant_id`, run with an
@@ -4562,6 +5378,7 @@ paths:
     post:
       tags: [admin]
       operationId: replayAdminTenantWebhookDelivery
+      x-required-scope: "admin:write"
       summary: Send a finished delivery's event again, as a new delivery (instance admin, one tenant)
       description: |
         `POST /v1/webhooks/{webhook_id}/deliveries/{delivery_id}/replay` (`replayWebhookDelivery`) for the tenant of `tenant_id`, run with an
@@ -4590,6 +5407,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantPipelineSyncRuns
+      x-required-scope: "admin:read"
       summary: Sync runs of every user of the tenant (instance admin, one tenant)
       description: |
         `GET /v1/pipeline/sync-runs` (`listTenantSyncRuns`) for the tenant of `tenant_id`, read with an
@@ -4632,6 +5450,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantETLJobs
+      x-required-scope: "admin:read"
       summary: Processing jobs of the tenant (instance admin, one tenant)
       description: |
         `GET /v1/pipeline/etl-jobs` (`listETLJobs`) for the tenant of `tenant_id`, read with an
@@ -4674,6 +5493,7 @@ paths:
     post:
       tags: [admin]
       operationId: retryAdminTenantParkedETLJobs
+      x-required-scope: "admin:write"
       summary: Retry every parked processing job (instance admin, one tenant)
       description: |
         `POST /v1/pipeline/etl-jobs/retry` (`retryParkedETLJobs`) for the tenant of `tenant_id`, run with an
@@ -4715,6 +5535,7 @@ paths:
     post:
       tags: [admin]
       operationId: retryAdminTenantETLJob
+      x-required-scope: "admin:write"
       summary: Retry one parked processing job (instance admin, one tenant)
       description: |
         `POST /v1/pipeline/etl-jobs/{job_id}/retry` (`retryETLJob`) for the tenant of `tenant_id`, run with an
@@ -4739,6 +5560,7 @@ paths:
     get:
       tags: [admin]
       operationId: listAdminTenantAuditEvents
+      x-required-scope: "admin:read"
       summary: The tenant's audit log, newest first (instance admin, one tenant)
       description: |
         `GET /v1/audit` (`listAuditEvents`) for the tenant of `tenant_id`, read with an
@@ -4753,6 +5575,14 @@ paths:
         - name: action
           in: query
           description: An exact action (`data.export`), or a prefix ending in a dot (`data.`).
+          schema: { type: string }
+        - name: actor_type
+          in: query
+          description: Only events of this kind of credential.
+          schema: { type: string, enum: [api_key, user_token, admin, system, share_link] }
+        - name: actor_id
+          in: query
+          description: Only events of this credential (a key id, a token id). Needs `actor_type`, else 400.
           schema: { type: string }
         - name: since
           in: query
@@ -4786,6 +5616,7 @@ paths:
     get:
       tags: [audit]
       operationId: listAuditEvents
+      x-required-scope: "audit:read"
       summary: The tenant's audit log, newest first
       description: |
         One event per authenticated request (tenant key or user token) and per
@@ -4828,6 +5659,96 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /console/session:
+    post:
+      tags: [console]
+      operationId: createConsoleSession
+      security: []
+      summary: Sign in to the console with a tenant API key
+      description: |
+        The console's own sign in, served only when `OHS_CONSOLE` is on. The key is in the body,
+        so no credential is sent. Answers with the session cookie (`ohs_console`, HttpOnly,
+        SameSite=Strict, Secure unless the public URL is on this machine) and a CSRF token.
+        Refused over plain http to a remote host unless `OHS_PUBLIC_URL` says https. Wrong keys
+        count against the authentication failure limit like any other.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsoleSignIn" }
+      responses:
+        "201":
+          description: The session.
+          headers:
+            Set-Cookie: { description: "The ohs_console session cookie.", schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsoleSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    get:
+      tags: [console]
+      operationId: getConsoleSession
+      security: [{ consoleSession: [] }]
+      x-required-scope: "tenant:read"
+      summary: The current console session, with a fresh CSRF token
+      description: The CSRF token returned replaces the previous one, which stops working.
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsoleSession" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [console]
+      operationId: deleteConsoleSession
+      security: [{ consoleSession: [] }]
+      x-required-scope: "tenant:read"
+      summary: Sign out of the console
+      description: Deletes the session and clears the cookie. A read-only session may sign out.
+      parameters:
+        - $ref: "#/components/parameters/ConsoleCSRF"
+      responses:
+        "204":
+          description: Signed out.
+          headers:
+            Set-Cookie: { description: "The ohs_console cookie, cleared (Max-Age=0).", schema: { type: string } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /console/session/tenant:
+    put:
+      tags: [console]
+      operationId: switchConsoleTenant
+      security: [{ consoleSession: [] }]
+      x-required-scope: "admin:read"
+      summary: Make the console act as another tenant
+      description: |
+        Only a session of the instance admin tenant. Later requests of the session run as the
+        chosen tenant; the audit log still names the admin tenant (`actor_tenant_id`). A
+        read-only session may switch: nothing is written.
+      parameters:
+        - $ref: "#/components/parameters/ConsoleCSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsoleTenantSwitch" }
+      responses:
+        "200":
+          description: The session, without a CSRF token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsoleSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/setup:
     get:
@@ -4922,7 +5843,7 @@ paths:
     get:
       tags: [ops]
       operationId: readyz
-      summary: Readiness (database ping and raw store check)
+      summary: Readiness (database ping, schema version and raw store check)
       security: []
       responses:
         "200":
@@ -4934,7 +5855,10 @@ paths:
                 properties:
                   status: { type: string, const: ready }
         "503":
-          description: The database or the raw store does not answer.
+          description: |
+            The database or the raw store does not answer, or the database schema is not at the
+            version this build was made for (a migration is pending, half done, or a newer release
+            migrated it).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -4983,6 +5907,14 @@ components:
       type: http
       scheme: bearer
       description: The instance's `OHS_METRICS_TOKEN`, for Prometheus scrapes of `/metrics`.
+    consoleSession:
+      type: apiKey
+      in: cookie
+      name: ohs_console
+      description: |
+        The console's session cookie, set by `POST /console/session`. HttpOnly and
+        SameSite=Strict. A request that is not a GET, HEAD or OPTIONS also sends the
+        `X-OHS-CSRF` header. Only the console uses it; the SDKs use API keys.
 
   headers:
     IdempotentReplayed:
@@ -4990,6 +5922,35 @@ components:
       schema: { type: string, const: "true" }
 
   parameters:
+    ConsoleCSRF:
+      name: X-OHS-CSRF
+      in: header
+      required: true
+      description: The `csrf_token` of the console session, from the last sign in or `GET /console/session`.
+      schema: { type: string }
+    StreamTypes:
+      name: types
+      in: query
+      description: |
+        Only these event types, separated by commas (or the parameter repeated). Absent: every
+        type, including types added in later versions. An unknown type is a 400.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items: { $ref: "#/components/schemas/WebhookEventType" }
+    StreamLastEventID:
+      name: Last-Event-ID
+      in: header
+      description: |
+        The id of the last event the client received; an EventSource sends it on its own when it
+        reconnects. The events after it, within the last 24 hours, are sent first.
+      schema: { type: string }
+    StreamLastEventIDQuery:
+      name: last_event_id
+      in: query
+      description: The same as the `Last-Event-ID` header, for a client that cannot set headers; the header wins.
+      schema: { type: string }
     UserID:
       name: id
       in: path
@@ -5090,6 +6051,54 @@ components:
       schema: { type: string, minLength: 1, maxLength: 255 }
 
   responses:
+    EventStream:
+      description: |
+        The stream, open until the client leaves, the server ends it (after an hour, at
+        shutdown, or a client too slow to read) or the connection fails.
+      headers:
+        Cache-Control:
+          schema: { type: string, const: no-store }
+        X-Accel-Buffering:
+          description: '`no`: a proxy that honours it passes the stream unbuffered.'
+          schema: { type: string, const: "no" }
+      content:
+        text/event-stream:
+          schema:
+            type: string
+            description: |
+              Server-Sent Events. Each event: `id: <event id>`, `event: <type>`,
+              `data: <WebhookEvent JSON>`, a blank line. Lines starting with `:` are comments
+              (heartbeats). `event: stream.reset` (no id) says the stream could not resume.
+          example: |
+            retry: 3000
+
+            : connected
+
+            id: 0199d6c4-8a5e-7d3c-9f1e-6b2a4c8d0e17
+            event: data.written
+            data: {"id":"0199d6c4-8a5e-7d3c-9f1e-6b2a4c8d0e17","type":"data.written","timestamp":"2026-10-12T08:30:12.345Z","data":{"user_id":"4b7e1c9a-2f3d-4e5a-8b6c-1d2e3f4a5b6c","external_ref":"app-user-42","provider":"oura","records":{"sleep_sessions":1},"types":["sleep_analysis"],"first_day":"2026-10-11","last_day":"2026-10-12"}}
+
+            : ping
+
+    StreamTooMany:
+      description: |
+        The tenant holds `OHS_STREAM_MAX_PER_TENANT` streams on this server, or the server
+        `OHS_STREAM_MAX`; close one or retry after `Retry-After`. An EventSource does not retry
+        a 429 on its own.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    StreamUnavailable:
+      description: The server is shutting down, or not listening for events yet; retry after `Retry-After`.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
     BadRequest:
       description: Invalid parameters or body.
       content:
@@ -5104,7 +6113,10 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
     Forbidden:
-      description: This credential cannot call this route (wrong kind or missing scope).
+      description: |
+        This credential cannot call this route: the wrong kind of credential, a user token
+        without the token scope, or an API key (or the key that minted the user token) without
+        the key scope of the route, named in `detail`.
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -5144,7 +6156,8 @@ components:
     RateLimited:
       description: |
         Over the rate limit of this provider-facing route (per client address, and per provider
-        for notifications); nothing was done. Limits are set per instance, see the
+        for notifications); nothing was done. The limit of a credential on the authenticated
+        routes is described at the top of this document. Limits are set per instance, see the
         self-hosting guide.
       headers:
         Retry-After:
@@ -5226,7 +6239,7 @@ components:
 
     ConsentCategoryName:
       type: string
-      enum: [activity, location, heart, ecg, blood_pressure, glucose, respiratory, body, sleep, nutrition, reproductive, mental, other]
+      enum: [activity, location, heart, ecg, blood_pressure, glucose, respiratory, body, sleep, nutrition, reproductive, mental, labs, other]
     ConsentCategory:
       type: object
       required: [category, granted, granted_at, revoked_at]
@@ -5269,21 +6282,78 @@ components:
         key:
           type: object
           description: The key making the call.
-          required: [id, prefix]
+          required: [id, prefix, scopes]
           properties:
             id: { type: string, format: uuid }
             prefix: { type: string, examples: [ohs_sk_2dybB] }
+            scopes: { $ref: "#/components/schemas/KeyScopes" }
 
     APIKey:
       type: object
-      required: [id, prefix, created_at, last_used_at, revoked_at, current]
+      required: [id, prefix, created_at, last_used_at, revoked_at, expires_at, scopes, current]
       properties:
         id: { type: string, format: uuid }
         prefix: { type: string, description: "The start of the key, kept in clear to tell keys apart." }
         created_at: { type: string, format: date-time }
         last_used_at: { type: [string, "null"], format: date-time }
         revoked_at: { type: [string, "null"], format: date-time }
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the key stops working by itself. Null for a key that does not expire.
+        scopes: { $ref: "#/components/schemas/KeyScopes" }
         current: { type: boolean, description: True for the key making the call. }
+
+    KeyScope:
+      type: string
+      description: |
+        One thing an API key may do. `*` is everything. A `:write` scope also grants the
+        `:read` of the same resource. `admin:read` and `admin:write` count only on a key of an
+        instance admin tenant.
+      enum:
+        - "*"
+        - "tenant:read"
+        - "users:read"
+        - "users:write"
+        - "tokens:write"
+        - "data:read"
+        - "data:write"
+        - "data:delete"
+        - "connections:read"
+        - "connections:write"
+        - "webhooks:read"
+        - "webhooks:write"
+        - "exports:read"
+        - "exports:write"
+        - "keys:read"
+        - "keys:write"
+        - "audit:read"
+        - "admin:read"
+        - "admin:write"
+
+    KeyScopes:
+      type: array
+      description: What the key may do. `["*"]` is everything; never empty.
+      minItems: 1
+      items: { $ref: "#/components/schemas/KeyScope" }
+      examples: [["*"], ["users:read", "data:read"]]
+
+    CreateKeyRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            When the key stops working by itself (RFC 3339, in the future). Absent or null: the
+            key lives until it is revoked.
+        scopes:
+          type: [array, "null"]
+          items: { $ref: "#/components/schemas/KeyScope" }
+          description: |
+            What the key may do. Absent, null or empty: on `POST /v1/keys` the scopes of the
+            key making the call, on the admin route `["*"]`. A list holding `*` is `["*"]`.
 
     CreatedAPIKey:
       allOf:
@@ -5303,7 +6373,7 @@ components:
           type: boolean
           description: True for an instance admin tenant, whose keys reach the /v1/admin routes.
         created_at: { type: string, format: date-time }
-        active_keys: { type: integer, description: "The tenant's keys that are not revoked." }
+        active_keys: { type: integer, description: "The tenant's keys that are neither revoked nor expired." }
 
     CreatedAdminTenant:
       allOf:
@@ -5531,6 +6601,106 @@ components:
         set: { type: boolean }
         value: { type: [string, "null"], description: The saved value of a key that is not a secret. Secrets are never served. }
 
+    AdminSetting:
+      type: object
+      required: [name, label, section, help, type, min, max, values, default, default_note, secret, apply, source, value, stored_value, invalid]
+      properties:
+        name: { type: string, examples: [OHS_WEBHOOK_PAUSE_AFTER] }
+        label: { type: string }
+        section: { type: string }
+        help: { type: string }
+        type: { type: string, enum: [bool, int, duration, enum, url, list, rate, string] }
+        min: { type: [integer, "null"], format: int64, description: "The lower bound of an `int`, else null." }
+        max: { type: [integer, "null"], format: int64, description: "The upper bound of an `int`, else null." }
+        values:
+          type: [array, "null"]
+          description: The choices of an `enum`, else null.
+          items: { type: string }
+        default: { type: string, description: "The default as a string; empty when it is derived (see `default_note`)." }
+        default_note: { type: [string, "null"], description: How a derived default is computed. }
+        secret: { type: boolean, description: "Write only; its value is never served." }
+        apply:
+          type: string
+          enum: [live, restart, bootstrap]
+          description: |
+            `live` is applied by every process within moments, `restart` when a process next starts,
+            `bootstrap` is read from the environment before the database opens and cannot be edited here.
+        source: { type: string, enum: [env, console, default] }
+        value:
+          type: [string, "null"]
+          description: The effective value; for a secret `"set"`, or null when it is not set.
+        stored_value:
+          type: [string, "null"]
+          description: The value saved in the console while `source` is `env` (`"set"` for a secret), else null.
+        invalid:
+          type: [string, "null"]
+          description: Why the saved value is skipped, else null.
+
+    AdminSettings:
+      type: object
+      required: [revision, data]
+      properties:
+        revision: { type: integer, format: int64 }
+        data:
+          type: array
+          description: Every setting, in registry order.
+          items: { $ref: "#/components/schemas/AdminSetting" }
+
+    AdminSettingsPatch:
+      type: object
+      description: Setting name to its new value, or null to go back to the default.
+      minProperties: 1
+      additionalProperties: { type: [string, "null"] }
+      examples:
+        - { OHS_WEBHOOK_PAUSE_AFTER: "10", OHS_RETENTION_DAYS: null }
+
+    AdminSettingsProblem:
+      description: A refused settings change, with one entry per setting at fault.
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          required: [settings]
+          properties:
+            settings:
+              type: array
+              items:
+                type: object
+                required: [name, message]
+                properties:
+                  name: { type: string }
+                  message: { type: string }
+
+    AdminProcess:
+      type: object
+      required: [id, host, roles, version, started_at, seen_at, start_revision, live_revision, skipped, reload_error, behind, stale]
+      properties:
+        id: { type: string, format: uuid }
+        host: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+        version: { type: string }
+        started_at: { type: string, format: date-time }
+        seen_at: { type: string, format: date-time }
+        start_revision: { type: integer, format: int64 }
+        live_revision: { type: integer, format: int64 }
+        skipped:
+          type: array
+          description: Saved settings this process did not use (names only).
+          items: { type: string }
+        reload_error: { type: [string, "null"] }
+        behind: { type: boolean, description: It started before the last change to a `restart` setting. }
+        stale: { type: boolean, description: Its live revision trails the stored one for over a minute. }
+
+    AdminProcesses:
+      type: object
+      required: [revision, data]
+      properties:
+        revision: { type: integer, format: int64 }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/AdminProcess" }
+
     AdminProviderPatch:
       type: object
       additionalProperties: false
@@ -5648,7 +6818,7 @@ components:
 
     AuditEvent:
       type: object
-      required: [id, at, actor, action, user_id, status, detail]
+      required: [id, at, actor, action, user_id, actor_tenant_id, status, detail]
       properties:
         id: { type: integer, description: "Increasing; the cursor of the next page." }
         at: { type: string, format: date-time }
@@ -5668,18 +6838,68 @@ components:
         action:
           type: string
           description: |
-            data.read, data.export, data.write, user.create, user.read, user.delete,
+            data.read, data.export, data.write, user.create, user.read, user.update, user.delete,
             user.erased, token.create, connection.read, connection.create,
             connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
             config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
             key.revoke, share.create,
-            share.read, share.revoke, share.access (more may be added).
+            share.read, share.revoke, share.access, session.create, session.read,
+            session.delete, session.tenant (more may be added).
         user_id: { type: [string, "null"], format: uuid, description: "The end user the action concerns." }
+        actor_tenant_id:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The tenant of the console session behind the request, which differs from the tenant
+            of the event when an admin session views another tenant. Null for a key or token.
         method: { type: string, description: "The HTTP method, absent outside a request." }
         route: { type: string, description: "The route pattern, absent outside a request." }
         status: { type: [integer, "null"], description: "The HTTP status, null outside a request." }
         request_id: { type: string, description: "The X-Request-Id of the request." }
         detail: { type: object, description: "Identifiers only, such as a job id or a key prefix." }
+
+    ConsoleSignIn:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key:
+          type: string
+          description: A tenant API key (`ohs_sk_`) with the `tenant:read` scope. Never stored or logged.
+
+    ConsoleTenantSwitch:
+      type: object
+      additionalProperties: false
+      required: [tenant_id]
+      properties:
+        tenant_id: { type: string, format: uuid }
+
+    ConsoleTenant:
+      type: object
+      required: [id, name, admin]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        admin: { type: boolean, description: "True for the instance admin tenant." }
+
+    ConsoleSession:
+      type: object
+      required: [tenant, acting_tenant, key_prefix, key_scopes, read_only, expires_at]
+      properties:
+        csrf_token:
+          type: string
+          description: |
+            Sent for the `X-OHS-CSRF` header of every write. Present after sign in and on
+            `GET /console/session` (which replaces the token); absent after a tenant switch.
+        tenant: { $ref: "#/components/schemas/ConsoleTenant", description: "The tenant of the key that signed in." }
+        acting_tenant: { $ref: "#/components/schemas/ConsoleTenant", description: "The tenant requests of the session run as." }
+        key_prefix: { type: string, description: "The first 12 characters of the key, as `/v1/keys` shows them." }
+        key_scopes: { type: array, items: { type: string } }
+        read_only: { type: boolean, description: "True when the server runs with OHS_CONSOLE=read-only." }
+        expires_at:
+          type: string
+          format: date-time
+          description: Seven days after sign in. Twelve hours without a request ends it sooner.
 
     Provider:
       type: object
@@ -5712,15 +6932,43 @@ components:
           type: string
           maxLength: 255
           description: The tenant's own reference, unique per tenant.
+        timezone:
+          type: [string, "null"]
+          description: |
+            The user's IANA time zone, such as `Europe/Paris`. Left out or null, the user has
+            none until one is set or learnt from a device upload. See `User.timezone`.
+
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [timezone]
+      properties:
+        timezone:
+          type: [string, "null"]
+          description: An IANA time zone name such as `Europe/Paris`, or null to clear the user's zone.
 
     User:
       type: object
-      required: [id, external_ref, status, created_at]
+      required: [id, external_ref, status, created_at, timezone, timezone_source]
       properties:
         id: { type: string, format: uuid }
         external_ref: { type: [string, "null"] }
         status: { type: string, enum: [active, deleting] }
         created_at: { type: string, format: date-time }
+        timezone:
+          type: [string, "null"]
+          description: |
+            The user's IANA time zone, null when none is known. It is the zone of the local
+            day of a sample that carries no zone of its own: daily totals take the sample's
+            zone, then this one, then UTC.
+        timezone_source:
+          type: [string, "null"]
+          enum: [explicit, learnt, null]
+          description: |
+            Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+            when it was taken from the latest record of a device upload (Apple Health, Health
+            Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+            Null when `timezone` is.
 
     DeletionJob:
       type: object
@@ -5757,8 +7005,14 @@ components:
 
     UserToken:
       type: object
-      required: [token, expires_at, scopes]
+      required: [id, token, expires_at, scopes]
       properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{16}$"
+          description: |
+            Names the token without revealing it (the first 16 hex characters of its SHA-256
+            hash): the audit log's `actor.id`, and what revoking this one token takes.
         token: { type: string, description: "ohs_ut_ token. Shown only once." }
         expires_at: { type: string, format: date-time }
         scopes:
@@ -5808,7 +7062,7 @@ components:
 
     Webhook:
       type: object
-      required: [id, url, description, event_types, status, disabled_reason, failing_since, last_success_at, created_at, updated_at]
+      required: [id, url, description, event_types, status, disabled_reason, failing_since, last_success_at, created_at, updated_at, consecutive_failures, paused_until, previous_secret_expires_at]
       properties:
         id: { type: string, format: uuid }
         url: { type: string }
@@ -5830,6 +7084,25 @@ components:
         last_success_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        consecutive_failures:
+          type: integer
+          readOnly: true
+          description: Failed attempts since the last success, whatever the deliveries.
+        paused_until:
+          type: [string, "null"]
+          format: date-time
+          readOnly: true
+          description: |
+            Set while the endpoint is paused after failures in a row: nothing is sent to it before
+            this time, then one request probes it. Null when it is not paused. Enabling the
+            endpoint or changing its `url` ends a pause.
+        previous_secret_expires_at:
+          type: [string, "null"]
+          format: date-time
+          readOnly: true
+          description: |
+            Until when the secret the last rotation replaced also signs requests; null outside a
+            rotation's grace period.
 
     WebhookWithSecret:
       allOf:
@@ -6625,6 +7898,196 @@ components:
           type: boolean
           description: true when these exact reports had already been received.
 
+    LabStatus:
+      type: string
+      enum: [preliminary, final, amended, corrected, cancelled]
+    LabInterpretation:
+      type: string
+      description: HL7 v3 ObservationInterpretation flags; HH, LL and AA are the critical ones. An upload may send `critical`, stored as AA.
+      enum: [H, L, N, A, HH, LL, AA]
+
+    LabUpload:
+      type: object
+      description: The simple form of a lab upload (docs/labs.md). Unknown fields are a 400.
+      additionalProperties: false
+      required: [reports]
+      properties:
+        reports:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/LabReportInput" }
+
+    LabReportInput:
+      type: object
+      description: One report. Its status (final when absent), collection time, issued time and performer are the defaults of its results.
+      additionalProperties: false
+      required: [results]
+      properties:
+        id: { type: string, maxLength: 200, description: "Your id of the report. Unique in the upload." }
+        loinc: { type: string, pattern: "^[0-9]{1,7}-[0-9]$", description: "The panel's LOINC code." }
+        code: { type: string, maxLength: 200, description: "Your own code of the panel." }
+        system: { type: string, maxLength: 500 }
+        display: { type: string, maxLength: 500 }
+        status: { $ref: "#/components/schemas/LabStatus" }
+        collected_at: { type: string, format: date-time, description: The default of its results' collection times. }
+        issued_at: { type: string, format: date-time }
+        performer: { type: string, maxLength: 500, description: The lab that ran the tests. }
+        orderer: { type: string, maxLength: 500, description: Who ordered them. }
+        results:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { $ref: "#/components/schemas/LabResultInput" }
+
+    LabResultInput:
+      type: object
+      additionalProperties: false
+      required: [id]
+      description: |
+        One test result. `loinc` or `code` is required. At most one of `value`,
+        `value_string` and `value_code`; none only for a cancelled result or one with
+        `absent`. `collected_at` is required here or on the report.
+      properties:
+        id: { type: string, maxLength: 200, description: "Your id of the result. Sending it again replaces it." }
+        loinc: { type: string, pattern: "^[0-9]{1,7}-[0-9]$" }
+        code: { type: string, maxLength: 200, description: Your own code of the test. }
+        system: { type: string, maxLength: 500 }
+        display: { type: string, maxLength: 500 }
+        value: { type: number }
+        comparator: { type: string, enum: ["<", "<=", ">=", ">"] }
+        unit: { type: string, maxLength: 64, description: The UCUM unit of `value`. }
+        value_string: { type: string, maxLength: 500 }
+        value_code: { type: string, maxLength: 500 }
+        value_system: { type: string, maxLength: 500 }
+        reference_low: { type: number }
+        reference_high: { type: number }
+        reference_text: { type: string, maxLength: 500 }
+        interpretation:
+          type: string
+          enum: [H, L, N, A, HH, LL, AA, critical]
+        status: { $ref: "#/components/schemas/LabStatus" }
+        specimen: { type: string, maxLength: 500 }
+        collected_at: { type: string, format: date-time }
+        collected_end: { type: string, format: date-time }
+        issued_at: { type: string, format: date-time }
+        performer: { type: string, maxLength: 500 }
+        absent: { type: string, maxLength: 500, description: "Why there is no value (a FHIR data absent reason code)." }
+
+    FHIRLabUpload:
+      type: object
+      description: |
+        A FHIR R4 Bundle, DiagnosticReport or Observation of category laboratory. A
+        DiagnosticReport's results are resolved in the Bundle (by fullUrl or Type/id) or in
+        its contained resources. See docs/labs.md for the elements read and those rejected.
+      required: [resourceType]
+      properties:
+        resourceType: { type: string, enum: [Bundle, DiagnosticReport, Observation] }
+      additionalProperties: true
+
+    LabUploadResponse:
+      type: object
+      required: [reports, duplicate]
+      properties:
+        reports:
+          type: array
+          description: The reports accepted, in upload order.
+          items:
+            type: object
+            required: [id, results]
+            properties:
+              id:
+                type: [string, "null"]
+                description: Null for the results a FHIR upload sent without a DiagnosticReport.
+              results:
+                type: array
+                items:
+                  type: object
+                  required: [id, code, status]
+                  properties:
+                    id: { type: string }
+                    code: { type: string, description: "`lab:loinc:<code>` or `lab:local:<code>`.", examples: ["lab:loinc:2093-3"] }
+                    status: { $ref: "#/components/schemas/LabStatus" }
+        duplicate:
+          type: boolean
+          description: true when this exact body had already been received.
+
+    LabResult:
+      allOf:
+        - $ref: "#/components/schemas/Provenance"
+        - type: object
+          required: [id, report_id, code, loinc, source_code, source_system, display, value, unit,
+            comparator, value_string, value_code, value_system, normalized_value, normalized_unit,
+            reference_low, reference_high, reference_text, interpretation, interpretation_text,
+            critical, status, specimen, collected_at, collected_end, issued_at, issued_as_collected,
+            data_absent_reason, performer, orderer, external_id]
+          properties:
+            id: { type: integer, format: int64 }
+            report_id: { type: [string, "null"] }
+            code: { type: string, examples: ["lab:loinc:2093-3"] }
+            loinc: { type: [string, "null"] }
+            source_code: { type: [string, "null"] }
+            source_system: { type: [string, "null"] }
+            display: { type: [string, "null"] }
+            value: { type: [number, "null"] }
+            unit: { type: [string, "null"] }
+            comparator: { type: [string, "null"] }
+            value_string: { type: [string, "null"] }
+            value_code: { type: [string, "null"] }
+            value_system: { type: [string, "null"] }
+            normalized_value:
+              type: [number, "null"]
+              description: The value in `normalized_unit`, only for the analytes and units of the normalization table (docs/labs.md).
+            normalized_unit: { type: [string, "null"] }
+            reference_low: { type: [number, "null"] }
+            reference_high: { type: [number, "null"] }
+            reference_text: { type: [string, "null"] }
+            interpretation:
+              oneOf:
+                - $ref: "#/components/schemas/LabInterpretation"
+                - type: "null"
+            interpretation_text: { type: [string, "null"] }
+            critical: { type: boolean }
+            status: { $ref: "#/components/schemas/LabStatus" }
+            specimen: { type: [string, "null"] }
+            collected_at: { type: string, format: date-time }
+            collected_end: { type: [string, "null"], format: date-time }
+            issued_at: { type: [string, "null"], format: date-time }
+            issued_as_collected:
+              type: boolean
+              description: The source gave no collection time; `collected_at` is the issued time.
+            data_absent_reason: { type: [string, "null"] }
+            performer: { type: [string, "null"] }
+            orderer: { type: [string, "null"] }
+            external_id: { type: string, description: The source's id of the result. }
+
+    LabResultPage:
+      allOf:
+        - $ref: "#/components/schemas/PageBase"
+        - properties:
+            data: { type: array, items: { $ref: "#/components/schemas/LabResult" } }
+
+    LabReport:
+      type: object
+      required: [id, loinc, code, system, display, status, collected_at, issued_at, performer, orderer, results]
+      properties:
+        id: { type: string }
+        loinc: { type: [string, "null"] }
+        code: { type: [string, "null"] }
+        system: { type: [string, "null"] }
+        display: { type: [string, "null"] }
+        status:
+          oneOf:
+            - $ref: "#/components/schemas/LabStatus"
+            - type: "null"
+        collected_at: { type: string, format: date-time, description: "The report's collection time, else the earliest of its results'." }
+        issued_at: { type: [string, "null"], format: date-time }
+        performer: { type: [string, "null"] }
+        orderer: { type: [string, "null"] }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/LabResult" }
+
     CreateTimeTagRequest:
       type: object
       additionalProperties: false
@@ -6679,7 +8142,7 @@ components:
       enum: [activity, heart, blood_pressure, glucose, respiratory, body, sleep, other]
       description: |
         The consent categories a share link can hold: those with records in the FHIR view.
-        location, ecg, nutrition, reproductive and mental are refused (400).
+        location, ecg, nutrition, reproductive, mental and labs are refused (400).
 
     Share:
       type: object
@@ -7070,6 +8533,7 @@ components:
                 oneOf:
                   - $ref: "#/components/schemas/FHIRPatient"
                   - $ref: "#/components/schemas/FHIRObservation"
+                  - $ref: "#/components/schemas/FHIRDiagnosticReport"
                   - $ref: "#/components/schemas/FHIRDevice"
                   - $ref: "#/components/schemas/FHIRProvenance"
               search:
@@ -7115,11 +8579,63 @@ components:
         - $ref: "#/components/schemas/PageBase"
         - properties:
             data: { type: array, items: { $ref: "#/components/schemas/OMHDataPoint" } }
+    FHIRDiagnosticReport:
+      type: object
+      description: A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md).
+      required: [resourceType, id, status, category, code, subject]
+      properties:
+        resourceType: { type: string, const: DiagnosticReport }
+        id: { type: string, pattern: "^labreport-[0-9a-f]{40}$" }
+        meta:
+          type: object
+          properties:
+            source: { type: string, format: uri }
+        identifier:
+          type: array
+          description: The source's report id.
+          items: { $ref: "#/components/schemas/FHIRIdentifier" }
+        status: { type: string, enum: [preliminary, final, amended, corrected, cancelled, unknown] }
+        category:
+          type: array
+          items: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        code: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        subject: { $ref: "#/components/schemas/FHIRReference" }
+        effectiveDateTime: { type: string, format: date-time }
+        issued: { type: string, format: date-time }
+        performer:
+          type: array
+          items: { $ref: "#/components/schemas/FHIRReference" }
+        result:
+          type: array
+          description: The Observations (`lab-` ids) of its results.
+          items: { $ref: "#/components/schemas/FHIRReference" }
+    FHIRDiagnosticReportBundle:
+      type: object
+      description: A FHIR R4 searchset Bundle of DiagnosticReports.
+      required: [resourceType, type, link]
+      properties:
+        resourceType: { type: string, const: Bundle }
+        type: { type: string, const: searchset }
+        link: { type: array, items: { $ref: "#/components/schemas/FHIRBundleLink" } }
+        entry:
+          type: array
+          description: Absent on an empty page.
+          items:
+            type: object
+            required: [fullUrl, resource]
+            properties:
+              fullUrl: { type: string, format: uri }
+              resource: { $ref: "#/components/schemas/FHIRDiagnosticReport" }
+              search:
+                type: object
+                properties:
+                  mode: { type: string, const: match }
     FHIRObservation:
       type: object
       description: |
         A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
-        session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+        session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+        docs/labs.md).
       required: [resourceType, id, status, code, subject]
       properties:
         resourceType: { type: string, const: Observation }
@@ -7146,7 +8662,10 @@ components:
             properties:
               system: { type: string, format: uri }
               value: { type: string }
-        status: { type: string, const: final }
+        status:
+          type: string
+          enum: [final, preliminary, amended, corrected, cancelled]
+          description: final, except for a lab result, which keeps its own status.
         category:
           type: array
           items: { $ref: "#/components/schemas/FHIRCodeableConcept" }
@@ -7161,16 +8680,35 @@ components:
         issued:
           type: string
           format: date-time
-          description: When the record was ingested (the later of a panel's two samples).
+          description: When the record was ingested (the later of a panel's two samples); for a lab result, when the lab issued it.
         performer:
           type: array
-          description: The person, on a self report (category survey); absent otherwise.
+          description: The person, on a self report (category survey); the lab, on a lab result when known; absent otherwise.
           items: { $ref: "#/components/schemas/FHIRReference" }
         valueQuantity: { $ref: "#/components/schemas/FHIRQuantity" }
         valueCodeableConcept:
           allOf: [{ $ref: "#/components/schemas/FHIRCodeableConcept" }]
-          description: Instead of valueQuantity for a classification (ecg_afib_classification).
+          description: Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result.
+        valueString: { type: string, description: A lab result given as text. }
         dataAbsentReason: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        interpretation:
+          type: array
+          maxItems: 1
+          description: A lab result's flag (v3 ObservationInterpretation H, L, N, A, HH, LL, AA).
+          items: { $ref: "#/components/schemas/FHIRCodeableConcept" }
+        specimen:
+          allOf: [{ $ref: "#/components/schemas/FHIRReference" }]
+          description: A lab result's specimen, as a display.
+        referenceRange:
+          type: array
+          maxItems: 1
+          description: A lab result's reference range, in the unit of its value.
+          items:
+            type: object
+            properties:
+              low: { $ref: "#/components/schemas/FHIRQuantity" }
+              high: { $ref: "#/components/schemas/FHIRQuantity" }
+              text: { type: string }
         device: { $ref: "#/components/schemas/FHIRReference" }
         component:
           type: array
@@ -7204,6 +8742,7 @@ components:
       type: object
       properties:
         value: { type: number }
+        comparator: { type: string, enum: ["<", "<=", ">=", ">"], description: "A lab result's bound (`<5`)." }
         unit: { type: string }
         system: { type: string, const: "http://unitsofmeasure.org" }
         code: { type: string, examples: ["/min"] }

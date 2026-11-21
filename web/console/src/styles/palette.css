@@ -1,0 +1,107 @@
+/* ---------- command palette ---------- */
+.dialog.palette {
+  width: min(560px, calc(100vw - 32px));
+  margin-top: 12vh;
+}
+
+.palette .dialog-body {
+  padding: 0;
+}
+
+.palette .dialog-body h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.palette-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 52px;
+  padding: 0 var(--op-s5);
+  border: 0;
+  border-bottom: 1px solid var(--op-line);
+  border-radius: var(--op-r-dialog) var(--op-r-dialog) 0 0;
+  background: transparent;
+  color: var(--op-fg);
+  font: var(--op-text-body);
+  font-size: 15px;
+}
+
+.palette-input::placeholder {
+  color: var(--op-fg-2);
+}
+
+.palette-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--op-s2);
+  max-height: min(380px, 50vh);
+  overflow-y: auto;
+}
+
+.palette-group {
+  padding: var(--op-s2) 10px var(--op-s1);
+  color: var(--faint);
+  font: var(--op-text-caption);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.palette-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: var(--op-s2) 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.palette-item.on {
+  background: var(--op-accent-wash);
+  color: var(--op-accent-text);
+}
+
+.palette-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.palette-title.mono {
+  font-family: var(--op-font-mono);
+  font-size: 12px;
+}
+
+.palette-hint {
+  color: var(--op-fg-2);
+  font-size: 12px;
+}
+
+.palette-item.on .palette-hint {
+  color: var(--op-accent-text);
+}
+
+.palette-empty {
+  margin: 0;
+  padding: var(--op-s4);
+  color: var(--op-fg-2);
+  font-size: 13px;
+}
+
+.palette-foot {
+  display: flex;
+  gap: var(--op-s4);
+  padding: 10px var(--op-s5);
+  border-top: 1px solid var(--op-line);
+  color: var(--faint);
+  font-size: 12px;
+}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -137,6 +138,10 @@ func TestPurge(t *testing.T) {
 			VALUES ($1, $2, $3, 'heart_rate', 61, $4, $5)`, ten, user, provider, at, h("hr"))
 		exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
 			VALUES ($1, $2, $3, 'step_count', 100, $4, $5)`, ten, user, provider, at, h("steps"))
+		for _, qt := range []string{"heart_rate", "step_count"} {
+			exec(`INSERT INTO ohs_data.quantity_hourly_sealed (tenant_id, user_id, quantity_type, provider, source_key, slug, worn, unit, bucket, sealed)
+				VALUES ($1, $2, $3, $4, '\x01', $4, false, '', $5, '\x02')`, ten, user, qt, provider, at)
+		}
 		exec(`INSERT INTO ohs_data.heartbeat_samples (tenant_id, user_id, provider, series_id, "timestamp", rr_ms, content_hash)
 			VALUES ($1, $2, $3, 'series', $4, 900, $5)`, ten, user, provider, at, h("beat"))
 		s := id(`INSERT INTO ohs_data.sleep_sessions (tenant_id, user_id, provider, bedtime_start, content_hash)
@@ -147,6 +152,11 @@ func TestPurge(t *testing.T) {
 			VALUES ($1, $2, $3, 'running', $4, $5) RETURNING id`, ten, user, provider, at, h("workout"))
 		exec(`INSERT INTO ohs_data.route_points (tenant_id, user_id, workout_id, "timestamp", latitude, longitude, content_hash)
 			VALUES ($1, $2, $3, $4, 10.5, 20.5, $5)`, ten, user, w, at, h("route"))
+		// A heartbeat series of 3 beats and the workout's route of 4 points,
+		// stored as series blobs.
+		exec(`INSERT INTO ohs_data.series_blobs (tenant_id, user_id, kind, provider, parent, format, start_at, end_at, point_count, points)
+			VALUES ($1, $2, 3, $3, 'blob-series', 1, $4, $4, 3, '\x01'), ($1, $2, 2, $3, $5::bigint::text, 1, $4, $4, 4, '\x01')`,
+			ten, user, provider, at, w)
 	}
 	seed("oura")
 	seed("withings")
@@ -177,21 +187,28 @@ func TestPurge(t *testing.T) {
 		WHERE user_id = $1 AND provider = 'oura' AND quantity_type = 'step_count'`, user))
 	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_samples
 		WHERE user_id = $1 AND provider = 'oura' AND quantity_type = 'heart_rate'`, user), "heart revoked")
+	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_hourly_sealed
+		WHERE user_id = $1 AND provider = 'oura' AND quantity_type = 'heart_rate'`, user), "the hourly buckets go with the samples")
+	assert.Equal(t, 1, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_hourly_sealed
+		WHERE user_id = $1 AND provider = 'oura' AND quantity_type = 'step_count'`, user))
 	assert.Zero(t, rows("oura", `SELECT count(*) FROM ohs_data.heartbeat_samples`))
+	assert.Zero(t, rows("oura", `SELECT count(*) FROM ohs_data.series_blobs`), "the heartbeat and route blobs go")
 	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.route_points WHERE user_id = $1 AND workout_id IN
 		(SELECT id FROM ohs_data.workouts WHERE provider = 'oura')`, user), "location revoked")
 	assert.Equal(t, 1, rows("oura", `SELECT count(*) FROM ohs_data.workouts`), "the workout stays")
 	assert.Equal(t, 1, rows("oura", `SELECT count(*) FROM ohs_data.sleep_sessions`))
 
 	assert.Equal(t, 2, rows("withings", `SELECT count(*) FROM ohs_data.quantity_samples`), "another source is untouched")
+	assert.Equal(t, 2, rows("withings", `SELECT count(*) FROM ohs_data.quantity_hourly_sealed`))
 	assert.Equal(t, 1, rows("withings", `SELECT count(*) FROM ohs_data.heartbeat_samples`))
+	assert.Equal(t, 2, rows("withings", `SELECT count(*) FROM ohs_data.series_blobs`))
 	assert.Equal(t, 1, count(t, pool, `SELECT count(*) FROM ohs_data.route_points WHERE user_id = $1 AND workout_id IN
 		(SELECT id FROM ohs_data.workouts WHERE provider = 'withings')`, user))
 
 	var deleted int64
 	require.NoError(t, pool.QueryRow(ctx, `SELECT rows_deleted FROM ohs_sync.consent_purges
 		WHERE user_id = $1 AND provider = 'oura' AND category = 'heart' AND rows_deleted > 0`, user).Scan(&deleted))
-	assert.Equal(t, int64(2), deleted, "the heart rate sample and the heartbeat")
+	assert.Equal(t, int64(5), deleted, "the heart rate sample, the heartbeat row and the 3 beats of the blob, not the derived bucket")
 
 	// A purge queued then overtaken by a new grant keeps the data.
 	set(t, pool, ten, user, "oura", consent.Activity)
@@ -258,4 +275,121 @@ func TestPurgeFigures(t *testing.T) {
 	}
 	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.sleep_sessions
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'oura'`, ten, user), "sleep revoked: the session goes")
+}
+
+// TestPurgeAliases: the record aliases of purged rows go with them. An alias
+// keeps the row's content hash and start, enough to brute-force the value.
+// An alias whose row is already gone goes too. The aliases of rows that stay,
+// and of another source, stay.
+func TestPurgeAliases(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+	ten, user := uuid.New(), uuid.New()
+	at := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		_, err := pool.Exec(ctx, sql, args...)
+		require.NoError(t, err)
+	}
+	for _, provider := range []string{"apple_health", "withings"} {
+		h := func(s string) string { return fmt.Sprintf("%s-%s", provider, s) }
+		exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+			VALUES ($1, $2, $3, 'heart_rate', 61, $4, $5)`, ten, user, provider, at, h("hr"))
+		exec(`INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+			VALUES ($1, $2, $3, 'step_count', 100, $4, $5)`, ten, user, provider, at, h("steps"))
+		exec(`INSERT INTO ohs_data.nutrition_logs (tenant_id, user_id, provider, start_date, content_hash)
+			VALUES ($1, $2, $3, $4, $5)`, ten, user, provider, at, h("meal"))
+		for _, a := range []struct{ id, table, hash string }{
+			{"UUID-HR", "quantity_samples", h("hr")},
+			{"UUID-HR-COPY", "quantity_samples", h("hr")},
+			{"UUID-STEPS", "quantity_samples", h("steps")},
+			{"UUID-MEAL", "nutrition_logs", h("meal")},
+			{"UUID-MEAL-GONE", "nutrition_logs", h("meal-gone")},
+		} {
+			exec(`INSERT INTO ohs_data.record_aliases (tenant_id, user_id, provider, external_id, record_table, content_hash, start_time)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`, ten, user, provider, a.id, a.table, a.hash, at)
+		}
+	}
+	set(t, pool, ten, user, "apple_health", consent.Activity)
+	purger := consent.NewPurger(pool)
+	for {
+		did, err := purger.Once(ctx)
+		require.NoError(t, err)
+		if !did {
+			break
+		}
+	}
+	aliases := func(provider string) []string {
+		rows, err := pool.Query(ctx, `SELECT external_id FROM ohs_data.record_aliases
+			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 ORDER BY external_id`, ten, user, provider)
+		require.NoError(t, err)
+		ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		require.NoError(t, err)
+		return ids
+	}
+	assert.Equal(t, []string{"UUID-STEPS"}, aliases("apple_health"), "heart and nutrition revoked: their aliases go")
+	assert.Equal(t, []string{"UUID-HR", "UUID-HR-COPY", "UUID-MEAL", "UUID-MEAL-GONE", "UUID-STEPS"}, aliases("withings"),
+		"another source is untouched")
+}
+
+// An ETL job holds its user FOR SHARE until it commits, and recomputes the
+// hourly buckets of what it writes. A purge queued meanwhile waits for it: once
+// both commit, the revoked category has no bucket left, whatever the job wrote.
+func TestPurgeWaitsForEtlJob(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+	var ten, user uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('t') RETURNING id`).Scan(&ten))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO ohs_core.end_users (tenant_id) VALUES ($1) RETURNING id`, ten).Scan(&user))
+	at := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	bucket := `INSERT INTO ohs_data.quantity_hourly_sealed (tenant_id, user_id, quantity_type, provider, source_key, slug, worn, unit, bucket, sealed)
+		VALUES ($1, $2, 'heart_rate', 'oura', '\x01', 'oura', false, '', $3, '\x02')`
+	_, err = pool.Exec(ctx, `INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash)
+		VALUES ($1, $2, 'oura', 'heart_rate', 61, $3, 'hr')`, ten, user, at)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, bucket, ten, user, at)
+	require.NoError(t, err)
+
+	// The job's write transaction, as the ETL takes it: the user FOR SHARE,
+	// then a bucket of the next hour.
+	job, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = job.Rollback(ctx) }()
+	var status string
+	require.NoError(t, job.QueryRow(ctx, `SELECT status FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2 FOR SHARE`,
+		ten, user).Scan(&status))
+	_, err = job.Exec(ctx, bucket, ten, user, at.Add(time.Hour))
+	require.NoError(t, err)
+
+	set(t, pool, ten, user, "oura", consent.Sleep)
+	done := make(chan error, 1)
+	go func() {
+		purger := consent.NewPurger(pool)
+		for {
+			did, err := purger.Once(ctx)
+			if err != nil || !did {
+				done <- err
+				return
+			}
+		}
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("the purge ran while the job held the user (err %v)", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	require.NoError(t, job.Commit(ctx))
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the purge did not finish after the job committed")
+	}
+	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_hourly_sealed
+		WHERE user_id = $1 AND quantity_type = 'heart_rate'`, user), "no bucket of the revoked category is left")
+	assert.Zero(t, count(t, pool, `SELECT count(*) FROM ohs_data.quantity_samples WHERE user_id = $1`, user))
 }

@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Publishes the Kotlin SDK (sdks/kotlin: the client and its health-connect module) to a
+// Maven repository on disk, for apps that build this package before the SDK is on Maven
+// Central. It changes nothing in sdks/kotlin: it is an init script, applied from outside.
+//
+//   cd sdks/kotlin
+//   ./gradlew -I ../react-native/android/local-maven.init.gradle publishAllPublicationsToOhsLocalRepository
+//
+// The repository is sdks/react-native/android/local-maven (not committed), which this
+// package's build.gradle looks in; -Pohs.localMavenDir=/some/dir puts it elsewhere.
+// -Pohs.buildRoot=/some/dir also moves the build directories out of sdks/kotlin.
+
+def scriptDir = gradle.startParameter.allInitScripts.find { it.name == "local-maven.init.gradle" }.parentFile
+
+allprojects { p ->
+    def repoDir = p.findProperty("ohs.localMavenDir") ?: new File(scriptDir, "local-maven").path
+    def buildRoot = p.findProperty("ohs.buildRoot")
+    if (buildRoot) {
+        p.layout.buildDirectory.set(new File(buildRoot as String, p.name))
+    }
+
+    def publishTo = {
+        p.publishing.repositories.maven {
+            name = "ohsLocal"
+            url = p.uri(repoDir)
+        }
+    }
+
+    // The JVM client (the root project).
+    p.plugins.withId("java-library") {
+        p.pluginManager.apply("maven-publish")
+        p.publishing.publications.create("maven", org.gradle.api.publish.maven.MavenPublication) {
+            from p.components.java
+        }
+        publishTo()
+    }
+
+    // The Android library that reads Health Connect.
+    p.plugins.withId("com.android.library") {
+        p.pluginManager.apply("maven-publish")
+        p.android.publishing.singleVariant("release")
+        p.afterEvaluate {
+            p.publishing.publications.create("release", org.gradle.api.publish.maven.MavenPublication) {
+                from p.components.release
+            }
+        }
+        publishTo()
+    }
+}

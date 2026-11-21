@@ -150,14 +150,25 @@ func (mp *mergeParams) list(metrics []string) string {
 	return ref
 }
 
-// policy returns the user's policy: q.Policy, or the stored one.
+// policy returns the user's policy: q.Policy, or the stored one (loaded once
+// under HoistLookups).
 func policy(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q Query) (fusion.Policy, error) {
 	if q.Policy != nil {
 		return *q.Policy, nil
 	}
+	h := hoist(ctx, tenantID, userID)
+	if h != nil {
+		defer h.mu.Unlock()
+		if h.policy != nil {
+			return *h.policy, nil
+		}
+	}
 	p, err := fusion.Load(ctx, db, tenantID, userID, nil)
 	if err != nil {
 		return fusion.Policy{}, fmt.Errorf("read: %w", err)
+	}
+	if h != nil {
+		h.policy = &p
 	}
 	return p, nil
 }
@@ -196,20 +207,23 @@ var (
 		metric: func(x string) string { return x + ".quantity_type" },
 		same:   func(a, b string) string { return b + ".quantity_type = " + a + ".quantity_type" },
 		stream: func(x string) string {
-			return "coalesce(nullif(" + x + ".source_bundle_id, ''), nullif(" + x + ".source_name, ''), nullif(" +
-				x + ".device_id, ''), '')"
+			return sealedOr(x, "coalesce(nullif("+x+".source_bundle_id, ''), nullif("+x+".source_name, ''), nullif("+
+				x+".device_id, ''), '')", sourceKeyText(x))
 		},
 		wear: func(x string) string {
-			return "CASE WHEN concat_ws(' ', " + x + ".product_type, " + x + ".device_model, " + x +
-				".source_name) ILIKE '%watch%' THEN 0 ELSE 1 END"
+			return sealedOr(x, "CASE WHEN concat_ws(' ', "+x+".product_type, "+x+".device_model, "+x+
+				".source_name) ILIKE '%watch%' THEN 0 ELSE 1 END", wornRank(x))
 		},
 	}
 	categoryFamily = family{
 		table: "ohs_data.category_samples", start: "start_date", end: "end_date",
 		metric: func(x string) string { return x + ".category_type" },
 		same:   func(a, b string) string { return b + ".category_type = " + a + ".category_type" },
+		// A sealed category sample has no clear stream key (the table has no
+		// source_key column): the sealed records of one provider rank as one
+		// stream, which never covers itself.
 		stream: func(x string) string {
-			return "coalesce(nullif(" + x + ".source_name, ''), nullif(" + x + ".device_id, ''), '')"
+			return sealedOr(x, "coalesce(nullif("+x+".source_name, ''), nullif("+x+".device_id, ''), '')", "''")
 		},
 		wear: func(string) string { return "0" },
 	}
@@ -237,13 +251,41 @@ var (
 // Health night was one stream, which never covers itself, so a night that
 // two apps recorded counted twice.
 func parentStream(x string) string {
-	return "coalesce(nullif(" + x + ".device_id, ''), nullif(" + x + ".metadata->>'sourceBundleId', ''), nullif(" +
-		x + ".metadata->>'sourceName', ''), '')"
+	return sealedOr(x, "coalesce(nullif("+x+".device_id, ''), nullif("+x+".metadata->>'sourceBundleId', ''), nullif("+
+		x+".metadata->>'sourceName', ''), '')", sourceKeyText(x))
 }
 
 // parentWear puts a watch's record first among the streams of one source.
 func parentWear(x string) string {
-	return "CASE WHEN " + x + ".metadata->>'sourceName' ILIKE '%watch%' THEN 0 ELSE 1 END"
+	return sealedOr(x, "CASE WHEN "+x+".metadata->>'sourceName' ILIKE '%watch%' THEN 0 ELSE 1 END", wornRank(x))
+}
+
+// The source and device columns the merged view ranks streams by are sealed
+// on a sealed row. The writer leaves two clear columns in their place
+// (docs/specs/vault.md, "What stays in clear"): source_key, the keyed hash
+// of the same stream string, and worn, the watch test. A sealed row ranks by
+// those, a row still clear by its own columns as before.
+//
+// source_key keeps streams apart exactly as the clear string does; what it
+// changes is the order of two streams of one source that are both worn or
+// both not, which was the order of their names and is now the order of their
+// keyed hashes: stable, and the same in the paged reads, the export sweep
+// and the statistics.
+
+// sealedOr is clear for a row of alias x that is not sealed and sealed for
+// one that is.
+func sealedOr(x, clear, sealed string) string {
+	return "(CASE WHEN " + x + ".sealed IS NULL THEN " + clear + " ELSE " + sealed + " END)"
+}
+
+// sourceKeyText is the stream key of a sealed row of alias x.
+func sourceKeyText(x string) string {
+	return "coalesce(encode(" + x + ".source_key, 'hex'), '')"
+}
+
+// wornRank is the wear rank of a sealed row of alias x.
+func wornRank(x string) string {
+	return "(CASE WHEN " + x + ".worn THEN 0 ELSE 1 END)"
 }
 
 // rank is the SQL rank of x's source in an order (lower is better); a
@@ -372,134 +414,4 @@ var dailyFields = []struct{ col, json, metric string }{
 	{"floors_climbed", "floors_climbed", "flights_climbed"},
 	{"resting_hr", "resting_hr", "resting_heart_rate"},
 	{"hrv_avg_ms", "hrv_avg_ms", "hrv_rmssd"},
-}
-
-// dailyRank is the rank of daily row x for one figure's metric, then its id.
-func dailyRank(mp *mergeParams, x, metric string) string {
-	return "(" + rank(mp.order(metric), x) + ", " + x + ".id)"
-}
-
-// dailyOwned is a SQL condition true when daily row d holds col and no
-// better ranked row of the same day does.
-func dailyOwned(mp *mergeParams, d, col, metric string) string {
-	b := d + "_own"
-	return d + "." + col + " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ohs_data.daily_summaries " + b +
-		" WHERE " + b + ".tenant_id = " + d + ".tenant_id AND " + b + ".user_id = " + d + ".user_id AND " +
-		b + ".summary_date = " + d + ".summary_date AND " + b + "." + col + " IS NOT NULL AND " +
-		dailyRank(mp, b, metric) + " < " + dailyRank(mp, d, metric) + mp.sameDay(b+".summary_date") + ")"
-}
-
-// sameDay bounds col, the day of a summary of the same day as one in the
-// window, to the window's days.
-func (mp *mergeParams) sameDay(col string) string {
-	var out string
-	if !mp.since.IsZero() {
-		out += " AND " + col + " >= " + mp.at(mp.since, "date")
-	}
-	if !mp.until.IsZero() {
-		out += " AND " + col + " <= " + mp.at(mp.until, "date")
-	}
-	return out
-}
-
-// dailyOwnsAny is true when daily row d holds at least one figure it owns.
-func dailyOwnsAny(mp *mergeParams, d string) string {
-	conds := make([]string, len(dailyFields))
-	for i, f := range dailyFields {
-		conds[i] = "(" + dailyOwned(mp, d, f.col, f.metric) + ")"
-	}
-	return "(" + strings.Join(conds, " OR ") + ")"
-}
-
-// dailyMaskedCols are dailyCols over alias d with every figure a better
-// ranked row of the day holds set to NULL.
-func dailyMaskedCols(mp *mergeParams, d string) string {
-	cols := []string{d + ".id", d + ".summary_date"}
-	for _, f := range dailyFields {
-		cols = append(cols, "CASE WHEN "+dailyOwned(mp, d, f.col, f.metric)+" THEN "+d+"."+f.col+" END")
-	}
-	return strings.Join(append(cols, d+".metadata", d+".provider", d+".source_slug", "NULL::text", d+".ingested_at"), ", ")
-}
-
-// dailyMerged lists one summary per day: each figure from the best ranked
-// source that has it, with Sources naming that source per figure. The rest
-// (id, provenance, metadata) is the day's best ranked row under '*'.
-func dailyMerged(ctx context.Context, db Querier, tenantID, userID uuid.UUID, n normalized, p fusion.Policy) (Page[DailySummary], error) {
-	args := []any{tenantID, userID}
-	arg := func(v any) string {
-		args = append(args, v)
-		return "$" + strconv.Itoa(len(args))
-	}
-	mp := bindMerge(p, nil, arg)
-	where := []string{"d.tenant_id = $1", "d.user_id = $2"}
-	date := func(t time.Time) string { return arg(t.UTC().Format(time.DateOnly)) + "::date" }
-	if !n.Start.IsZero() {
-		where = append(where, "d.summary_date >= "+date(n.Start))
-	}
-	if !n.End.IsZero() {
-		where = append(where, "d.summary_date < "+date(n.End))
-	}
-	if n.paged {
-		where = append(where, "d.summary_date > "+date(n.afterT))
-	}
-	slug := "coalesce(d.source_slug, d.provider)"
-	primary := func(col string) string {
-		return "(array_agg(" + col + " ORDER BY " + dailyRank(mp, "d", fusion.All) + "))[1]"
-	}
-	cols := []string{primary("d.id"), "d.summary_date"}
-	for _, f := range dailyFields {
-		order := " ORDER BY " + dailyRank(mp, "d", f.metric) + ") FILTER (WHERE d." + f.col + " IS NOT NULL))[1]"
-		cols = append(cols, "(array_agg(d."+f.col+order, "(array_agg("+slug+order)
-	}
-	cols = append(cols, primary("d.metadata"), primary("d.provider"), primary("d.source_slug"), primary("d.ingested_at"))
-	sql := "SELECT " + strings.Join(cols, ", ") + " FROM ohs_data.daily_summaries d WHERE " + strings.Join(where, " AND ") +
-		" GROUP BY d.summary_date ORDER BY d.summary_date LIMIT " + arg(n.Limit+1)
-	rows, err := db.Query(ctx, sql, args...)
-	if err != nil {
-		return Page[DailySummary]{}, fmt.Errorf("read: daily merged: %w", err)
-	}
-	defer rows.Close()
-	out := Page[DailySummary]{Records: []DailySummary{}}
-	var last time.Time
-	for rows.Next() {
-		if len(out.Records) == n.Limit {
-			out.NextCursor = EncodeCursor(last, 0)
-			break
-		}
-		d, day, err := scanMergedDay(rows)
-		if err != nil {
-			return Page[DailySummary]{}, fmt.Errorf("read: daily merged: scan: %w", err)
-		}
-		out.Records = append(out.Records, d)
-		last = day
-	}
-	if err := rows.Err(); err != nil {
-		return Page[DailySummary]{}, fmt.Errorf("read: daily merged: %w", err)
-	}
-	return out, nil
-}
-
-// scanMergedDay reads one row of dailyMerged.
-func scanMergedDay(r pgx.Rows) (DailySummary, time.Time, error) {
-	var d DailySummary
-	var day time.Time
-	src := make([]*string, len(dailyFields))
-	figures := []any{&d.ReadinessScore, &d.ActivityScore, &d.SleepScore, &d.RecoveryScore, &d.StrainScore,
-		&d.StepCount, &d.ActiveKcal, &d.TotalKcal, &d.DistanceM, &d.FloorsClimbed, &d.RestingHR, &d.HRVAvgMs}
-	dest := []any{&d.ID, &day}
-	for i := range dailyFields {
-		dest = append(dest, figures[i], &src[i])
-	}
-	dest = append(dest, &d.Metadata, &d.Provider, &d.Source, &d.IngestedAt)
-	if err := r.Scan(dest...); err != nil {
-		return d, day, err
-	}
-	d.Sources = map[string]string{}
-	for i, f := range dailyFields {
-		if src[i] != nil {
-			d.Sources[f.json] = *src[i]
-		}
-	}
-	day = d.finish(day)
-	return d, day, nil
 }

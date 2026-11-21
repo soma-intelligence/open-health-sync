@@ -405,6 +405,7 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 			scopes = EXCLUDED.scopes,
 			initial_backfill_at = EXCLUDED.initial_backfill_at,
 			tenant_keys_id = EXCLUDED.tenant_keys_id,
+			schedule_after = '-infinity',
 			updated_at = now()`,
 		tenantID, userID, provider, s.providerUserID, s.access, s.refresh, s.expiresAt, s.scopes, backfillAt, keys); err != nil {
 		return fmt.Errorf("store connection: %w", err)
@@ -414,7 +415,7 @@ func (d Deps) connect(ctx context.Context, tenantID, userID uuid.UUID, provider 
 		return err
 	}
 	if !backfilled {
-		if err := enqueueBackfill(ctx, tx, tenantID, userID, provider, d.syncPolicy(provider), now); err != nil {
+		if err := enqueueBackfill(ctx, tx, tenantID, userID, provider, d.backfillPolicy(provider), now); err != nil {
 			return err
 		}
 	}

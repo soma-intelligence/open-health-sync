@@ -42,7 +42,8 @@ type SeedResult struct {
 // run again: the days already written add nothing. An unknown tenant is
 // tenant.ErrNotFound; a user with that ref being deleted is
 // tenant.ErrConflict, or etl.ErrUserNotActive when the deletion starts
-// during the write.
+// during the write. The rows are sealed when the store has a vault
+// (tenant.Store.WithVault).
 func Seed(ctx context.Context, store *tenant.Store, tenantID uuid.UUID, o SeedOptions) (SeedResult, error) {
 	// Generated first: options Generate refuses create no user.
 	batches, err := Generate(Options{Days: o.Days, Seed: o.Seed, Persona: o.Persona})
@@ -55,7 +56,7 @@ func Seed(ctx context.Context, store *tenant.Store, tenantID uuid.UUID, o SeedOp
 	}
 	res := SeedResult{User: u, Created: created}
 	for _, b := range batches {
-		c, err := etl.WriteSynthetic(ctx, store.Pool(), tenantID, u.ID, b.Provider, b.Records)
+		c, err := etl.WriteSynthetic(ctx, store.Pool(), store.Vault(), tenantID, u.ID, b.Provider, b.Records)
 		if err != nil {
 			return res, fmt.Errorf("%s: %w", b.Provider, err)
 		}

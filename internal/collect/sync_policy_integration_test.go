@@ -99,6 +99,9 @@ func TestProviderPolicyReconcilesAtMidnight(t *testing.T) {
 	// reconciliation, does not stand in for it.
 	_, err = e.pool.Exec(ctx, `DELETE FROM ohs_sync.pull_jobs WHERE to_time = $1`, midnight)
 	require.NoError(t, err)
+	// The scheduler already looked at the connection in this slot: look again.
+	_, err = e.pool.Exec(ctx, `UPDATE ohs_sync.connections SET schedule_after = '-infinity'`)
+	require.NoError(t, err)
 	e.notify(t, "pu-1", midnight.Add(-12*time.Hour).Unix(), midnight.Add(time.Hour).Unix())
 	n, err = e.sched.Schedule(ctx)
 	require.NoError(t, err)

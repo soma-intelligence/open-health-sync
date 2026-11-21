@@ -27,6 +27,7 @@ below, is a 404; errors are `application/problem+json` like the rest of the API.
 | `nutrition` | nutrition logs, by start | `GET /v1/users/{id}/nutrition` |
 | `daily` | daily summaries, by date | `GET /v1/users/{id}/daily` |
 | `ecg` | ECG recordings, by start, metadata only (the voltage samples are in the archive) | `GET /v1/users/{id}/ecg` |
+| `labs` | lab results, by collection time | `GET /v1/users/{id}/labs` |
 
 | Parameter | Meaning |
 |---|---|
@@ -112,6 +113,7 @@ canonical/workouts.ndjson
 canonical/workout-routes.ndjson the route points of every workout (each names its workout_id)
 canonical/nutrition.ndjson
 canonical/daily.ndjson          daily summaries
+canonical/labs.ndjson           lab results
 canonical/ecg.ndjson            ECG recordings, each with its voltage samples
 fhir/bundle.json                one FHIR R4 Bundle, type collection
 omh/data-points.ndjson          Open mHealth data points

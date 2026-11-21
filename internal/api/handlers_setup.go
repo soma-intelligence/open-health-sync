@@ -50,7 +50,7 @@ func (s *server) mountSetup(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/setup", h.status)
 	// Wrong tokens are tried from one address at the pace of the OAuth
 	// callback, the other unauthenticated route a browser drives.
-	limit := newRateLimiter(s.d.RateLimitOAuth, RateLimit{})
+	limit := s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.OAuth, RateLimit{} })
 	mux.Handle("POST /v1/setup", s.rateLimit(groupSetup, limit, nil, http.HandlerFunc(h.create)))
 }
 

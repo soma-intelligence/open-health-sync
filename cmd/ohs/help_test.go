@@ -16,7 +16,7 @@ func TestTopLevelHelp(t *testing.T) {
 			t.Fatalf("run %v: %v", args, err)
 		}
 		out := buf.String()
-		for _, want := range []string{"Usage: ohs <command>", "up", "serve", "migrate", "doctor", "admin", "mcp", "import", "seed", "version", "Exit status"} {
+		for _, want := range []string{"Usage: ohs <command>", "up", "serve", "migrate", "doctor", "admin", "vault", "mcp", "import", "seed", "version", "Exit status"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("run %v: help lacks %q:\n%s", args, want, out)
 			}
@@ -41,6 +41,7 @@ func TestSubcommandHelp(t *testing.T) {
 		"usage: ohs doctor":  {"doctor", "-h"},
 		"usage: ohs admin":   {"admin", "tenant", "create", "-h"},
 		"usage: ohs mcp":     {"mcp", "--help"},
+		"usage: ohs vault":   {"vault", "rotate", "-h"},
 		"usage: ohs import":  {"import", "apple-health", "-h"},
 		"usage: ohs seed":    {"seed", "--help"},
 		"usage: ohs version": {"version", "-h"},
@@ -58,7 +59,7 @@ func TestSubcommandHelp(t *testing.T) {
 }
 
 func TestUsageErrorsAreTyped(t *testing.T) {
-	for _, args := range [][]string{nil, {"nope"}, {"migrate"}, {"admin"}, {"doctor", "x"}, {"serve", "x"}, {"help", "nope"}, {"seed"}} {
+	for _, args := range [][]string{nil, {"nope"}, {"migrate"}, {"admin"}, {"doctor", "x"}, {"serve", "x"}, {"help", "nope"}, {"seed"}, {"vault"}, {"vault", "nope"}, {"vault", "rotate"}, {"vault", "rotate", "user", "x"}, {"vault", "seal", "--batch", "0"}} {
 		err := run(args, &bytes.Buffer{})
 		var ue usageError
 		if !errors.As(err, &ue) {

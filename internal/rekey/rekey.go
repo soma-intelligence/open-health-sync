@@ -19,6 +19,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
@@ -67,7 +68,7 @@ var tables = []table{
 		name:   "ohs_core.webhook_endpoints",
 		key:    []string{"id"},
 		types:  []string{"uuid"},
-		sealed: []string{"secret_sealed"},
+		sealed: []string{"secret_sealed", "secret_previous_sealed"},
 		aad: func(k []string) ([]byte, error) {
 			id, err := uuid.Parse(k[0])
 			if err != nil {
@@ -82,6 +83,13 @@ var tables = []table{
 		types:  []string{"text"},
 		sealed: []string{"keys_sealed"},
 		aad:    func(k []string) ([]byte, error) { return providerset.KeysAAD(k[0]), nil },
+	},
+	{
+		name:   "ohs_core.instance_settings",
+		key:    []string{"name"},
+		types:  []string{"text"},
+		sealed: []string{"sealed"},
+		aad:    func(k []string) ([]byte, error) { return settings.SealAAD(k[0]), nil },
 	},
 	{
 		name:   "ohs_core.tenant_provider_keys",

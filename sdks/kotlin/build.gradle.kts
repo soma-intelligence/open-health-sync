@@ -3,6 +3,9 @@ plugins {
     kotlin("jvm") version "2.0.21"
     kotlin("plugin.serialization") version "2.0.21"
     `java-library`
+    // The plugins of health-connect/, declared here so the build has one version of each.
+    id("com.android.library") version "8.13.2" apply false
+    kotlin("android") version "2.0.21" apply false
 }
 
 // Placeholder coordinates: nothing is published yet (docs/sdks/kotlin.md).

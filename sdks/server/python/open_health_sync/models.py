@@ -12,7 +12,18 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
-ConsentCategoryName = Literal["activity", "location", "heart", "ecg", "blood_pressure", "glucose", "respiratory", "body", "sleep", "nutrition", "reproductive", "mental", "other"]
+ConsentCategoryName = Literal["activity", "location", "heart", "ecg", "blood_pressure", "glucose", "respiratory", "body", "sleep", "nutrition", "reproductive", "mental", "labs", "other"]
+
+# One thing an API key may do. `*` is everything. A `:write` scope also grants the
+# `:read` of the same resource. `admin:read` and `admin:write` count only on a key of an
+# instance admin tenant.
+KeyScope = Literal["*", "tenant:read", "users:read", "users:write", "tokens:write", "data:read", "data:write", "data:delete", "connections:read", "connections:write", "webhooks:read", "webhooks:write", "exports:read", "exports:write", "keys:read", "keys:write", "audit:read", "admin:read", "admin:write"]
+
+# What the key may do. `["*"]` is everything; never empty.
+KeyScopes = List[KeyScope]
+
+# Setting name to its new value, or null to go back to the default.
+AdminSettingsPatch = Dict[str, Optional[str]]
 
 # `data.written`: a sync wrote new or changed records. `data.deleted`: records the
 # provider deleted were removed. `data.erased`: everything a user held from one provider
@@ -44,8 +55,13 @@ TimeTagTime = str
 # muscle_soreness from 1 to 5; exertion and pain from 0 to 10 (docs/self-reports.md).
 SelfReportKind = Literal["feeling", "mood", "stress", "energy", "sleep_quality", "muscle_soreness", "exertion", "pain"]
 
+LabStatus = Literal["preliminary", "final", "amended", "corrected", "cancelled"]
+
+# HL7 v3 ObservationInterpretation flags; HH, LL and AA are the critical ones. An upload may send `critical`, stored as AA.
+LabInterpretation = Literal["H", "L", "N", "A", "HH", "LL", "AA"]
+
 # The consent categories a share link can hold: those with records in the FHIR view.
-# location, ecg, nutrition, reproductive and mental are refused (400).
+# location, ecg, nutrition, reproductive, mental and labs are refused (400).
 ShareCategory = Literal["activity", "heart", "blood_pressure", "glucose", "respiratory", "body", "sleep", "other"]
 
 
@@ -131,6 +147,8 @@ class TenantKey(TypedDict):
 
     id: str
     prefix: str
+    # What the key may do. `["*"]` is everything; never empty.
+    scopes: KeyScopes
 
 
 class APIKey(TypedDict):
@@ -140,8 +158,21 @@ class APIKey(TypedDict):
     created_at: str
     last_used_at: Optional[str]
     revoked_at: Optional[str]
+    # When the key stops working by itself. Null for a key that does not expire.
+    expires_at: Optional[str]
+    # What the key may do. `["*"]` is everything; never empty.
+    scopes: KeyScopes
     # True for the key making the call.
     current: bool
+
+
+class CreateKeyRequest(TypedDict, total=False):
+    # When the key stops working by itself (RFC 3339, in the future). Absent or null: the
+    # key lives until it is revoked.
+    expires_at: Optional[str]
+    # What the key may do. Absent, null or empty: on `POST /v1/keys` the scopes of the
+    # key making the call, on the admin route `["*"]`. A list holding `*` is `["*"]`.
+    scopes: Optional[List[KeyScope]]
 
 
 class CreatedAPIKey(TypedDict):
@@ -151,6 +182,10 @@ class CreatedAPIKey(TypedDict):
     created_at: str
     last_used_at: Optional[str]
     revoked_at: Optional[str]
+    # When the key stops working by itself. Null for a key that does not expire.
+    expires_at: Optional[str]
+    # What the key may do. `["*"]` is everything; never empty.
+    scopes: KeyScopes
     # True for the key making the call.
     current: bool
     # The whole key, returned this once.
@@ -163,7 +198,7 @@ class AdminTenant(TypedDict):
     # True for an instance admin tenant, whose keys reach the /v1/admin routes.
     admin: bool
     created_at: str
-    # The tenant's keys that are not revoked.
+    # The tenant's keys that are neither revoked nor expired.
     active_keys: int
 
 
@@ -173,7 +208,7 @@ class CreatedAdminTenant(TypedDict):
     # True for an instance admin tenant, whose keys reach the /v1/admin routes.
     admin: bool
     created_at: str
-    # The tenant's keys that are not revoked.
+    # The tenant's keys that are neither revoked nor expired.
     active_keys: int
     # The tenant's first key, with its secret, returned this once.
     key: CreatedAPIKey
@@ -378,6 +413,85 @@ class AdminProviderKey(TypedDict):
     value: Optional[str]
 
 
+class AdminSetting(TypedDict):
+    name: str
+    label: str
+    section: str
+    help: str
+    type: Literal["bool", "int", "duration", "enum", "url", "list", "rate", "string"]
+    # The lower bound of an `int`, else null.
+    min: Optional[int]
+    # The upper bound of an `int`, else null.
+    max: Optional[int]
+    # The choices of an `enum`, else null.
+    values: Optional[List[str]]
+    # The default as a string; empty when it is derived (see `default_note`).
+    default: str
+    # How a derived default is computed.
+    default_note: Optional[str]
+    # Write only; its value is never served.
+    secret: bool
+    # `live` is applied by every process within moments, `restart` when a process next starts,
+    # `bootstrap` is read from the environment before the database opens and cannot be edited here.
+    apply: Literal["live", "restart", "bootstrap"]
+    source: Literal["env", "console", "default"]
+    # The effective value; for a secret `"set"`, or null when it is not set.
+    value: Optional[str]
+    # The value saved in the console while `source` is `env` (`"set"` for a secret), else null.
+    stored_value: Optional[str]
+    # Why the saved value is skipped, else null.
+    invalid: Optional[str]
+
+
+class AdminSettings(TypedDict):
+    revision: int
+    # Every setting, in registry order.
+    data: List[AdminSetting]
+
+
+class _AdminSettingsProblemRequired(TypedDict):
+    type: str
+    title: str
+    status: int
+    settings: List[AdminSettingsProblemSetting]
+
+
+class AdminSettingsProblem(_AdminSettingsProblemRequired, total=False):
+    """A refused settings change, with one entry per setting at fault."""
+
+    detail: str
+    # The X-Request-Id of the response, to quote when reporting the error.
+    request_id: str
+
+
+class AdminSettingsProblemSetting(TypedDict):
+    name: str
+    message: str
+
+
+class AdminProcess(TypedDict):
+    id: str
+    host: str
+    roles: List[str]
+    version: str
+    started_at: str
+    seen_at: str
+    start_revision: int
+    live_revision: int
+    # Saved settings this process did not use (names only).
+    skipped: List[str]
+    reload_error: Optional[str]
+    # It started before the last change to a `restart` setting.
+    behind: bool
+    # Its live revision trails the stored one for over a minute.
+    stale: bool
+
+
+class AdminProcesses(TypedDict):
+    revision: int
+    data: List[AdminProcess]
+
+
 class AdminProviderPatch(TypedDict, total=False):
     # Key name to its new value; null removes the key.
     keys: Dict[str, Optional[str]]
@@ -466,15 +580,19 @@ class _AuditEventRequired(TypedDict):
     id: int
     at: str
     actor: AuditEventActor
-    # data.read, data.export, data.write, user.create, user.read, user.delete,
+    # data.read, data.export, data.write, user.create, user.read, user.update, user.delete,
     # user.erased, token.create, connection.read, connection.create,
     # connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
     # config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
     # key.revoke, share.create,
-    # share.read, share.revoke, share.access (more may be added).
+    # share.read, share.revoke, share.access, session.create, session.read,
+    # session.delete, session.tenant (more may be added).
     action: str
     # The end user the action concerns.
     user_id: Optional[str]
+    # The tenant of the console session behind the request, which differs from the tenant
+    # of the event when an admin session views another tenant. Null for a key or token.
+    actor_tenant_id: Optional[str]
     # The HTTP status, null outside a request.
     status: Optional[int]
     # Identifiers only, such as a job id or a key prefix.
@@ -498,6 +616,42 @@ class AuditEventActor(TypedDict):
     id: str
 
 
+class ConsoleSignIn(TypedDict):
+    # A tenant API key (`ohs_sk_`) with the `tenant:read` scope. Never stored or logged.
+    key: str
+
+
+class ConsoleTenantSwitch(TypedDict):
+    tenant_id: str
+
+
+class ConsoleTenant(TypedDict):
+    id: str
+    name: str
+    # True for the instance admin tenant.
+    admin: bool
+
+
+class _ConsoleSessionRequired(TypedDict):
+    # The tenant of the key that signed in.
+    tenant: ConsoleTenant
+    # The tenant requests of the session run as.
+    acting_tenant: ConsoleTenant
+    # The first 12 characters of the key, as `/v1/keys` shows them.
+    key_prefix: str
+    key_scopes: List[str]
+    # True when the server runs with OHS_CONSOLE=read-only.
+    read_only: bool
+    # Seven days after sign in. Twelve hours without a request ends it sooner.
+    expires_at: str
+
+
+class ConsoleSession(_ConsoleSessionRequired, total=False):
+    # Sent for the `X-OHS-CSRF` header of every write. Present after sign in and on
+    # `GET /console/session` (which replaces the token); absent after a tenant switch.
+    csrf_token: str
+
+
 class _ProviderRequired(TypedDict):
     slug: str
     kinds: List[Literal["oauth", "push", "device"]]
@@ -513,6 +667,14 @@ class Provider(_ProviderRequired, total=False):
 class CreateUserRequest(TypedDict, total=False):
     # The tenant's own reference, unique per tenant.
     external_ref: str
+    # The user's IANA time zone, such as `Europe/Paris`. Left out or null, the user has
+    # none until one is set or learnt from a device upload. See `User.timezone`.
+    timezone: Optional[str]
+
+
+class UpdateUserRequest(TypedDict):
+    # An IANA time zone name such as `Europe/Paris`, or null to clear the user's zone.
+    timezone: Optional[str]
 
 
 class User(TypedDict):
@@ -520,6 +682,15 @@ class User(TypedDict):
     external_ref: Optional[str]
     status: Literal["active", "deleting"]
     created_at: str
+    # The user's IANA time zone, null when none is known. It is the zone of the local
+    # day of a sample that carries no zone of its own: daily totals take the sample's
+    # zone, then this one, then UTC.
+    timezone: Optional[str]
+    # Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+    # when it was taken from the latest record of a device upload (Apple Health, Health
+    # Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+    # Null when `timezone` is.
+    timezone_source: Optional[Literal["explicit", "learnt"]]
 
 
 class DeletionJob(TypedDict):
@@ -544,6 +715,9 @@ class MintTokenRequest(_MintTokenRequestRequired, total=False):
 
 
 class UserToken(TypedDict):
+    # Names the token without revealing it (the first 16 hex characters of its SHA-256
+    # hash): the audit log's `actor.id`, and what revoking this one token takes.
+    id: str
     # ohs_ut_ token. Shown only once.
     token: str
     expires_at: str
@@ -581,6 +755,15 @@ class Webhook(TypedDict):
     last_success_at: Optional[str]
     created_at: str
     updated_at: str
+    # Failed attempts since the last success, whatever the deliveries.
+    consecutive_failures: int
+    # Set while the endpoint is paused after failures in a row: nothing is sent to it before
+    # this time, then one request probes it. Null when it is not paused. Enabling the
+    # endpoint or changing its `url` ends a pause.
+    paused_until: Optional[str]
+    # Until when the secret the last rotation replaced also signs requests; null outside a
+    # rotation's grace period.
+    previous_secret_expires_at: Optional[str]
 
 
 class WebhookWithSecret(TypedDict):
@@ -597,6 +780,15 @@ class WebhookWithSecret(TypedDict):
     last_success_at: Optional[str]
     created_at: str
     updated_at: str
+    # Failed attempts since the last success, whatever the deliveries.
+    consecutive_failures: int
+    # Set while the endpoint is paused after failures in a row: nothing is sent to it before
+    # this time, then one request probes it. Null when it is not paused. Enabling the
+    # endpoint or changing its `url` ends a pause.
+    paused_until: Optional[str]
+    # Until when the secret the last rotation replaced also signs requests; null outside a
+    # rotation's grace period.
+    previous_secret_expires_at: Optional[str]
     # whsec_ signing secret. Shown only once.
     secret: str
 
@@ -1372,6 +1564,167 @@ class SelfReportsResponse(TypedDict):
     duplicate: bool
 
 
+class LabUpload(TypedDict):
+    """The simple form of a lab upload (docs/labs.md). Unknown fields are a 400."""
+
+    reports: List[LabReportInput]
+
+
+class _LabReportInputRequired(TypedDict):
+    results: List[LabResultInput]
+
+
+class LabReportInput(_LabReportInputRequired, total=False):
+    """One report. Its status (final when absent), collection time, issued time and performer are the defaults of its results."""
+
+    # Your id of the report. Unique in the upload.
+    id: str
+    # The panel's LOINC code.
+    loinc: str
+    # Your own code of the panel.
+    code: str
+    system: str
+    display: str
+    status: LabStatus
+    # The default of its results' collection times.
+    collected_at: str
+    issued_at: str
+    # The lab that ran the tests.
+    performer: str
+    # Who ordered them.
+    orderer: str
+
+
+class _LabResultInputRequired(TypedDict):
+    # Your id of the result. Sending it again replaces it.
+    id: str
+
+
+class LabResultInput(_LabResultInputRequired, total=False):
+    """One test result. `loinc` or `code` is required. At most one of `value`,
+    `value_string` and `value_code`; none only for a cancelled result or one with
+    `absent`. `collected_at` is required here or on the report.
+    """
+
+    loinc: str
+    # Your own code of the test.
+    code: str
+    system: str
+    display: str
+    value: float
+    comparator: Literal["<", "<=", ">=", ">"]
+    # The UCUM unit of `value`.
+    unit: str
+    value_string: str
+    value_code: str
+    value_system: str
+    reference_low: float
+    reference_high: float
+    reference_text: str
+    interpretation: Literal["H", "L", "N", "A", "HH", "LL", "AA", "critical"]
+    status: LabStatus
+    specimen: str
+    collected_at: str
+    collected_end: str
+    issued_at: str
+    performer: str
+    # Why there is no value (a FHIR data absent reason code).
+    absent: str
+
+
+class FHIRLabUpload(TypedDict):
+    """A FHIR R4 Bundle, DiagnosticReport or Observation of category laboratory. A
+    DiagnosticReport's results are resolved in the Bundle (by fullUrl or Type/id) or in
+    its contained resources. See docs/labs.md for the elements read and those rejected.
+    """
+
+    resourceType: Literal["Bundle", "DiagnosticReport", "Observation"]
+
+
+class LabUploadResponse(TypedDict):
+    # The reports accepted, in upload order.
+    reports: List[LabUploadResponseReport]
+    # true when this exact body had already been received.
+    duplicate: bool
+
+
+class LabUploadResponseReport(TypedDict):
+    # Null for the results a FHIR upload sent without a DiagnosticReport.
+    id: Optional[str]
+    results: List[LabUploadResponseReportResult]
+
+
+class LabUploadResponseReportResult(TypedDict):
+    id: str
+    # `lab:loinc:<code>` or `lab:local:<code>`.
+    code: str
+    status: LabStatus
+
+
+class LabResult(TypedDict):
+    # The integration the record came through (apple_health, withings...).
+    provider: str
+    # The vendor that produced the record, when it differs or is known.
+    source: Optional[str]
+    device: Optional[str]
+    ingested_at: str
+    id: int
+    report_id: Optional[str]
+    code: str
+    loinc: Optional[str]
+    source_code: Optional[str]
+    source_system: Optional[str]
+    display: Optional[str]
+    value: Optional[float]
+    unit: Optional[str]
+    comparator: Optional[str]
+    value_string: Optional[str]
+    value_code: Optional[str]
+    value_system: Optional[str]
+    # The value in `normalized_unit`, only for the analytes and units of the normalization table (docs/labs.md).
+    normalized_value: Optional[float]
+    normalized_unit: Optional[str]
+    reference_low: Optional[float]
+    reference_high: Optional[float]
+    reference_text: Optional[str]
+    interpretation: Union[LabInterpretation, Any]
+    interpretation_text: Optional[str]
+    critical: bool
+    status: LabStatus
+    specimen: Optional[str]
+    collected_at: str
+    collected_end: Optional[str]
+    issued_at: Optional[str]
+    # The source gave no collection time; `collected_at` is the issued time.
+    issued_as_collected: bool
+    data_absent_reason: Optional[str]
+    performer: Optional[str]
+    orderer: Optional[str]
+    # The source's id of the result.
+    external_id: str
+
+
+class LabResultPage(TypedDict):
+    data: List[LabResult]
+    # Null on the last page.
+    next_cursor: Optional[str]
+
+
+class LabReport(TypedDict):
+    id: str
+    loinc: Optional[str]
+    code: Optional[str]
+    system: Optional[str]
+    display: Optional[str]
+    status: Union[LabStatus, Any]
+    # The report's collection time, else the earliest of its results'.
+    collected_at: str
+    issued_at: Optional[str]
+    performer: Optional[str]
+    orderer: Optional[str]
+    results: List[LabResult]
+
+
 class _CreateTimeTagRequestRequired(TypedDict):
     # The controlled vocabulary of time tags; see docs/time-tags.md.
     kind: TimeTagKind
@@ -1808,7 +2161,7 @@ class FHIREverythingBundle(_FHIREverythingBundleRequired, total=False):
 
 class _FHIREverythingBundleEntryRequired(TypedDict):
     fullUrl: str
-    resource: Union[FHIRPatient, FHIRObservation, FHIRDevice, FHIRProvenance]
+    resource: Union[FHIRPatient, FHIRObservation, FHIRDiagnosticReport, FHIRDevice, FHIRProvenance]
 
 
 class FHIREverythingBundleEntry(_FHIREverythingBundleEntryRequired, total=False):
@@ -1862,17 +2215,72 @@ class OMHDataPointPage(TypedDict):
     next_cursor: Optional[str]
 
 
+class _FHIRDiagnosticReportRequired(TypedDict):
+    resourceType: Literal["DiagnosticReport"]
+    id: str
+    status: Literal["preliminary", "final", "amended", "corrected", "cancelled", "unknown"]
+    category: List[FHIRCodeableConcept]
+    code: FHIRCodeableConcept
+    subject: FHIRReference
+
+
+class FHIRDiagnosticReport(_FHIRDiagnosticReportRequired, total=False):
+    """A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md)."""
+
+    meta: FHIRDiagnosticReportMeta
+    # The source's report id.
+    identifier: List[FHIRIdentifier]
+    effectiveDateTime: str
+    issued: str
+    performer: List[FHIRReference]
+    # The Observations (`lab-` ids) of its results.
+    result: List[FHIRReference]
+
+
+class FHIRDiagnosticReportMeta(TypedDict, total=False):
+    source: str
+
+
+class _FHIRDiagnosticReportBundleRequired(TypedDict):
+    resourceType: Literal["Bundle"]
+    type: Literal["searchset"]
+    link: List[FHIRBundleLink]
+
+
+class FHIRDiagnosticReportBundle(_FHIRDiagnosticReportBundleRequired, total=False):
+    """A FHIR R4 searchset Bundle of DiagnosticReports."""
+
+    # Absent on an empty page.
+    entry: List[FHIRDiagnosticReportBundleEntry]
+
+
+class _FHIRDiagnosticReportBundleEntryRequired(TypedDict):
+    fullUrl: str
+    # A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md).
+    resource: FHIRDiagnosticReport
+
+
+class FHIRDiagnosticReportBundleEntry(_FHIRDiagnosticReportBundleEntryRequired, total=False):
+    search: FHIRDiagnosticReportBundleEntrySearch
+
+
+class FHIRDiagnosticReportBundleEntrySearch(TypedDict, total=False):
+    mode: Literal["match"]
+
+
 class _FHIRObservationRequired(TypedDict):
     resourceType: Literal["Observation"]
     id: str
-    status: Literal["final"]
+    # final, except for a lab result, which keeps its own status.
+    status: Literal["final", "preliminary", "amended", "corrected", "cancelled"]
     code: FHIRCodeableConcept
     subject: FHIRReference
 
 
 class FHIRObservation(_FHIRObservationRequired, total=False):
     """A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
-    session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+    session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+    docs/labs.md).
     """
 
     meta: FHIRObservationMeta
@@ -1881,14 +2289,22 @@ class FHIRObservation(_FHIRObservationRequired, total=False):
     category: List[FHIRCodeableConcept]
     effectiveDateTime: str
     effectivePeriod: FHIRObservationEffectivePeriod
-    # When the record was ingested (the later of a panel's two samples).
+    # When the record was ingested (the later of a panel's two samples); for a lab result, when the lab issued it.
     issued: str
-    # The person, on a self report (category survey); absent otherwise.
+    # The person, on a self report (category survey); the lab, on a lab result when known; absent otherwise.
     performer: List[FHIRReference]
     valueQuantity: FHIRQuantity
-    # Instead of valueQuantity for a classification (ecg_afib_classification).
+    # Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result.
     valueCodeableConcept: FHIRObservationValueCodeableConcept
+    # A lab result given as text.
+    valueString: str
     dataAbsentReason: FHIRCodeableConcept
+    # A lab result's flag (v3 ObservationInterpretation H, L, N, A, HH, LL, AA).
+    interpretation: List[FHIRCodeableConcept]
+    # A lab result's specimen, as a display.
+    specimen: FHIRObservationSpecimen
+    # A lab result's reference range, in the unit of its value.
+    referenceRange: List[FHIRObservationReferenceRange]
     device: FHIRReference
     # The two values of a blood pressure panel, or a sleep session's, workout's, daily
     # summary's or ECG recording's other fields; a field without a value is left out.
@@ -1914,9 +2330,23 @@ class FHIRObservationEffectivePeriod(TypedDict, total=False):
 
 
 class FHIRObservationValueCodeableConcept(TypedDict, total=False):
-    """Instead of valueQuantity for a classification (ecg_afib_classification)."""
+    """Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result."""
 
     coding: List[FHIRCoding]
+    text: str
+
+
+class FHIRObservationSpecimen(TypedDict, total=False):
+    """A lab result's specimen, as a display."""
+
+    reference: str
+    identifier: FHIRIdentifier
+    display: str
+
+
+class FHIRObservationReferenceRange(TypedDict, total=False):
+    low: FHIRQuantity
+    high: FHIRQuantity
     text: str
 
 
@@ -1953,6 +2383,8 @@ class FHIRSampledData(_FHIRSampledDataRequired, total=False):
 
 class FHIRQuantity(TypedDict, total=False):
     value: float
+    # A lab result's bound (`<5`).
+    comparator: Literal["<", "<=", ">=", ">"]
     unit: str
     system: Literal["http://unitsofmeasure.org"]
     code: str
@@ -1979,7 +2411,8 @@ class FHIRBundleLink(TypedDict):
 class _FHIRBundleEntryRequired(TypedDict):
     fullUrl: str
     # A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
-    # session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+    # session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+    # docs/labs.md).
     resource: FHIRObservation
 
 
@@ -2011,14 +2444,26 @@ class ListWebhooksResponse(TypedDict):
     next_cursor: Optional[str]
 
 
+class RotateWebhookSecretRequest(TypedDict, total=False):
+    # End the replaced secret at once instead of after the grace period.
+    expire_previous: bool
+
+
 class RotateWebhookSecretResponse(TypedDict):
     secret: str
+    # Until when the replaced secret also signs; null when it stopped at once.
+    previous_secret_expires_at: Optional[str]
 
 
 class ListWebhookDeliveriesResponse(TypedDict):
     data: List[WebhookDelivery]
     # Null on the last page.
     next_cursor: Optional[str]
+
+
+class RevokeUserTokensResponse(TypedDict):
+    # How many tokens were still valid.
+    revoked: int
 
 
 class ListConnectionsResponse(TypedDict):
@@ -2078,6 +2523,10 @@ _SyncConnectionRequestOptional = TypedDict(
 
 class SyncConnectionRequest(_SyncConnectionRequestOptional):
     pass
+
+
+class RetryFailedSyncRunsResponse(TypedDict):
+    retried: int
 
 
 class ListSyncRunsResponse(TypedDict):
@@ -2154,6 +2603,18 @@ class RetryParkedETLJobsResponse(TypedDict):
     retried: int
 
 
+class UpdateAdminSettingsResponse(TypedDict):
+    revision: int
+    # The names saved or reset, sorted.
+    changed: List[str]
+    # The names of `changed` that apply at the next start of each process, sorted.
+    restart_required: List[str]
+
+
+class RetryAdminTenantFailedSyncRunsResponse(TypedDict):
+    retried: int
+
+
 class ListAuditEventsResponse(TypedDict):
     data: List[AuditEvent]
     # Null on the last page.
@@ -2170,11 +2631,18 @@ class ReadyzResponse(TypedDict, total=False):
 
 __all__ = [
     "APIKey",
+    "AdminProcess",
+    "AdminProcesses",
     "AdminProvider",
     "AdminProviderKey",
     "AdminProviderPatch",
     "AdminProviderSync",
     "AdminProviderUrl",
+    "AdminSetting",
+    "AdminSettings",
+    "AdminSettingsPatch",
+    "AdminSettingsProblem",
+    "AdminSettingsProblemSetting",
     "AdminTenant",
     "AdminTenantProvider",
     "AdminTenantProviderKeys",
@@ -2194,9 +2662,14 @@ __all__ = [
     "ConsentCategoryName",
     "ConsentEvent",
     "ConsentSource",
+    "ConsoleSession",
+    "ConsoleSignIn",
+    "ConsoleTenant",
+    "ConsoleTenantSwitch",
     "Coverage",
     "CoverageDay",
     "CreateAdminTenantRequest",
+    "CreateKeyRequest",
     "CreateSelfReportsRequest",
     "CreateShareRequest",
     "CreateTimeTagRequest",
@@ -2237,16 +2710,24 @@ __all__ = [
     "FHIRDeviceBundleEntry",
     "FHIRDeviceBundleEntrySearch",
     "FHIRDeviceDeviceName",
+    "FHIRDiagnosticReport",
+    "FHIRDiagnosticReportBundle",
+    "FHIRDiagnosticReportBundleEntry",
+    "FHIRDiagnosticReportBundleEntrySearch",
+    "FHIRDiagnosticReportMeta",
     "FHIREverythingBundle",
     "FHIREverythingBundleEntry",
     "FHIREverythingBundleEntrySearch",
     "FHIRIdentifier",
+    "FHIRLabUpload",
     "FHIRMeta",
     "FHIRObservation",
     "FHIRObservationComponent",
     "FHIRObservationEffectivePeriod",
     "FHIRObservationIdentifier",
     "FHIRObservationMeta",
+    "FHIRObservationReferenceRange",
+    "FHIRObservationSpecimen",
     "FHIRObservationValueCodeableConcept",
     "FHIRPatient",
     "FHIRProvenance",
@@ -2267,6 +2748,19 @@ __all__ = [
     "IngestBluetoothResponse",
     "IngestHealthConnectResponse",
     "IngestXiaomiResponse",
+    "KeyScope",
+    "KeyScopes",
+    "LabInterpretation",
+    "LabReport",
+    "LabReportInput",
+    "LabResult",
+    "LabResultInput",
+    "LabResultPage",
+    "LabStatus",
+    "LabUpload",
+    "LabUploadResponse",
+    "LabUploadResponseReport",
+    "LabUploadResponseReportResult",
     "ListAuditEventsResponse",
     "ListConnectionsResponse",
     "ListConsentHistoryResponse",
@@ -2307,8 +2801,12 @@ __all__ = [
     "RRInterval",
     "RRIntervalPage",
     "ReadyzResponse",
+    "RetryAdminTenantFailedSyncRunsResponse",
+    "RetryFailedSyncRunsResponse",
     "RetryParkedETLJobsRequest",
     "RetryParkedETLJobsResponse",
+    "RevokeUserTokensResponse",
+    "RotateWebhookSecretRequest",
     "RotateWebhookSecretResponse",
     "RoutePoint",
     "RoutePointPage",
@@ -2351,7 +2849,9 @@ __all__ = [
     "TimeTagKind",
     "TimeTagPage",
     "TimeTagTime",
+    "UpdateAdminSettingsResponse",
     "UpdateTimeTagRequest",
+    "UpdateUserRequest",
     "UpdateWebhookRequest",
     "User",
     "UserToken",

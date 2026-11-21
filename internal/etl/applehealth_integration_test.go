@@ -32,13 +32,13 @@ func TestAppleHealthUploadLinesLand(t *testing.T) {
 	assert.Equal(t, 1, e.count("sleep_sessions"))
 	assert.Equal(t, 1, e.count("workouts"))
 	var failed int
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT count(*) FROM ohs_data.failed_records WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user).Scan(&failed))
 	assert.Equal(t, 0, failed)
 
 	var unit, tz string
 	var value float64
-	require.NoError(t, e.pool.QueryRow(context.Background(), `
+	require.NoError(t, e.read().QueryRow(context.Background(), `
 		SELECT unit, value, metadata->>'timezone' FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND quantity_type = 'oxygen_saturation'`,
 		e.tenant, e.user).Scan(&unit, &value, &tz))
@@ -64,7 +64,7 @@ func TestAppleHealthUnknownTypesAreSkipped(t *testing.T) {
 	assert.Equal(t, 0, e.count("category_samples"))
 	assert.Equal(t, 0, e.count("failed_records"))
 	var metrics []string
-	rows, err := e.pool.Query(context.Background(),
+	rows, err := e.read().Query(context.Background(),
 		`SELECT DISTINCT metric FROM ohs_sync.pull_coverage WHERE tenant_id = $1 AND user_id = $2`, e.tenant, e.user)
 	require.NoError(t, err)
 	for rows.Next() {
@@ -100,7 +100,7 @@ func TestReprocessUserRecipe(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, tag.RowsAffected())
 	var key, tier string
-	require.NoError(t, e.pool.QueryRow(context.Background(),
+	require.NoError(t, e.read().QueryRow(context.Background(),
 		`SELECT key, tier FROM ohs_sync.etl_jobs WHERE tenant_id = $1 AND user_id = $2 AND status = 'pending'`,
 		e.tenant, e.user).Scan(&key, &tier))
 	assert.Equal(t, job.Key, key)
@@ -131,11 +131,11 @@ func TestAppleHealthNULCharactersLand(t *testing.T) {
 
 	assert.Equal(t, 3, e.count("quantity_samples"))
 	var name string
-	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT source_name FROM ohs_data.quantity_samples
+	require.NoError(t, e.read().QueryRow(context.Background(), `SELECT source_name FROM ohs_data.quantity_samples
 		WHERE tenant_id = $1 AND user_id = $2 AND value = 72`, e.tenant, e.user).Scan(&name))
 	assert.Equal(t, "Watch", name)
 	var failed int
-	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT count(*) FROM ohs_data.failed_records
+	require.NoError(t, e.read().QueryRow(context.Background(), `SELECT count(*) FROM ohs_data.failed_records
 		WHERE tenant_id = $1 AND user_id = $2 AND reason_code = 'validation'`, e.tenant, e.user).Scan(&failed))
 	assert.Equal(t, 1, failed, "the out of range line is recorded, its payload stripped of the NUL")
 }

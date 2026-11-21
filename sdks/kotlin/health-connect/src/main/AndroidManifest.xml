@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!--
+  No permission is declared here: your app declares the android.permission.health.READ_*
+  permissions of the record types it reads (docs/sdks/kotlin.md#health-connect-sync), so it
+  never asks for more than it uses.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

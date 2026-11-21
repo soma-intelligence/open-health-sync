@@ -20,6 +20,9 @@ var skipped = map[string]string{
 	"metrics":       "Prometheus scrapes it",
 	"openapi":       "the document the SDKs are generated from",
 
+	"streamEvents":     "a long-lived Server-Sent Events stream: streamEvents in events.ts, stream_events in events.py",
+	"streamUserEvents": "a long-lived Server-Sent Events stream: streamEvents in events.ts, stream_events in events.py",
+
 	"connectPage":         "the end user's browser opens the connect link",
 	"connectProviderPage": "the end user's browser opens the connect link",
 	"connectStart":        "the connect page's form posts here",
@@ -31,6 +34,11 @@ var skipped = map[string]string{
 	"shareFile":              "a share link's reader downloads the file here",
 	"shareViewer":            "the reader's browser opens the viewer",
 	"shareViewerAsset":       "the viewer page loads its script and stylesheet",
+
+	"createConsoleSession": "the console's own sign in, see docs/console.md",
+	"getConsoleSession":    "the console's own sign in, see docs/console.md",
+	"deleteConsoleSession": "the console's own sign in, see docs/console.md",
+	"switchConsoleTenant":  "the console's own sign in, see docs/console.md",
 
 	"listAdminProviders":  "the instance admin sets providers up in the console, see docs/console.md",
 	"getAdminProvider":    "the instance admin sets providers up in the console, see docs/console.md",

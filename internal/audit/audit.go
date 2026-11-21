@@ -53,9 +53,11 @@ const (
 	DataWrite        = "data.write"
 	UserCreate       = "user.create"
 	UserRead         = "user.read"
+	UserUpdate       = "user.update"
 	UserDelete       = "user.delete"
 	UserErased       = "user.erased"
 	TokenCreate      = "token.create"
+	TokenRevoke      = "token.revoke"
 	ConnectionRead   = "connection.read"
 	ConnectionCreate = "connection.create"
 	ConnectionDelete = "connection.delete"
@@ -77,6 +79,14 @@ const (
 	// ShareAccess is a manifest request on a known share link, or a file
 	// download; detail has the share id and the outcome.
 	ShareAccess = "share.access"
+	// AuthFailed is a request refused with 401 because its API key or user
+	// token is unknown, revoked or expired. Detail has the client address,
+	// the reason and, for a key, its non-secret prefix, never the secret. It
+	// is recorded on the tenant of a revoked or expired credential, and on
+	// the nil tenant id when the credential is unknown. At most a few events
+	// per client address and minute are written; "suppressed" counts the
+	// failures that were not.
+	AuthFailed = "auth.failed"
 	// TenantProvider is a provider turned off or back on for one tenant by
 	// an instance admin; detail has the provider and enabled.
 	TenantProvider = "tenant.provider"
@@ -85,6 +95,22 @@ const (
 	// whether keys are set after the change and how many connections were
 	// set needs_reauth, never a key.
 	TenantProviderKeys = "tenant.provider_keys"
+	// VaultKeyCreated is a tenant or user key of the vault created; detail
+	// has which (tenant or user) and its version, never key material.
+	VaultKeyCreated = "vault.key_created"
+	// VaultUserShredded is a user's keys deleted at the start of their
+	// erasure; detail has the deletion job id, never key material.
+	VaultUserShredded = "vault.user_shredded"
+	// SessionCreate is a console sign in; detail has the key's key_prefix,
+	// never the key or a token.
+	SessionCreate = "session.create"
+	// SessionRead is GET /console/session.
+	SessionRead = "session.read"
+	// SessionDelete is a console sign out.
+	SessionDelete = "session.delete"
+	// SessionTenant is the acting tenant of a console session changed; detail
+	// has from_tenant_id and to_tenant_id.
+	SessionTenant = "session.tenant"
 )
 
 // Event is one entry to record.
@@ -101,6 +127,28 @@ type Event struct {
 	// Detail holds identifiers only (a job id, a provider slug), never a
 	// value read or written.
 	Detail map[string]any
+	// ActorTenant is the tenant of the console session behind the request
+	// (Principal.Actor); nil otherwise.
+	ActorTenant *uuid.UUID
+	// At is when the event happened. Zero means the time of the write; the
+	// buffered Writer sets it when an event is queued.
+	At time.Time
+}
+
+// Buffered reports whether an event of this action may wait in the buffered
+// Writer: reads, device uploads, immediate pulls and failed authentication,
+// the high volume events. Every other action (keys, tokens, deletion,
+// exports, consent, shares, session sign in and out, tenants, connections made or removed, webhooks
+// and settings changed) is written before the response is over, so it is
+// never lost with the queue. An action added later is synchronous until it
+// is listed here.
+func Buffered(action string) bool {
+	switch action {
+	case DataRead, DataWrite, UserRead, ConnectionRead, ConnectionSync, ConsentRead,
+		WebhookRead, AuditRead, ConfigRead, ShareRead, AuthFailed, SessionRead:
+		return true
+	}
+	return false
 }
 
 // TokenID names a user token in the log without revealing it: the first 16
@@ -130,20 +178,32 @@ func Record(ctx context.Context, db Execer, ev Event) error {
 			return fmt.Errorf("audit: detail: %w", err)
 		}
 	}
-	var status *int
-	if ev.Status != 0 {
-		status = &ev.Status
-	}
 	_, err := db.Exec(ctx, `
 		INSERT INTO ohs_core.audit_events
-		    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		ev.Tenant, ev.User, string(ev.ActorType), pgtext.Clean(ev.ActorID), ev.Action, ev.Method,
-		pgtext.Clean(ev.Route), status, pgtext.Clean(ev.RequestID), detail)
+		    (tenant_id, user_id, actor_type, actor_id, action, method, route, status, request_id, detail, at, actor_tenant_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, coalesce($11::timestamptz, now()), $12)`,
+		eventArgs(ev, detail)...)
 	if err != nil {
 		return fmt.Errorf("audit: record: %w", err)
 	}
 	return nil
+}
+
+// eventColumns is how many columns eventArgs fills.
+const eventColumns = 12
+
+// eventArgs are the values of one row, in the column order of Record.
+func eventArgs(ev Event, detail []byte) []any {
+	var status *int
+	if ev.Status != 0 {
+		status = &ev.Status
+	}
+	var at *time.Time
+	if !ev.At.IsZero() {
+		at = &ev.At
+	}
+	return []any{ev.Tenant, ev.User, string(ev.ActorType), pgtext.Clean(ev.ActorID), ev.Action, ev.Method,
+		pgtext.Clean(ev.Route), status, pgtext.Clean(ev.RequestID), detail, at, ev.ActorTenant}
 }
 
 // detailJSON encodes d with every string, member names included, as Postgres
@@ -208,6 +268,16 @@ func Classify(method, pattern string) string {
 		}
 	}
 	switch {
+	case strings.HasPrefix(path, "/console/session"):
+		switch {
+		case path == "/console/session/tenant":
+			return SessionTenant
+		case method == "POST":
+			return SessionCreate
+		case method == "DELETE":
+			return SessionDelete
+		}
+		return SessionRead
 	case path == "/mcp":
 		return DataRead // the MCP server is read only
 	case strings.HasPrefix(path, "/v1/ingest/"):
@@ -245,20 +315,30 @@ func Classify(method, pattern string) string {
 		}
 		return UserRead
 	case path == userPrefix:
-		if method == "DELETE" {
+		switch method {
+		case "DELETE":
 			return UserDelete
+		case "PATCH":
+			return UserUpdate
 		}
 		return UserRead
 	case strings.HasPrefix(path, "/v1/deletions/"):
 		return UserRead
 	case strings.HasPrefix(path, userPrefix+"/tokens"):
+		if method == "DELETE" {
+			return TokenRevoke
+		}
 		return TokenCreate
 	case path == userPrefix+"/connect-sessions":
 		return ConnectionCreate // a hosted connection page link
 	case strings.HasPrefix(path, userPrefix+"/sync-runs"):
+		if method == "POST" {
+			return ConnectionSync // a failed run queued again
+		}
 		return ConnectionRead
-	case strings.HasPrefix(path, userPrefix+"/connections") && strings.HasSuffix(path, "/sync"):
-		return ConnectionSync // an immediate pull
+	case strings.HasPrefix(path, userPrefix+"/connections") &&
+		(strings.HasSuffix(path, "/sync") || strings.HasSuffix(path, "/sync-runs/retry")):
+		return ConnectionSync // an immediate pull, or the failed runs queued again
 	case strings.HasPrefix(path, userPrefix+"/connections"):
 		switch method {
 		case "POST":
@@ -311,6 +391,9 @@ type Entry struct {
 	Status    *int           `json:"status"`
 	RequestID string         `json:"request_id,omitempty"`
 	Detail    map[string]any `json:"detail"`
+	// ActorTenantID is the tenant of the console session behind the event
+	// (Principal.Actor); null when there was none.
+	ActorTenantID *uuid.UUID `json:"actor_tenant_id"`
 }
 
 // Filter selects entries of one tenant, newest first.
@@ -319,8 +402,12 @@ type Filter struct {
 	Action string // exact action, or a prefix ending in "." ("data.")
 	Since  time.Time
 	Until  time.Time
-	Before int64 // cursor: entries with a smaller id
-	Limit  int
+	// ActorType and ActorID keep the events of one credential; ActorID
+	// without ActorType is the caller's mistake, checked by the API.
+	ActorType ActorType
+	ActorID   string
+	Before    int64 // cursor: entries with a smaller id
+	Limit     int
 }
 
 // Querier is a pool or a transaction.
@@ -334,7 +421,7 @@ func List(ctx context.Context, db Querier, tenant uuid.UUID, f Filter) ([]Entry,
 	if f.Limit <= 0 {
 		f.Limit = 100
 	}
-	q := `SELECT id, at, actor_type, actor_id, action, user_id, method, route, status, request_id, detail
+	q := `SELECT id, at, actor_type, actor_id, action, user_id, method, route, status, request_id, detail, actor_tenant_id
 	      FROM ohs_core.audit_events WHERE tenant_id = $1`
 	args := []any{tenant}
 	add := func(cond string, v any) {
@@ -348,6 +435,12 @@ func List(ctx context.Context, db Querier, tenant uuid.UUID, f Filter) ([]Entry,
 		add("starts_with(action, $%d)", f.Action)
 	} else if f.Action != "" {
 		add("action = $%d", f.Action)
+	}
+	if f.ActorType != "" {
+		add("actor_type = $%d", string(f.ActorType))
+	}
+	if f.ActorID != "" {
+		add("actor_id = $%d", f.ActorID)
 	}
 	if !f.Since.IsZero() {
 		add("at >= $%d", f.Since)
@@ -374,7 +467,7 @@ func List(ctx context.Context, db Querier, tenant uuid.UUID, f Filter) ([]Entry,
 			detail []byte
 		)
 		if err := rows.Scan(&e.ID, &e.At, &actor, &e.Actor.ID, &e.Action, &e.UserID, &e.Method, &e.Route,
-			&e.Status, &e.RequestID, &detail); err != nil {
+			&e.Status, &e.RequestID, &detail, &e.ActorTenantID); err != nil {
 			return nil, 0, fmt.Errorf("audit: scan: %w", err)
 		}
 		e.Actor.Type = ActorType(actor)

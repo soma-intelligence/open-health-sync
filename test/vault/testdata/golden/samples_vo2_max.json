@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "device": "",
+      "device_model": "",
+      "end_date": "2026-09-26T09:05:00Z",
+      "external_id": "",
+      "is_primary_source": true,
+      "metadata": {
+        "synthetic": true,
+        "timezone": "Europe/Paris"
+      },
+      "product_type": "",
+      "provider": "polar",
+      "source": "polar",
+      "source_bundle_id": "",
+      "source_name": "Demo Sports Watch",
+      "start_date": "2026-09-26T09:05:00Z",
+      "type": "vo2_max",
+      "unit": "mL/kg/min",
+      "value": 46.6,
+      "was_user_entered": null
+    }
+  ],
+  "next_cursor": null
+}

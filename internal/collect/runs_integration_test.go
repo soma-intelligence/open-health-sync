@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
+	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
 func (e *connEnv) runs(t *testing.T, query string) collect.SyncRunList {
@@ -391,4 +392,81 @@ func TestRateLimitPausesTheWholeProvider(t *testing.T) {
 	assert.Equal(t, 0, e.jobs(t, userB.ID, "pending"))
 	assert.Equal(t, 0, e.scalar(t, `SELECT consecutive FROM ohs_core.provider_limits WHERE provider = $1`, fakeSlug),
 		"a success resets the backoff")
+}
+
+// A pull that always runs into its own time limit is parked at its fifth
+// failure, as before the long schedule for provider outages existed.
+func TestPullThatAlwaysTimesOutIsParked(t *testing.T) {
+	e := newConnEnvWith(t, collect.SchedulerConfig{Concurrency: 1, JobTimeout: 150 * time.Millisecond})
+	ctx := context.Background()
+	e.connect(t, e.keyA, e.userA, "pu-1")
+	e.drain(t)
+	e.fake.fetchMode.Store("hang")
+	code, run, _ := e.syncNow(t, "")
+	require.Equal(t, http.StatusAccepted, code)
+	for i := 1; i <= queue.MaxAttempts; i++ {
+		e.retryDue(t)
+		n, err := e.sched.PullOnce(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+		var status string
+		var attempts int
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT status, attempts FROM ohs_sync.pull_jobs WHERE id = $1`, run.ID).
+			Scan(&status, &attempts))
+		require.Equal(t, i, attempts)
+		if i < queue.MaxAttempts {
+			require.Equal(t, "pending", status, "failure %d", i)
+		} else {
+			require.Equal(t, "parked", status)
+		}
+	}
+}
+
+// Sync now on a run that waits out a failure, and a notification a waiting
+// job covers, both make it run now.
+func TestSyncNowAndNotificationsCutABackoffShort(t *testing.T) {
+	e := newConnEnv(t)
+	ctx := context.Background()
+	e.connect(t, e.keyA, e.userA, "pu-1")
+	e.drain(t)
+	waiting := func(id int64) bool {
+		var later bool
+		require.NoError(t, e.pool.QueryRow(ctx, `SELECT not_before > now() FROM ohs_sync.pull_jobs WHERE id = $1`, id).Scan(&later))
+		return later
+	}
+	failOnce := func() {
+		t.Helper()
+		e.fake.fetchMode.Store("500")
+		n, err := e.sched.PullOnce(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+		e.fake.fetchMode.Store("ok")
+	}
+
+	code, run, _ := e.syncNow(t, "")
+	require.Equal(t, http.StatusAccepted, code)
+	failOnce()
+	require.True(t, waiting(run.ID))
+	code, again, _ := e.syncNow(t, "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, run.ID, again.ID)
+	assert.False(t, waiting(run.ID), "sync now brings the waiting run forward")
+	assert.Equal(t, 0, e.scalar(t, `SELECT attempts FROM ohs_sync.pull_jobs WHERE id = $1`, run.ID))
+	e.drain(t)
+	assert.Equal(t, 0, e.jobs(t, e.userA, "pending"))
+
+	const h = 3600
+	base := int64(1760000000)
+	e.notify(t, "pu-1", base, base+h)
+	var id int64
+	require.NoError(t, e.pool.QueryRow(ctx, `SELECT id FROM ohs_sync.pull_jobs WHERE status = 'pending'`).Scan(&id))
+	failOnce()
+	require.True(t, waiting(id))
+	e.notify(t, "pu-1", base+600, base+1200)
+	assert.False(t, waiting(id), "a notification the waiting job covers brings it forward")
+	failOnce()
+	require.True(t, waiting(id))
+	e.notify(t, "pu-1", base+h/2, base+2*h)
+	assert.False(t, waiting(id), "and so does one that widens it")
+	assert.Equal(t, 1, e.jobs(t, e.userA, "pending"))
 }

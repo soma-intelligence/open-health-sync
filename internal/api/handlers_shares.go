@@ -39,7 +39,7 @@ func (s *server) mountShares(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/users/{id}/shares/{share_id}", s.getShare)
 	s.tenantRoute(mux, "DELETE /v1/users/{id}/shares/{share_id}", s.revokeShare)
 
-	limit := newRateLimiter(s.d.RateLimitOAuth, RateLimit{})
+	limit := s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.OAuth, RateLimit{} })
 	mux.Handle("POST /shl/{manifest_id}", publicShare(s.rateLimit(groupShare, limit, nil, http.HandlerFunc(s.shareManifest))))
 	mux.Handle("OPTIONS /shl/{manifest_id}", publicShare(http.HandlerFunc(sharePreflight)))
 	mux.Handle("GET /shl/file/{ticket}", publicShare(s.rateLimit(groupShare, limit, nil, http.HandlerFunc(s.shareFile))))

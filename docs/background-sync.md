@@ -36,9 +36,60 @@ Tokens are refreshed before use when they expire within 5 minutes. Since every c
 pulled at least once a day, refresh tokens never go unused for long. A refresh the provider
 refuses marks the connection `needs_reauth`: the user has to consent again.
 
-Failures back off (30 s, doubling, 5 attempts per window). A provider rate limit (HTTP 429)
-defers the pull until its `Retry-After` without counting a failure. The next slot catches up
-whatever a failed window missed.
+Failures back off (30 s, doubling, 5 attempts per window). A provider that is down or cannot be
+reached (a 5xx answer, a network error, a timeout) is retried for much longer: after 1 minute,
+then 2, 4 and so on up to 6 hours between attempts, 20 attempts in all, about three days. An
+outage while a user's history is being backfilled therefore leaves no hole. A provider rate
+limit (HTTP 429) defers the pull until its `Retry-After` without counting a failure. The next
+slot catches up whatever a failed window missed.
+
+What counts as the provider being down: a 5xx status reported by the connector itself (a 4xx whose
+body quotes a 5xx is a 4xx), a connection that is refused, reset or closed, and a request that
+times out. A response that does not parse, an empty body included, is not. A pull that runs into
+its own time limit is retried on the long schedule three times, then on the short one, so a window
+that always takes too long is given up at its fifth failure. A pull whose instance was stopped
+while it ran (a deploy, a crash) is queued again and counts one attempt against the 20.
+
+A pull waiting for its next attempt does not make a notification or a
+[manual sync](sync-health.md) wait with it: either one brings the waiting pull forward to now,
+and that attempt is not counted against its retries. A pull deferred for a rate limit keeps
+waiting.
+
+A pull that gave up shows as a `failed` sync run, with the provider's error. Once the cause is
+fixed, queue it again with fresh attempts (tenant key; 0.3.0 and later):
+
+```sh
+# One run, by its id: 202 with the run, queued again.
+curl -s -X POST $OHS/v1/users/$USER_ID/sync-runs/$RUN_ID/retry -H "Authorization: Bearer $KEY"
+# Every failed run of one connection: {"retried": 3}
+curl -s -X POST $OHS/v1/users/$USER_ID/connections/withings/sync-runs/retry -H "Authorization: Bearer $KEY"
+```
+
+The first answers 409 when the run is queued, running or succeeded, or when another queued or
+running run already covers its window. The second leaves alone the runs cancelled because the
+connection stopped, and of several failed runs for one window queues only the latest. A run
+retried for a connection that no longer syncs is cancelled again. An instance admin has the
+same two routes under `/v1/admin/tenants/{tenant_id}`.
+
+### Backfill
+
+A new connection is pulled back as far as its provider's policy says (30 days by default, see
+the table below), in one job per chunk of 7 days. `OHS_BACKFILL_DAYS` sets another
+window for every provider, up to 1825 days (5 years); a provider that declares less than 30 days keeps its
+own value, because it keeps no more history or allows few calls. The setting applies to
+connections made after it is set, on every process that runs the `api` or `collect` role. The chunks are queued the most
+recent first, each is retried on its own, and the ones already pulled stay done across a failure
+or a restart, so a two year backfill never starts again from zero.
+
+### Scheduling at scale
+
+Each tick the scheduler reads only the connections whose slot has ended (the indexed
+`schedule_after` column of `ohs_sync.connections`), queues their pulls in one statement, and
+moves `schedule_after` to the end of the next slot. `OHS_SCHEDULE_BATCH` bounds the
+pulls one tick queues (default 1,000) and `OHS_PULL_CONCURRENCY` the pulls one `collect`
+process runs at once (default 4), all providers together; `OHS_PULLS_PER_PROVIDER` still caps
+each provider across every process. Pull jobs are claimed provider by provider, so a provider with a large backlog at
+its cap never delays the others.
 
 ## Provider rate limits
 
@@ -84,17 +135,21 @@ So each connector declares how it is pulled (`connector.SyncPolicy`, see
 | OMRON | | 3 h | 72 h | 30 days | 14 days |
 | Oura | 6 h | 1 h | 24 h | 90 days | 7 days |
 | Polar | 6 h | 1 h | 24 h | 28 days | 7 days |
-| Strava | 12 h | 3 h | 24 h | 30 days | 7 days |
+| Strava | 12 h | 12 h | 24 h | 30 days | 7 days |
 | Suunto | 24 h | 24 h | 24 h | 28 days | none |
 | Ultrahuman | | 3 h | 48 h | 30 days | 7 days |
 | WHOOP | 6 h | 1 h | 24 h | 90 days | 7 days |
 | Withings | 6 h | 1 h | 24 h | 90 days | 3 days |
+| Wahoo | 12 h | 6 h | 24 h | 30 days | none |
+| Sandbox | | 1 h | 24 h | 30 days | none |
 
 An empty cell means the provider sends no notifications. A Suunto pull makes 4 calls, so on the
 Development API (about 200 calls a week) an application serves about 7 users; more needs
-Suunto's Production API. Garmin pulls by upload time, so the
-default lookback is enough there. `pull_every_seconds` and `next_pull_at` in the freshness
-response follow the provider's interval.
+Suunto's Production API. A Strava pull reads one page of activities, so at 2 pulls a day an
+application's default 1,000 reads cover about 400 connections, with room for the pulls webhook
+events start; push counts as healthy per athlete, so the interval is the same without it.
+Garmin pulls by upload time, so the default lookback is enough there. `pull_every_seconds` and
+`next_pull_at` in the freshness response follow the provider's interval.
 
 The console's provider page (Sync schedule) and `GET /v1/admin/providers/{provider}` (`sync`) show
 the values of the running binary.

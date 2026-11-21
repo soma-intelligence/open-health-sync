@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!--
+  No permission is declared here: the app declares the android.permission.health.READ_*
+  permissions of the types it syncs (docs/sdks/flutter.md), so it never asks for more than
+  it uses.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!--
+          Runs when the process starts, before WorkManager can start a background sync: it
+          tells the Kotlin SDK how to build the sync from the stored credentials.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="org.openhealthsync.flutter.health.BackgroundInitializer"
+                android:value="androidx.startup" />
+        </provider>
+    </application>
+</manifest>

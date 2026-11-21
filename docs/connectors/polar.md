@@ -71,7 +71,8 @@ Disconnecting the provider, or deleting the user, de-registers the user from you
 
 ## 5. What is pulled, and how far back
 
-A new connection is backfilled over the last 28 days, then pulled every 6 hours. Only the
+A new connection is backfilled over the last 28 days, then pulled every 6 hours while Polar
+webhook events arrive, and every hour without them. Only the
 non-transactional AccessLink endpoints are used, so nothing is committed at Polar and a failed
 pull simply runs again. Each endpoint serves a rolling window of recent data, which bounds the
 backfill:
@@ -111,7 +112,7 @@ connected user, so a forged one cannot make the server fetch anything else.
 
 An event queues a pull of the user's recent window. `SLEEP_WISE_*` and unknown events are
 acknowledged and ignored. For events to arrive, `OHS_PUBLIC_URL` must be reachable from the
-internet. Without the webhook nothing breaks: the 6 hour pull still collects everything. Polar
+internet. Without the webhook nothing breaks: the hourly pull still collects everything. Polar
 deactivates a webhook after seven days of failed deliveries; reactivate it with
 `POST /v3/webhooks/activate` (*to confirm* path) or recreate it.
 

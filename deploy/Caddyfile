@@ -2,14 +2,35 @@
 #
 # Caddy in front of the compose stack (ohs on 127.0.0.1:8080), with automatic
 # TLS. Replace health.example.org with your host name, set OHS_PUBLIC_URL to
-# https://health.example.org and OHS_TRUSTED_PROXIES to 127.0.0.1/32, then:
+# https://health.example.org and OHS_TRUSTED_PROXIES to 172.16.0.0/12 (requests
+# reach the container from the Docker bridge gateway), then:
 #   caddy run --config deploy/Caddyfile
 # See docs/self-hosting.md#reverse-proxy.
+
+# Security headers for every response. Strict-Transport-Security tells
+# browsers to use https only for a year: includeSubDomains is left out on
+# purpose (add it, and preload, only when every subdomain serves https). The
+# lines starting with "?" set a header only when ohs did not: its pages
+# (connect, console, share viewer) send their own stricter values. Each "?"
+# header keeps its own `header` line: grouped in one block, Caddy sets them
+# only when all of them are missing, so a page that sends one of its own
+# would lose the others.
+(ohs_security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	header ?X-Content-Type-Options "nosniff"
+	header ?X-Frame-Options "DENY"
+	header ?Referrer-Policy "no-referrer"
+	header ?Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+}
 
 # The whole host is Open Health Sync: every path goes to ohs, /healthz and
 # /readyz included, so an outside uptime check and a load balancer see their
 # 200 (or 503), never a redirect.
 health.example.org {
+	import ohs_security_headers
 	reverse_proxy 127.0.0.1:8080
 }
 
@@ -19,6 +40,7 @@ health.example.org {
 # /healthz and /readyz into a 302, which monitors read as down.
 #
 # health.example.org {
+# 	import ohs_security_headers
 # 	@ohs path /healthz /readyz /openapi.yaml /metrics /v1/* /mcp /oauth/* /inbound/* /connect /connect/* /shl/* /console /console/*
 # 	handle @ohs {
 # 		reverse_proxy 127.0.0.1:8080

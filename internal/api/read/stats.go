@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/soma-intelligence/open-health-sync/internal/fusion"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // Stats intervals.
@@ -79,6 +80,14 @@ type StatsBucket struct {
 	Avg    float64 `json:"avg"`
 	Min    float64 `json:"min"`
 	Max    float64 `json:"max"`
+
+	// The keys that rank the bucket's stream in the merged view, while the
+	// buckets are folded in Go (stats_fold.go); valued is true once a value
+	// was folded in. They are cleared before the answer leaves.
+	slug   string
+	worn   int
+	key    string
+	valued bool
 }
 
 // statsSource is the source of a sample, as the ETL's daily sums and the
@@ -91,9 +100,15 @@ const statsWorn = `CASE WHEN (coalesce(product_type, '') || ' ' || coalesce(devi
 	coalesce(source_name, '')) ILIKE '%watch%' THEN 0 ELSE 1 END`
 
 // SampleStats returns count, sum, mean, min and max of a quantity type per
-// hour or per local day. It reads the quantity_hourly continuous aggregate
-// when the database has it and every interval is a whole number of hours
-// in UTC (zones with a whole-hour offset), and the samples otherwise.
+// hour or per local day. It reads hourly statistics when the database has
+// them and every interval is a whole number of hours in UTC (zones with a
+// whole-hour offset), and the samples otherwise.
+//
+// Under a vault (WithVault) the values are sealed and the statistics are
+// computed in Go (sealedStats): from the sealed hourly buckets, and from the
+// quantity_hourly continuous aggregate for the hours that hold only rows
+// not converted yet. Without one SQL computes them, as before the vault,
+// from the continuous aggregate or the samples.
 func SampleStats(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q StatsQuery) (Stats, error) {
 	loc := q.Location
 	if loc == nil {
@@ -129,6 +144,10 @@ func SampleStats(ctx context.Context, db Querier, tenantID, userID uuid.UUID, q 
 	}
 	if err := knownQuantityType(ctx, db, tenantID, userID, q.Type); err != nil {
 		return Stats{}, err
+	}
+
+	if vault.FromContext(ctx) != nil {
+		return sealedStats(ctx, db, tenantID, userID, q, start, end, step, loc)
 	}
 
 	useAggregate := false

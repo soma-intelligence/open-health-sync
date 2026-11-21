@@ -18,17 +18,94 @@ jobs:
           go-version: "1.26"
       - run: go vet ./...
       - run: go test ./...
+      - name: Cloud key providers (azurekv, awskms build tags, as the release builds them)
+        run: |
+          go vet -tags azurekv,awskms ./internal/vault/
+          go test -tags azurekv,awskms ./internal/vault/
       - name: Release tag check self-test
         run: scripts/check-release-tag_test.sh
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: Console and share viewer script helpers (node --test, no dependency)
+      - name: Share viewer script helpers (node --test, no dependency)
         run: make test-js
       # go test ./... above already runs FuzzParseUpload on its seed corpus,
       # deterministically. Coverage-guided fuzzing runs nightly (fuzz.yml).
       - name: Integration and API contract (Docker available on the runner)
         run: make integration
+
+  console:
+    # The React console: lint, types, unit tests, and a build that must match
+    # the committed internal/console/dist and src/api/schema.ts.
+    # ubuntu-24.04, not ubuntu-latest: Playwright 1.56 has no Chromium build
+    # for Ubuntu 26.04 ("Playwright does not support chromium on ubuntu26.04").
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      # The end to end run needs an empty database of its own; same image as deploy/docker-compose.yml.
+      postgres:
+        image: timescale/timescaledb:latest-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538
+        env:
+          POSTGRES_USER: ohs
+          POSTGRES_PASSWORD: ohs
+          POSTGRES_DB: ohs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ohs -d ohs"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: web/console
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/console/package-lock.json
+      - run: npm ci
+      - run: npm run schema
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Committed build and schema are current
+        working-directory: .
+        run: |
+          git diff --exit-code -- internal/console/dist web/console/src/api/schema.ts
+          # git diff does not see a new hashed file
+          test -z "$(git status --porcelain -- internal/console/dist web/console/src/api/schema.ts)"
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+      - name: End to end
+        run: npm run e2e
+        env:
+          OHS_E2E_DATABASE_URL: postgres://ohs:ohs@localhost:5432/ohs?sslmode=disable
+      - name: Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: web/console/playwright-report
+          retention-days: 7
+
+  race:
+    # The unit tests again under the race detector, in their own job so the
+    # test job stays as fast as it was.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Unit tests under the race detector
+        run: make test-race
 
   sdks-server:
     # The server-side SDKs generated from api/openapi.yaml. That they match the
@@ -157,7 +234,7 @@ jobs:
             "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
           echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum --check -
           tar -xzf kubeconform.tar.gz kubeconform
-          ./kubeconform -strict -summary -kubernetes-version 1.31.0 -skip ServiceMonitor default.yaml all-optional.yaml
+          ./kubeconform -strict -summary -kubernetes-version 1.31.0 -skip ServiceMonitor,PodMonitor default.yaml all-optional.yaml
       - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: ohs
@@ -237,3 +314,12 @@ jobs:
           tar -xzf "$tarball" gitleaks
           sudo mv gitleaks /usr/local/bin/
       - run: gitleaks detect --redact --config .gitleaks.toml
+
+  deploy-render:
+    # deploy/: chart, Caddyfile and compose files rendered and validated.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Render and validate deploy/
+        run: scripts/check-deploy-render.sh

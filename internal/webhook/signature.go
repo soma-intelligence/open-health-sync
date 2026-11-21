@@ -75,6 +75,25 @@ func Sign(secret, id string, ts time.Time, body []byte) (string, error) {
 	return "v1," + base64.StdEncoding.EncodeToString(mac(key, id, ts.Unix(), body)), nil
 }
 
+// SignAll returns the webhook-signature header value signed with each of
+// the secrets: one Sign value per secret, separated by spaces, as Standard
+// Webhooks allows. A sender uses it while a rotated secret is still accepted,
+// so receivers holding either secret verify the request.
+func SignAll(secrets []string, id string, ts time.Time, body []byte) (string, error) {
+	if len(secrets) == 0 {
+		return "", ErrSecret
+	}
+	sigs := make([]string, len(secrets))
+	for i, secret := range secrets {
+		sig, err := Sign(secret, id, ts, body)
+		if err != nil {
+			return "", err
+		}
+		sigs[i] = sig
+	}
+	return strings.Join(sigs, " "), nil
+}
+
 func mac(key []byte, id string, ts int64, body []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	h.Write([]byte(id))

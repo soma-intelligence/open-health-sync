@@ -1,0 +1,230 @@
+{
+  "data": [
+    {
+      "device": null,
+      "duration_s": 540,
+      "end_date": "2026-09-29T20:54:00Z",
+      "phase": "awake",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T20:45:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1140,
+      "end_date": "2026-09-29T21:13:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T20:54:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1500,
+      "end_date": "2026-09-29T21:38:00Z",
+      "phase": "deep",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T21:13:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1140,
+      "end_date": "2026-09-29T21:57:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T21:38:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 960,
+      "end_date": "2026-09-29T22:13:00Z",
+      "phase": "rem",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T21:57:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 180,
+      "end_date": "2026-09-29T22:16:00Z",
+      "phase": "awake",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T22:13:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1440,
+      "end_date": "2026-09-29T22:40:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T22:16:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1080,
+      "end_date": "2026-09-29T22:58:00Z",
+      "phase": "deep",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T22:40:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1440,
+      "end_date": "2026-09-29T23:22:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T22:58:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 480,
+      "end_date": "2026-09-29T23:30:00Z",
+      "phase": "rem",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T23:22:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 360,
+      "end_date": "2026-09-29T23:36:00Z",
+      "phase": "awake",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T23:30:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1320,
+      "end_date": "2026-09-29T23:58:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T23:36:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 660,
+      "end_date": "2026-09-30T00:09:00Z",
+      "phase": "deep",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-29T23:58:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1320,
+      "end_date": "2026-09-30T00:31:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T00:09:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1380,
+      "end_date": "2026-09-30T00:54:00Z",
+      "phase": "rem",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T00:31:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 180,
+      "end_date": "2026-09-30T00:57:00Z",
+      "phase": "awake",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T00:54:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1320,
+      "end_date": "2026-09-30T01:19:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T00:57:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 420,
+      "end_date": "2026-09-30T01:26:00Z",
+      "phase": "deep",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T01:19:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1320,
+      "end_date": "2026-09-30T01:48:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T01:26:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1500,
+      "end_date": "2026-09-30T02:13:00Z",
+      "phase": "rem",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T01:48:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 300,
+      "end_date": "2026-09-30T02:18:00Z",
+      "phase": "awake",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T02:13:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1380,
+      "end_date": "2026-09-30T02:41:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T02:18:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 180,
+      "end_date": "2026-09-30T02:44:00Z",
+      "phase": "deep",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T02:41:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1380,
+      "end_date": "2026-09-30T03:07:00Z",
+      "phase": "light",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T02:44:00Z"
+    },
+    {
+      "device": null,
+      "duration_s": 1920,
+      "end_date": "2026-09-30T03:39:00Z",
+      "phase": "rem",
+      "provider": "oura",
+      "source": "oura",
+      "start_date": "2026-09-30T03:07:00Z"
+    }
+  ],
+  "next_cursor": null
+}

@@ -6,6 +6,9 @@
 // fetch and with no dependency. One method per operation of the document.
 
 import type {
+  AdminProcesses,
+  AdminSettings,
+  AdminSettingsPatch,
   AuditEvent,
   CategorySample,
   CategorySamplePage,
@@ -14,6 +17,7 @@ import type {
   ConsentEvent,
   ConsentSource,
   Coverage,
+  CreateKeyRequest,
   CreateSelfReportsRequest,
   CreateShareRequest,
   CreateTimeTagRequest,
@@ -35,7 +39,10 @@ import type {
   FHIRCapabilityStatement,
   FHIRDevice,
   FHIRDeviceBundle,
+  FHIRDiagnosticReport,
+  FHIRDiagnosticReportBundle,
   FHIREverythingBundle,
+  FHIRLabUpload,
   FHIRObservation,
   FHIRPatient,
   FHIRProvenance,
@@ -49,6 +56,11 @@ import type {
   IngestBluetoothResponse,
   IngestHealthConnectResponse,
   IngestXiaomiResponse,
+  LabReport,
+  LabResult,
+  LabResultPage,
+  LabUpload,
+  LabUploadResponse,
   ListAuditEventsResponse,
   ListConnectionsResponse,
   ListConsentHistoryResponse,
@@ -74,8 +86,12 @@ import type {
   RRInterval,
   RRIntervalPage,
   ReadyzResponse,
+  RetryAdminTenantFailedSyncRunsResponse,
+  RetryFailedSyncRunsResponse,
   RetryParkedETLJobsRequest,
   RetryParkedETLJobsResponse,
+  RevokeUserTokensResponse,
+  RotateWebhookSecretRequest,
   RotateWebhookSecretResponse,
   RoutePoint,
   RoutePointPage,
@@ -104,7 +120,9 @@ import type {
   TestWebhookRequest,
   TimeTag,
   TimeTagPage,
+  UpdateAdminSettingsResponse,
   UpdateTimeTagRequest,
+  UpdateUserRequest,
   UpdateWebhookRequest,
   User,
   UserToken,
@@ -223,6 +241,8 @@ interface Call {
 
 /** Query and header parameters of {@link OpenHealthSync.listUsers}. */
 export interface ListUsersParams {
+  /** Only the user with exactly this `external_ref` (at most one row). */
+  externalRef?: string;
   /** The next_cursor of the previous page. */
   cursor?: string;
   limit?: number;
@@ -262,6 +282,21 @@ export interface ListSyncRunsParams {
   limit?: number;
   /** The next_cursor of the previous page. */
   cursor?: string;
+}
+
+/** Query and header parameters of {@link OpenHealthSync.listLabs}. */
+export interface ListLabsParams {
+  /** A LOINC code (2093-3), or the source's own code for a result without one. */
+  code?: string;
+  /** The source's report id. */
+  report?: string;
+  /** Inclusive lower bound, RFC 3339 or YYYY-MM-DD. */
+  start?: string;
+  /** Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start. */
+  end?: string;
+  /** The next_cursor of the previous page. */
+  cursor?: string;
+  limit?: number;
 }
 
 /** Query and header parameters of {@link OpenHealthSync.listSamples}. */
@@ -519,7 +554,7 @@ export interface SearchFHIRObservationsParams {
    * A FHIR token `system|code` matched against `Observation.code`: a LOINC code
    * (`http://loinc.org|8867-4`; 85354-9, 8480-6 and 8462-4 find the blood pressure
    * panels, 93832-4 the sleep sessions, 55411-3 the workouts, 11524-6 the ECG
-   * recordings), a quantity type
+   * recordings; any LOINC code also finds the lab results of that test), a quantity type
    * (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/quantity-type|heart_rate`,
    * like `type`), or a record type
    * (`https://github.com/soma-intelligence/open-health-sync/fhir/CodeSystem/record-type|`
@@ -530,8 +565,9 @@ export interface SearchFHIRObservationsParams {
   /**
    * An HL7 observation category code, bare or as
    * `http://terminology.hl7.org/CodeSystem/observation-category|code`: `vital-signs`,
-   * `laboratory`, `activity` (activity samples, workouts and daily summaries) or `survey`
-   * (self reports). One value. Another code of that system is an empty Bundle; anything
+   * `laboratory` (lab results, and the samples of laboratory types), `activity`
+   * (activity samples, workouts and daily summaries) or `survey` (self reports). One
+   * value. Another code of that system is an empty Bundle; anything
    * else is a 400.
    */
   category?: string;
@@ -562,6 +598,23 @@ export interface ReadFHIRObservationParams {
    * every stored record of every source.
    */
   view?: "merged" | "all";
+}
+
+/** Query and header parameters of {@link OpenHealthSync.searchFHIRDiagnosticReports}. */
+export interface SearchFHIRDiagnosticReportsParams {
+  /**
+   * `LAB` (bare or with the system `http://terminology.hl7.org/CodeSystem/v2-0074`) or
+   * `laboratory` (bare or with the observation category system). Another code of
+   * those systems is an empty Bundle; another system is a 400. One value.
+   */
+  category?: string;
+  /** Inclusive lower bound, RFC 3339 or YYYY-MM-DD. */
+  start?: string;
+  /** Exclusive upper bound, RFC 3339 or YYYY-MM-DD. Must not be before start. */
+  end?: string;
+  /** The next_cursor of the previous page. */
+  cursor?: string;
+  limit?: number;
 }
 
 /** Query and header parameters of {@link OpenHealthSync.everythingFHIRPatient}. */
@@ -714,6 +767,12 @@ export interface ListETLJobsParams {
   cursor?: string;
 }
 
+/** Query and header parameters of {@link OpenHealthSync.updateAdminSettings}. */
+export interface UpdateAdminSettingsParams {
+  /** Sent as the If-Match header. The settings revision, quoted. `W/"<revision>"` is accepted. */
+  ifMatch: string;
+}
+
 /** Query and header parameters of {@link OpenHealthSync.listAuditEvents}. */
 export interface ListAuditEventsParams {
   /** Only events about this end user. */
@@ -821,6 +880,7 @@ export class OpenHealthSync {
       method: "GET",
       path: "/v1/users",
       query: {
+        external_ref: params.externalRef,
         cursor: params.cursor,
         limit: params.limit,
       },
@@ -846,6 +906,30 @@ export class OpenHealthSync {
     return this.#request<User>({
       method: "GET",
       path: `/v1/users/${encode(userId)}`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Set or clear an end user's time zone.
+   *
+   * `PATCH /v1/users/{id}`
+   *
+   * `timezone` is the zone of the local day of a sample that carries no zone of its own
+   * (a cloud source that reports instants only): the ETL takes the sample's zone, then the
+   * user's, then UTC. Setting it here makes it the developer's explicit choice
+   * (`timezone_source` `explicit`), which a device upload never replaces; `null` clears
+   * it, and the zone may then be learnt again from the user's device uploads.
+   *
+   * The zone applies to what is written from then on. A stored sample keeps the day it
+   * was attributed to, and the daily summaries already derived are not recomputed.
+   */
+  updateUser(userId: string, body: UpdateUserRequest, options?: RequestOptions): Promise<User> {
+    return this.#request<User>({
+      method: "PATCH",
+      path: `/v1/users/${encode(userId)}`,
+      json: body,
       expect: "json",
       options,
     });
@@ -985,15 +1069,20 @@ export class OpenHealthSync {
    * `POST /v1/webhooks/{webhook_id}/rotate-secret`
    *
    * The new secret signs every request from now on, retries of earlier events included.
-   * Shown only in this response.
+   * Shown only in this response. The secret it replaces also signs for the instance's grace
+   * period (24 hours unless `OHS_WEBHOOK_ROTATION_GRACE_HOURS` says otherwise), so a receiver
+   * can switch without refusing a request; `previous_secret_expires_at` says until when.
+   * With `expire_previous` true the replaced secret stops at once: the rotation after a leak.
    */
   rotateWebhookSecret(
     webhookId: string,
+    body?: RotateWebhookSecretRequest,
     options?: RequestOptions,
   ): Promise<RotateWebhookSecretResponse> {
     return this.#request<RotateWebhookSecretResponse>({
       method: "POST",
       path: `/v1/webhooks/${encode(webhookId)}/rotate-secret`,
+      json: body,
       expect: "json",
       options,
     });
@@ -1131,7 +1220,12 @@ export class OpenHealthSync {
    * Returns an opaque `ohs_ut_` token for one active user, shown only in this response
    * (`Cache-Control: no-store`). Lifetime: one hour by default, at most 24 hours; a token
    * whose only scope is `read` may live up to 30 days (2592000 s), for a person's own AI
-   * agent configuration (MCP). `Idempotency-Key` is ignored here.
+   * agent configuration (MCP). `Idempotency-Key` is ignored here. The token stops working
+   * when it expires, when it is revoked (`id` names it), when its user is deleted, or when
+   * the API key that minted it is revoked or expires. The key must hold the key scope each
+   * token scope stands for (`data:write` for `upload`, `connections:write` for `connect`,
+   * `data:read` for `read`), else 403; each call made with the token is then checked against
+   * the scopes of that key.
    */
   mintUserToken(
     userId: string,
@@ -1143,6 +1237,41 @@ export class OpenHealthSync {
       path: `/v1/users/${encode(userId)}/tokens`,
       json: body,
       expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Revoke every token of a user.
+   *
+   * `DELETE /v1/users/{id}/tokens`
+   *
+   * Every token of the user that is still valid is refused from now on. Recorded in the audit
+   * log as `token.revoke`.
+   */
+  revokeUserTokens(userId: string, options?: RequestOptions): Promise<RevokeUserTokensResponse> {
+    return this.#request<RevokeUserTokensResponse>({
+      method: "DELETE",
+      path: `/v1/users/${encode(userId)}/tokens`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Revoke one token of a user.
+   *
+   * `DELETE /v1/users/{id}/tokens/{token_id}`
+   *
+   * The token is refused from now on. Revoking a revoked or expired token changes nothing. An
+   * id of no token of this user is a 404. Recorded in the audit log as `token.revoke`, with
+   * `token_id` in `detail`.
+   */
+  revokeUserToken(userId: string, tokenId: string, options?: RequestOptions): Promise<void> {
+    return this.#request<void>({
+      method: "DELETE",
+      path: `/v1/users/${encode(userId)}/tokens/${encode(tokenId)}`,
+      expect: "none",
       options,
     });
   }
@@ -1434,6 +1563,29 @@ export class OpenHealthSync {
   }
 
   /**
+   * Retry the failed sync runs of a connection.
+   *
+   * `POST /v1/users/{id}/connections/{provider}/sync-runs/retry`
+   *
+   * Queues again every `failed` run of the user's connection to the provider, with fresh
+   * attempts, and answers with how many. Runs cancelled because the connection stopped are
+   * left alone, and so is a run whose window another queued or running run already covers.
+   * Of several failed runs for one window only the latest is queued. 0 when nothing failed.
+   */
+  retryFailedSyncRuns(
+    userId: string,
+    provider: string,
+    options?: RequestOptions,
+  ): Promise<RetryFailedSyncRunsResponse> {
+    return this.#request<RetryFailedSyncRunsResponse>({
+      method: "POST",
+      path: `/v1/users/${encode(userId)}/connections/${encode(provider)}/sync-runs/retry`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
    * The user's sync history.
    *
    * `GET /v1/users/{id}/sync-runs`
@@ -1478,6 +1630,116 @@ export class OpenHealthSync {
     return this.#request<SyncRun>({
       method: "GET",
       path: `/v1/users/${encode(userId)}/sync-runs/${encode(runId)}`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Retry a failed sync run.
+   *
+   * `POST /v1/users/{id}/sync-runs/{run_id}/retry`
+   *
+   * Queues a `failed` or `cancelled` run again with fresh attempts and answers with it; follow
+   * it at the `Location` header. A pull gives up after 5 attempts, or after about three days
+   * of a provider that is down. 409 when the run is queued, running or succeeded, or when
+   * another queued or running run already covers its window. A run whose connection no longer
+   * syncs is cancelled again.
+   */
+  retrySyncRun(userId: string, runId: number, options?: RequestOptions): Promise<SyncRun> {
+    return this.#request<SyncRun>({
+      method: "POST",
+      path: `/v1/users/${encode(userId)}/sync-runs/${encode(runId)}/retry`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Upload lab results.
+   *
+   * `POST /v1/users/{id}/labs`
+   *
+   * Lab results as FHIR R4 or as the simple JSON form (docs/labs.md). A body with a
+   * `resourceType` is read as FHIR: a Bundle, a DiagnosticReport or an Observation, with
+   * category laboratory (a DiagnosticReport of another diagnostic service section, or an
+   * Observation of another category, is a 400 naming it). Any other body is the simple
+   * form, `{"reports": [...]}`. At most 100 reports, 500 results per report and 2000
+   * results in all, in at most 1 MiB.
+   *
+   * Each result is stored once per `id`: a result sent again with the same `id` (an
+   * amended or corrected copy) replaces the stored one when its upload is newer, so the
+   * latest upload wins. The body goes through the same processing as an upload, so the
+   * answer is 202 and the results show once it is processed. The same body sent again is
+   * a duplicate and is stored once. A tenant key uploads for any user of the tenant; a
+   * user token with scope `upload` only for its own user, and another user is a 404.
+   * Values are health data: never logged, never quoted in an error. While the user's lab
+   * results are being deleted the answer is 409 and nothing is kept.
+   */
+  createLabs(
+    userId: string,
+    body: LabUpload | FHIRLabUpload,
+    options?: IdempotentRequestOptions,
+  ): Promise<LabUploadResponse> {
+    return this.#request<LabUploadResponse>({
+      method: "POST",
+      path: `/v1/users/${encode(userId)}/labs`,
+      json: body,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * The user's lab results.
+   *
+   * `GET /v1/users/{id}/labs`
+   *
+   * One result per test, as last uploaded, by collection time then id. `start` and `end`
+   * bound the collection time. Any other query parameter is a 400.
+   */
+  listLabs(
+    userId: string,
+    params: ListLabsParams = {},
+    options?: RequestOptions,
+  ): Promise<LabResultPage> {
+    return this.#request<LabResultPage>({
+      method: "GET",
+      path: `/v1/users/${encode(userId)}/labs`,
+      query: {
+        code: params.code,
+        report: params.report,
+        start: params.start,
+        end: params.end,
+        cursor: params.cursor,
+        limit: params.limit,
+      },
+      expect: "json",
+      options,
+    });
+  }
+
+  /** Every item of {@link OpenHealthSync.listLabs}, page after page, following `next_cursor`. */
+  iterLabs(
+    userId: string,
+    params: Omit<ListLabsParams, "cursor"> = {},
+    options?: RequestOptions,
+  ): AsyncGenerator<LabResult> {
+    return paginate((cursor) => this.listLabs(userId, { ...params, cursor }, options));
+  }
+
+  /**
+   * One lab report with its results.
+   *
+   * `GET /v1/users/{id}/labs/reports/{report_id}`
+   *
+   * The report's fields come from its most recently uploaded result. A report id the user
+   * has no result of is a 404.
+   */
+  getLabReport(userId: string, reportId: string, options?: RequestOptions): Promise<LabReport> {
+    return this.#request<LabReport>({
+      method: "GET",
+      path: `/v1/users/${encode(userId)}/labs/reports/${encode(reportId)}`,
       expect: "json",
       options,
     });
@@ -2330,9 +2592,10 @@ export class OpenHealthSync {
    * `Content-Type: application/fhir+json`: quantity samples (`qs-` ids), blood pressure
    * panels pairing a systolic and a diastolic sample (`bp-`), sleep sessions (`sleep-`),
    * workouts (`workout-`), daily summaries (`daily-`), ECG recordings with their
-   * voltage samples (`ecg-`) and nutrition logs (`nutrition-`), merged in time order (a
-   * sample's start, a bedtime, a workout's start, a day at midnight UTC, a recording's or
-   * a meal's start), then by kind and id.
+   * voltage samples (`ecg-`), nutrition logs (`nutrition-`) and lab results (`lab-`),
+   * merged in time order (a sample's start, a bedtime, a workout's start, a day at
+   * midnight UTC, a recording's or a meal's start, a specimen's collection), then by kind
+   * and id.
    * Paged like every list: the Bundle's `next` link carries the cursor, and there is no
    * `next` link on the last page; `total` is left out. A blood pressure pair is never
    * split across pages, and its two samples are not listed on their own. A page holds at
@@ -2395,6 +2658,54 @@ export class OpenHealthSync {
   }
 
   /**
+   * The user's lab reports as FHIR R4 DiagnosticReports.
+   *
+   * `GET /v1/users/{id}/fhir/DiagnosticReport`
+   *
+   * One `searchset` Bundle of DiagnosticReports, one per lab report, each referencing the
+   * Observations (`lab-` ids) of its results, by the report's earliest collection time
+   * then id. Results sent without a report have no DiagnosticReport. Paged like the
+   * Observation search. See docs/labs.md.
+   */
+  searchFHIRDiagnosticReports(
+    userId: string,
+    params: SearchFHIRDiagnosticReportsParams = {},
+    options?: RequestOptions,
+  ): Promise<FHIRDiagnosticReportBundle> {
+    return this.#request<FHIRDiagnosticReportBundle>({
+      method: "GET",
+      path: `/v1/users/${encode(userId)}/fhir/DiagnosticReport`,
+      query: {
+        category: params.category,
+        start: params.start,
+        end: params.end,
+        cursor: params.cursor,
+        limit: params.limit,
+      },
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * One FHIR R4 DiagnosticReport.
+   *
+   * `GET /v1/users/{id}/fhir/DiagnosticReport/{report_id}`
+   */
+  readFHIRDiagnosticReport(
+    userId: string,
+    reportId: string,
+    options?: RequestOptions,
+  ): Promise<FHIRDiagnosticReport> {
+    return this.#request<FHIRDiagnosticReport>({
+      method: "GET",
+      path: `/v1/users/${encode(userId)}/fhir/DiagnosticReport/${encode(reportId)}`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
    * The user as a FHIR R4 Patient.
    *
    * `GET /v1/users/{id}/fhir/Patient/{patient_id}`
@@ -2423,8 +2734,9 @@ export class OpenHealthSync {
    *
    * One page of a `searchset` Bundle: on the first page the Patient, then the page's
    * Observations (`search.mode` `match`, the list and the cursor of the Observation
-   * search), then the Devices they reference (each once per page) and the Provenance of
-   * each Observation (`include`). Follow the `next` link until there is none: no
+   * search), the DiagnosticReports of the page's lab results (`match`), then the Devices
+   * they reference (each once per page) and the Provenance of each Observation
+   * (`include`). Follow the `next` link until there is none: no
    * Observation is skipped or repeated. `limit` counts the Observations. See docs/fhir.md.
    */
   everythingFHIRPatient(
@@ -2616,7 +2928,7 @@ export class OpenHealthSync {
    */
   exportDataset(
     userId: string,
-    dataset: "samples" | "category-samples" | "sleep" | "workouts" | "nutrition" | "daily" | "ecg",
+    dataset: "samples" | "category-samples" | "sleep" | "workouts" | "nutrition" | "daily" | "ecg" | "labs",
     params: ExportDatasetParams = {},
     options?: RequestOptions,
   ): Promise<Response> {
@@ -2900,10 +3212,13 @@ export class OpenHealthSync {
    * `POST /v1/keys`
    *
    * A new key of the calling key's tenant, as `ohs admin key create` makes. The whole key is in
-   * this answer only. To rotate: deploy the new key, then revoke the old one. Recorded in the
-   * audit log as `key.create`.
+   * this answer only. To rotate: deploy the new key, then revoke the old one. With
+   * `expires_at` the key stops working by itself at that time; without, it lives until it is
+   * revoked. With `scopes` the key does only what they allow; without, what the calling key
+   * does. A key never creates a key holding a scope it lacks itself: that is a 403 naming
+   * the scope. Recorded in the audit log as `key.create`.
    */
-  createKey(body?: Record<string, unknown>, options?: RequestOptions): Promise<CreatedAPIKey> {
+  createKey(body?: CreateKeyRequest, options?: RequestOptions): Promise<CreatedAPIKey> {
     return this.#request<CreatedAPIKey>({
       method: "POST",
       path: "/v1/keys",
@@ -2918,9 +3233,9 @@ export class OpenHealthSync {
    *
    * `DELETE /v1/keys/{key_id}`
    *
-   * Every call with the key is refused from now on. A key cannot revoke itself (409): revoke it
-   * with another key of the tenant. Revoking a revoked key changes nothing. Recorded in the
-   * audit log as `key.revoke`.
+   * Every call with the key is refused from now on, and so is every user token the key minted.
+   * A key cannot revoke itself (409): revoke it with another key of the tenant. Revoking a
+   * revoked key changes nothing. Recorded in the audit log as `key.revoke`.
    */
   revokeKey(keyId: string, options?: RequestOptions): Promise<void> {
     return this.#request<void>({
@@ -3057,6 +3372,143 @@ export class OpenHealthSync {
   }
 
   /**
+   * Every runtime setting of this instance and where its value comes from (instance admin).
+   *
+   * `GET /v1/admin/settings`
+   *
+   * Only a key of the instance admin tenant may call it (403 otherwise). Every setting of the
+   * registry, in registry order, with its effective value, its source (`env`, `console` or
+   * `default`), and when it applies (`live` within moments, `restart` at the next start,
+   * `bootstrap` only from the environment). A secret is never served: `value` is `"set"` or
+   * null. The `ETag` is the settings revision; send it back as `If-Match` on `PATCH`.
+   */
+  listAdminSettings(options?: RequestOptions): Promise<AdminSettings> {
+    return this.#request<AdminSettings>({
+      method: "GET",
+      path: "/v1/admin/settings",
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Save settings, all or nothing (instance admin).
+   *
+   * `PATCH /v1/admin/settings`
+   *
+   * The body maps setting names to a new value (a string) or null (back to the default).
+   * `If-Match` carries the revision you read (`"5"` or `W/"5"`): 428 without it, 400 when it is
+   * malformed or `*`, 412 when the revision moved (the problem carries the current `ETag`).
+   * Nothing is stored unless every change passes: 409 when a setting is `bootstrap` or set by
+   * the environment, 422 when a value is refused or the combination is invalid, each with one
+   * entry per setting at fault. An empty string is a 422: send null. A secret is sealed with
+   * `OHS_ENCRYPTION_KEY` and never served back. Recorded in the audit log as `config.write`
+   * with the names that changed, never their values.
+   */
+  updateAdminSettings(
+    body: AdminSettingsPatch,
+    params: UpdateAdminSettingsParams,
+    options?: RequestOptions,
+  ): Promise<UpdateAdminSettingsResponse> {
+    return this.#request<UpdateAdminSettingsResponse>({
+      method: "PATCH",
+      path: "/v1/admin/settings",
+      headers: {
+        "If-Match": params.ifMatch,
+      },
+      json: body,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * The settings as an .env file (instance admin).
+   *
+   * `GET /v1/admin/settings/export`
+   *
+   * The first line is `# Open Health Sync settings, revision <n>`; then, per section, a line
+   * `# <Section>` and per setting a comment and `OHS_X=<value>`. A secret is never written: a
+   * set one gets `# set, value not exported` and an empty assignment.
+   */
+  exportAdminSettings(options?: RequestOptions): Promise<Response> {
+    return this.#request<Response>({
+      method: "GET",
+      path: "/v1/admin/settings/export",
+      expect: "response",
+      options,
+    });
+  }
+
+  /**
+   * The processes of this instance and the settings each one runs (instance admin).
+   *
+   * `GET /v1/admin/processes`
+   *
+   * Every process that reported within the last two minutes, by start time then id.
+   * `behind` is true when it started before the last change to a `restart` setting;
+   * `stale` when its live revision trails the stored one for over a minute.
+   */
+  listAdminProcesses(options?: RequestOptions): Promise<AdminProcesses> {
+    return this.#request<AdminProcesses>({
+      method: "GET",
+      path: "/v1/admin/processes",
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Retry a failed sync run (instance admin, one tenant).
+   *
+   * `POST /v1/admin/tenants/{tenant_id}/users/{id}/sync-runs/{run_id}/retry`
+   *
+   * `POST /v1/users/{id}/sync-runs/{run_id}/retry` (`retrySyncRun`) for the tenant of `tenant_id`, run with an
+   * instance admin key: the same body, parameters and answer as the tenant's own key
+   * gets; a `Location` points at the admin route. Recorded in the caller's audit log
+   * and, actor `admin`, in the tenant's.
+   * See docs/admin-api.md.
+   */
+  retryAdminTenantSyncRun(
+    tenantId: string,
+    userId: string,
+    runId: number,
+    options?: RequestOptions,
+  ): Promise<SyncRun> {
+    return this.#request<SyncRun>({
+      method: "POST",
+      path: `/v1/admin/tenants/${encode(tenantId)}/users/${encode(userId)}/sync-runs/${encode(runId)}/retry`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
+   * Retry the failed sync runs of a connection (instance admin, one tenant).
+   *
+   * `POST /v1/admin/tenants/{tenant_id}/users/{id}/connections/{provider}/sync-runs/retry`
+   *
+   * `POST /v1/users/{id}/connections/{provider}/sync-runs/retry` (`retryFailedSyncRuns`) for the tenant of `tenant_id`, run with an
+   * instance admin key: the same body, parameters and answer as the tenant's own key
+   * gets; a `Location` points at the admin route. Recorded in the caller's audit log
+   * and, actor `admin`, in the tenant's.
+   * See docs/admin-api.md.
+   */
+  retryAdminTenantFailedSyncRuns(
+    tenantId: string,
+    userId: string,
+    provider: string,
+    options?: RequestOptions,
+  ): Promise<RetryAdminTenantFailedSyncRunsResponse> {
+    return this.#request<RetryAdminTenantFailedSyncRunsResponse>({
+      method: "POST",
+      path: `/v1/admin/tenants/${encode(tenantId)}/users/${encode(userId)}/connections/${encode(provider)}/sync-runs/retry`,
+      expect: "json",
+      options,
+    });
+  }
+
+  /**
    * The tenant's audit log, newest first.
    *
    * `GET /v1/audit`
@@ -3151,7 +3603,7 @@ export class OpenHealthSync {
   }
 
   /**
-   * Readiness (database ping and raw store check).
+   * Readiness (database ping, schema version and raw store check).
    *
    * `GET /readyz`
    */

@@ -183,7 +183,7 @@ func FuzzScore(f *testing.F) {
 	s := NewScorer()
 	f.Fuzz(func(t *testing.T, metric string, v, sigma, neff, bias, biassd float64, anchored bool, hour, hr float64, family, ctx string, sources int) {
 		in := Input{Metric: metric, Value: v, Device: Device{Family: family}, Context: Context(ctx), IndependentSources: sources,
-			Features: Features{Hour: hour, Baseline: math.NaN(), Rate: math.NaN(), Motion: math.NaN(), Steps: math.NaN(), HR: hr, RestingHR: math.NaN()},
+			Features:  Features{Hour: hour, Baseline: math.NaN(), Rate: math.NaN(), Motion: math.NaN(), Steps: math.NaN(), HR: hr, RestingHR: math.NaN()},
 			Agreement: &Agreement{Method: MethodBlandAltman, Sigma: sigma, NEff: neff, Bias: bias, BiasSD: biassd, Anchored: anchored}}
 		checkQuality(t, metric, in, s.Score(in))
 	})

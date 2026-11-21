@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
+	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
 
@@ -42,10 +43,32 @@ const (
 	// visibility is how long a claimed delivery may stay running before
 	// another worker takes it again (a crashed worker).
 	visibility = 2 * time.Minute
-	// Concurrency is how many deliveries one worker posts at once.
-	Concurrency = 8
-	maxErrorLen = 500
-	pruneEvery  = time.Hour
+	// DefaultConcurrency is how many deliveries one worker posts at once
+	// unless WorkerConfig.Concurrency says otherwise.
+	DefaultConcurrency = 8
+	// DefaultPerEndpoint is how many deliveries may be in flight to one
+	// endpoint at once, over every worker, unless WorkerConfig.PerEndpoint
+	// says otherwise. It keeps one slow receiver from taking every slot.
+	DefaultPerEndpoint = 2
+	// DefaultPerTenantDivisor sets how many deliveries may be in flight to
+	// the endpoints of one tenant at once, over every worker, unless
+	// WorkerConfig.PerTenant says otherwise: Concurrency divided by it, at
+	// least 1. It keeps one tenant with many slow endpoints from taking
+	// every slot.
+	DefaultPerTenantDivisor = 2
+	// DefaultPauseAfter is how many attempts in a row an endpoint may fail
+	// before it is paused.
+	DefaultPauseAfter = 5
+	// DefaultPauseBase is the first pause of an endpoint. Each further
+	// failure doubles it, up to DefaultPauseMax.
+	DefaultPauseBase = 30 * time.Second
+	// DefaultPauseMax is the longest pause of an endpoint.
+	DefaultPauseMax = 10 * time.Minute
+	maxErrorLen     = 500
+	pruneEvery      = time.Hour
+	// pruneLimit is how long one prune of old deliveries may hold the loop
+	// before it counts as hung.
+	pruneLimit = 15 * time.Minute
 )
 
 // retryDelays is the wait after the nth failed attempt: about 28 hours from
@@ -69,7 +92,45 @@ type WorkerConfig struct {
 	Idle time.Duration
 	// Client replaces the HTTP client (tests).
 	Client *http.Client
+	// Concurrency is how many deliveries this worker posts at once (default
+	// DefaultConcurrency). A finished delivery frees its slot at once.
+	Concurrency int
+	// PerEndpoint caps the deliveries in flight to one endpoint (default
+	// DefaultPerEndpoint, at most Concurrency). The claim enforces it in the
+	// database, so the workers of several replicas share the cap; give them
+	// the same value.
+	PerEndpoint int
+	// PerTenant caps the deliveries in flight to all the endpoints of one
+	// tenant (default Concurrency / DefaultPerTenantDivisor, at least 1; at
+	// most Concurrency). The claim enforces it in the database like
+	// PerEndpoint; give every replica the same value.
+	PerTenant int
+	// PauseAfter is how many attempts in a row an endpoint may fail before
+	// it is paused (default DefaultPauseAfter). A paused endpoint gets
+	// nothing until its pause ends, then one delivery at a time until one
+	// succeeds. A negative value turns the pause off.
+	PauseAfter int
+	// PauseAfterFunc, when set, is read at every claim and every failure and
+	// wins over PauseAfter; it means the same (0 default, negative off).
+	PauseAfterFunc func() int
+	// PauseBase is the first pause; each further failure doubles it, up to
+	// PauseMax (defaults DefaultPauseBase and DefaultPauseMax).
+	PauseBase time.Duration
+	PauseMax  time.Duration
+	// Loop, when set, gets the heartbeat of the delivery loop: one beat per
+	// round, and the attempts in flight as work that excuses a silent loop
+	// (every slot can be held by a slow receiver).
+	Loop *ops.Loop
+	// Observe, when set, is told how each attempt ended (OutcomeDelivered
+	// or OutcomeFailed) and how long the receiver took.
+	Observe func(outcome string, took time.Duration)
 }
+
+// The outcomes of a delivery attempt, as WorkerConfig.Observe gets them.
+const (
+	OutcomeDelivered = "delivered"
+	OutcomeFailed    = "failed"
+)
 
 // Worker posts due deliveries.
 type Worker struct {
@@ -78,11 +139,47 @@ type Worker struct {
 	client *http.Client
 	delays []float64
 	idle   time.Duration
+
+	concurrency int
+	perEndpoint int
+	perTenant   int
+	pauseAfter  int // 0: endpoints are never paused
+	// pauseAfterFn, when set, replaces pauseAfter (WorkerConfig.PauseAfterFunc).
+	pauseAfterFn func() int
+	pauses       []float64 // seconds, see pauseSchedule
+
+	loop    *ops.Loop
+	observe func(outcome string, took time.Duration)
+
+	// claimFn and deliverFn are claim and deliver, replaced in tests of the
+	// slot pool.
+	claimFn   func(ctx context.Context, n int) ([]job, error)
+	deliverFn func(ctx context.Context, j job) error
+}
+
+// resolvePauseAfter maps a configured value to the worker's: 0 is the
+// default, negative never pauses (stored as 0).
+func resolvePauseAfter(n int) int {
+	switch {
+	case n == 0:
+		return DefaultPauseAfter
+	case n > 0:
+		return n
+	}
+	return 0
+}
+
+// pauseAfterNow is the number of failures in a row that pauses an endpoint.
+func (w *Worker) pauseAfterNow() int {
+	if w.pauseAfterFn != nil {
+		return w.pauseAfterFn()
+	}
+	return w.pauseAfter
 }
 
 // NewWorker returns a delivery worker.
 func NewWorker(pool *pgxpool.Pool, box *crypto.Box, cfg WorkerConfig) *Worker {
-	w := &Worker{pool: pool, box: box, client: cfg.Client, idle: cfg.Idle}
+	w := &Worker{pool: pool, box: box, client: cfg.Client, idle: cfg.Idle, loop: cfg.Loop, observe: cfg.Observe}
 	if w.client == nil {
 		w.client = NewClient(cfg.AllowPrivate)
 	}
@@ -96,7 +193,46 @@ func NewWorker(pool *pgxpool.Pool, box *crypto.Box, cfg WorkerConfig) *Worker {
 	for _, d := range delays {
 		w.delays = append(w.delays, d.Seconds())
 	}
+	w.concurrency = cfg.Concurrency
+	if w.concurrency <= 0 {
+		w.concurrency = DefaultConcurrency
+	}
+	w.perEndpoint = cfg.PerEndpoint
+	if w.perEndpoint <= 0 {
+		w.perEndpoint = DefaultPerEndpoint
+	}
+	w.perEndpoint = min(w.perEndpoint, w.concurrency)
+	w.perTenant = cfg.PerTenant
+	if w.perTenant <= 0 {
+		w.perTenant = max(w.concurrency/DefaultPerTenantDivisor, 1)
+	}
+	w.perTenant = min(w.perTenant, w.concurrency)
+	w.pauseAfter = resolvePauseAfter(cfg.PauseAfter)
+	if f := cfg.PauseAfterFunc; f != nil {
+		w.pauseAfterFn = func() int { return resolvePauseAfter(f()) }
+	}
+	base, longest := cfg.PauseBase, cfg.PauseMax
+	if base <= 0 && longest <= 0 {
+		base, longest = DefaultPauseBase, DefaultPauseMax
+	}
+	if longest <= 0 {
+		longest = max(base, DefaultPauseMax)
+	}
+	w.pauses = pauseSchedule(base, longest)
+	w.claimFn, w.deliverFn = w.claim, w.deliver
 	return w
+}
+
+// pauseSchedule lists, in seconds, the pause after the first failure that
+// trips an endpoint and after each further one: base doubled each time, the
+// last entry being longest. Failures past the list keep its last entry.
+func pauseSchedule(base, longest time.Duration) []float64 {
+	base = max(min(base, longest), 0)
+	var out []float64
+	for d := base; d < longest && d > 0; d *= 2 {
+		out = append(out, d.Seconds())
+	}
+	return append(out, max(longest, 0).Seconds())
 }
 
 // NewClient is the delivery HTTP client: no redirects followed (a 3xx is a
@@ -130,18 +266,80 @@ func NewClient(allowPrivate bool) *http.Client {
 // (each bounded by RequestTimeout) and returns nil.
 func (w *Worker) Run(ctx context.Context) error {
 	lastPrune := time.Time{}
+	return w.pump(ctx, func() {
+		if time.Since(lastPrune) <= pruneEvery {
+			return
+		}
+		done := w.loop.Busy(pruneLimit)
+		if err := w.Prune(ctx); err != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "webhook: prune deliveries", "err", err)
+		}
+		done()
+		lastPrune = time.Now()
+	})
+}
+
+// pump keeps Concurrency slots busy: it claims as many deliveries as there
+// are free slots, and a finished delivery frees its slot at once, so one
+// receiver that answers slowly holds its own slots and no others. each runs
+// before every claim.
+func (w *Worker) pump(ctx context.Context, each func()) error {
+	// Attempts finish after shutdown starts: each is short, and cutting one
+	// would only make the receiver see it twice.
+	jobCtx := context.WithoutCancel(ctx)
+	slots := make(chan struct{}, w.concurrency)
+	// freed wakes the idle wait when a delivery finishes: the endpoint it
+	// went to may have more due that its in-flight cap held back.
+	freed := make(chan struct{}, 1)
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
 	for {
-		if time.Since(lastPrune) > pruneEvery {
-			if err := w.Prune(ctx); err != nil && ctx.Err() == nil {
-				slog.ErrorContext(ctx, "webhook: prune deliveries", "err", err)
+		w.loop.Tick()
+		each()
+		// Wait for one free slot, then take every other free one.
+		select {
+		case <-ctx.Done():
+			return nil
+		case slots <- struct{}{}:
+		}
+		n := 1
+	more:
+		for n < w.concurrency {
+			select {
+			case slots <- struct{}{}:
+				n++
+			default:
+				break more
 			}
-			lastPrune = time.Now()
 		}
-		n, err := w.Pass(ctx)
+
+		jobs, err := w.claimFn(ctx, n)
 		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "webhook: delivery pass", "err", err)
+			slog.ErrorContext(ctx, "webhook: claim deliveries", "err", err)
 		}
-		if n > 0 && err == nil {
+		for range n - len(jobs) {
+			<-slots
+		}
+		for _, j := range jobs {
+			wg.Add(1)
+			// An attempt and its settle end well inside the visibility
+			// timeout: past it the loop is no longer excused.
+			done := w.loop.Busy(visibility)
+			go func() {
+				defer wg.Done()
+				defer done()
+				if err := w.deliverFn(jobCtx, j); err != nil {
+					slog.ErrorContext(jobCtx, "webhook: settle delivery", "delivery_id", j.id, "err", err)
+				}
+				<-slots
+				select {
+				case freed <- struct{}{}:
+				default:
+				}
+			}()
+		}
+		if len(jobs) > 0 {
 			continue
 		}
 		t := time.NewTimer(w.idle)
@@ -149,6 +347,8 @@ func (w *Worker) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			t.Stop()
 			return nil
+		case <-freed:
+			t.Stop()
 		case <-t.C:
 		}
 	}
@@ -165,50 +365,174 @@ type job struct {
 	payload   []byte
 	url       string
 	sealed    []byte
+	// sealedPrev is the secret the last rotation replaced, nil once its
+	// grace period is over.
+	sealedPrev []byte
 }
 
-// claimSQL takes due deliveries of active endpoints, oldest first, and marks
-// them running; a running one past the visibility timeout (its worker died)
-// is taken again without burning an attempt.
+// lockEndpointsSQL locks the endpoints that may have something to claim:
+// active, not paused, with a delivery due or a running one past the
+// visibility timeout. The lock is what makes the in-flight cap hold between
+// replicas: claimSQL counts an endpoint's running deliveries in a statement
+// that starts after the lock is held, so it sees every claim made before.
+// An endpoint another worker has locked is skipped until the next claim.
+// FOR NO KEY UPDATE does not block the inserts of new deliveries.
+const lockEndpointsSQL = `
+	SELECT e.id::text, e.tenant_id::text FROM ohs_core.webhook_endpoints e
+	WHERE e.status = 'active' AND (e.paused_until IS NULL OR e.paused_until <= now())
+	  AND (EXISTS (SELECT 1 FROM ohs_core.webhook_deliveries d
+			WHERE d.endpoint_id = e.id AND d.status = 'pending' AND d.not_before <= now())
+		OR EXISTS (SELECT 1 FROM ohs_core.webhook_deliveries d
+			WHERE d.endpoint_id = e.id AND d.status = 'running'
+			  AND d.claimed_at < now() - make_interval(secs => $1::double precision)))
+	FOR NO KEY UPDATE OF e SKIP LOCKED`
+
+// lockTenantsSQL takes, for the length of the claim, the claim lock of each
+// tenant in $1 that no other worker holds, and returns those tenants. Two
+// workers may lock different endpoints of one tenant; this lock is what
+// makes the cap per tenant hold between them: claimSQL counts the tenant's
+// running deliveries once the lock is held. A tenant another worker is
+// claiming for is skipped until the next claim, like a locked endpoint.
+const lockTenantsSQL = `
+	SELECT t FROM unnest($1::text[]) AS t
+	WHERE pg_try_advisory_xact_lock(hashtextextended('ohs_core.webhook_deliveries:claim:' || t, 0))`
+
+// claimSQL takes due deliveries of the locked endpoints ($5), oldest first,
+// and marks them running; a running one past the visibility timeout (its
+// worker died) is taken again without burning an attempt. No endpoint gets
+// more than $3 deliveries in flight, and one that has failed $4 attempts in
+// a row gets a single one, the probe that ends its pause if it succeeds; no
+// tenant gets more than $6 in flight over all its endpoints.
+// (A running delivery keeps the not_before it was claimed with, so it is in
+// the past.)
 const claimSQL = `
-	WITH picked AS (
-		SELECT d.id FROM ohs_core.webhook_deliveries d
-		JOIN ohs_core.webhook_endpoints e ON e.id = d.endpoint_id AND e.status = 'active'
-		WHERE (d.status = 'pending' AND d.not_before <= now())
-		   OR (d.status = 'running' AND d.claimed_at < now() - make_interval(secs => $2::double precision))
-		ORDER BY d.not_before, d.id
-		LIMIT $1
-		FOR UPDATE OF d SKIP LOCKED
+	WITH room AS (
+		SELECT e.id, e.tenant_id,
+			CASE WHEN $4::int > 0 AND e.consecutive_failures >= $4::int THEN 1 ELSE $3::int END
+			- (SELECT count(*) FROM ohs_core.webhook_deliveries r
+				WHERE r.endpoint_id = e.id AND r.status = 'running'
+				  AND r.claimed_at >= now() - make_interval(secs => $2::double precision)) AS free
+		FROM ohs_core.webhook_endpoints e
+		WHERE e.id = ANY ($5::text[]::uuid[]) AND e.status = 'active'
+		  AND (e.paused_until IS NULL OR e.paused_until <= now())
+	), tenant_room AS (
+		SELECT t.tenant_id,
+			$6::int - (SELECT count(*) FROM ohs_core.webhook_endpoints te
+				JOIN ohs_core.webhook_deliveries r ON r.endpoint_id = te.id
+				WHERE te.tenant_id = t.tenant_id AND r.status = 'running'
+				  AND r.claimed_at >= now() - make_interval(secs => $2::double precision)) AS free
+		FROM (SELECT DISTINCT tenant_id FROM room) t
+	), cand AS (
+		SELECT c.id, c.not_before, r.tenant_id FROM room r CROSS JOIN LATERAL (
+			SELECT d.id, d.not_before FROM ohs_core.webhook_deliveries d
+			WHERE d.endpoint_id = r.id AND d.not_before <= now()
+			  AND (d.status = 'pending'
+				OR (d.status = 'running' AND d.claimed_at < now() - make_interval(secs => $2::double precision)))
+			ORDER BY d.not_before, d.id
+			LIMIT greatest(r.free, 0)
+			FOR UPDATE OF d SKIP LOCKED
+		) c
+	), ranked AS (
+		SELECT c.id, c.not_before, tr.free,
+			row_number() OVER (PARTITION BY c.tenant_id ORDER BY c.not_before, c.id) AS nth
+		FROM cand c JOIN tenant_room tr ON tr.tenant_id = c.tenant_id
+	), picked AS (
+		SELECT id FROM ranked WHERE nth <= free ORDER BY not_before, id LIMIT $1
 	)
 	UPDATE ohs_core.webhook_deliveries t SET status = 'running', claimed_at = now()
 	FROM picked p, ohs_core.webhook_endpoints e
 	WHERE t.id = p.id AND e.id = t.endpoint_id
-	RETURNING t.id, t.tenant_id, t.endpoint_id, t.event_id, t.event_type, t.attempts, t.claimed_at, t.payload::text, e.url, e.secret_sealed`
+	RETURNING t.id, t.tenant_id, t.endpoint_id, t.event_id, t.event_type, t.attempts, t.claimed_at, t.payload::text,
+		e.url, e.secret_sealed,
+		CASE WHEN e.secret_previous_expires_at > now() THEN e.secret_previous_sealed END`
 
-// Pass claims up to Concurrency due deliveries, posts them concurrently and
-// settles each. It returns how many it claimed.
-func (w *Worker) Pass(ctx context.Context) (int, error) {
-	rows, err := w.pool.Query(ctx, claimSQL, Concurrency, visibility.Seconds())
+// claim marks up to n due deliveries running and returns them.
+func (w *Worker) claim(ctx context.Context, n int) ([]job, error) {
+	tx, err := w.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("claim deliveries: %w", err)
+		return nil, fmt.Errorf("claim deliveries: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+	rows, err := tx.Query(ctx, lockEndpointsSQL, visibility.Seconds())
+	if err != nil {
+		return nil, fmt.Errorf("claim deliveries: %w", err)
+	}
+	type lockedEndpoint struct{ id, tenant string }
+	locked, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (lockedEndpoint, error) {
+		var e lockedEndpoint
+		return e, row.Scan(&e.id, &e.tenant)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("claim deliveries: %w", err)
+	}
+	if len(locked) == 0 {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	var tenants []string
+	for _, e := range locked {
+		if !seen[e.tenant] {
+			seen[e.tenant] = true
+			tenants = append(tenants, e.tenant)
+		}
+	}
+	rows, err = tx.Query(ctx, lockTenantsSQL, tenants)
+	if err != nil {
+		return nil, fmt.Errorf("claim deliveries: %w", err)
+	}
+	if tenants, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
+		return nil, fmt.Errorf("claim deliveries: %w", err)
+	}
+	clear(seen)
+	for _, t := range tenants {
+		seen[t] = true
+	}
+	var endpoints []string
+	for _, e := range locked {
+		if seen[e.tenant] {
+			endpoints = append(endpoints, e.id)
+		}
+	}
+	if len(endpoints) == 0 {
+		return nil, nil
+	}
+	rows, err = tx.Query(ctx, claimSQL, n, visibility.Seconds(), w.perEndpoint, w.pauseAfterNow(), endpoints, w.perTenant)
+	if err != nil {
+		return nil, fmt.Errorf("claim deliveries: %w", err)
 	}
 	var jobs []job
 	for rows.Next() {
 		var j job
 		var payload string
-		if err := rows.Scan(&j.id, &j.tenant, &j.endpoint, &j.eventID, &j.eventType, &j.attempts, &j.claimedAt, &payload, &j.url, &j.sealed); err != nil {
+		if err := rows.Scan(&j.id, &j.tenant, &j.endpoint, &j.eventID, &j.eventType, &j.attempts, &j.claimedAt, &payload,
+			&j.url, &j.sealed, &j.sealedPrev); err != nil {
 			rows.Close()
-			return 0, fmt.Errorf("scan delivery: %w", err)
+			return nil, fmt.Errorf("scan delivery: %w", err)
 		}
 		if j.payload, err = compactPayload(payload); err != nil {
 			rows.Close()
-			return 0, fmt.Errorf("delivery %d: %w", j.id, err)
+			return nil, fmt.Errorf("delivery %d: %w", j.id, err)
 		}
 		jobs = append(jobs, j)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("claim deliveries: %w", err)
+		return nil, fmt.Errorf("claim deliveries: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("claim deliveries: %w", err)
+	}
+	return jobs, nil
+}
+
+// Pass claims up to Concurrency due deliveries, posts them concurrently,
+// settles each and returns how many it claimed. Run does not use it: it
+// refills each slot as it frees. Pass is for callers that want one bounded
+// round (tests).
+func (w *Worker) Pass(ctx context.Context) (int, error) {
+	jobs, err := w.claimFn(ctx, w.concurrency)
+	if err != nil {
+		return 0, err
 	}
 	// Attempts finish after shutdown starts: each is short, and cutting one
 	// would only make the receiver see it twice.
@@ -219,7 +543,7 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = w.deliver(jobCtx, j)
+			errs[i] = w.deliverFn(jobCtx, j)
 		}()
 	}
 	wg.Wait()
@@ -258,6 +582,13 @@ func (w *Worker) deliver(ctx context.Context, j job) (err error) {
 	}()
 	sendErr = w.send(ctx, j, &o)
 	o.duration = time.Since(o.started)
+	if w.observe != nil {
+		result := OutcomeDelivered
+		if sendErr != nil {
+			result = OutcomeFailed
+		}
+		w.observe(result, o.duration)
+	}
 	if sendErr == nil {
 		return w.succeed(ctx, j, o)
 	}
@@ -273,9 +604,20 @@ func (w *Worker) send(ctx context.Context, j job, o *outcome) error {
 	if err != nil {
 		return errors.New("signing secret cannot be opened (was OHS_ENCRYPTION_KEY changed without keeping the old key in OHS_PREVIOUS_ENCRYPTION_KEYS?)")
 	}
+	secrets := []string{string(secret)}
+	if j.sealedPrev != nil {
+		// A rotation is in its grace period: sign with the replaced secret
+		// too, so a receiver that has not switched yet still accepts.
+		if prev, err := w.box.OpenFor(j.sealedPrev, SecretAAD(j.endpoint)); err == nil {
+			secrets = append(secrets, string(prev))
+		} else {
+			slog.WarnContext(ctx, "webhook: previous signing secret cannot be opened, signing with the current one only",
+				"endpoint_id", j.endpoint)
+		}
+	}
 	now := time.Now()
 	id := j.eventID.String()
-	sig, err := Sign(string(secret), id, now, j.payload)
+	sig, err := SignAll(secrets, id, now, j.payload)
 	if err != nil {
 		return err
 	}
@@ -325,7 +667,10 @@ func (w *Worker) succeed(ctx context.Context, j job, o outcome) error {
 	if err := recordAttempt(ctx, tx, j, o, nil); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET last_success_at = now(), failing_since = NULL
+	// One success ends a pause and its probing: the endpoint gets its full
+	// share of slots again.
+	if _, err := tx.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET last_success_at = now(), failing_since = NULL,
+			consecutive_failures = 0, paused_until = NULL
 		WHERE id = $1`, j.endpoint); err != nil {
 		return fmt.Errorf("mark endpoint healthy: %w", err)
 	}
@@ -362,12 +707,32 @@ func (w *Worker) fail(ctx context.Context, j job, o outcome, cause error) error 
 	if err := recordAttempt(ctx, tx, j, o, cause); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE ohs_core.webhook_endpoints SET failing_since = COALESCE(failing_since, now())
-		WHERE id = $1`, j.endpoint); err != nil {
+	// Count the failure; from the pauseAfter-th in a row on, pause the
+	// endpoint, longer each time.
+	var failures int
+	var pausedUntil *time.Time
+	pauseAfter := w.pauseAfterNow()
+	if err := tx.QueryRow(ctx, `UPDATE ohs_core.webhook_endpoints SET
+			failing_since = COALESCE(failing_since, now()),
+			consecutive_failures = consecutive_failures + 1,
+			paused_until = CASE WHEN $2::int > 0 AND consecutive_failures + 1 >= $2::int
+				THEN now() + make_interval(secs => ($3::double precision[])[
+					least(consecutive_failures + 2 - $2::int, cardinality($3::double precision[]))])
+				ELSE paused_until END
+		WHERE id = $1
+		RETURNING consecutive_failures, paused_until`, j.endpoint, pauseAfter, w.pauses).Scan(&failures, &pausedUntil); err != nil {
 		return fmt.Errorf("mark endpoint failing: %w", err)
 	}
-	if parked {
+	tripped := pauseAfter > 0 && failures >= pauseAfter
+	if tripped && failures == pauseAfter {
+		slog.WarnContext(ctx, "webhook: endpoint paused after consecutive failures", "endpoint_id", j.endpoint,
+			"failures", failures, "paused_until", pausedUntil)
+	}
+	if parked || tripped {
 		// Disable an endpoint that has not accepted anything for DisableAfter.
+		// A paused endpoint is checked on every failed probe: with a backlog
+		// its probes go to the oldest delivery due, so no single delivery
+		// may ever run out of attempts.
 		var disabled bool
 		err := tx.QueryRow(ctx, `UPDATE ohs_core.webhook_endpoints SET status = 'disabled', updated_at = now(),
 				disabled_reason = 'every delivery failed for ' || $2::text
@@ -387,11 +752,22 @@ func (w *Worker) fail(ctx context.Context, j job, o outcome, cause error) error 
 	return tx.Commit(ctx)
 }
 
-// Prune deletes finished deliveries older than Retention.
+// Prune deletes finished deliveries older than Retention, the stream events
+// older than StreamRetention, and the replaced signing secrets whose grace
+// period is over.
 func (w *Worker) Prune(ctx context.Context) error {
 	_, err := w.pool.Exec(ctx, `DELETE FROM ohs_core.webhook_deliveries
 		WHERE status IN ('done', 'parked') AND created_at < now() - make_interval(secs => $1::double precision)`,
 		Retention.Seconds())
+	if err != nil {
+		return err
+	}
+	if err := PruneStream(ctx, w.pool); err != nil {
+		return err
+	}
+	_, err = w.pool.Exec(ctx, `UPDATE ohs_core.webhook_endpoints
+		SET secret_previous_sealed = NULL, secret_previous_expires_at = NULL
+		WHERE secret_previous_expires_at <= now()`)
 	return err
 }
 

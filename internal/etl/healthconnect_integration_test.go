@@ -38,7 +38,7 @@ type storedLog struct {
 
 func (e *env) storedLogs() []storedLog {
 	e.t.Helper()
-	rows, err := e.pool.Query(context.Background(), `SELECT external_id, start_date, coalesce(meal_type, ''),
+	rows, err := e.read().Query(context.Background(), `SELECT external_id, start_date, coalesce(meal_type, ''),
 		coalesce(protein_g, 0), coalesce(sodium_mg, 0), coalesce((nutrients_json->>'caffeine')::float8, 0)
 		FROM ohs_data.nutrition_logs WHERE tenant_id = $1 AND user_id = $2 ORDER BY external_id, start_date`,
 		e.tenant, e.user)
@@ -86,7 +86,7 @@ func TestHealthConnectNutritionLog(t *testing.T) {
 		"recordType": "Hydration", "metadata": map[string]any{"id": "hy-1"},
 		"startTime": "2026-09-02T08:00:00Z", "endTime": "2026-09-02T08:01:00Z", "volumeLiters": 0.33})))
 	var water float64
-	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT (nutrients_json->>'water')::float8
+	require.NoError(t, e.read().QueryRow(context.Background(), `SELECT (nutrients_json->>'water')::float8
 		FROM ohs_data.nutrition_logs WHERE tenant_id = $1 AND user_id = $2 AND external_id = 'hy-1'`,
 		e.tenant, e.user).Scan(&water))
 	assert.InDelta(t, 330, water, 1e-9)
@@ -116,7 +116,7 @@ func TestDerivedTotalKcal(t *testing.T) {
 		energy("ActiveCaloriesBurned", "ac-1", day, 300),
 	))
 	var active, total float64
-	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT active_kcal, total_kcal FROM ohs_data.daily_summaries
+	require.NoError(t, e.read().QueryRow(context.Background(), `SELECT active_kcal, total_kcal FROM ohs_data.daily_summaries
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND summary_date = '2026-09-02'`,
 		e.tenant, e.user, healthconnect.Slug).Scan(&active, &total))
 	assert.Equal(t, 300.0, active)
@@ -127,7 +127,7 @@ func TestDerivedTotalKcal(t *testing.T) {
 		line(map[string]any{"type": model.QTBasalEnergyBurned, "value": 1600.0, "unit": "kcal", "start": "2026-09-02T10:00:00Z", "source": "w"}),
 		line(map[string]any{"type": model.QTActiveEnergyBurned, "value": 450.0, "unit": "kcal", "start": "2026-09-02T10:00:00Z", "source": "w"}),
 	))
-	require.NoError(t, e.pool.QueryRow(context.Background(), `SELECT total_kcal FROM ohs_data.daily_summaries
+	require.NoError(t, e.read().QueryRow(context.Background(), `SELECT total_kcal FROM ohs_data.daily_summaries
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = 'apple_health' AND summary_date = '2026-09-02'`,
 		e.tenant, e.user).Scan(&total))
 	assert.Equal(t, 2050.0, total, "basal plus active")

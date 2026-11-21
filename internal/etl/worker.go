@@ -18,6 +18,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // Worker claims ETL jobs of one tier and processes them with bounded
@@ -31,8 +32,15 @@ type Worker struct {
 	opts        Options
 	idleMin     time.Duration
 	idleMax     time.Duration
-	jobTimeout  time.Duration
-	grace       time.Duration
+	// done is signalled when a job settles, so an idle claim loop claims
+	// again at once: with one job per user, the next job of that user
+	// becomes claimable only when the previous one ends.
+	done       chan struct{}
+	jobTimeout time.Duration
+	grace      time.Duration
+	// rowsWritten, when set, is told the rows each job wrote, per table
+	// (WithRowsWritten).
+	rowsWritten func(table string, rows int)
 }
 
 // WorkerOption configures a Worker.
@@ -60,6 +68,22 @@ func WithWriterConfig(c WriterConfig) WorkerOption { return func(w *Worker) { w.
 // consent for (OHS_CONSENT_REQUIRED).
 func WithConsentRequired(b bool) WorkerOption { return func(w *Worker) { w.opts.ConsentRequired = b } }
 
+// WithConsentRequiredFunc is WithConsentRequired with a getter read at the
+// start of every job, so a change applies without a restart.
+func WithConsentRequiredFunc(f func() bool) WorkerOption {
+	return func(w *Worker) { w.opts.ConsentRequiredFunc = f }
+}
+
+// WithRowsWritten makes the worker report the rows every processed job
+// wrote: fn is called once per table of the job's Counts with its written
+// count (the unqualified table name, "quantity_samples").
+func WithRowsWritten(fn func(table string, rows int)) WorkerOption {
+	return func(w *Worker) { w.rowsWritten = fn }
+}
+
+// WithVault gives every job the user's keys at its start (Options.Vault).
+func WithVault(v *vault.Vault) WorkerOption { return func(w *Worker) { w.opts.Vault = v } }
+
 // NewWorker returns a worker for tier running up to concurrency jobs at once.
 func NewWorker(pool *pgxpool.Pool, rs rawstore.Store, q *queue.ETL, tier string, concurrency int) *Worker {
 	return NewWorkerWith(pool, rs, q, tier, concurrency)
@@ -72,7 +96,7 @@ func NewWorkerWith(pool *pgxpool.Pool, rs rawstore.Store, q *queue.ETL, tier str
 	}
 	w := &Worker{
 		pool: pool, rs: rs, q: q, tier: tier, concurrency: concurrency,
-		idleMin: time.Second, idleMax: 2 * time.Second,
+		idleMin: time.Second, idleMax: 2 * time.Second, done: make(chan struct{}, 1),
 		jobTimeout: queue.VisibilityTimeout - time.Minute,
 	}
 	for _, o := range opts {
@@ -126,7 +150,13 @@ func (w *Worker) Run(ctx context.Context) error {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				defer func() { <-slots }()
+				defer func() {
+					<-slots
+					select {
+					case w.done <- struct{}{}:
+					default:
+					}
+				}()
 				w.handle(jobCtx, job)
 			}()
 		}
@@ -164,7 +194,8 @@ func (w *Worker) drain(wg *sync.WaitGroup, cancelJobs context.CancelFunc) {
 	<-done
 }
 
-// idle sleeps 1 to 2 seconds. It returns false when ctx ends first.
+// idle sleeps 1 to 2 seconds, or until a job of this worker settles. It
+// returns false when ctx ends first.
 func (w *Worker) idle(ctx context.Context) bool {
 	d := w.idleMin
 	if span := w.idleMax - w.idleMin; span > 0 {
@@ -176,6 +207,8 @@ func (w *Worker) idle(ctx context.Context) bool {
 	case <-ctx.Done():
 		return false
 	case <-t.C:
+		return true
+	case <-w.done:
 		return true
 	}
 }
@@ -205,7 +238,12 @@ func (w *Worker) handle(ctx context.Context, job queue.ETLJob) {
 	}()
 	jobCtx, cancel := context.WithTimeout(ctx, w.jobTimeout)
 	defer cancel()
-	_, err := ProcessWith(jobCtx, w.pool, w.rs, job, w.opts)
+	counts, err := ProcessWith(jobCtx, w.pool, w.rs, job, w.opts)
+	if err == nil && w.rowsWritten != nil {
+		for table, tc := range counts {
+			w.rowsWritten(table, tc.Written)
+		}
+	}
 	// Settle on the base context: the job's own may have expired.
 	outcome = w.settle(ctx, log, job, err)
 }

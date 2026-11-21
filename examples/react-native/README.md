@@ -23,7 +23,7 @@ The app is a single file, [`App.tsx`](App.tsx).
 - A running Open Health Sync server, for example from the [repository quickstart](../../README.md#quickstart).
 - Expo Go on a phone, or an Android emulator or iOS simulator.
 
-Expo SDK 52, React Native 0.76. The SDK is installed from this repository
+Expo SDK 54, React Native 0.81. The SDK is installed from this repository
 (`"open-health-sync-react-native": "file:../../sdks/react-native"`); `metro.config.js` adds that
 folder to Metro's watch folders, and `tsconfig.json` points TypeScript at the SDK source.
 
@@ -77,15 +77,16 @@ curl -s "$OHS/v1/users/$USER_ID/samples?type=heart_rate" -H "Authorization: Bear
 
 ## Real HealthKit or Health Connect data
 
-This example types a value by hand so it runs in Expo Go. To upload real readings, read them
-with a community module and turn each one into a line as `App.tsx` does:
-`react-native-health` for HealthKit on iOS, `react-native-health-connect` for Health Connect on
-Android. Both are native modules, so they need a
+This example types a value by hand so it runs in Expo Go. To upload real readings, use the SDK's
+health module, `open-health-sync-react-native/health`, which reads HealthKit on iOS and Health
+Connect on Android through the Swift and Kotlin SDKs and uploads what changed
+([Health store sync](../../docs/sdks/react-native.md#health-store-sync)). Expo Go cannot load it:
+it is a native module, so it needs a
 [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-(`npx expo run:ios` or `npx expo run:android`), not Expo Go. The SDK guide has a full sketch:
-[Reading HealthKit or Health Connect in React Native](../../docs/sdks/react-native.md#reading-healthkit-or-health-connect-in-react-native).
-The upload route takes HealthKit-shaped lines only, so a Health Connect reading is written with
-the matching HealthKit identifier and unit.
+(`npx expo run:ios` or `npx expo run:android`), and React Native 0.80 or later with the New
+Architecture. This example is on Expo SDK 54 and React Native 0.81: a development build links
+the module, set up by the SDK's config plugin in `app.json`, but the screen still types the value
+by hand and does not call it. In Expo Go, `healthSync.isAvailable()` answers `false`.
 
 ## Checks
 

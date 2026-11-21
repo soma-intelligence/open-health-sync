@@ -62,6 +62,8 @@ func (s *server) mountAdminTenantRoutes(admin func(string, http.HandlerFunc)) {
 			route{"POST /users/{id}/connections/{provider}/sync", h.SyncNow()},
 			route{"GET /users/{id}/sync-runs", h.ListSyncRuns()},
 			route{"GET /users/{id}/sync-runs/{run}", h.GetSyncRun()},
+			route{"POST /users/{id}/sync-runs/{run}/retry", h.RetrySyncRun()},
+			route{"POST /users/{id}/connections/{provider}/sync-runs/retry", h.RetryFailedSyncRuns()},
 			route{"POST /users/{id}/connect-sessions", h.CreateConnectSession()})
 	}
 	if s.d.Webhooks != nil {
@@ -106,7 +108,7 @@ func (s *server) asTenant(h http.Handler) http.HandlerFunc {
 		}
 		aw := &adminWriter{statusWriter: statusWriter{ResponseWriter: w}, prefix: "/v1/admin/tenants/" + t.ID.String()}
 		h.ServeHTTP(aw, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{TenantID: t.ID, KeyID: admin.KeyID})))
-		if t.ID == admin.TenantID {
+		if t.ID == admin.Actor() {
 			return
 		}
 		code := aw.code

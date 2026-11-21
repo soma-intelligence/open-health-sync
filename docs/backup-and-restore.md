@@ -21,9 +21,13 @@ about is in the archive. The server keeps running during a backup; `pg_dump` rea
 consistent snapshot. Raw files can rebuild normalized data, but not users, keys or connections,
 so the database is the part that matters most.
 
-**Not in the archive: `OHS_ENCRYPTION_KEY`.** The OAuth tokens in the dump are sealed with it.
-Without the same key a restored instance cannot read them, and every user must connect their
-providers again (uploads and stored data are not affected). Keep `.env`, or at least the key, in
+**Not in the archive: `OHS_ENCRYPTION_KEY` and the vault root key.** The OAuth tokens in the
+dump are sealed with `OHS_ENCRYPTION_KEY`: without it a restored instance cannot read them, and
+every user must connect their providers again. The health records and raw payloads are sealed by
+the [vault](security-model.md#health-data-vault) under a root key that is derived from
+`OHS_ENCRYPTION_KEY` unless `OHS_VAULT_ROOT_KEY` or a KMS provider is set: without that root key
+the restored health data does not open at all, and nothing recovers it. Back the root key up
+apart from the database. Keep `.env`, or at least the key, in
 a separate safe place, such as a password manager, and not next to the archives: anyone with
 both the archive and the key can use the stored tokens.
 
@@ -121,8 +125,8 @@ scripts/restore.sh --verify backups/ohs-backup-20261011T031500Z.tar
 OHS_COMPOSE_PROJECT=ohs-restore-test OHS_HTTP_PORT=8090 \
   scripts/restore.sh --yes backups/ohs-backup-20261011T031500Z.tar
 curl -s http://localhost:8090/readyz
-docker compose -p ohs-restore-test -f deploy/docker-compose.yml exec ohs /ohs admin tenant list
-docker compose -p ohs-restore-test -f deploy/docker-compose.yml down -v
+docker compose --env-file .env -p ohs-restore-test -f deploy/docker-compose.yml exec ohs /ohs admin tenant list
+docker compose --env-file .env -p ohs-restore-test -f deploy/docker-compose.yml down -v
 ```
 
 The second install uses its own project, so its volumes are separate from the live ones. Run the

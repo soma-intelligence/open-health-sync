@@ -1,7 +1,9 @@
 # Spec: admin console
 
-Status: draft for review (2026-10-17). Guide: [console.md](../console.md). Plan:
-[plans/admin-console.md](../plans/admin-console.md).
+Status: shipped; the page design is superseded by [console-v2.md](console-v2.md) (the React
+console). Written 2026-10-17. Guide: [console.md](../console.md). Plan:
+[plans/admin-console.md](../plans/admin-console.md). Runtime settings and what follows them:
+[console-v2.md](console-v2.md).
 
 ## Problem
 

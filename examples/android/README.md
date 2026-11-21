@@ -128,8 +128,11 @@ test: it needs the `ohsServerUrl`, `ohsToken` and `ohsBpm` instrumentation argum
 
 ## Health Connect
 
-Reading Health Connect is planned for the Kotlin SDK. When it lands, this app will use it in
-place of the manual entry. Until then the data source is the text field.
+This app does not read Health Connect: its data sources are the text field and Bluetooth
+devices. The Kotlin SDK's `open-health-sync-health-connect` module reads Health Connect and
+uploads what changed, with an offline queue and a WorkManager job for background sync
+([Health Connect sync](../../docs/sdks/kotlin.md#health-connect-sync)). That module has been unit
+tested on the JVM only, not yet run on a device or an emulator.
 
 ## Limits
 

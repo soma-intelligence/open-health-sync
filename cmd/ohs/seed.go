@@ -13,11 +13,14 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/demo"
 	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 const seedUsage = "usage: ohs seed --demo [--persona mix] [--tenant <id>] [--days 90] [--external-ref demo-user] [--seed N]"
@@ -100,6 +103,13 @@ func runSeed(rest []string, out io.Writer) error {
 	}
 	defer pool.Close()
 	store := tenant.New(pool)
+	v, err := seedVault(ctx, pool)
+	if err != nil {
+		return err
+	}
+	if v != nil {
+		store = store.WithVault(v)
+	}
 
 	tenantID, key := o.tenant, ""
 	if tenantID == uuid.Nil {
@@ -124,11 +134,46 @@ func runSeed(rest []string, out io.Writer) error {
 		return fmt.Errorf("no tenant with id %s", tenantID)
 	case errors.Is(err, tenant.ErrConflict), errors.Is(err, etl.ErrUserNotActive):
 		return fmt.Errorf("the user with external_ref %q is being deleted: pass another --external-ref", o.externalRef)
+	case errors.Is(err, vault.ErrNoKeys):
+		return fmt.Errorf("the user with external_ref %q has no keys yet: start the api or etl once, "+
+			"its startup pass gives every user keys, then seed again", o.externalRef)
 	case err != nil:
 		return err
 	}
 	fmt.Fprintf(out, "%d rows written, %d already there\n", res.Written, res.Skipped)
 	return printSeedSummary(out, tenantID, res.User.ID, key)
+}
+
+// errSeedNeedsVault refuses a clear demo write on an instance that seals.
+var errSeedNeedsVault = errors.New("this instance holds vault keys, so demo rows must be sealed: " +
+	"configure its key provider for this command as for the server (OHS_ENCRYPTION_KEY and the OHS_VAULT_* settings)")
+
+// seedVault opens the instance's vault from the configuration, so the demo
+// user gets its keys and its rows are sealed as the API's demo user's are.
+// With no encryption key configured it returns nil and the rows are written
+// clear, which only an instance that holds no vault key yet accepts. Any other
+// configuration error is returned.
+func seedVault(ctx context.Context, pool *pgxpool.Pool) (*vault.Vault, error) {
+	cfg, err := config.Load(os.LookupEnv, os.Environ())
+	if err == nil {
+		p, err := vault.OpenProvider(ctx, cfg.Vault)
+		if err != nil {
+			return nil, fmt.Errorf("OHS_VAULT_KEY_PROVIDER: %w", err)
+		}
+		return vault.New(pool, p, vault.Options{CanOpen: true}), nil
+	}
+	unset := os.Getenv("OHS_ENCRYPTION_KEY") == "" && os.Getenv("OHS_ENCRYPTION_KEY_FILE") == ""
+	if !errors.Is(err, config.ErrEncryptionKey) || !unset {
+		return nil, err
+	}
+	var keys bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ohs_core.vault_keys)`).Scan(&keys); err != nil {
+		return nil, fmt.Errorf("look up vault keys: %w", err)
+	}
+	if keys {
+		return nil, errSeedNeedsVault
+	}
+	return nil, nil
 }
 
 // formatCounts lists the rows written per table, in table order.

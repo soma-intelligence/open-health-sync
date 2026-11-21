@@ -50,7 +50,7 @@ func TestSettleRetriesWhileTheDatabaseIsDown(t *testing.T) {
 	for name, settle := range map[string]func(poolExec) error{
 		"complete": func(p poolExec) error { return complete(context.Background(), "etl_jobs", p, 1, time.Now()) },
 		"fail": func(p poolExec) error {
-			return fail(context.Background(), "etl_jobs", p, 1, time.Now(), errors.New("x"))
+			return fail(context.Background(), "etl_jobs", p, 1, time.Now(), errors.New("x"), standardBackoff)
 		},
 	} {
 		*waits = nil

@@ -31,10 +31,11 @@ Usage: ohs <command> [flags]
 Commands:
   up        apply database migrations, then serve (the container entrypoint)
   serve     run the roles listed in OHS_ROLES (api, collect, etl)
-  migrate   apply or inspect the database schema: up, version, latest, down --all
+  migrate   apply or inspect the database schema: up, version, latest, force, down --all
   doctor    check the configuration, database, raw store and connectors
   admin     create tenants, create, list and revoke their API keys, personal setup,
             re-seal stored secrets after an encryption key rotation
+  vault     seal the health data stored before the vault, show what is left, rotate keys
   mcp       serve MCP on stdin and stdout for a local agent (Claude Desktop, Claude Code)
   import    load an existing history from a file export: apple-health, mi-fitness, files
   seed      fill an instance with synthetic demo data: seed --demo
@@ -56,18 +57,38 @@ var commandHelp = map[string]string{
 Applies the pending database migrations (ohs migrate up), then runs ohs serve.
 This is the container entrypoint. Needs OHS_DATABASE_URL and OHS_ENCRYPTION_KEY.
 `,
-	"serve": `usage: ohs serve
+	"serve": `usage: ohs serve [--allow-newer-schema]
 
 Runs the roles listed in OHS_ROLES (default api,collect,etl) until SIGINT or
 SIGTERM. Needs OHS_DATABASE_URL and OHS_ENCRYPTION_KEY, and a database already
 migrated (ohs migrate up, or use ohs up). Logs are JSON on stderr at
 OHS_LOG_LEVEL (default info).
+
+serve refuses to start, whatever the roles, when the schema version of the
+database is not the one this binary migrates to (ohs migrate version against
+ohs migrate latest): behind, run ohs migrate up; ahead, run the newer release;
+dirty, see ohs migrate force.
+
+  --allow-newer-schema   start on a database a newer release migrated, for a
+                         rollback of the binary alone; only safe while the
+                         newer migrations added things and removed nothing
 `,
-	"migrate": `usage: ohs migrate <up|version|latest|down --all>
+	"migrate": `usage: ohs migrate <up|version|latest|force <version> --yes|down --all>
 
   up          apply every pending migration (safe to run on each start)
-  version     print the schema version of the database
+  version     print the schema version of the database, "(dirty)" after it
+              when a migration stopped half way
   latest      print the schema version this binary migrates to (no database)
+  force <version> --yes
+              record <version> as the schema version and clear the dirty
+              mark, running no migration: the way out of a killed migration,
+              once the schema is known to be at <version>. Refused when the
+              schema is not dirty. With "N (dirty)", <version> is N, the
+              migration before N or the one after N (0 means no migration
+              applied): after a failed up, the one before N (nothing of N
+              is applied) or N (finished by hand); after a failed down --all,
+              N (the revert was finished by hand) or the one after N (it
+              was undone). Recovery steps: docs/self-hosting.md
   down --all  revert every migration: drops all Open Health Sync data
 
 Needs OHS_DATABASE_URL only (latest needs nothing).
@@ -77,7 +98,10 @@ Needs OHS_DATABASE_URL only (latest needs nothing).
 Checks the configuration, the database, the raw store, OHS_PUBLIC_URL and the
 keys of each connector, one "ok", "warn", "skip" or "fail" line per check, and
 prints the OAuth callback URL to register for each enabled OAuth connector. It
-counts the stored secrets still sealed with a previous or unknown key. Exits 1
+counts the stored secrets still sealed with a previous or unknown key, checks
+that the vault key provider (local, hashicorp, azurekv, awskms) opens the
+tenant keys, and warns while health data is still stored clear (ohs vault
+seal) or a tenant key is under a previous root key. Exits 1
 when a check fails (a warning does not). With OHS_ENCRYPTION_KEY empty it prints a fresh key to
 paste into .env.
 
@@ -95,8 +119,16 @@ paste into .env.
                                  make a tenant an instance admin (its keys may
                                  turn providers on from the console), or with
                                  --off stop it being one
-  key create --tenant <id>       add an API key to a tenant (rotation)
-  key list --tenant <id>         list a tenant's keys by prefix, with last use
+  key create --tenant <id> [--expires-at <time>] [--scopes <a,b>]
+                                 add an API key to a tenant (rotation); with
+                                 --expires-at it stops working at that time,
+                                 an RFC 3339 time (2027-01-01T00:00:00Z) or a
+                                 day (2027-01-01, midnight UTC); with --scopes
+                                 it does only what those scopes allow
+                                 (users:read,data:read; docs/api.md lists
+                                 them), without it everything
+  key list --tenant <id>         list a tenant's keys by prefix, with last use,
+                                 expiry and scopes
   key revoke --tenant <id> --key <key or prefix>
                                  revoke one key, named by the prefix key list
                                  shows or by the whole key (a whole user
@@ -119,6 +151,47 @@ A new key (ohs_sk_...) is printed once: store it, it cannot be shown again.
 To rotate: key create, deploy the new key, key revoke the old one.
 Needs OHS_DATABASE_URL; rekey also needs OHS_ENCRYPTION_KEY and
 OHS_PREVIOUS_ENCRYPTION_KEYS.
+`,
+	"vault": `usage: ohs vault <command>
+
+The health data vault seals every health value under a key of its user
+(docs/security-model.md). These commands convert what an instance stored
+before it had the vault, and rotate its keys.
+
+  status [--check]         count the rows and raw objects still stored clear,
+                           by table; reads only, needs OHS_DATABASE_URL alone.
+                           With --check it exits 1 when something is left
+  seal [--batch <rows>] [--user <id>] [--dry-run]
+                           seal the rows and raw objects stored clear, user by
+                           user, and build their hourly statistics. Run it
+                           once after upgrading from a release without the
+                           vault, with the server running or stopped. It works
+                           in batches (default 1000 rows per transaction) and
+                           may be stopped at any time: run it again to go on.
+                           --user limits it to one user (repeatable);
+                           --dry-run changes nothing and prints what is left
+  rotate root              rewrap every tenant key under the root key
+                           configured now. For a local key, set
+                           OHS_VAULT_ROOT_KEY to the new key first and keep
+                           the old one in OHS_VAULT_ROOT_KEY_PREVIOUS (a root
+                           key derived from OHS_ENCRYPTION_KEY needs no
+                           listing); for a KMS, rotate the key there first.
+                           Then restart every ohs process. Takes seconds: no
+                           data is rewritten
+  rotate tenant <tenant id>
+                           give one tenant a new key and rewrap its user keys
+  rotate user <tenant id> <user id>
+                           give one user a new key version: what is written
+                           from now on is sealed under it. For a suspected
+                           leak of that user's keys, not for routine rotation
+  reseal [--batch <rows>] [--user <id>]
+                           after rotate user: rewrite the rows and raw objects
+                           still sealed under an older key version, then
+                           retire it. Optional, resumable like seal
+
+Needs the configuration of the server: OHS_DATABASE_URL, OHS_ENCRYPTION_KEY,
+OHS_RAW_STORE and the OHS_VAULT_* settings (status needs the database only).
+Prints counts only, never a key or a health value. Details: docs/key-rotation.md.
 `,
 	"mcp": `usage: ohs mcp
 

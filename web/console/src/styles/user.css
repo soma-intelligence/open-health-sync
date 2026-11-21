@@ -1,0 +1,253 @@
+/* ---------- user page ---------- */
+.crumbs {
+  font: var(--op-text-small);
+}
+
+.crumbs a {
+  color: var(--op-accent-text);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  text-decoration: underline;
+}
+
+.user-head {
+  align-items: center;
+}
+
+.user-id {
+  display: flex;
+  align-items: center;
+  gap: var(--op-s3);
+  min-width: 0;
+}
+
+.user-names {
+  min-width: 0;
+}
+
+.user-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--op-s2) var(--op-s3);
+}
+
+.user-title .page-title {
+  overflow-wrap: anywhere;
+}
+
+.user-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--op-s1) var(--op-s3);
+  font: var(--op-text-small);
+}
+
+.user-sub .mono {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.user-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--op-s3);
+  display: grid;
+  place-items: center;
+  font: 700 17px var(--op-font-display);
+  background: var(--op-accent-wash);
+  color: var(--op-accent-text);
+  flex: none;
+}
+
+/* Tabs: a segmented row of links, the address says which is open. */
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: var(--op-r-control);
+  background: var(--op-field);
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 6px var(--op-s3);
+  border-radius: 8px;
+  color: var(--op-fg-2);
+  font: 500 13px var(--op-font);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: var(--op-fg);
+}
+
+.tab.active {
+  background: var(--op-card);
+  color: var(--op-fg);
+  font-weight: 600;
+  box-shadow: var(--op-shadow);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* ---------- metric tiles ---------- */
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--op-s3);
+}
+
+.metric {
+  padding: var(--op-s4) var(--op-s5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-label {
+  font: var(--op-text-small);
+  color: var(--op-fg-2);
+}
+
+.metric-value {
+  font: 700 30px/1.15 var(--op-font-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-hint {
+  font: var(--op-text-small);
+  font-size: 12px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: var(--op-s4);
+  align-items: start;
+}
+
+.sub-title {
+  margin: 0;
+  font: 600 15px var(--op-font);
+}
+
+.export {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s2);
+  padding-top: var(--op-s3);
+  border-top: 1px solid var(--op-line);
+}
+
+.danger-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--op-s2);
+  padding-top: var(--op-s3);
+  border-top: 1px solid var(--op-line);
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--op-s5);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font: 700 22px/1.2 var(--op-font-display);
+}
+
+.stat-label {
+  color: var(--op-fg-2);
+  font: var(--op-text-small);
+}
+
+.stat.warn .stat-value {
+  color: var(--warn);
+}
+
+.stat.bad .stat-value {
+  color: var(--danger);
+}
+
+.preview-out {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s2);
+}
+
+.json {
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--op-s3);
+  border-radius: var(--op-s3);
+  background: var(--op-card-2);
+  font: var(--op-text-code);
+  font-size: 12px;
+}
+
+.consent-source {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s2);
+}
+
+.secret-value {
+  resize: none;
+  width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.secret-row {
+  justify-content: space-between;
+}
+
+.secret-row p {
+  margin: 0;
+}
+
+@container page (max-width: 820px) {
+  .user-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .metric-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metric {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--op-s1) var(--op-s3);
+  }
+
+  .metric-value {
+    font-size: 24px;
+    order: -1;
+  }
+}

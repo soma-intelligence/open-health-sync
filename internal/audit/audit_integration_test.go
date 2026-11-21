@@ -108,3 +108,87 @@ func TestRecordCleansText(t *testing.T) {
 	assert.Equal(t, map[string]any{"provider": "oura", "bad�name": []any{"a"}}, got[0].Detail)
 	assert.Equal(t, "k1", got[0].Actor.ID)
 }
+
+// The buffered writer writes its queue in batches, keeps the time of each
+// event and writes what is left on Close.
+func TestWriterWritesBatches(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+
+	tenant, user := uuid.New(), uuid.New()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	w := audit.NewWriter(pool, audit.WriterOptions{Batch: 3, Interval: time.Hour})
+	for i := range 7 {
+		ev := audit.Event{Tenant: tenant, ActorType: audit.APIKey, ActorID: "k1", Action: audit.DataRead,
+			Method: "GET", Route: "GET /v1/users/{id}/samples", Status: 200, RequestID: "r1"}
+		if i == 0 {
+			ev.User, ev.At, ev.Detail = &user, at, map[string]any{"provider": "a\x00b"}
+		}
+		require.NoError(t, w.Enqueue(ev))
+	}
+	require.NoError(t, w.Close(ctx))
+	assert.EqualValues(t, 7, w.Written())
+	assert.Zero(t, w.Dropped())
+
+	all, _, err := audit.List(ctx, pool, tenant, audit.Filter{})
+	require.NoError(t, err)
+	require.Len(t, all, 7)
+	first := all[len(all)-1]
+	assert.True(t, first.At.Equal(at), "the time the event was given")
+	assert.Equal(t, &user, first.UserID)
+	assert.Equal(t, map[string]any{"provider": "ab"}, first.Detail)
+	assert.WithinDuration(t, time.Now(), all[0].At, time.Minute, "the time it was queued")
+}
+
+// actor_tenant_id is written by Record and by the buffered Writer, and listed;
+// nil when the event has none.
+func TestActorTenantRecordedAndListed(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+
+	tenant, actor := uuid.New(), uuid.New()
+	mk := func(at *uuid.UUID) audit.Event {
+		return audit.Event{Tenant: tenant, ActorType: audit.APIKey, ActorID: "k1", Action: audit.ConfigRead,
+			Method: "GET", Route: "GET /v1/config", Status: 200, ActorTenant: at}
+	}
+	require.NoError(t, audit.Record(ctx, pool, mk(&actor)))
+	require.NoError(t, audit.Record(ctx, pool, mk(nil)))
+	w := audit.NewWriter(pool, audit.WriterOptions{Batch: 2, Interval: time.Hour})
+	require.NoError(t, w.Enqueue(mk(&actor)))
+	require.NoError(t, w.Enqueue(mk(nil)))
+	require.NoError(t, w.Close(ctx))
+
+	got, _, err := audit.List(ctx, pool, tenant, audit.Filter{})
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+	// newest first: writer nil, writer actor, record nil, record actor
+	assert.Nil(t, got[0].ActorTenantID)
+	assert.Equal(t, &actor, got[1].ActorTenantID)
+	assert.Nil(t, got[2].ActorTenantID)
+	assert.Equal(t, &actor, got[3].ActorTenantID)
+}
+
+func TestListFilterByActor(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.Open(ctx, db.TestDB(t))
+	require.NoError(t, err)
+	defer pool.Close()
+	tn := uuid.New()
+	for _, id := range []string{"k1", "k1", "k2"} {
+		require.NoError(t, audit.Record(ctx, pool, audit.Event{Tenant: tn, ActorType: audit.APIKey, ActorID: id,
+			Action: audit.DataRead, Method: "GET", Route: "GET /v1/x", Status: 200}))
+	}
+	require.NoError(t, audit.Record(ctx, pool, audit.Event{Tenant: tn, ActorType: audit.System, ActorID: "k1",
+		Action: audit.UserErased}))
+
+	got, _, err := audit.List(ctx, pool, tn, audit.Filter{ActorType: audit.APIKey, ActorID: "k1"})
+	require.NoError(t, err)
+	assert.Len(t, got, 2)
+	got, _, err = audit.List(ctx, pool, tn, audit.Filter{ActorType: audit.APIKey})
+	require.NoError(t, err)
+	assert.Len(t, got, 3)
+}

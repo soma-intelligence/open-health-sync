@@ -9,6 +9,7 @@ import (
 	"errors"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -16,19 +17,21 @@ import (
 )
 
 var wantTables = map[string][]string{
-	"ohs_core": {"tenants", "api_keys", "end_users", "user_tokens", "idempotency_keys", "deletion_jobs"},
+	"ohs_core": {"tenants", "api_keys", "end_users", "user_tokens", "idempotency_keys", "deletion_jobs",
+		"vault_root", "vault_keys"},
 	"ohs_sync": {"connections", "oauth_states", "pull_jobs", "pull_coverage", "sync_log",
 		"inbound_subscriptions", "raw_objects", "etl_jobs", "consents", "consent_events", "consent_purges",
 		"shares", "share_accesses"},
 	"ohs_data": {"quantity_samples", "category_samples", "sleep_sessions", "workouts", "route_points",
 		"nutrition_logs", "ecg_recordings", "ecg_samples", "heartbeat_samples", "daily_summaries",
 		"observations", "sleep_phases", "workout_tracks", "quantity_codes", "device_aliases", "failed_records",
-		"deleted_records", "time_tags"},
+		"deleted_records", "time_tags", "quantity_hourly_sealed"},
 }
 
 var wantHypertables = []string{
 	"category_samples", "daily_summaries", "ecg_recordings", "ecg_samples", "heartbeat_samples",
-	"nutrition_logs", "observations", "quantity_samples", "route_points", "sleep_sessions", "workouts",
+	"nutrition_logs", "observations", "quantity_hourly_sealed", "quantity_samples", "route_points",
+	"sleep_sessions", "workouts",
 }
 
 func TestBaselineUpDown(t *testing.T) {
@@ -339,4 +342,404 @@ func withParam(url, kv string) string {
 		return url + "&" + kv
 	}
 	return url + "?" + kv
+}
+
+// schemaDump lists every column, index and constraint of the three ohs schemas,
+// one line each, sorted, so two dumps of the same schema compare equal.
+func schemaDump(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+		SELECT 'column ' || table_schema || '.' || table_name || '.' || column_name || ' ' || data_type ||
+		       ' null=' || is_nullable || ' default=' || coalesce(column_default, '')
+		FROM information_schema.columns WHERE table_schema IN ('ohs_core', 'ohs_sync', 'ohs_data')
+		UNION ALL
+		SELECT 'index ' || schemaname || '.' || indexname || ' ' || indexdef
+		FROM pg_indexes WHERE schemaname IN ('ohs_core', 'ohs_sync', 'ohs_data')
+		UNION ALL
+		SELECT 'constraint ' || n.nspname || '.' || c.relname || '.' || k.conname || ' ' || pg_get_constraintdef(k.oid)
+		FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname IN ('ohs_core', 'ohs_sync', 'ohs_data')
+		ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var lines []string
+	for rows.Next() {
+		var l string
+		if err := rows.Scan(&l); err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, l)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// Migration 0050 adds the vault schema: up, down and up again leaves the schema
+// identical, and down restores the one before it.
+func TestVaultMigrationUpDownUp(t *testing.T) {
+	ctx := context.Background()
+	url := TestDB(t)
+	m, err := newMigrator(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	pool, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	// The database is at the latest migration: the later ones go down
+	// first, and come back at the end.
+	latest := schemaDump(t, ctx, pool)
+	if err := m.Migrate(50); err != nil {
+		t.Fatalf("down to 50: %v", err)
+	}
+	withVault := schemaDump(t, ctx, pool)
+	if err := m.Migrate(49); err != nil {
+		t.Fatalf("down to 49: %v", err)
+	}
+	before := schemaDump(t, ctx, pool)
+	if strings.Contains(before, "vault_") || strings.Contains(before, "content_mac") {
+		t.Fatalf("migration 49 still holds vault objects")
+	}
+	if err := m.Migrate(50); err != nil {
+		t.Fatalf("up to 50: %v", err)
+	}
+	if got := schemaDump(t, ctx, pool); got != withVault {
+		t.Errorf("schema after 50 differs from the first migrate up")
+	}
+	if err := m.Migrate(49); err != nil {
+		t.Fatalf("down to 49 again: %v", err)
+	}
+	if got := schemaDump(t, ctx, pool); got != before {
+		t.Errorf("down from 50 did not restore the schema of 49")
+	}
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		t.Fatalf("up: %v", err)
+	}
+	if got := schemaDump(t, ctx, pool); got != latest {
+		t.Errorf("schema after up, down, up differs")
+	}
+}
+
+// Migration 0050 fills worn, tz, derived and synthesized from the stored
+// columns and metadata with the expressions the code applies today, leaves
+// source_key and sealed empty, and lets a sealed row carry NULL values.
+func TestVaultMigrationBackfill(t *testing.T) {
+	ctx := context.Background()
+	url := TestDB(t)
+	m, err := newMigrator(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	pool, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err := m.Migrate(49); err != nil {
+		t.Fatalf("down to 49: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date,
+			content_hash, source_name, product_type, device_model, metadata)
+		VALUES
+		 (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'watch-by-name', 'Alex''s Apple Watch', NULL, NULL,
+		  '{"timezone":"Europe/Paris","derived":true}'),
+		 (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'watch-by-product', 'Health', 'Watch6,1', NULL,
+		  '{"synthesized":true}'),
+		 (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'phone', 'iPhone', 'iPhone15,2', 'iPhone',
+		  '{"timezone":"America/Los_Angeles","derived":false,"synthesized":"no"}'),
+		 (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'bare', NULL, NULL, NULL, '{}')`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO ohs_data.daily_summaries
+		(tenant_id, user_id, provider, summary_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', DATE '2026-03-08', 'sum', '{"summary_date":"2026-03-08"}')`); err != nil {
+		t.Fatalf("seed summary: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO ohs_data.quantity_samples (tenant_id, user_id, provider, quantity_type, value, start_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-ok', '{"summary_date":"2026-03-08"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-bad', '{"summary_date":"not a date"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-impossible', '{"summary_date":"2026-13-45"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'steps', 1, now(), 'sd-word', '{"summary_date":"today"}');
+		INSERT INTO ohs_data.category_samples (tenant_id, user_id, provider, category_type, value_int, start_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', 'menstrual_flow', 1, now(), 'cat-tz', '{"timezone":"Asia/Tokyo"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'menstrual_flow', 1, now(), 'cat-none', '{}');
+		INSERT INTO ohs_data.sleep_sessions (tenant_id, user_id, provider, bedtime_start, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', now(), 'sl-watch', '{"sourceName":"Apple Watch","synthesized":true}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', now(), 'sl-phone', '{"sourceName":"iPhone"}');
+		INSERT INTO ohs_data.workouts (tenant_id, user_id, provider, activity_type, start_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', 'run', now(), 'wo-watch', '{"sourceName":"Apple Watch"}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', 'run', now(), 'wo-none', '{}');
+		INSERT INTO ohs_data.daily_summaries (tenant_id, user_id, provider, summary_date, content_hash, metadata)
+		VALUES (gen_random_uuid(), gen_random_uuid(), 'p', DATE '2026-03-09', 'ds-derived', '{"derived":true}'),
+		       (gen_random_uuid(), gen_random_uuid(), 'p', DATE '2026-03-10', 'ds-plain', '{}')`); err != nil {
+		t.Fatalf("seed promoted tables: %v", err)
+	}
+	if err := m.Migrate(50); err != nil {
+		t.Fatalf("up to 50: %v", err)
+	}
+
+	type row struct {
+		worn                 *bool
+		tz                   *string
+		derived, synthesized *bool
+		sourceKey, sealed    []byte
+	}
+	want := map[string]struct {
+		worn         bool
+		tz           string // empty: NULL
+		derived, syn bool
+	}{
+		"watch-by-name":    {true, "Europe/Paris", true, false},
+		"watch-by-product": {true, "", false, true},
+		"phone":            {false, "America/Los_Angeles", false, false},
+		"bare":             {false, "", false, false},
+	}
+	for hash, w := range want {
+		var r row
+		if err := pool.QueryRow(ctx, `SELECT worn, tz, derived, synthesized, source_key, sealed
+			FROM ohs_data.quantity_samples WHERE content_hash = $1`, hash).
+			Scan(&r.worn, &r.tz, &r.derived, &r.synthesized, &r.sourceKey, &r.sealed); err != nil {
+			t.Fatalf("%s: %v", hash, err)
+		}
+		if r.worn == nil || *r.worn != w.worn {
+			t.Errorf("%s: worn = %v, want %v", hash, r.worn, w.worn)
+		}
+		if (w.tz == "") != (r.tz == nil) || (r.tz != nil && *r.tz != w.tz) {
+			t.Errorf("%s: tz = %v, want %q", hash, r.tz, w.tz)
+		}
+		// A row with no flag is not derived, as in the code that reads it.
+		if r.derived == nil || *r.derived != w.derived {
+			t.Errorf("%s: derived = %v, want %v", hash, r.derived, w.derived)
+		}
+		if hash == "watch-by-product" && (r.synthesized == nil || !*r.synthesized) {
+			t.Errorf("watch-by-product: synthesized = %v, want true", r.synthesized)
+		}
+		if r.sourceKey != nil || r.sealed != nil {
+			t.Errorf("%s: source_key and sealed must stay NULL", hash)
+		}
+	}
+
+	str := func(q, hash string) (v *string) {
+		if err := pool.QueryRow(ctx, q, hash).Scan(&v); err != nil {
+			t.Fatalf("%s %s: %v", q, hash, err)
+		}
+		return v
+	}
+	flag := func(q, hash string) (v *bool) {
+		if err := pool.QueryRow(ctx, q, hash).Scan(&v); err != nil {
+			t.Fatalf("%s %s: %v", q, hash, err)
+		}
+		return v
+	}
+	for hash, w := range map[string]string{"sd-ok": "2026-03-08", "sd-bad": "", "sd-impossible": "", "sd-word": ""} {
+		got := str(`SELECT summary_date::text FROM ohs_data.quantity_samples WHERE content_hash = $1`, hash)
+		if (w == "") != (got == nil) || (got != nil && *got != w) {
+			t.Errorf("quantity summary_date %s = %v, want %q", hash, got, w)
+		}
+	}
+	if got := str(`SELECT tz FROM ohs_data.category_samples WHERE content_hash = $1`, "cat-tz"); got == nil || *got != "Asia/Tokyo" {
+		t.Errorf("category tz = %v", got)
+	}
+	if got := str(`SELECT tz FROM ohs_data.category_samples WHERE content_hash = $1`, "cat-none"); got != nil {
+		t.Errorf("category tz without key = %v, want NULL", *got)
+	}
+	for _, c := range []struct {
+		table, hash string
+		worn        bool
+	}{{"sleep_sessions", "sl-watch", true}, {"sleep_sessions", "sl-phone", false},
+		{"workouts", "wo-watch", true}, {"workouts", "wo-none", false}} {
+		got := flag(`SELECT worn FROM ohs_data.`+c.table+` WHERE content_hash = $1`, c.hash)
+		if got == nil || *got != c.worn {
+			t.Errorf("%s %s: worn = %v, want %v", c.table, c.hash, got, c.worn)
+		}
+	}
+	if got := flag(`SELECT synthesized FROM ohs_data.sleep_sessions WHERE content_hash = $1`, "sl-watch"); got == nil || !*got {
+		t.Errorf("sleep synthesized = %v, want true", got)
+	}
+	if got := flag(`SELECT synthesized FROM ohs_data.sleep_sessions WHERE content_hash = $1`, "sl-phone"); got == nil || *got {
+		t.Errorf("sleep synthesized without key = %v, want false", got)
+	}
+	for _, hash := range []string{"sl-watch", "sl-phone"} {
+		var k []byte
+		if err := pool.QueryRow(ctx, `SELECT source_key FROM ohs_data.sleep_sessions WHERE content_hash = $1`, hash).Scan(&k); err != nil || k != nil {
+			t.Errorf("sleep source_key %s = %v err=%v, want NULL", hash, k, err)
+		}
+	}
+	for hash, w := range map[string]bool{"ds-derived": true, "ds-plain": false} {
+		if got := flag(`SELECT derived FROM ohs_data.daily_summaries WHERE content_hash = $1`, hash); got == nil || *got != w {
+			t.Errorf("summary derived %s = %v, want %v", hash, got, w)
+		}
+	}
+
+	// A summary's date column is the one the metadata names; nothing to promote.
+	var d string
+	if err := pool.QueryRow(ctx, `SELECT summary_date::text FROM ohs_data.daily_summaries
+		WHERE content_hash = 'sum' AND summary_date = (metadata->>'summary_date')::date`).Scan(&d); err != nil || d != "2026-03-08" {
+		t.Errorf("summary_date = %q err=%v", d, err)
+	}
+
+	// A sealed row holds NULL where the value was.
+	if _, err := pool.Exec(ctx, `UPDATE ohs_data.quantity_samples SET value = NULL, metadata = NULL,
+		sealed = '\x02'::bytea WHERE content_hash = 'phone'`); err != nil {
+		t.Errorf("sealed quantity row refused: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE ohs_data.daily_summaries SET metadata = NULL, sealed = '\x02'::bytea`); err != nil {
+		t.Errorf("sealed summary row refused: %v", err)
+	}
+}
+
+// vault_keys: a user key needs kem_public, a tenant key must not carry one,
+// versions are unique per owner, and removing the user removes its keys.
+func TestVaultKeysConstraints(t *testing.T) {
+	ctx := context.Background()
+	url := TestDB(t)
+	pool, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	var tenant, user string
+	if err := pool.QueryRow(ctx, `INSERT INTO ohs_core.tenants (name) VALUES ('t') RETURNING id::text`).Scan(&tenant); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO ohs_core.end_users (tenant_id) VALUES ($1) RETURNING id::text`, tenant).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) error { _, err := pool.Exec(ctx, q, args...); return err }
+	if err := exec(`INSERT INTO ohs_core.vault_root (version, provider) VALUES ('r1', 'local')`); err != nil {
+		t.Fatalf("root: %v", err)
+	}
+	ins := `INSERT INTO ohs_core.vault_keys (tenant_id, user_id, version, wrapped, parent_version, kem_public)
+		VALUES ($1, $2, $3, '\x01', '1', $4)`
+	if err := exec(ins, tenant, nil, 1, nil); err != nil {
+		t.Fatalf("tenant key: %v", err)
+	}
+	if err := exec(ins, tenant, nil, 1, nil); err == nil {
+		t.Error("two tenant keys of one version accepted")
+	}
+	if err := exec(ins, tenant, nil, 2, []byte{1}); err == nil {
+		t.Error("tenant key with kem_public accepted")
+	}
+	if err := exec(ins, tenant, user, 1, nil); err == nil {
+		t.Error("user key without kem_public accepted")
+	}
+	if err := exec(ins, tenant, user, 1, []byte{1}); err != nil {
+		t.Fatalf("user key: %v", err)
+	}
+	if err := exec(ins, tenant, user, 1, []byte{1}); err == nil {
+		t.Error("two user keys of one version accepted")
+	}
+	if err := exec(ins, tenant, "00000000-0000-0000-0000-000000000001", 1, []byte{1}); err == nil {
+		t.Error("key of an unknown user accepted")
+	}
+	if err := exec(`DELETE FROM ohs_core.end_users WHERE id = $1`, user); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.vault_keys WHERE user_id IS NOT NULL`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("user keys left after the user is gone: %d err=%v", n, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.vault_keys WHERE user_id IS NULL`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("tenant key count = %d err=%v, want 1", n, err)
+	}
+}
+
+// Migrations 0056 and 0057: the runtime settings, their one-row revision and
+// the process heartbeats. The revision row exists from the start, the value
+// and sealed columns exclude each other, and down to 55 drops all three.
+func TestInstanceSettingsSchema(t *testing.T) {
+	ctx := context.Background()
+	url := TestDB(t)
+	m, err := newMigrator(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	pool, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	exec := func(q string, args ...any) error { _, err := pool.Exec(ctx, q, args...); return err }
+
+	var n int
+	var id bool
+	var revision, restart int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.instance_settings_revision`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("revision rows = %d, %v; want 1", n, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT id, revision, restart_revision FROM ohs_core.instance_settings_revision`).Scan(&id, &revision, &restart); err != nil {
+		t.Fatal(err)
+	}
+	if !id || revision != 0 || restart != 0 {
+		t.Errorf("revision row = (%v, %d, %d), want (true, 0, 0)", id, revision, restart)
+	}
+	if err := exec(`INSERT INTO ohs_core.instance_settings_revision (id) VALUES (true)`); err == nil {
+		t.Error("second revision row (true) accepted")
+	}
+	if err := exec(`INSERT INTO ohs_core.instance_settings_revision (id) VALUES (false)`); err == nil {
+		t.Error("second revision row (false) accepted")
+	}
+
+	tenant := "00000000-0000-0000-0000-000000000001"
+	ins := `INSERT INTO ohs_core.instance_settings (name, value, sealed, updated_by) VALUES ($1, $2, $3, $4)`
+	if err := exec(ins, "OHS_A", nil, nil, tenant); err == nil {
+		t.Error("row with neither value nor sealed accepted")
+	}
+	if err := exec(ins, "OHS_B", "x", []byte{1}, tenant); err == nil {
+		t.Error("row with both value and sealed accepted")
+	}
+	if err := exec(ins, "OHS_C", "x", nil, tenant); err != nil {
+		t.Errorf("clear row: %v", err)
+	}
+	if err := exec(ins, "OHS_D", nil, []byte{1}, tenant); err != nil {
+		t.Errorf("sealed row: %v", err)
+	}
+
+	hb := `INSERT INTO ohs_core.process_heartbeats (process_id, host, roles, version, started_at, start_revision, live_revision)
+		VALUES (gen_random_uuid(), 'h', '{api}', 'v', now(), 0, 0)`
+	if err := exec(hb); err != nil {
+		t.Errorf("heartbeat: %v", err)
+	}
+	var idx int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_indexes WHERE schemaname = 'ohs_core' AND indexname = 'process_heartbeats_seen_at'`).Scan(&idx); err != nil || idx != 1 {
+		t.Errorf("seen_at index count = %d, %v", idx, err)
+	}
+
+	tables := func() (c int) {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'ohs_core'
+			AND table_name IN ('instance_settings', 'instance_settings_revision', 'process_heartbeats')`).Scan(&c); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	if got := tables(); got != 3 {
+		t.Fatalf("tables after up = %d, want 3", got)
+	}
+	if err := m.Migrate(55); err != nil {
+		t.Fatalf("down to 55: %v", err)
+	}
+	if got := tables(); got != 0 {
+		t.Errorf("tables after down = %d, want 0", got)
+	}
+	if err := m.Up(); err != nil {
+		t.Fatalf("up again: %v", err)
+	}
+	if got := tables(); got != 3 {
+		t.Errorf("tables after second up = %d, want 3", got)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ohs_core.instance_settings_revision`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("revision rows after second up = %d, %v; want 1", n, err)
+	}
 }
