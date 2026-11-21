@@ -486,6 +486,17 @@ final class HealthKitTypeTableTests: XCTestCase {
         XCTAssertEqual(Set(foodRead.map { $0.identifier }), Set(AppleHealthTypes.nutritionIdentifiers))
     }
 
+    // HealthKit throws NSInvalidArgumentException when a series type is asked without its
+    // parent: "Authorization for HKQuantityTypeIdentifierHeartRateVariabilitySDNN should
+    // also be requested when requesting authorization to read HKDataTypeIdentifierHeartbeatSeries".
+    func testAuthorizationAddsTheParentOfASeriesType() {
+        let read = HealthKitSync.authorizationTypes(for: [HKSeriesType.heartbeat(), HKSeriesType.workoutRoute()])
+        XCTAssertEqual(Set(read.map { $0.identifier }), [
+            "HKDataTypeIdentifierHeartbeatSeries", "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+            "HKWorkoutRouteTypeIdentifier", "HKWorkoutTypeIdentifier",
+        ])
+    }
+
     func testRoutePointLeavesOutInvalidValues() {
         let at = Date(timeIntervalSince1970: 1_772_348_400)
         let good = CLLocation(

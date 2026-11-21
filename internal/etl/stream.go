@@ -86,7 +86,7 @@ type passState struct {
 	withheld int
 	// failures are the record failures kept for the write; failed counts
 	// every one, kept or not, and recoverable says a code fix may rescue one
-	// (anyRecoverable).
+	// (a reason that is not permanentReason).
 	failures    []FailedRecord
 	failed      int
 	recoverable bool

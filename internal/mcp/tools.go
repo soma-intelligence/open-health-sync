@@ -430,7 +430,7 @@ func (t *tools) listUsers(ctx context.Context, a pageArgs) (any, error) {
 	if a.Limit < 0 || a.Limit > read.MaxLimit {
 		return nil, errLimit
 	}
-	users, next, err := t.d.Store.ListUsers(ctx, t.p.TenantID, a.Cursor, a.Limit)
+	users, next, err := t.d.Store.ListUsers(ctx, t.p.TenantID, tenant.UserFilter{}, a.Cursor, a.Limit)
 	if errors.Is(err, tenant.ErrInvalidCursor) {
 		return nil, toolError("the cursor is not valid")
 	}

@@ -402,8 +402,12 @@ type Filter struct {
 	Action string // exact action, or a prefix ending in "." ("data.")
 	Since  time.Time
 	Until  time.Time
-	Before int64 // cursor: entries with a smaller id
-	Limit  int
+	// ActorType and ActorID keep the events of one credential; ActorID
+	// without ActorType is the caller's mistake, checked by the API.
+	ActorType ActorType
+	ActorID   string
+	Before    int64 // cursor: entries with a smaller id
+	Limit     int
 }
 
 // Querier is a pool or a transaction.
@@ -431,6 +435,12 @@ func List(ctx context.Context, db Querier, tenant uuid.UUID, f Filter) ([]Entry,
 		add("starts_with(action, $%d)", f.Action)
 	} else if f.Action != "" {
 		add("action = $%d", f.Action)
+	}
+	if f.ActorType != "" {
+		add("actor_type = $%d", string(f.ActorType))
+	}
+	if f.ActorID != "" {
+		add("actor_id = $%d", f.ActorID)
 	}
 	if !f.Since.IsZero() {
 		add("at >= $%d", f.Since)

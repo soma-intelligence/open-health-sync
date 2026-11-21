@@ -19,6 +19,9 @@
 # (`evil-` before it, `-internal` after it) is left in place and still
 # matched.
 #
+# npm lockfiles (package-lock.json) are not scanned: they list the names of
+# third-party packages, which the project does not choose word by word.
+#
 # Exit status: 0 clean, 1 a term matched, 2 the guard could not run (a term
 # that is not a valid regex, a git grep error). It never passes on an error.
 set -euo pipefail
@@ -115,7 +118,7 @@ while IFS= read -r term; do
   # git grep runs on its own, not in a pipe, so its status is seen: 0 found,
   # 1 nothing found, anything else is an error.
   rc=0
-  git grep --cached -z -nIiP -e "$term" -- . >"$hits" 2>/dev/null || rc=$?
+  git grep --cached -z -nIiP -e "$term" -- . ':(exclude,glob)**/package-lock.json' >"$hits" 2>/dev/null || rc=$?
   if [ "$rc" -gt 1 ]; then
     echo "guard: ERROR git grep failed (status $rc) on a term of the list" >&2
     exit 2

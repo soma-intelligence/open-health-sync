@@ -291,7 +291,7 @@ func (s *server) handler() http.Handler {
 	s.mountShares(mux)
 	s.mountSetup(mux)
 	if d.Console {
-		console.Mount(mux, d.ConsoleReadOnly)
+		console.Mount(mux)
 		s.mountConsoleSession(mux)
 	}
 	s.mountAudit(mux)

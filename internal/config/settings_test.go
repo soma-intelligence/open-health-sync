@@ -343,3 +343,17 @@ func TestDefaultsAreWhatLoadUses(t *testing.T) {
 		}
 	}
 }
+
+// The help text of OHS_TRACKING_RETENTION_DAYS says what the tracking job does
+// with each value (internal/etl/automation/automation.go): 0 is the default,
+// 1 to 13 count as 14, a negative value keeps everything.
+func TestTrackingRetentionHelp(t *testing.T) {
+	s, ok := LookupSetting("OHS_TRACKING_RETENTION_DAYS")
+	if !ok {
+		t.Fatal("OHS_TRACKING_RETENTION_DAYS is not in the registry")
+	}
+	want := "0 means the default (" + strconv.Itoa(DefaultTrackingRetentionDays) + "), 1 to 13 count as 14, a negative value keeps them for ever."
+	if !strings.HasSuffix(s.Help, want) {
+		t.Errorf("help = %q, want it to end with %q", s.Help, want)
+	}
+}

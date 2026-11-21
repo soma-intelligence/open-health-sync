@@ -10,14 +10,16 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/ohs-guard-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 fails=0
-# expect DESCRIPTION WANT_STATUS TERMS CONTENT: runs the guard on a repository
-# whose only file holds CONTENT, with TERMS as the list.
+# expect DESCRIPTION WANT_STATUS TERMS CONTENT [FILE]: runs the guard on a
+# repository whose only file (FILE, file.txt by default) holds CONTENT, with
+# TERMS as the list.
 expect() {
-  local what=$1 want=$2 terms=$3 content=$4 repo got=0
+  local what=$1 want=$2 terms=$3 content=$4 file=${5:-file.txt} repo got=0
   repo="$work/repo$RANDOM"
   git init -q "$repo"
-  printf '%s\n' "$content" >"$repo/file.txt"
-  git -C "$repo" add file.txt
+  mkdir -p "$(dirname "$repo/$file")"
+  printf '%s\n' "$content" >"$repo/$file"
+  git -C "$repo" add "$file"
   (cd "$repo" && env -u GITHUB_ACTIONS OHS_FORBIDDEN_TERMS="$terms" "$guard" >/dev/null 2>&1) || got=$?
   if [ "$got" = "$want" ]; then
     echo "ok   $what"
@@ -42,6 +44,8 @@ expect "MCP registry name is allowed" 0 "$T" "\"name\": \"io.github.$R\""
 expect "a longer repository name is flagged" 1 "$T" "$R-internal"
 expect "a prefixed owner is flagged" 1 "$T" "evil-$R"
 expect "a dotted prefix is flagged" 1 "$T" "x.$R"
+expect "an npm lockfile is not scanned" 0 "$T" "\"node_modules/$T-parser\": {}" "web/app/package-lock.json"
+expect "a package.json is scanned" 1 "$T" "\"$T-parser\": \"1.0.0\"" "web/app/package.json"
 expect "an invalid term fails closed" 2 "($T" 'nothing to see'
 expect "an invalid term fails closed even with a match" 2 "($T"$'\n'"$T" "$T inside"
 

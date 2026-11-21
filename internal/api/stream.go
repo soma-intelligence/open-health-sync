@@ -304,7 +304,7 @@ func (h *StreamHub) listenOnce(ctx context.Context) (bool, error) {
 	defer func() {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		conn.Close(cctx)
+		_ = conn.Close(cctx)
 	}()
 	if _, err := conn.Exec(ctx, "LISTEN "+webhook.StreamChannel); err != nil {
 		return false, fmt.Errorf("listen: %w", err)

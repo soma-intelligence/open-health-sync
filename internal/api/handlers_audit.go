@@ -168,7 +168,8 @@ func isSessionRoute(pattern string) bool {
 }
 
 // listAudit serves the tenant's audit log, newest first, filtered by
-// user_id, action (exact, or a prefix ending in "."), since and until.
+// user_id, action (exact, or a prefix ending in "."), actor_type with
+// actor_id, since and until.
 func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.From(r.Context())
 	qs := r.URL.Query()
@@ -187,6 +188,21 @@ func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 		f.User = &u
 	}
 	f.Action = qs.Get("action")
+	if v := qs.Get("actor_type"); v != "" {
+		t := audit.ActorType(v)
+		switch t {
+		case audit.APIKey, audit.UserToken, audit.Admin, audit.System, audit.ShareLink:
+			f.ActorType = t
+		default:
+			badRequest(w, "actor_type must be one of api_key, user_token, admin, system, share_link")
+			return
+		}
+	}
+	f.ActorID = qs.Get("actor_id")
+	if f.ActorID != "" && f.ActorType == "" {
+		badRequest(w, "actor_id needs actor_type")
+		return
+	}
 	for name, dst := range map[string]*time.Time{"since": &f.Since, "until": &f.Until} {
 		if v := qs.Get(name); v != "" {
 			if *dst, err = parseTime(v); err != nil {

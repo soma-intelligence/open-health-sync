@@ -21,7 +21,8 @@ const (
 	SessionCookie = "ohs_console"
 	// CSRFHeader carries the CSRF token of a console session.
 	CSRFHeader = "X-OHS-CSRF"
-	// Problem details of a refused cookie request, matched verbatim by lib.mjs.
+	// Problem details of a refused cookie request. DetailCSRF is matched
+	// verbatim by the console client (web/console/src/api/client.ts).
 	DetailCSRF     = "this request needs the X-OHS-CSRF token of the console session; reload the page"
 	DetailOrigin   = "a console session only accepts requests from this server's own origin"
 	DetailReadOnly = "this console session is read-only (OHS_CONSOLE=read-only)"

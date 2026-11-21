@@ -213,6 +213,12 @@
               ],
               "query": [
                 {
+                  "key": "external_ref",
+                  "value": "",
+                  "description": "Only the user with exactly this `external_ref` (at most one row).",
+                  "disabled": true
+                },
+                {
                   "key": "cursor",
                   "value": "",
                   "description": "The next_cursor of the previous page.",

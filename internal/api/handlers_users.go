@@ -117,7 +117,7 @@ func (s *server) listUsers(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err.Error())
 		return
 	}
-	users, next, err := s.d.Store.ListUsers(r.Context(), p.TenantID, r.URL.Query().Get("cursor"), limit)
+	users, next, err := s.d.Store.ListUsers(r.Context(), p.TenantID, tenant.UserFilter{ExternalRef: r.URL.Query().Get("external_ref")}, r.URL.Query().Get("cursor"), limit)
 	switch {
 	case errors.Is(err, tenant.ErrInvalidCursor):
 		badRequest(w, "the cursor is not valid")

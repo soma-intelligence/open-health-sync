@@ -46,10 +46,13 @@ export OHS_COMPOSE_ENV_FILE=""
 export OHS_BACKUP_DIR="$E2E_WORK/backups"
 
 # table_counts: "schema.table count" for every table of the ohs_* schemas.
+# process_heartbeats is left out: it holds one row per running process, and
+# the server started after the restore adds its own.
 table_counts() {
   local t
   for t in $(psql_q "SELECT table_schema || '.' || table_name FROM information_schema.tables
-                     WHERE table_schema LIKE 'ohs\_%' AND table_type = 'BASE TABLE' ORDER BY 1"); do
+                     WHERE table_schema LIKE 'ohs\_%' AND table_type = 'BASE TABLE'
+                       AND table_name <> 'process_heartbeats' ORDER BY 1"); do
     echo "$t $(psql_q "SELECT count(*) FROM $t")"
   done
 }
@@ -106,6 +109,16 @@ step "2. record what must come back"
 READS_BEFORE=$(api_reads "$KEY" "$USER_ID") || die "API reads"
 check "heart rate samples" "$(sed -n 's/^heart_rate //p' <<<"$READS_BEFORE")" "$HR_COUNT"
 check "workouts" "$(sed -n 's/^workouts //p' <<<"$READS_BEFORE")" "$WORKOUTS"
+# The audit events of the reads above are buffered for up to a second
+# (audit.DefaultWriterInterval): wait until their count stops moving, or the
+# archive holds more of them than the counts below.
+prev=-1
+for _ in $(seq 1 15); do
+  n=$(psql_q "SELECT count(*) FROM ohs_core.audit_events") || die "audit count"
+  [ "$n" = "$prev" ] && break
+  prev=$n
+  sleep 2
+done
 COUNTS_BEFORE=$(table_counts) || die "table counts"
 RAW_BEFORE=$(raw_files) || die "raw files"
 n_raw=$(grep -c . <<<"$RAW_BEFORE" || true)

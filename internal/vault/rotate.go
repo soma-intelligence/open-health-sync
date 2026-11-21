@@ -388,7 +388,7 @@ func Reseal(ctx context.Context, v *Vault, pool *pgxpool.Pool, raw rawstore.Stor
 func (s *sealRun) resealUser(ctx context.Context, u sealUser, tables []string) error {
 	// The keys are read again: this process may hold the user's keys from
 	// before the rotation.
-	s.v.evictUser(userRef{u.tenant, u.user})
+	s.v.evictUser(userRef(u))
 	uv, err := s.v.ForUser(ctx, u.tenant, u.user)
 	if errors.Is(err, ErrNoKeys) {
 		return errUserGone

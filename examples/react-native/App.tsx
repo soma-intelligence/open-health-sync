@@ -161,6 +161,7 @@ export default function App() {
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
+          selectTextOnFocus
         />
         <Text style={styles.label}>User token (upload scope)</Text>
         <TextInput
@@ -188,6 +189,7 @@ export default function App() {
           value={bpm}
           onChangeText={setBpm}
           keyboardType="number-pad"
+          selectTextOnFocus
         />
         <View style={styles.row}>
           <Button title="Upload" testID="upload" onPress={upload} disabled={busy || !hasToken} />
