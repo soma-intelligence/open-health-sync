@@ -1,15 +1,27 @@
-/** The wordmark of docs/assets/wordmark.svg, drawn in the current text colour. */
-export function Logo() {
+/** The mark the console and the portal show: a pulse line on the brand green. */
+export function BrandMark({ className = "ohs-mark" }: { className?: string }) {
   return (
-    <span className="inline-flex items-center gap-2 font-semibold tracking-tight">
-      <svg viewBox="0 0 100 96" className="size-6" aria-hidden="true">
-        <g fill="none" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10 26 C30 26 34 48 50 48" stroke="currentColor" />
-          <path d="M10 70 C30 70 34 48 50 48" stroke="currentColor" />
-          <path d="M50 48 H60 L66 32 L74 64 L80 48 H90" stroke="var(--color-fd-primary)" />
-        </g>
-      </svg>
-      Open Health Sync
+    <svg className={className} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect width="32" height="32" rx="9" fill="var(--op-brand)" />
+      <path
+        d="M5 16.5h5.5l2.5-6 5 12 2.5-6H27"
+        fill="none"
+        stroke="var(--op-accent-fg)"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** The mark, the name and a "Docs" chip, as in the header of the portal and the console. */
+export function Logo({ chip = true }: { chip?: boolean }) {
+  return (
+    <span className="ohs-brand">
+      <BrandMark />
+      <span className="ohs-brand-name">Open Health Sync</span>
+      {chip ? <span className="ohs-brand-chip">Docs</span> : null}
     </span>
   );
 }

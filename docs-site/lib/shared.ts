@@ -23,6 +23,10 @@ const branch = "main";
 
 /** Sign-up page of the hosted beta, in the developer portal. */
 export const signupUrl = "https://app.openhealthsync.com/portal/signup";
+/** The console of the hosted beta, the same one an instance serves at /console. */
+export const consoleUrl = "https://app.openhealthsync.com/console";
+/** The project's site, which forwards /open-health-sync/documentation to these docs. */
+export const siteUrl = "https://openhealthsync.com";
 
 /** The current release, read from deploy/docker-compose.yml by next.config.mjs. */
 export const latestVersion = process.env.NEXT_PUBLIC_OHS_VERSION ?? "";
