@@ -217,6 +217,10 @@
 
 /* The whole tile is the link's target, not only its words. */
 .step a {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-height: 24px;
   color: var(--op-fg);
   font-weight: 600;
   text-decoration: none;
