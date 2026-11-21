@@ -51,6 +51,9 @@ func TestMapInstantTypes(t *testing.T) {
 		{"BodyTemperature", "temperatureCelsius", 36.6, model.QTBodyTemperature, "celsius"},
 		{"Height", "heightMeters", 1.72, "height", "m"},
 		{"BodyFat", "percentage", 21.3, "body_fat_percentage", "percent"},
+		{"LeanBodyMass", "massKilograms", 58.3, "lean_body_mass", "kg"},
+		{"BoneMass", "massKilograms", 3.1, "bone_mass", "kg"},
+		{"BodyWaterMass", "massKilograms", 41.7, "water_mass", "kg"},
 	}
 	at := time.Date(2026, 5, 4, 6, 30, 0, 0, time.UTC)
 	for _, tc := range cases {

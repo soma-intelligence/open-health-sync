@@ -56,6 +56,9 @@ One Health Connect record per line, as a JSON object. Field names follow the and
 | `Weight` | `weightKilograms` | `body_mass` |
 | `Height` | `heightMeters` | `height` (stored in cm) |
 | `BodyFat` | `percentage` | `body_fat_percentage` |
+| `LeanBodyMass` | `massKilograms` | `lean_body_mass`; `muscle_mass` when the Withings app wrote it (see below) |
+| `BoneMass` | `massKilograms` | `bone_mass` |
+| `BodyWaterMass` | `massKilograms` | `water_mass` |
 | `ActiveCaloriesBurned` | `energyKilocalories` | `active_energy_burned` |
 | `TotalCaloriesBurned` | `energyKilocalories` | `total_energy_burned` |
 | `BasalMetabolicRate` | `basalMetabolicRateKilocaloriesPerDay` | `basal_metabolic_rate` (kcal/d) |
@@ -124,6 +127,13 @@ fails at processing.
   record. `MenstruationPeriod` (a span with no flow per day) is not stored.
 - **Time zone**: `zoneOffset` (or `startZoneOffset`) gives `metadata.utc_offset_minutes` and,
   for whole hours, `metadata.timezone`, which sets the local day of daily summaries.
+- **Body composition**: the Withings app writes its muscle mass as `LeanBodyMass`. On its scales
+  `LeanBodyMass` plus `BoneMass` equals `Weight` minus the fat share of `BodyFat`, so bone is not
+  in the figure: it is what the [Withings connector](withings.md) stores as `muscle_mass`, not the
+  fat-free `lean_body_mass`. A `LeanBodyMass` whose `dataOrigin` starts with `com.withings.` is
+  stored as `muscle_mass`, under the names the Withings API uses for the same weigh-in; the
+  sample keeps `record_type: LeanBodyMass` in its metadata. Any other app's `LeanBodyMass` is
+  `lean_body_mass`.
 - **Manual entries**: `recordingMethod` `manual` (or `manual_entry`) sets `was_user_entered`.
 
 ## Reading permissions

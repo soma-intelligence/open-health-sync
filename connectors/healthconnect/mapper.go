@@ -41,6 +41,7 @@ type record struct {
 	Diastolic           *float64 `json:"diastolicMillimetersOfMercury"`
 	GlucoseMmolPerL     *float64 `json:"levelMillimolesPerLiter"`
 	WeightKilograms     *float64 `json:"weightKilograms"`
+	MassKilograms       *float64 `json:"massKilograms"`
 	HeightMeters        *float64 `json:"heightMeters"`
 	EnergyKilocalories  *float64 `json:"energyKilocalories"`
 	DistanceMeters      *float64 `json:"distanceMeters"`
@@ -102,6 +103,9 @@ var instants = map[string]instant{
 	"Weight":                    {"body_mass", "kg", func(r *record) *float64 { return r.WeightKilograms }},
 	"Height":                    {"height", "m", func(r *record) *float64 { return r.HeightMeters }},
 	"BodyFat":                   {"body_fat_percentage", "percent", func(r *record) *float64 { return r.Percentage }},
+	"LeanBodyMass":              {"lean_body_mass", "kg", func(r *record) *float64 { return r.MassKilograms }},
+	"BoneMass":                  {"bone_mass", "kg", func(r *record) *float64 { return r.MassKilograms }},
+	"BodyWaterMass":             {"water_mass", "kg", func(r *record) *float64 { return r.MassKilograms }},
 	"BasalMetabolicRate":        {model.QTBasalMetabolicRate, "kcal/d", func(r *record) *float64 { return r.BasalMetabolicRate }},
 }
 
@@ -318,8 +322,21 @@ func (b *builder) instant() (*model.MapResult, error) {
 		md = maps.Clone(md)
 		md["measurement_location"] = b.r.MeasurementLocation
 	}
-	s := b.sample(b.r.Metadata.ID, spec.qt, spec.unit, *v, at, at, md)
+	s := b.sample(b.r.Metadata.ID, b.instantType(spec.qt), spec.unit, *v, at, at, md)
 	return &model.MapResult{QuantitySamples: []model.QuantitySample{s}}, nil
+}
+
+// instantType is the quantity type of an instant record. The Withings app
+// writes its muscle mass as LeanBodyMass: on its scales LeanBodyMass plus
+// BoneMass equals Weight minus the fat share of BodyFat, so bone is left out
+// and the figure is the muscle_mass the Withings connector stores (measure
+// type 76), not the fat-free lean_body_mass (type 5). Stored as muscle_mass,
+// it lines up with the same weigh-in pulled from the Withings API.
+func (b *builder) instantType(qt string) string {
+	if b.r.RecordType == "LeanBodyMass" && b.source == "withings" {
+		return "muscle_mass"
+	}
+	return qt
 }
 
 func (b *builder) interval() (*model.MapResult, error) {
