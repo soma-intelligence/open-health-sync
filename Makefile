@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test test-race released-migrations compose-image-check test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test console console-dev console-e2e
+.PHONY: setup build image test test-race released-migrations compose-image-check test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test console console-dev console-e2e console-ui-e2e
 
 setup:
 	git config core.hooksPath .githooks
@@ -154,3 +154,8 @@ console-dev:
 # The console's browser tests (Playwright). Needs OHS_E2E_DATABASE_URL.
 console-e2e:
 	cd web/console && npx playwright test
+
+# The console against the compose stack, Playwright in its own container.
+# Needs docker, curl and jq only. Screenshots in test/e2e/console-ui/out.
+console-ui-e2e:
+	test/e2e/console_ui.sh
