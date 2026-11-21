@@ -2,42 +2,62 @@
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
 @import "fumadocs-openapi/css/preset.css";
+@import "./ohs-tokens.css";
+@import "./docs.css";
 
-/* The brand teal of the README badges and the wordmark (#0e9f8e), darkened in the light theme
-   so it reads as text: #0a7165 is 5.4:1 on the page, 4.7:1 on its own 10% tint, and white on it
-   5.9:1 (WCAG AA). Muted text #666 is 5.3:1 on the page and 5.1:1 on cards. */
-@theme {
-  --color-fd-primary: hsl(173, 84%, 24%);
-  --color-fd-primary-foreground: hsl(0, 0%, 100%);
-  --color-fd-ring: hsl(173, 84%, 24%);
-  --color-fd-muted-foreground: hsl(0, 0%, 40%);
+/* The fonts of the tokens, served by next/font (app/layout.tsx), in front of their fallbacks. */
+:root {
+  --op-font: var(--font-inter), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --op-font-display: var(--font-inter-tight), "Inter Tight", var(--font-inter), system-ui, sans-serif;
+  --op-font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
+/* The MDX components (callouts, cards, tabs, code blocks) and the API reference come from fumadocs
+   and read --color-fd-*: each one points at a token, so they follow the tokens in both themes. */
+:root,
 .dark {
-  --color-fd-primary: hsl(172, 66%, 52%);
-  --color-fd-primary-foreground: hsl(180, 40%, 8%);
-  --color-fd-ring: hsl(172, 66%, 52%);
+  --color-fd-background: var(--op-bg);
+  --color-fd-foreground: var(--op-fg);
+  --color-fd-muted: var(--op-card-2);
+  --color-fd-muted-foreground: var(--op-fg-2);
+  --color-fd-popover: var(--op-card);
+  --color-fd-popover-foreground: var(--op-fg);
+  --color-fd-card: var(--op-card);
+  --color-fd-card-foreground: var(--op-fg);
+  --color-fd-border: var(--op-line);
+  --color-fd-primary: var(--op-accent-text);
+  --color-fd-primary-foreground: var(--op-accent-fg);
+  --color-fd-secondary: var(--op-field);
+  --color-fd-secondary-foreground: var(--op-fg);
+  --color-fd-accent: var(--op-field);
+  --color-fd-accent-foreground: var(--op-fg);
+  --color-fd-ring: var(--op-focus);
+  --color-fd-overlay: var(--op-scrim);
+  --color-fd-info: var(--op-info);
+  --color-fd-warning: var(--op-warn);
+  --color-fd-error: var(--op-bad);
+  --color-fd-success: var(--op-ok);
+  --color-fd-idea: var(--op-accent-text);
+  --color-fd-diff-add: var(--op-ok-wash);
+  --color-fd-diff-remove: var(--op-bad-wash);
+  --color-fd-diff-add-symbol: var(--op-ok);
+  --color-fd-diff-remove-symbol: var(--op-bad);
+
+  /* fumadocs-openapi colours its method labels with these Tailwind steps. */
+  --color-green-600: var(--op-ok);
+  --color-green-400: var(--op-ok);
+  --color-blue-600: var(--op-info);
+  --color-blue-400: var(--op-info);
+  --color-red-600: var(--op-bad);
+  --color-red-400: var(--op-bad);
+  --color-yellow-600: var(--op-warn);
+  --color-yellow-400: var(--op-warn);
+  --color-orange-600: var(--op-warn);
+  --color-orange-400: var(--op-warn);
+  --color-amber-600: var(--op-warn);
+  --color-amber-400: var(--op-warn);
 }
 
 html {
   scrollbar-gutter: stable;
 }
-
-/* Light theme only: the HTTP method labels of fumadocs-openapi (text-green-600 and its siblings,
-   about 3:1 on the page) move to a darker step of the same hue, at least 4.5:1 on the page and
-   on a hovered or active sidebar row. The dark theme keeps its -400 steps. */
-:root:not(.dark) {
-  --color-green-600: oklch(44.8% 0.119 151.328);
-  --color-yellow-600: oklch(47.6% 0.114 61.907);
-  --color-orange-600: oklch(47% 0.157 37.304);
-  --color-blue-600: oklch(48.8% 0.243 264.376);
-  --color-red-600: oklch(50.5% 0.213 27.518);
-  --color-amber-600: oklch(47.3% 0.137 46.201);
-}
-
-/* biome-ignore-start lint/complexity/noImportantStyles: overrides the scroll lock's inline styles */
-html > body[data-scroll-locked] {
-  margin-right: 0px !important;
-  --removed-body-scroll-bar-size: 0px !important;
-}
-/* biome-ignore-end lint/complexity/noImportantStyles: overrides the scroll lock's inline styles */

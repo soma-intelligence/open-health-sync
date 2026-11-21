@@ -32,15 +32,25 @@ GitHub. `sync-docs` warns about a link it cannot resolve.
 The release shown in the header and on the home page is read from the default `OHS_VERSION` of
 `deploy/docker-compose.yml`, which the release workflow checks against each tag.
 
+## Layout
+
+Fumadocs provides the content: MDX, the page tree, search indexing and the API pages generated
+from OpenAPI. The visual shell is this site's own, in `components/layout/` (header, sidebar,
+table of contents, search dialog, page frame) and `app/docs.css`, on the OnePass design tokens of
+`app/ohs-tokens.css`: every colour, type size, space and radius is an `--op-*` variable, and the
+fumadocs components read theirs through the mapping in `app/global.css`. Copy the tokens file as
+is from the design system; do not edit it here. The sidebar, breadcrumb and previous and next
+links read one model built from the page tree (`lib/nav.ts`).
+
 ## Writing pages
 
 Pages are MDX. Besides Markdown, these components are available without an import: `Callout`,
 `Cards` and `Card`, `Steps` and `Step`, `Tabs` and `Tab`, `Accordions` and `Accordion`,
-`TypeTable`, `Files`, and three of this site's own: `Status` (`<Status is="planned" />`),
-`Shot` (a light and dark capture from `docs/assets/readme`) and `Pipeline` (the data flow
-diagram). Sidebar order lives in each folder's `meta.json`. A page's `icon` is a
-[Lucide](https://lucide.dev/icons) name; `status: planned` or `status: soon` adds a sidebar
-badge.
+`TypeTable`, `Files`, and four of this site's own: `Status` (`<Status is="planned" />`),
+`Shot` (a light and dark capture from `docs/assets/readme`), `Pipeline` (the data flow
+diagram) and `DocsHome` (the tiles at the top of the introduction). Sidebar order lives in each
+folder's `meta.json`; a separator starts a section that folds. `status: planned` or
+`status: soon` in a page's front matter adds a sidebar badge.
 
 Same rules as the rest of the repository: no health values, keys or tokens in examples, say what
 ships and what is planned, and run `npm run lint` before a pull request.

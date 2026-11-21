@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Geist_Mono, Inter, Inter_Tight } from "next/font/google";
 import { Provider } from "@/components/provider";
 import { absoluteUrl } from "@/lib/asset";
 import { appName, latestVersion, repoUrl } from "@/lib/shared";
 import "./global.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-});
+// The three families of the design tokens (app/ohs-tokens.css), served by next/font. Their
+// variables feed --op-font, --op-font-display and --op-font-mono in app/global.css.
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const interTight = Inter_Tight({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-inter-tight" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 // NEXT_PUBLIC_SITE_URL is the address the site is served at, for social preview images.
 export const metadata: Metadata = {
@@ -37,13 +39,19 @@ const softwareJsonLd = {
 
 export default function Layout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={inter.className} suppressHydrationWarning>
-      <body className="flex flex-col min-h-screen">
+    <html
+      lang="en"
+      className={`${inter.variable} ${interTight.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
         <script
           type="application/ld+json"
           // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON written above, no user input
           dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
         />
+      </head>
+      <body>
         <Provider>{children}</Provider>
       </body>
     </html>

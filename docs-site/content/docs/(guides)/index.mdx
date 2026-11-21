@@ -4,7 +4,7 @@ description: Open source health data aggregator and API. Data from wearables and
 icon: House
 ---
 
-import { Bot, Braces, Cloud, GraduationCap, Plug, Rocket, Server } from 'lucide-react';
+<DocsHome />
 
 Open Health Sync (`ohs`) is an open source health data aggregator: a self-hosted ingestion and
 normalization layer for data from wearables and health apps. It pulls from providers, accepts
@@ -15,30 +15,6 @@ units, and serves it over a REST API and a read-only MCP server.
 
 It stops at clean, traceable data. It is not a dashboard, a coaching app or a medical device:
 scores, insights and products belong in what you build on top.
-
-<Cards>
-  <Card icon={<Rocket />} title="Quickstart" href="/documentation/quickstart">
-    Run an instance, upload a heart rate reading and read it back, in under five minutes.
-  </Card>
-  <Card icon={<GraduationCap />} title="Learn by building" href="/documentation/learn">
-    Seven short projects on your own data: a sleep report, an HRV trend, an AI assistant, a dashboard.
-  </Card>
-  <Card icon={<Server />} title="Self-host it" href="/documentation/self-hosting">
-    Docker Compose, a Raspberry Pi 5, an S3 bucket or a single binary.
-  </Card>
-  <Card icon={<Plug />} title="Connect sources" href="/documentation/connectors">
-    Eighteen sources today: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom and more.
-  </Card>
-  <Card icon={<Braces />} title="API reference" href="/documentation/api-reference">
-    Every route, generated from the OpenAPI 3.1 file that leads the code.
-  </Card>
-  <Card icon={<Bot />} title="Give it to an AI agent" href="/documentation/guides/ai-agents">
-    A read-only MCP server, with a token that can only read one person's data.
-  </Card>
-  <Card icon={<Cloud />} title="Hosted platform" href="/documentation/platform">
-    A managed instance for developers who would rather not run one. Free beta, open sign-up.
-  </Card>
-</Cards>
 
 ## Why it exists
 

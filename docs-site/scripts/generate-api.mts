@@ -63,10 +63,14 @@ await generateFiles({
   beforeWrite(files) {
     for (const file of files) {
       file.path = file.path.replace(/[^/]+(?=\.mdx$)/, kebab);
-      // "Edit on GitHub" opens the OpenAPI file, the page's real source.
-      file.content = file.content.replace(/^---\n/, '---\nsource: "api/openapi.yaml"\n');
       const m = /^(?:.*\/)?([^/]+)\/([^/]+)\.mdx$/.exec(file.path);
       const route = /"path":"([^"]+)"/.exec(file.content)?.[1];
+      // "Edit on GitHub" opens the OpenAPI file, the page's real source. The route goes to the
+      // search index, so "/v1/users" or "webhooks" finds the endpoint.
+      file.content = file.content.replace(
+        /^---\n/,
+        `---\nsource: "api/openapi.yaml"\n${route ? `route: ${JSON.stringify(route)}\n` : ""}`,
+      );
       if (!m || !route) continue;
       const list = routes.get(m[1]) ?? [];
       list.push({ name: m[2], route });
