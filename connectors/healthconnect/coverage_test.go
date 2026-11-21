@@ -107,6 +107,50 @@ func TestMapInstantErrors(t *testing.T) {
 	require.ErrorContains(t, err, "health_connect:")
 }
 
+// TestMapZeroTimeRefused: time.Parse reads 0001-01-01T00:00:00Z (or the same
+// instant at another offset) as the zero time.Time. A record carrying it
+// would map to a sample with no start, so every time field refuses it, as an
+// unreadable time does.
+func TestMapZeroTimeRefused(t *testing.T) {
+	for _, zero := range []string{"0001-01-01T00:00:00Z", "0000-12-31T23:00:00-01:00"} {
+		for name, line := range map[string]map[string]any{
+			"instant": instantLine("Weight", "weightKilograms", 70, ""),
+			"heart rate point": {"recordType": "HeartRate", "metadata": map[string]any{"id": "hr-0"},
+				"samples": []any{map[string]any{"time": "2026-05-04T10:00:00Z", "beatsPerMinute": 61}, map[string]any{"beatsPerMinute": 62}}},
+			"interval": {"recordType": "Steps", "metadata": map[string]any{"id": "st-z"}, "endTime": "2026-05-04T10:00:00Z", "count": 10},
+			"sleep stage": {"recordType": "SleepSession", "metadata": map[string]any{"id": "sl-z"},
+				"startTime": "2026-05-03T22:00:00Z", "endTime": "2026-05-04T06:00:00Z",
+				"stages": []any{map[string]any{"endTime": "2026-05-04T06:00:00Z", "stage": "deep"}}},
+			"menstruation": {"recordType": "MenstruationFlow", "metadata": map[string]any{"id": "mf-z"}, "flow": "light"},
+		} {
+			switch name {
+			case "instant", "menstruation":
+				line["time"] = zero
+			case "heart rate point":
+				line["samples"].([]any)[1].(map[string]any)["time"] = zero
+			case "interval":
+				line["startTime"] = zero
+			case "sleep stage":
+				line["stages"].([]any)[0].(map[string]any)["startTime"] = zero
+			}
+			res, err := New().Map(connector.RawRecord{UserID: testUser, Fields: line})
+			require.Error(t, err, "%s at %s", name, zero)
+			require.Empty(t, res.QuantitySamples, name)
+			require.Empty(t, res.CategorySamples, name)
+			require.Empty(t, res.SleepPhases, name)
+		}
+	}
+
+	// The instant just after it is a readable time; validation decides on it.
+	_, err := New().Map(connector.RawRecord{UserID: testUser, Fields: instantLine("Weight", "weightKilograms", 70, "")})
+	require.NoError(t, err)
+	line := instantLine("Weight", "weightKilograms", 70, "")
+	line["time"] = "0001-01-01T00:00:01Z"
+	res, err := New().Map(connector.RawRecord{UserID: testUser, Fields: line})
+	require.NoError(t, err)
+	require.False(t, res.QuantitySamples[0].StartDate.IsZero())
+}
+
 func TestMapIntervalTypes(t *testing.T) {
 	line := func(recordType, field string, v float64) map[string]any {
 		return map[string]any{
