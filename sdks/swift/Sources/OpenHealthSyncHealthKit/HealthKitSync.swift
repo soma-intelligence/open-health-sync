@@ -154,10 +154,19 @@ public final class HealthKitSync: @unchecked Sendable {
 
     /// The types to ask read access for in order to sync `types`: a correlation type is
     /// replaced by the quantity types of its members (HealthKit raises an exception when
-    /// asked for a correlation type).
+    /// asked for a correlation type), and a series type comes with its parent type
+    /// (HealthKit raises an exception when the parent is missing): heart rate variability
+    /// for heartbeat series, workouts for workout routes.
     public static func authorizationTypes(for types: Set<HKSampleType>) -> Set<HKObjectType> {
         var read = Set<HKObjectType>()
         for type in types {
+            if type.identifier == AppleHealthTypes.heartbeatSeries,
+               let parent = HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN) {
+                read.insert(parent)
+            }
+            if type == HKSeriesType.workoutRoute() {
+                read.insert(HKObjectType.workoutType())
+            }
             guard type is HKCorrelationType else {
                 read.insert(type)
                 continue
