@@ -14,6 +14,7 @@ import { useToast } from "../../ui/Toast";
 import { KEYS_PATH, useKeysQuery, useRevokeKey } from "./api";
 import { CreateKeyDialog } from "./CreateKeyDialog";
 import { KeysTable } from "./KeysTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 function RevokeKey({ target, onClose }: { target: APIKey; onClose: () => void }) {
   const toast = useToast();
@@ -85,9 +86,7 @@ export function KeysPage() {
         </div>
       </header>
       {query.isPending ? (
-        <p role="status" className="loading">
-          Loading
-        </p>
+        <Skeleton count={3} />
       ) : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (

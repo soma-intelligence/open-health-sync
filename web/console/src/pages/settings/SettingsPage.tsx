@@ -23,6 +23,7 @@ import { SettingsSection } from "./SettingsSection";
 import { SettingsSubnav } from "./SettingsSubnav";
 
 import "./settings.css";
+import { Skeleton } from "../../ui/Skeleton";
 
 const MOVED_NOTE = "The settings changed since you opened this review. Here are the new values.";
 
@@ -230,7 +231,7 @@ function AdminSettings() {
         />
       ) : null}
       <ProcessesBanner processes={processes.data?.data ?? []} />
-      {query.isPending ? <p role="status">Loading</p> : null}
+      {query.isPending ? <Skeleton kind="lines" count={6} /> : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <div className="set-layout">

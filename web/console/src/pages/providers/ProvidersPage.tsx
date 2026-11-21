@@ -12,6 +12,7 @@ import { ErrorPanel } from "../../ui/ErrorPanel";
 import { Pill } from "../../ui/Pill";
 import { adminProvidersPath, useAdminProvidersQuery, useProvidersQuery, useTenantProvidersQuery } from "./api";
 import { ProvidersTable } from "./ProvidersTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 const SUBTITLE = "Keys saved here are sealed with the instance encryption key.";
 
@@ -65,7 +66,7 @@ function AdminProviders() {
           </p>
         </div>
       </header>
-      {providers.isPending ? <p role="status">Loading</p> : null}
+      {providers.isPending ? <Skeleton count={6} /> : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {tenantList.isError ? <ErrorPanel error={tenantList.error} retry /> : null}
       {data && !data.public_url ? (
@@ -122,7 +123,7 @@ function TenantProviders() {
           <p className="page-sub">{data ? `${String(data.data.length)} on for this tenant. ` : ""}Only the instance admin tenant can change them.</p>
         </div>
       </header>
-      {providers.isPending ? <p role="status">Loading</p> : null}
+      {providers.isPending ? <Skeleton count={6} /> : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <Card title="On for this tenant">

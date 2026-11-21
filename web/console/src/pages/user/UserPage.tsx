@@ -11,6 +11,7 @@ import { DataTab } from "./DataTab";
 import { SharesTab } from "./SharesTab";
 import { SyncRunsTab } from "./SyncRunsTab";
 import { UserHeader } from "./UserHeader";
+import { Skeleton } from "../../ui/Skeleton";
 
 export type UserTab = "data" | "connections" | "consents" | "sync-runs" | "shares";
 
@@ -41,9 +42,7 @@ function UserView() {
   if (user.isPending) {
     return (
       <div className="page">
-        <p role="status" className="loading">
-          Loading
-        </p>
+        <Skeleton kind="page" />
       </div>
     );
   }

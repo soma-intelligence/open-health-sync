@@ -5,6 +5,7 @@ import { CoveragePanel, MetricTiles } from "./CoveragePanel";
 import { useTabInspect } from "./inspect";
 import { PreviewPanel } from "./PreviewPanel";
 import { PrivacyCard } from "./PrivacyCard";
+import { Skeleton } from "../../ui/Skeleton";
 
 /** The user at a glance: counts, sources and their state, consent and privacy. Values stay behind Preview and the exports. */
 export function DataTab({ user }: { user: User }) {
@@ -16,9 +17,7 @@ export function DataTab({ user }: { user: User }) {
   return (
     <div className="stack">
       {coverage.isPending ? (
-        <p role="status" className="loading">
-          Loading
-        </p>
+        <Skeleton kind="tiles" />
       ) : null}
       {coverage.error !== null && coverage.data === undefined ? <ErrorPanel error={coverage.error} retry /> : null}
       {coverage.data ? <MetricTiles coverage={coverage.data} /> : null}

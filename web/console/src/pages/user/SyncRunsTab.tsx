@@ -8,6 +8,7 @@ import { Pager, usePager } from "../../ui/Pager";
 import { Pill } from "../../ui/Pill";
 import { LIST_SIZE, useSyncRunsQuery, userPath } from "./api";
 import { useTabInspect } from "./inspect";
+import { Skeleton } from "../../ui/Skeleton";
 
 const columns: Column<SyncRun>[] = [
   { key: "provider", header: "Provider", cell: (r) => providerLabel(null, r.provider) },
@@ -25,7 +26,7 @@ export function SyncRunsTab({ userId }: { userId: string }) {
   useTabInspect("Sync runs", userId, userPath(userId, "sync-runs"), { limit: LIST_SIZE, cursor: pager.cursor }, runs.data, runs.error);
   return (
     <>
-      {runs.isPending ? <p role="status">Loading</p> : null}
+      {runs.isPending ? <Skeleton /> : null}
       {runs.error !== null && runs.data === undefined ? <ErrorPanel error={runs.error} retry /> : null}
       {runs.data ? (
         <>

@@ -14,6 +14,7 @@ import { useToast } from "../../ui/Toast";
 import { WEBHOOKS_PATH, useCreateWebhook, useWebhooksQuery, webhookPath } from "./api";
 import { EMPTY_VALUES, EndpointFields, type EndpointValues } from "./EndpointForm";
 import { EndpointsTable } from "./EndpointsTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 function CreateEndpoint({ onCreated, onClose }: { onCreated: (secret: string) => void; onClose: () => void }) {
   const create = useCreateWebhook();
@@ -96,7 +97,7 @@ export function WebhooksPage() {
           ) : null}
         </div>
       </header>
-      {query.isPending ? <p role="status">Loading</p> : null}
+      {query.isPending ? <Skeleton count={3} /> : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <Card title="Endpoints">

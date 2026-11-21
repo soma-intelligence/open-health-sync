@@ -8,6 +8,7 @@ import { Pager, usePager } from "../../ui/Pager";
 import { Pill } from "../../ui/Pill";
 import { useConsentHistoryQuery, useConsentsQuery, userPath } from "./api";
 import { useTabInspect } from "./inspect";
+import { Skeleton } from "../../ui/Skeleton";
 
 const history: Column<ConsentEvent>[] = [
   { key: "at", header: "When", cell: (e) => <span title={absTime(e.at)}>{relTime(e.at)}</span> },
@@ -28,7 +29,7 @@ export function ConsentsTab({ userId }: { userId: string }) {
     <div className="stack">
       <Card title="Current consents">
         {consents.error !== null && consents.data === undefined ? <ErrorPanel error={consents.error} retry /> : null}
-        {consents.isPending ? <p role="status">Loading</p> : null}
+        {consents.isPending ? <Skeleton count={3} /> : null}
         {consents.data && consents.data.data.length === 0 ? <EmptyState title="No consent recorded yet" /> : null}
         {consents.data?.data.map((source) => (
           <div key={source.provider} className="consent-source">
@@ -45,7 +46,7 @@ export function ConsentsTab({ userId }: { userId: string }) {
       </Card>
       <Card title="History">
         {events.error !== null && events.data === undefined ? <ErrorPanel error={events.error} retry /> : null}
-        {events.isPending ? <p role="status">Loading</p> : null}
+        {events.isPending ? <Skeleton count={3} /> : null}
         {events.data ? (
           <>
             <DataTable columns={history} rows={events.data.data} rowKey={(e) => String(e.id)} empty={<EmptyState title="No consent change yet" />} />

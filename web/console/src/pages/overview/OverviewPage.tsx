@@ -17,6 +17,7 @@ import { AttentionList } from "./AttentionList";
 import { GettingStarted } from "./GettingStarted";
 import { PipelineBand } from "./PipelineBand";
 import { SourcesCard } from "./SourcesCard";
+import { Skeleton } from "../../ui/Skeleton";
 
 function Probe({ path, ok, bad }: { path: "/healthz" | "/readyz"; ok: string; bad: string }) {
   const probe = useProbe(path);
@@ -74,9 +75,7 @@ export function OverviewPage() {
         </div>
       </header>
       {pipeline.isPending ? (
-        <p role="status" className="loading">
-          Loading
-        </p>
+        <Skeleton kind="tiles" count={5} label="Loading the pipeline" />
       ) : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {error !== null && data !== undefined ? (

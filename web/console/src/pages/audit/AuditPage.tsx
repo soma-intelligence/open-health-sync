@@ -11,6 +11,7 @@ import { useKeysQuery } from "../keys/api";
 import { auditQuery, useAdminTenantsQuery, useAuditQuery, useRetentionDays, type AuditFilter } from "./api";
 import { AuditFilters } from "./AuditFilters";
 import { AuditTable } from "./AuditTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 export function AuditPage() {
   const { session } = useSession();
@@ -68,7 +69,7 @@ export function AuditPage() {
           <AuditFilters filter={filter} keys={keys.data?.data ?? []} onChange={change} />
         </div>
       </header>
-      {audit.isPending ? <p role="status">Loading</p> : null}
+      {audit.isPending ? <Skeleton count={8} /> : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <Card title="Events">

@@ -13,6 +13,7 @@ import { PAGE_SIZE, useUsersQuery } from "./api";
 import { CreateUserDialog } from "./CreateUserDialog";
 import { UserSearch } from "./UserSearch";
 import { UsersTable } from "./UsersTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 export function UsersPage() {
   const canWrite = useCanWrite();
@@ -79,7 +80,7 @@ export function UsersPage() {
           ) : null}
         </div>
       </header>
-      {users.isPending ? <p role="status">Loading</p> : null}
+      {users.isPending ? <Skeleton count={6} /> : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
         <>
