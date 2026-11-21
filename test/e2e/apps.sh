@@ -102,6 +102,10 @@ run_react_native() {
   local app=examples/react-native apk=examples/react-native/android/app/build/outputs/apk/debug/app-debug.apk
   step "examples/react-native debug build"
   (cd sdks/react-native && npm ci --no-audit --no-fund >/dev/null) || die "SDK dependencies"
+  # The native module needs the Kotlin SDK, not on Maven Central yet: publish
+  # it to sdks/react-native/android/local-maven, where the module looks.
+  (cd sdks/kotlin && ./gradlew --no-daemon -q -I ../react-native/android/local-maven.init.gradle \
+    publishAllPublicationsToOhsLocalRepository) || die "Kotlin SDK to local-maven"
   (cd "$app" && npm install --no-audit --no-fund >/dev/null &&
     CI=1 npx expo prebuild --platform android --no-install --clean >/dev/null &&
     cd android && ./gradlew --no-daemon -q assembleDebug) || die "debug build"
