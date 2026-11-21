@@ -56,12 +56,12 @@ describe("overview", () => {
     window.localStorage.clear();
   });
 
-  it("opens on the black Pipeline, live band with five stages", async () => {
+  it("opens on the Pipeline, live card with five stages", async () => {
     view({ body: quiet });
     expect(await screen.findByRole("heading", { name: "Overview", level: 1 })).toBeInTheDocument();
-    expect(screen.getByText("Tenant Acme")).toBeInTheDocument();
+    expect(screen.getByText("Everything flowing into Acme, right now.")).toBeInTheDocument();
     const band = await screen.findByRole("region", { name: "Pipeline, live" });
-    expect(band).toHaveClass("band");
+    expect(band).toHaveClass("pipeline");
     const headline: Record<string, string> = { Sources: "2", Sync: "40", Processing: "0", Storage: "2.5", Delivery: "1" };
     for (const [title, figure] of Object.entries(headline)) {
       const card = within(band).getByRole("article", { name: title });
@@ -69,15 +69,15 @@ describe("overview", () => {
     }
     expect(within(band).getAllByRole("article")).toHaveLength(5);
     expect(within(within(band).getByRole("article", { name: "Storage" })).getByText("MB")).toBeInTheDocument();
-    expect(within(within(band).getByRole("article", { name: "Sync" })).getByText("Healthy")).toBeInTheDocument();
+    expect(within(within(band).getByRole("article", { name: "Sync" })).getByText("OK")).toBeInTheDocument();
   });
 
-  it("lists what needs attention, each linking to the page that fixes it", async () => {
+  it("lists what needs you, each with one button to the page that fixes it", async () => {
     view({ body: trouble });
-    const card = (await screen.findByRole("heading", { name: "Needs attention" })).closest("section");
+    const card = (await screen.findByRole("heading", { name: "Needs you" })).closest("section");
     expect(card).not.toBeNull();
     const list = within(card as HTMLElement);
-    expect(list.getByRole("link", { name: /1 user needs to reconnect Oura/ })).toHaveAttribute("href", "/console/users");
+    expect(list.getByRole("link", { name: /Oura token expired for 1 user/ })).toHaveAttribute("href", "/console/users");
     expect(list.getByRole("link", { name: /2 processing jobs are parked/ })).toHaveAttribute("href", "/console/jobs");
   });
 

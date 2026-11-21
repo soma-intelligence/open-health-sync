@@ -6,19 +6,16 @@ describe("prefs", () => {
     window.localStorage.clear();
   });
 
-  it("stores only the three preferences under ohs.console.", () => {
-    const names: PrefName[] = ["theme", "inspector", "inspector-lang"];
+  it("stores only the two preferences under ohs.console.", () => {
+    const names: PrefName[] = ["theme", "inspector-lang"];
     names.forEach((n) => {
       writePref(n, "x");
     });
-    expect(Object.keys(window.localStorage).sort()).toEqual([
-      "ohs.console.inspector",
-      "ohs.console.inspector-lang",
-      "ohs.console.theme",
-    ]);
+    expect(Object.keys(window.localStorage).sort()).toEqual(["ohs.console.inspector-lang", "ohs.console.theme"]);
     expect(readPref("theme")).toBe("x");
     writePref("other" as PrefName, "y");
-    expect(window.localStorage).toHaveLength(3);
+    writePref("inspector" as PrefName, "closed");
+    expect(window.localStorage).toHaveLength(2);
     expect(readPref("other" as PrefName)).toBeNull();
   });
 

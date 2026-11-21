@@ -7,6 +7,7 @@ import { useSetupState } from "../pages/setup/api";
 import { isApiKey } from "../pages/setup/setup";
 import "../pages/setup/setup.css";
 import { Button } from "../ui/Button";
+import { BrandMark } from "../ui/Icon";
 import { safeReturnPath } from "./returnPath";
 import { useSession } from "./SessionProvider";
 
@@ -48,7 +49,11 @@ export function SignInPage() {
   return (
     <main className="setup-page">
       <section className="setup-panel">
-        <p className="muted">Open Health Sync console</p>
+        <div className="setup-brand">
+          <BrandMark />
+          <span>Open Health Sync</span>
+        </div>
+        <p className="setup-eyebrow">Console</p>
         <h1>Sign in</h1>
         {expired ? (
           <p className="notice-bar" role="status">

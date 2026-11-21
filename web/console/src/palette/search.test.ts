@@ -47,17 +47,17 @@ describe("paletteItems", () => {
       "API keys",
       "Audit log",
       "Settings",
-      "Create user",
-      "Create API key",
-      "Add webhook endpoint",
+      "New user",
+      "New API key",
+      "New endpoint",
       "Switch theme",
       "Sign out",
     ]);
     expect(found.slice(0, 8).every((i) => i.group === "Go to")).toBe(true);
     expect(found.slice(8).every((i) => i.group === "Actions")).toBe(true);
-    expect(all.find((i) => i.title === "Create user")).toMatchObject({ to: "/console/users", open: "create" });
-    expect(all.find((i) => i.title === "Create API key")).toMatchObject({ to: "/console/keys", open: "create" });
-    expect(all.find((i) => i.title === "Add webhook endpoint")).toMatchObject({ to: "/console/webhooks", open: "create" });
+    expect(all.find((i) => i.title === "New user")).toMatchObject({ to: "/console/users", open: "create" });
+    expect(all.find((i) => i.title === "New API key")).toMatchObject({ to: "/console/keys", open: "create" });
+    expect(all.find((i) => i.title === "New endpoint")).toMatchObject({ to: "/console/webhooks", open: "create" });
     expect(all.find((i) => i.title === "Switch theme")).toMatchObject({ run: "theme" });
     expect(all.find((i) => i.title === "Sign out")).toMatchObject({ run: "sign-out" });
   });

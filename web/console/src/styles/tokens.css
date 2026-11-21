@@ -1,100 +1,90 @@
-/* Theme tokens. Light on :root; dark follows the system unless the page pins light,
-   and again when the page pins dark. */
+/* The console's tokens. Every value comes from ohs-tokens.css (the OnePass design system with the
+   OHS green as the action colour). The short names below are the console's own vocabulary, kept so
+   each stylesheet reads the same; each one points at an --op-* token.
+   Contrast floors kept from the audit (WCAG 2.2 AA): --faint is text (4.5:1 or more on page, card and
+   nested card), --field-border is a control boundary (3:1 or more on card), --focus is a focus ring
+   (3:1 or more), --on-danger is text on a --danger fill (4.5:1 or more). */
+@import "./ohs-tokens.css";
+
 :root {
-  --page: #f6faf7;
-  --panel: #ffffff;
-  --raised: #f1f6f3;
-  --hover: rgb(11 21 16 / 4%);
-  --line: rgb(11 21 16 / 8%);
-  --line-2: rgb(11 21 16 / 14%);
-  --ink: #0b1510;
-  --ink-2: #26332c;
-  --muted: #4b5a53;
-  /* Tertiary text: 4.6:1 or more on page, panel and raised. */
-  --faint: #66716c;
-  /* Borders of fields and controls (WCAG 1.4.11): 3.2:1 or more on page, panel and raised.
-     --line stays for separators, which need no contrast. */
-  --field-border: #7d8a84;
-  --accent: #17a865;
-  --on-accent: #04140c;
-  --accent-text: #0d7a47;
-  --mint: #d7f5e3;
-  --mint-line: #a9e6c4;
-  --warn: #9a5b00;
-  --warn-soft: #fdf1dc;
-  --warn-line: #f0d39c;
-  --danger: #b4322e;
-  /* Text on a --danger fill, such as the error toast. */
+  /* Fonts: the console ships its own files (no third-party request), registered as variable faces. */
+  --op-font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --op-font-display: "Inter Tight Variable", "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
+  --op-font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Surfaces */
+  --page: var(--op-bg);
+  --panel: var(--op-card);
+  --raised: var(--op-card-2);
+  --field: var(--op-field);
+  --hover: var(--op-card-2);
+  --line: var(--op-line);
+  --line-2: var(--op-line);
+  --scrim: var(--op-scrim);
+
+  /* Text */
+  --ink: var(--op-fg);
+  --ink-2: var(--op-fg);
+  --mint: var(--op-accent-wash);
+  --mint-line: transparent;
+  --warn-line: transparent;
+  --knob: #fff;
+  --muted: var(--op-fg-2);
+  /* Tertiary text. --op-fg-3 is 3.4:1 on a light card, under AA for text, so light uses fg-2 (6.4:1). */
+  --faint: var(--op-fg-2);
+  /* Field and control boundaries: 3.6:1 on the card, 3.3:1 on the page (light). */
+  --field-border: #86868b;
+
+  /* Action: the OHS green */
+  --accent: var(--op-accent);
+  --accent-hover: var(--op-accent-hover);
+  --on-accent: var(--op-accent-fg);
+  --accent-text: var(--op-accent-text);
+  --accent-wash: var(--op-accent-wash);
+  /* 5.2:1 on the card, 4.7:1 on the page. */
+  --focus: var(--op-focus);
+
+  /* States */
+  /* The light ok green is 4.5:1 on its wash over a card but 4.47:1 over a nested card: one step darker. */
+  --ok: #19692c;
+  --ok-wash: var(--op-ok-wash);
+  --warn: var(--op-warn);
+  --warn-soft: var(--op-warn-wash);
+  --danger: var(--op-bad);
+  --danger-soft: var(--op-bad-wash);
+  /* Text on a --danger fill: white on #C4001A is 6.2:1. */
   --on-danger: #ffffff;
-  --danger-soft: #fce9e7;
-  --danger-line: #f1c2bd;
-  /* The focus ring: --accent is under 3:1 on the light page, so the darker accent text is used. */
-  --focus: var(--accent-text);
-  --shadow: 0 1px 2px rgb(11 21 16 / 5%), 0 0 0 1px var(--line);
-  --shadow-pop: 0 12px 32px rgb(11 21 16 / 14%), 0 0 0 1px var(--line-2);
-  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --idle: var(--op-idle);
+  --idle-wash: var(--op-idle-wash);
+  --info: var(--op-info);
+  --info-wash: var(--op-info-wash);
+
+  --shadow: var(--op-shadow);
+  --shadow-pop: var(--op-shadow-pop);
+
+  --font-sans: var(--op-font);
+  --font-display: var(--op-font-display);
+  --font-mono: var(--op-font-mono);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --page: #070a09;
-    --panel: #0e1311;
-    --raised: #121916;
-    --hover: rgb(238 244 240 / 4%);
-    --line: rgb(238 244 240 / 8%);
-    --line-2: rgb(238 244 240 / 14%);
-    --ink: #eef4f0;
-    --ink-2: #d3ddd7;
-    --muted: #8fa39a;
-    --faint: #74867d;
-    --field-border: #5c6c64;
-    --accent: #3ddc8e;
-    --on-accent: #04140c;
-    --accent-text: #3ddc8e;
-    --mint: rgb(61 220 142 / 12%);
-    --mint-line: rgb(61 220 142 / 30%);
-    --warn: #f0b552;
-    --warn-soft: rgb(240 181 82 / 10%);
-    --warn-line: rgb(240 181 82 / 28%);
-    --danger: #f2796f;
+    /* fg-3 is 5.2:1 on the dark card and 4.8:1 on the nested card. */
+    --faint: var(--op-fg-3);
+    /* 3.9:1 on the card, 3.6:1 on the nested card. */
+    --field-border: #78787e;
+    --ok: var(--op-ok);
+    /* Dark text on the light red fill: 6.8:1. */
     --on-danger: #230603;
-    --danger-soft: rgb(242 121 111 / 10%);
-    --danger-line: rgb(242 121 111 / 28%);
-    --focus: var(--accent);
-    --shadow: 0 0 0 1px var(--line);
-    --shadow-pop: 0 16px 40px rgb(0 0 0 / 50%), 0 0 0 1px var(--line-2);
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --page: #070a09;
-  --panel: #0e1311;
-  --raised: #121916;
-  --hover: rgb(238 244 240 / 4%);
-  --line: rgb(238 244 240 / 8%);
-  --line-2: rgb(238 244 240 / 14%);
-  --ink: #eef4f0;
-  --ink-2: #d3ddd7;
-  --muted: #8fa39a;
-  --faint: #74867d;
-  --field-border: #5c6c64;
-  --accent: #3ddc8e;
-  --on-accent: #04140c;
-  --accent-text: #3ddc8e;
-  --mint: rgb(61 220 142 / 12%);
-  --mint-line: rgb(61 220 142 / 30%);
-  --warn: #f0b552;
-  --warn-soft: rgb(240 181 82 / 10%);
-  --warn-line: rgb(240 181 82 / 28%);
-  --danger: #f2796f;
+  --faint: var(--op-fg-3);
+  --field-border: #78787e;
+  --ok: var(--op-ok);
   --on-danger: #230603;
-  --danger-soft: rgb(242 121 111 / 10%);
-  --danger-line: rgb(242 121 111 / 28%);
-  --focus: var(--accent);
-  --shadow: 0 0 0 1px var(--line);
-  --shadow-pop: 0 16px 40px rgb(0 0 0 / 50%), 0 0 0 1px var(--line-2);
   color-scheme: dark;
 }

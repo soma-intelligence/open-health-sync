@@ -5,6 +5,8 @@ export interface PaletteItem {
   group: "Go to" | "Actions" | "Settings";
   title: string;
   hint?: string;
+  /** Other words that find the item, never shown: "create user" finds New user. */
+  keywords?: string;
   /** The address, basename included. */
   to?: string;
   /** Open the create dialog of the page at `to`. */
@@ -32,9 +34,16 @@ const PAGES: readonly PaletteItem[] = [
 ];
 
 const WRITE_ACTIONS: readonly PaletteItem[] = [
-  { group: "Actions", title: "Create user", to: `${BASE}/users`, open: "create" },
-  { group: "Actions", title: "Create API key", to: `${BASE}/keys`, open: "create" },
-  { group: "Actions", title: "Add webhook endpoint", to: `${BASE}/webhooks`, open: "create" },
+  // The same words as the buttons on the pages they open.
+  { group: "Actions", title: "New user", keywords: "create user add user", to: `${BASE}/users`, open: "create" },
+  { group: "Actions", title: "New API key", keywords: "create API key add key", to: `${BASE}/keys`, open: "create" },
+  {
+    group: "Actions",
+    title: "New endpoint",
+    keywords: "create webhook endpoint add webhook",
+    to: `${BASE}/webhooks`,
+    open: "create",
+  },
 ];
 
 /** Every item the palette can offer, in the order of an empty query: pages, actions, settings. */
@@ -71,7 +80,11 @@ export function searchPalette(items: readonly PaletteItem[], query: string, limi
   if (q === "") return items.filter((i) => i.group !== "Settings").slice(0, limit);
   const scored: { item: PaletteItem; score: number; at: number }[] = [];
   items.forEach((item, at) => {
-    const score = Math.min(rank(item.title, q), item.hint === undefined ? 3 : rank(item.hint, q));
+    const score = Math.min(
+      rank(item.title, q),
+      item.hint === undefined ? 3 : rank(item.hint, q),
+      item.keywords === undefined ? 3 : rank(item.keywords, q),
+    );
     if (score < 3) scored.push({ item, score, at });
   });
   scored.sort((a, b) => a.score - b.score || a.at - b.at);

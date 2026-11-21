@@ -10,6 +10,8 @@ export interface Column<T> {
   cell: (row: T) => ReactNode;
   /** Extra class for the header and the cells, for a width or an alignment. */
   className?: string;
+  /** The row's buttons: the cell stays in view while a wide table scrolls under it. */
+  actions?: boolean;
 }
 
 export interface DataTableProps<T> {
@@ -72,49 +74,54 @@ export function DataTable<T>({ columns, rows, rowKey, onSelect, selectedKey, to,
     }
   };
 
+  const cellClass = (c: Column<T>) => [c.className, c.actions ? "row-actions-cell" : undefined].filter(Boolean).join(" ") || undefined;
+
+  // The wrapper scrolls the table inside its card: on a phone every column and action stays reachable.
   return (
-    <table className="data-table" tabIndex={0} onKeyDown={onKeyDown}>
-      <thead>
-        <tr>
-          {columns.map((c) => (
-            <th key={c.key} scope="col" className={c.className}>
-              {c.header}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => {
-          const key = rowKey(row);
-          return (
-            <tr
-              key={key}
-              aria-current={key === selectedKey ? "true" : undefined}
-              className={key === selectedKey ? "selected" : undefined}
-              onClick={(e) => {
-                onSelect?.(row);
-                e.currentTarget.closest("table")?.focus();
-              }}
-              onDoubleClick={() => {
-                open(row);
-              }}
-            >
-              {columns.map((c, i) => (
-                <td key={c.key} className={c.className}>
-                  {to && i === 0 ? (
-                    <Link className="row-link" to={routerPath(to(row))} tabIndex={-1}>
-                      {c.cell(row)}
-                      <Icon name="chevron" size="sm" />
-                    </Link>
-                  ) : (
-                    c.cell(row)
-                  )}
-                </td>
-              ))}
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="table-scroll">
+      <table className="data-table" tabIndex={0} onKeyDown={onKeyDown}>
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c.key} scope="col" className={cellClass(c)}>
+                {c.header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const key = rowKey(row);
+            return (
+              <tr
+                key={key}
+                aria-current={key === selectedKey ? "true" : undefined}
+                className={key === selectedKey ? "selected" : undefined}
+                onClick={(e) => {
+                  onSelect?.(row);
+                  e.currentTarget.closest("table")?.focus();
+                }}
+                onDoubleClick={() => {
+                  open(row);
+                }}
+              >
+                {columns.map((c, i) => (
+                  <td key={c.key} className={cellClass(c)}>
+                    {to && i === 0 ? (
+                      <Link className="row-link" to={routerPath(to(row))} tabIndex={-1}>
+                        {c.cell(row)}
+                        <Icon name="chevron" size="sm" />
+                      </Link>
+                    ) : (
+                      c.cell(row)
+                    )}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -540,6 +540,8 @@ describe("settings", () => {
       },
     });
     await loaded();
+    // Settings starts with the inspector closed: open it, so the check below covers it too.
+    await user.click(screen.getByRole("button", { name: "Inspector" }));
     const f = field("Metrics token");
     expect(within(f).getByText("not set", { selector: ".set-secret-state" })).toBeInTheDocument();
     await user.click(within(f).getByRole("button", { name: "Replace" }));

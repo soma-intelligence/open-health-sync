@@ -41,7 +41,9 @@ function UserView() {
   if (user.isPending) {
     return (
       <div className="page">
-        <p role="status">Loading</p>
+        <p role="status" className="loading">
+          Loading
+        </p>
       </div>
     );
   }
@@ -76,7 +78,7 @@ function UserView() {
       <UserHeader user={user.data} />
       <Tabs tabs={items} current={tab} label="User" />
       <TabPanel current={tab}>
-        {tab === "data" ? <DataTab userId={userId} /> : null}
+        {tab === "data" ? <DataTab user={user.data} /> : null}
         {tab === "connections" ? <ConnectionsTab userId={userId} /> : null}
         {tab === "consents" ? <ConsentsTab userId={userId} /> : null}
         {tab === "sync-runs" ? <SyncRunsTab userId={userId} /> : null}

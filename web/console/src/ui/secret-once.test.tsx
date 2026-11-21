@@ -43,7 +43,10 @@ describe("SecretOnce", () => {
     expect(within(dialog).getByRole("button", { name: /Copy/ })).toBeInTheDocument();
     expect(within(dialog).getByText("Store it now.")).toBeInTheDocument();
 
-    await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    const done = within(dialog).getByRole("button", { name: "Done" });
+    expect(done, "Done waits for the operator to say the secret is stored").toBeDisabled();
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "I have stored it somewhere safe" }));
+    await userEvent.click(done);
     expect(screen.queryByDisplayValue(SECRET)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Rerender" }));
     expect(screen.getByText("closed")).toBeInTheDocument();

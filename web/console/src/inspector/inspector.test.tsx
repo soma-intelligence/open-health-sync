@@ -124,14 +124,15 @@ describe("inspector", () => {
     expect(p.getByText(/"title": "Not Found"/)).toBeInTheDocument();
   });
 
-  it("remembers open or closed and the language per browser", async () => {
+  it("remembers the language per browser, open or closed only for the session", async () => {
     view(entry, tenantSession);
     const user = userEvent.setup();
     await user.click(screen.getByRole("tab", { name: "Python" }));
     expect(window.localStorage.getItem("ohs.console.inspector-lang")).toBe("python");
     expect(screen.getByText(/import os, requests/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Inspector" }));
-    expect(window.localStorage.getItem("ohs.console.inspector")).toBe("closed");
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("ohs.console.inspector")).toBeNull();
   });
 
   it("starts on the stored language", () => {
@@ -140,14 +141,12 @@ describe("inspector", () => {
     expect(screen.getByRole("tab", { name: "TypeScript" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("starts closed on a narrow screen and keeps the wide preference", async () => {
-    window.localStorage.setItem("ohs.console.inspector", "open");
+  it("starts closed on a narrow screen", async () => {
     narrow(1000);
     view(entry, tenantSession);
     expect(screen.queryByRole("complementary", { name: "Inspector" })).not.toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "Inspector" }));
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
-    expect(window.localStorage.getItem("ohs.console.inspector")).toBe("open");
   });
 
   it("opens as a bottom sheet under 768 px", async () => {

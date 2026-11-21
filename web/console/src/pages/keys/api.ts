@@ -7,10 +7,17 @@ import { useApi } from "../../session/SessionProvider";
 export const KEYS_PATH = "/v1/keys";
 const KEYS_KEY = ["keys"] as const;
 
-/** GET /v1/keys, every key of the tenant. */
-export function useKeysQuery() {
+/**
+ * GET /v1/keys, every key of the tenant. A glance (the navigation badge, the overview) passes
+ * glance: it reads once a minute at most and not on every return to the window.
+ */
+export function useKeysQuery({ glance = false }: { glance?: boolean } = {}) {
   const api = useApi();
-  return useQuery({ queryKey: KEYS_KEY, queryFn: () => api.get<KeyList>(KEYS_PATH) });
+  return useQuery({
+    queryKey: KEYS_KEY,
+    queryFn: () => api.get<KeyList>(KEYS_PATH),
+    ...(glance ? { staleTime: 60_000, refetchOnWindowFocus: false, retry: false } : {}),
+  });
 }
 
 /** POST /v1/keys. The whole key is returned to the caller and not kept by the cache. */

@@ -85,7 +85,7 @@ describe("command palette", () => {
     expect(screen.getAllByRole("option").at(-1)).toHaveAttribute("aria-selected", "true");
   });
 
-  it("Create user opens the New user dialog", async () => {
+  it("New user, found by create user, opens the New user dialog", async () => {
     const user = userEvent.setup();
     const { path } = view();
     await user.keyboard("{Control>}k{/Control}");
@@ -100,7 +100,7 @@ describe("command palette", () => {
     view(readOnly);
     await user.keyboard("{Control>}k{/Control}");
     await user.type(screen.getByPlaceholderText("Search pages, settings and actions"), "create");
-    expect(screen.queryByRole("option", { name: /Create user/ })).toBeNull();
+    expect(screen.queryByRole("option", { name: /New user/ })).toBeNull();
   });
 
   it("an admin finds a setting and opens its address", async () => {

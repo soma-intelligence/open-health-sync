@@ -47,9 +47,9 @@ describe("shell", () => {
     renderWithApp(null, { session: tenantSession });
     const n = within(nav());
     expect(n.getByText("Acme")).toBeInTheDocument();
-    expect(n.getByText("tenant")).toBeInTheDocument();
+    expect(n.getByText("Tenant")).toBeInTheDocument();
     const headings = n.getAllByRole("heading").map((h) => h.textContent);
-    expect(headings).toEqual(["Workspace", "Developers"]);
+    expect(headings).toEqual(["Workspace", "Build"]);
     ["Overview", "Users", "Providers", "Jobs", "Webhooks", "API keys", "Audit log"].forEach((name) => {
       expect(n.getByRole("link", { name })).toBeInTheDocument();
     });
@@ -63,7 +63,7 @@ describe("shell", () => {
   it("shows the Instance group with Settings to an admin", () => {
     renderWithApp(null, { session: adminSession, api: adminApi() });
     const n = within(nav());
-    expect(n.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Workspace", "Developers", "Instance"]);
+    expect(n.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Workspace", "Build", "Instance"]);
     expect(n.getByRole("link", { name: "Settings" })).toBeInTheDocument();
   });
 
@@ -186,12 +186,26 @@ describe("shell", () => {
     expect(nav()).toBeInTheDocument();
   });
 
-  it("pins and remembers the inspector toggle", async () => {
-    renderWithApp(null, { session: tenantSession });
+  it("opens the inspector on Overview, and the operator's toggle holds for the session", async () => {
+    renderWithApp(null, { session: tenantSession, route: "/console/overview" });
     const user = userEvent.setup();
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Inspector" }));
     expect(screen.queryByRole("complementary", { name: "Inspector" })).not.toBeInTheDocument();
-    expect(window.localStorage.getItem("ohs.console.inspector")).toBe("closed");
+    await user.click(within(nav()).getByRole("link", { name: "Users" }));
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).not.toBeInTheDocument();
+    await user.click(within(nav()).getByRole("link", { name: "Overview" }));
+    expect(screen.queryByRole("complementary", { name: "Inspector" }), "the toggle wins over the page default").not.toBeInTheDocument();
+    expect(window.localStorage.getItem("ohs.console.inspector"), "nothing outlives the session").toBeNull();
+  });
+
+  it("keeps the inspector closed on list pages until the operator opens it", async () => {
+    renderWithApp(null, { session: tenantSession, route: "/console/users" });
+    const user = userEvent.setup();
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Inspector" }));
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
+    await user.click(within(nav()).getByRole("link", { name: "Jobs" }));
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
   });
 });

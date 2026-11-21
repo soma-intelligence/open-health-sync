@@ -5,6 +5,7 @@ import { ApiError } from "../../api/client";
 import { useSession } from "../../session/SessionProvider";
 import { Button } from "../../ui/Button";
 import { CopyButton } from "../../ui/CopyButton";
+import { BrandMark } from "../../ui/Icon";
 import { useRunSetup, useSetupState } from "./api";
 import { MAX_TENANT_NAME, SetupError } from "./setup";
 import "./setup.css";
@@ -189,7 +190,11 @@ export function SetupPage() {
   return (
     <main className="setup-page">
       <section className="setup-panel">
-        <p className="muted">First run</p>
+        <div className="setup-brand">
+          <BrandMark />
+          <span>Open Health Sync</span>
+        </div>
+        <p className="setup-eyebrow">First run</p>
         <h1>Set up this instance</h1>
         {body}
       </section>

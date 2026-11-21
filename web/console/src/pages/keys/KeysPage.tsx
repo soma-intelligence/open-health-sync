@@ -69,9 +69,7 @@ export function KeysPage() {
       <header className="page-head">
         <div>
           <h1 className="page-title">API keys</h1>
-          <p className="page-sub">
-            Keys of {session?.acting_tenant.name ?? "this tenant"}. A key created here can do at most what this session&apos;s key does.
-          </p>
+          <p className="page-sub">Keys of {session?.acting_tenant.name ?? "this tenant"}. A key can do at most what this session&apos;s key does.</p>
         </div>
         <div className="page-actions">
           {canWrite ? (
@@ -81,15 +79,19 @@ export function KeysPage() {
                 setCreating(true);
               }}
             >
-              Create key
+              New API key
             </Button>
           ) : null}
         </div>
       </header>
-      {query.isPending ? <p role="status">Loading</p> : null}
+      {query.isPending ? (
+        <p role="status" className="loading">
+          Loading
+        </p>
+      ) : null}
       {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
       {data ? (
-        <Card title="Keys">
+        <Card>
           <KeysTable
             rows={data.data}
             sessionPrefix={session?.key_prefix ?? ""}
@@ -97,7 +99,7 @@ export function KeysPage() {
             onSelect={setSelected}
             {...(canWrite ? { onRevoke: setRevoking } : {})}
           />
-          {canWrite ? <p className="muted small">The key of this session cannot revoke itself: sign in with another key first.</p> : null}
+          {canWrite ? <p className="card-hint">The key of this session cannot revoke itself: sign in with another key first.</p> : null}
         </Card>
       ) : null}
       {creating ? (
@@ -121,7 +123,8 @@ export function KeysPage() {
       ) : null}
       {secret !== null ? (
         <SecretOnce
-          title="New API key"
+          title="Your new API key"
+          label="API key"
           intro="Store it in your secret manager now. Only a hash is kept on the server."
           value={secret}
           onDone={() => {

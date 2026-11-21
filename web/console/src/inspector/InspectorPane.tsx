@@ -93,10 +93,16 @@ export function InspectorPane({ onClose }: { onClose?: (() => void) | undefined 
     <>
       <header className="insp-head">
         <div>
-          <span className="insp-eyebrow">INSPECTOR</span>
+          <h2 className="insp-heading">Inspector</h2>
           {entry ? (
             <p className="insp-title">
-              <Mono>{KIND_LABEL[entry.kind]}</Mono> <Mono>{entry.title}</Mono>
+              <span className="insp-kind">{KIND_LABEL[entry.kind]}</span>
+              {entry.title.toLowerCase() !== KIND_LABEL[entry.kind] ? (
+                <>
+                  {" "}
+                  <Mono>{entry.title}</Mono>
+                </>
+              ) : null}
               {entry.id ? (
                 <>
                   {" "}

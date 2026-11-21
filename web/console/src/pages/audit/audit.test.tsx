@@ -106,6 +106,8 @@ describe("audit", () => {
   it("selecting an event inspects it", async () => {
     view({ "GET /v1/audit": list });
     await userEvent.click(await screen.findByText("GET /v1/route-3"));
+    // List pages start with the inspector closed: the operator opens it.
+    await userEvent.click(screen.getByRole("button", { name: "Inspector" }));
     const pane = await screen.findByRole("complementary", { name: "Inspector" });
     expect(await within(pane).findByText(/"id": 997/)).toBeInTheDocument();
   });

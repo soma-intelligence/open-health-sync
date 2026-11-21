@@ -23,12 +23,13 @@ export function webhookPath(id: string, ...rest: string[]): string {
 
 const WEBHOOKS_KEY = ["webhooks"] as const;
 
-/** GET /v1/webhooks, one page. */
-export function useWebhooksQuery() {
+/** GET /v1/webhooks, one page. enabled: false holds the request (the overview asks only when one is in trouble). */
+export function useWebhooksQuery({ enabled = true }: { enabled?: boolean } = {}) {
   const api = useApi();
   return useQuery({
     queryKey: [...WEBHOOKS_KEY, "list"],
     queryFn: () => api.get<WebhookList>(WEBHOOKS_PATH),
+    enabled,
   });
 }
 

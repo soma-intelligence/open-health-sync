@@ -76,7 +76,9 @@ describe("jobs", () => {
     expect(await screen.findByText("disk full")).toBeInTheDocument();
     expect(api.calls.some((c) => c.path === "/v1/pipeline/sync-runs?status=failed&limit=50")).toBe(true);
     expect(api.calls.some((c) => c.path === "/v1/pipeline/etl-jobs?status=parked&limit=100")).toBe(true);
-    const titles = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    const titles = within(screen.getByRole("main"))
+      .getAllByRole("heading", { level: 2 })
+      .map((h) => h.textContent);
     expect(titles).toEqual(["Failed sync runs", "Parked processing jobs"]);
   });
 

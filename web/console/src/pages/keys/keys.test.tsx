@@ -80,20 +80,21 @@ describe("keys", () => {
   it("creates a key with chosen scopes and an optional expiry, shown once", async () => {
     const key = "ohs_sk_Zz9YyQ1w2e3r4t5y6u7i8o9p0aSdFgHj";
     const { api, queryClient } = view({ "POST /v1/keys": { status: 201, body: { ...ci, key } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Create key" }));
-    const ask = screen.getByRole("dialog", { name: "Create an API key" });
+    await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
+    const ask = screen.getByRole("dialog", { name: "New API key" });
     await userEvent.click(within(ask).getByRole("radio", { name: /Pick scopes/ }));
     await userEvent.click(within(ask).getByRole("checkbox", { name: "users:read" }));
     await userEvent.click(within(ask).getByRole("checkbox", { name: "data:read" }));
     await userEvent.type(within(ask).getByLabelText("Expires on (optional)"), "2027-01-01");
     expect(api.callsTo("POST /v1/keys")).toHaveLength(0);
     await userEvent.click(within(ask).getByRole("button", { name: "Create key" }));
-    const dialog = await screen.findByRole("dialog", { name: "New API key" });
+    const dialog = await screen.findByRole("dialog", { name: "Your new API key" });
     expect(within(dialog).getByDisplayValue(key)).toBeInTheDocument();
     await waitFor(() => {
       expect(mutationsHold(queryClient, key)).toBe(false);
     });
     expect(api.callsTo("POST /v1/keys")[0]?.body).toEqual({ scopes: ["users:read", "data:read"], expires_at: "2027-01-01T00:00:00Z" });
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "I have stored it somewhere safe" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => {
       expect(screen.queryByDisplayValue(key)).not.toBeInTheDocument();
@@ -104,11 +105,11 @@ describe("keys", () => {
 
   it("defaults to read only scopes and never sends an empty list", async () => {
     const { api } = view({ "POST /v1/keys": { status: 201, body: { ...ci, key: "ohs_sk_x" } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Create key" }));
+    await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     const ask = screen.getByRole("dialog");
     expect(within(ask).getByRole("radio", { name: /Read only/ })).toBeChecked();
     await userEvent.click(within(ask).getByRole("button", { name: "Create key" }));
-    await screen.findByRole("dialog", { name: "New API key" });
+    await screen.findByRole("dialog", { name: "Your new API key" });
     expect(api.callsTo("POST /v1/keys")[0]?.body).toEqual({
       scopes: ["tenant:read", "users:read", "data:read", "connections:read", "webhooks:read", "exports:read", "keys:read", "audit:read"],
     });
@@ -116,17 +117,17 @@ describe("keys", () => {
 
   it("full access is an explicit choice that sends *", async () => {
     const { api } = view({ "POST /v1/keys": { status: 201, body: { ...own, current: false, key: "ohs_sk_x" } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Create key" }));
+    await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     const ask = screen.getByRole("dialog");
     await userEvent.click(within(ask).getByRole("radio", { name: /Full access/ }));
     await userEvent.click(within(ask).getByRole("button", { name: "Create key" }));
-    await screen.findByRole("dialog", { name: "New API key" });
+    await screen.findByRole("dialog", { name: "Your new API key" });
     expect(api.callsTo("POST /v1/keys")[0]?.body).toEqual({ scopes: ["*"] });
   });
 
   it("picking scopes with none checked is refused before any call", async () => {
     const { api } = view({ "POST /v1/keys": { status: 201, body: { ...ci, key: "ohs_sk_x" } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Create key" }));
+    await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     const ask = screen.getByRole("dialog");
     await userEvent.click(within(ask).getByRole("radio", { name: /Pick scopes/ }));
     await userEvent.click(within(ask).getByRole("button", { name: "Create key" }));
@@ -137,7 +138,7 @@ describe("keys", () => {
   it("shows a write scope's read as implied, and disables scopes the session lacks", async () => {
     const narrow: ConsoleSession = { ...session, key_scopes: ["users:write", "data:read"] };
     view({}, narrow);
-    await userEvent.click(await screen.findByRole("button", { name: "Create key" }));
+    await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     const ask = screen.getByRole("dialog");
     await userEvent.click(within(ask).getByRole("radio", { name: /Pick scopes/ }));
     expect(within(ask).getByRole("checkbox", { name: "audit:read" })).toBeDisabled();
@@ -150,10 +151,10 @@ describe("keys", () => {
 
   it("a 403 naming a missing scope is shown", async () => {
     view({ "POST /v1/keys": { status: 403, body: { title: "Forbidden", status: 403, detail: "this key lacks the scope keys:write" } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Create key" }));
+    await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create key" }));
     expect(await screen.findByText("this key lacks the scope keys:write")).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Create an API key" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "New API key" })).toBeInTheDocument();
   });
 
   it("revoke needs the prefix typed", async () => {

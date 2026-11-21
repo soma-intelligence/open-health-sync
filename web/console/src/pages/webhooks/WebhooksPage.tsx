@@ -20,7 +20,7 @@ function CreateEndpoint({ onCreated, onClose }: { onCreated: (secret: string) =>
   const [values, setValues] = useState<EndpointValues>(EMPTY_VALUES);
   return (
     <ConfirmDialog
-      title="Add a webhook endpoint"
+      title="New endpoint"
       body={
         <>
           <p>This server sends a signed event to this URL when data is written or deleted, or a connection breaks.</p>
@@ -91,7 +91,7 @@ export function WebhooksPage() {
                 setCreating(true);
               }}
             >
-              Add endpoint
+              New endpoint
             </Button>
           ) : null}
         </div>

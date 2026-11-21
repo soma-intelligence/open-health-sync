@@ -1,47 +1,50 @@
-/* ---------- inspector pane ---------- */
+/* ---------- inspector pane: the API call behind the page ---------- */
 .insp-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
+  gap: var(--op-s2);
+  padding: var(--op-s4) var(--op-s4) var(--op-s3);
   position: sticky;
   top: 0;
-  background: var(--panel);
+  background: var(--op-card);
   z-index: 1;
 }
 
-.insp-eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+.insp-heading {
+  margin: 0;
+  font: 600 15px var(--op-font-display);
 }
 
 .insp-title {
-  margin: 4px 0 0;
-  font-size: 13px;
+  margin: 2px 0 0;
+  font: var(--op-text-small);
+  color: var(--op-fg-2);
   overflow-wrap: anywhere;
 }
 
+.insp-kind {
+  text-transform: capitalize;
+}
+
 .insp-body {
-  padding: 4px 16px 24px;
+  padding: 0 var(--op-s4) var(--op-s6);
 }
 
 .insp-empty {
-  padding: 16px;
+  padding: var(--op-s4);
 }
 
 .insp-sec {
-  margin-top: 18px;
+  margin-top: var(--op-s4);
 }
 
 .insp-sec h4 {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
+  margin: 0 0 var(--op-s2);
+  font: var(--op-text-caption);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
 }
 
 .insp-call {
@@ -51,51 +54,58 @@
 }
 
 .insp-method {
-  color: var(--accent-text);
+  color: var(--op-accent-text);
   font-weight: 600;
 }
 
 .insp-tabs {
   display: flex;
   gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--raised);
-  border: 1px solid var(--line);
-  margin-bottom: 8px;
+  padding: 3px;
+  border-radius: var(--op-r-control);
+  background: var(--op-field);
+  margin-bottom: var(--op-s2);
 }
 
 .insp-tabs button {
   flex: 1;
-  height: 26px;
+  height: 28px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--op-fg-2);
+  font: 500 12px var(--op-font);
   cursor: pointer;
 }
 
+.insp-tabs button:hover {
+  color: var(--op-fg);
+}
+
 .insp-tabs button.on {
-  background: var(--panel);
-  color: var(--ink);
-  box-shadow: var(--shadow);
+  background: var(--op-card);
+  color: var(--op-fg);
+  font-weight: 600;
+  box-shadow: var(--op-shadow);
+}
+
+.insp-tabs button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 
 .insp-code {
   position: relative;
-  border-radius: 10px;
-  background: var(--raised);
-  border: 1px solid var(--line);
+  border-radius: var(--op-s3);
+  background: var(--op-card-2);
 }
 
 .insp-code pre {
   margin: 0;
-  padding: 12px;
+  padding: var(--op-s3);
   max-height: 320px;
   overflow: auto;
-  font-family: var(--font-mono);
+  font-family: var(--op-font-mono);
   font-size: 12px;
   line-height: 1.55;
   white-space: pre;
@@ -104,15 +114,15 @@
 .insp-copy {
   display: flex;
   justify-content: flex-end;
-  padding: 4px 6px 0;
+  padding: var(--op-s1) 6px 0;
 }
 
 .insp-settings {
   list-style: none;
-  margin: 0 0 8px;
+  margin: 0 0 var(--op-s2);
   padding: 0;
   display: grid;
-  gap: 8px;
+  gap: var(--op-s2);
 }
 
 .insp-settings li {
@@ -120,12 +130,12 @@
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 4px 12px;
+  gap: var(--op-s1) var(--op-s3);
   font-size: 12px;
 }
 
 .insp-settings a {
-  color: var(--accent-text);
+  color: var(--op-accent-text);
   text-decoration: none;
 }
 
@@ -135,11 +145,11 @@
 
 .insp-value {
   display: inline-flex;
-  gap: 8px;
+  gap: var(--op-s2);
   align-items: baseline;
 }
 
 .insp .muted {
-  color: var(--muted);
+  color: var(--op-fg-2);
   font-size: 12px;
 }

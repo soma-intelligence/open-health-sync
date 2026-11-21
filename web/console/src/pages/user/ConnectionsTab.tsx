@@ -46,6 +46,7 @@ export function ConnectionsTab({ userId }: { userId: string }) {
     columns.push({
       key: "actions",
       header: "Actions",
+      actions: true,
       cell: (c) => (
         <div className="row-actions">
           {c.status === "active" ? (

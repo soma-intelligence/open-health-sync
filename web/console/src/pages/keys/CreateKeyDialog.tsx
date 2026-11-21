@@ -46,7 +46,7 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
 
   return (
     <ConfirmDialog
-      title="Create an API key"
+      title="New API key"
       confirmLabel="Create key"
       dirty={chosen.length > 0 || day !== ""}
       onClose={() => {
@@ -55,11 +55,11 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
       }}
       body={
         <div className="key-form">
-          <p>A new key of this tenant. It can do at most what this session&apos;s key does. Treat it as a password.</p>
-          <fieldset className="scope-picker">
+          <p className="muted">A key of this tenant can do at most what this session&apos;s key does. Treat it as a password.</p>
+          <fieldset className="access-picker">
             <legend>Access</legend>
             {readScopes.length > 0 ? (
-              <label className="check">
+              <label className={access === "read" ? "opt on" : "opt"}>
                 <input
                   type="radio"
                   name={accessName}
@@ -68,12 +68,13 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
                     setAccess("read");
                   }}
                 />
-                <span>
-                  Read only <span className="muted">(every :read scope this session holds)</span>
+                <span className="opt-text">
+                  <b>Read only</b>
+                  <small>Every :read scope this session holds. Good for dashboards.</small>
                 </span>
               </label>
             ) : null}
-            <label className="check">
+            <label className={access === "full" ? "opt on" : "opt"}>
               <input
                 type="radio"
                 name={accessName}
@@ -82,11 +83,12 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
                   setAccess("full");
                 }}
               />
-              <span>
-                Full access <span className="muted">(everything this session&apos;s key can do)</span>
+              <span className="opt-text">
+                <b>Full access</b>
+                <small>Everything this session&apos;s key can do.</small>
               </span>
             </label>
-            <label className="check">
+            <label className={access === "custom" ? "opt on" : "opt"}>
               <input
                 type="radio"
                 name={accessName}
@@ -95,7 +97,10 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
                   setAccess("custom");
                 }}
               />
-              <span>Pick scopes</span>
+              <span className="opt-text">
+                <b>Pick scopes</b>
+                <small>Choose each scope the key gets.</small>
+              </span>
             </label>
           </fieldset>
           {access === "custom" ? <ScopePicker chosen={chosen} onChange={setChosen} sessionScopes={sessionScopes} isAdmin={isAdmin} /> : null}
@@ -105,12 +110,15 @@ export function CreateKeyDialog({ onCreated, onClose }: CreateKeyDialogProps) {
               id={expiresId}
               type="date"
               className="input mono"
+              aria-describedby={`${expiresId}-help`}
               value={day}
               onChange={(e) => {
                 setDay(e.target.value);
               }}
             />
-            <p className="muted">Empty: the key lives until it is revoked.</p>
+            <p id={`${expiresId}-help`} className="muted small">
+              Empty: the key lives until it is revoked.
+            </p>
           </div>
         </div>
       }

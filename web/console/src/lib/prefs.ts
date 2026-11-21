@@ -1,8 +1,9 @@
-// The only place that touches localStorage: three preferences, nothing else.
+// The only place that touches localStorage: two preferences, nothing else. The inspector's
+// open or closed state is not stored: it follows the page until the operator toggles it.
 
-export type PrefName = "theme" | "inspector" | "inspector-lang";
+export type PrefName = "theme" | "inspector-lang";
 
-const NAMES: readonly PrefName[] = ["theme", "inspector", "inspector-lang"];
+const NAMES: readonly PrefName[] = ["theme", "inspector-lang"];
 
 const keyOf = (name: PrefName): string => `ohs.console.${name}`;
 

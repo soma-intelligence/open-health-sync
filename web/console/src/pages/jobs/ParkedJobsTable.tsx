@@ -23,6 +23,7 @@ export function ParkedJobsTable({ rows, onRetry }: ParkedJobsTableProps) {
     columns.push({
       key: "actions",
       header: "Actions",
+      actions: true,
       cell: (j) => (
         <div className="row-actions">
           <Button

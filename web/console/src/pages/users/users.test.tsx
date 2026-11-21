@@ -148,6 +148,8 @@ describe("users", () => {
     await userEvent.click(cells[cells.length - 1] as HTMLElement);
     expect(row).toHaveAttribute("aria-current", "true");
     const id = (page2[1] as User).id;
+    // List pages start with the inspector closed: the operator opens it.
+    await userEvent.click(screen.getByRole("button", { name: "Inspector" }));
     const pane = await screen.findByRole("complementary", { name: "Inspector" });
     expect(await within(pane).findByText(`/v1/users/${id}`)).toBeInTheDocument();
   });

@@ -176,7 +176,16 @@ describe("user page", () => {
     });
     const datasets = ["samples", "category-samples", "sleep", "workouts", "nutrition", "daily", "ecg"];
     for (const d of datasets) {
-      const label = { samples: "Samples", "category-samples": "Category samples", sleep: "Sleep", workouts: "Workouts", nutrition: "Nutrition", daily: "Daily summaries", ecg: "ECG" }[d] ?? d;
+      const label =
+        {
+          samples: "Samples",
+          "category-samples": "Category samples",
+          sleep: "Sleep",
+          workouts: "Workouts",
+          nutrition: "Nutrition",
+          daily: "Daily summaries",
+          ecg: "ECG",
+        }[d] ?? d;
       const group = screen.getByRole("group", { name: "CSV" });
       await userEvent.click(within(group).getByRole("button", { name: label }));
       await waitFor(() => {
@@ -190,7 +199,9 @@ describe("user page", () => {
 
   it("Connection link creates a connect session and shows the link once with Copy", async () => {
     const link = "https://ohs.example.com/connect/one-time-value";
-    const { api, queryClient } = view({ [`POST ${BASE}/connect-sessions`]: { status: 201, body: { url: link, expires_at: "2030-01-01T00:00:00Z" } } });
+    const { api, queryClient } = view({
+      [`POST ${BASE}/connect-sessions`]: { status: 201, body: { url: link, expires_at: "2030-01-01T00:00:00Z" } },
+    });
     await userEvent.click(await screen.findByRole("button", { name: "Connection link" }));
     const ask = screen.getByRole("dialog", { name: "Create a connection link?" });
     expect(api.callsTo(`POST ${BASE}/connect-sessions`)).toHaveLength(0);
@@ -255,16 +266,20 @@ describe("user page", () => {
     expect(api.callsTo(`DELETE ${BASE}/connections/apple_health`)[0]?.path).toBe(`${BASE}/connections/apple_health?delete_data=true`);
   });
 
-  it("Delete user needs the external id typed", async () => {
+  it("Erase user, in Consent and privacy, needs the user id typed", async () => {
     const { api, path } = view({ [`DELETE ${BASE}`]: { status: 202 }, "GET /v1/users": { body: { data: [], next_cursor: null } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Delete user" }));
-    const dialog = screen.getByRole("dialog");
-    const confirm = within(dialog).getByRole("button", { name: "Delete user" });
+    const card = (await screen.findByRole("heading", { name: "Consent and privacy" })).closest("section") as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: "Erase user" }));
+    const dialog = screen.getByRole("dialog", { name: "Erase this user and all their data?" });
+    const confirm = within(dialog).getByRole("button", { name: "Erase user" });
     expect(confirm).toBeDisabled();
-    await userEvent.type(within(dialog).getByRole("textbox"), "demo-us");
+    await userEvent.type(within(dialog).getByRole("textbox"), "demo-user");
+    expect(confirm, "the external id is not the id").toBeDisabled();
+    await userEvent.clear(within(dialog).getByRole("textbox"));
+    await userEvent.type(within(dialog).getByRole("textbox"), ID.slice(0, -1));
     expect(confirm).toBeDisabled();
     expect(api.callsTo(`DELETE ${BASE}`)).toHaveLength(0);
-    await userEvent.type(within(dialog).getByRole("textbox"), "er");
+    await userEvent.type(within(dialog).getByRole("textbox"), ID.slice(-1));
     await userEvent.click(confirm);
     await waitFor(() => {
       expect(api.callsTo(`DELETE ${BASE}`)).toHaveLength(1);
@@ -274,12 +289,16 @@ describe("user page", () => {
     });
   });
 
-  it("Delete user types the id when there is no external id", async () => {
-    const { api } = view({ [`GET ${BASE}`]: { body: { ...person, external_ref: null } }, [`DELETE ${BASE}`]: { status: 202 }, "GET /v1/users": { body: { data: [], next_cursor: null } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Delete user" }));
+  it("Erase user works the same when there is no external id", async () => {
+    const { api } = view({
+      [`GET ${BASE}`]: { body: { ...person, external_ref: null } },
+      [`DELETE ${BASE}`]: { status: 202 },
+      "GET /v1/users": { body: { data: [], next_cursor: null } },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Erase user" }));
     const dialog = screen.getByRole("dialog");
     await userEvent.type(within(dialog).getByRole("textbox"), ID);
-    await userEvent.click(within(dialog).getByRole("button", { name: "Delete user" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Erase user" }));
     await waitFor(() => {
       expect(api.callsTo(`DELETE ${BASE}`)).toHaveLength(1);
     });
@@ -302,7 +321,9 @@ describe("user page", () => {
         },
         [`GET ${BASE}/consents/history`]: {
           body: {
-            data: [{ id: 1, at: "2026-10-02T06:00:00Z", provider: "apple_health", category: "sleep", action: "granted", actor_id: "u1", evidence: "link" }],
+            data: [
+              { id: 1, at: "2026-10-02T06:00:00Z", provider: "apple_health", category: "sleep", action: "granted", actor_id: "u1", evidence: "link" },
+            ],
             next_cursor: null,
           },
         },
@@ -395,7 +416,8 @@ describe("user page", () => {
     view({ [`POST ${BASE}/connect-sessions`]: { status: 201, body: {} } }, "", readOnly);
     expect(await screen.findByRole("heading", { name: "demo-user", level: 1 })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Connection link" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete user" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Consent and privacy" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Erase user" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: "Connections" }));
     expect(await screen.findByText("Apple health")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();

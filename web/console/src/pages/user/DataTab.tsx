@@ -1,21 +1,32 @@
+import type { User } from "../../api/types";
 import { ErrorPanel } from "../../ui/ErrorPanel";
-import { useCoverageQuery, userPath } from "./api";
-import { CoveragePanel } from "./CoveragePanel";
-import { DownloadsPanel } from "./DownloadsPanel";
+import { useConnectionsQuery, useCoverageQuery, useFreshnessQuery, userPath } from "./api";
+import { CoveragePanel, MetricTiles } from "./CoveragePanel";
 import { useTabInspect } from "./inspect";
 import { PreviewPanel } from "./PreviewPanel";
+import { PrivacyCard } from "./PrivacyCard";
 
-/** Coverage on open. Values stay behind Preview and the downloads. */
-export function DataTab({ userId }: { userId: string }) {
+/** The user at a glance: counts, sources and their state, consent and privacy. Values stay behind Preview and the exports. */
+export function DataTab({ user }: { user: User }) {
+  const userId = user.id;
   const coverage = useCoverageQuery(userId);
+  const connections = useConnectionsQuery(userId, true);
+  const freshness = useFreshnessQuery(userId, true);
   useTabInspect("Coverage", userId, userPath(userId, "coverage"), undefined, coverage.data, coverage.error);
   return (
     <div className="stack">
-      {coverage.isPending ? <p role="status">Loading</p> : null}
+      {coverage.isPending ? (
+        <p role="status" className="loading">
+          Loading
+        </p>
+      ) : null}
       {coverage.error !== null && coverage.data === undefined ? <ErrorPanel error={coverage.error} retry /> : null}
-      {coverage.data ? <CoveragePanel coverage={coverage.data} /> : null}
+      {coverage.data ? <MetricTiles coverage={coverage.data} /> : null}
+      <div className="user-cards">
+        {coverage.data ? <CoveragePanel coverage={coverage.data} connections={connections.data?.data} freshness={freshness.data?.data} /> : <div />}
+        <PrivacyCard user={user} />
+      </div>
       <PreviewPanel userId={userId} />
-      <DownloadsPanel userId={userId} />
     </div>
   );
 }

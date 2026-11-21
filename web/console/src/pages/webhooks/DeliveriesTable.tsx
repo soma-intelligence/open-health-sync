@@ -49,6 +49,7 @@ export function DeliveriesTable({ rows, onAgain }: DeliveriesTableProps) {
     columns.push({
       key: "actions",
       header: "Actions",
+      actions: true,
       cell: (d) =>
         d.status === "done" || d.status === "parked" ? (
           <div className="row-actions">

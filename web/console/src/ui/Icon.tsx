@@ -3,6 +3,14 @@ import type { ReactNode } from "react";
 // Stroke icons on a 24 px grid, drawn from the mockup's symbols.
 const PATHS = {
   home: <path d="M3 12h4l3-8 4 16 3-8h4" />,
+  grid: (
+    <>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="2" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="2" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="2" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="2" />
+    </>
+  ),
   users: (
     <>
       <circle cx="9" cy="8" r="3.5" />
@@ -87,19 +95,19 @@ export function Icon({ name, size }: { name: IconName; size?: "sm" }) {
   );
 }
 
-/** The product mark: a pulse line on a dark rounded square. */
+/** The product mark: a pulse line on the OHS green square. */
 export function BrandMark() {
   return (
     <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-      <defs>
-        <linearGradient id="brand-gradient" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#4d6243" />
-          <stop offset="0.55" stopColor="#1d2b1d" />
-          <stop offset="1" stopColor="#0f160f" />
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="9" fill="url(#brand-gradient)" />
-      <path d="M5 16.5h5.5l2.5-6 5 12 2.5-6H27" fill="none" stroke="#f6f5ef" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <rect className="brand-mark-bg" width="32" height="32" rx="9" />
+      <path
+        className="brand-mark-line"
+        d="M5 16.5h5.5l2.5-6 5 12 2.5-6H27"
+        fill="none"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

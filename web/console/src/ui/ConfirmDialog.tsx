@@ -53,7 +53,7 @@ export function ConfirmDialog({ title, body, confirmLabel, danger, typed, onConf
       footer={
         <>
           {/* While the write is in flight the dialog stays: its answer, or its error, needs a place to land. */}
-          <Button kind="ghost" onClick={onClose} disabled={busy}>
+          <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button type="submit" form={formId} kind={danger ? "danger" : "primary"} disabled={!ready || busy} aria-busy={busy}>

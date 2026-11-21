@@ -1,30 +1,29 @@
 /* ---------- providers ---------- */
 .notice {
-  margin: 0 0 12px;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--raised);
+  margin: 0;
+  padding: var(--op-s2) var(--op-s3);
+  border-radius: var(--op-r-control);
+  background: var(--op-card-2);
 }
 
 .notice.warn {
-  border-color: var(--warn, var(--line));
+  background: var(--warn-soft);
 }
 
 .facts {
   margin: 0;
   display: grid;
-  gap: 8px;
+  gap: var(--op-s2);
 }
 
 .fact {
   display: grid;
   grid-template-columns: minmax(140px, 220px) 1fr;
-  gap: 12px;
+  gap: var(--op-s3);
 }
 
 .fact dt {
-  color: var(--muted);
+  color: var(--op-fg-2);
 }
 
 .fact dd {
@@ -35,13 +34,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--op-s2);
+  margin-top: var(--op-s2);
 }
 
 .url-label {
   min-width: 140px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .url-value {
@@ -53,9 +52,9 @@
 .key-row {
   display: grid;
   grid-template-columns: minmax(180px, 280px) 1fr;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
+  gap: var(--op-s3);
+  padding: var(--op-s3) 0;
+  border-bottom: 1px solid var(--op-line);
 }
 
 .key-label {
@@ -68,7 +67,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--op-s2);
 }
 
 .key-control .input {
@@ -80,8 +79,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
+  gap: var(--op-s3);
+  margin-top: var(--op-s3);
 }
 
 .switch-row {
@@ -89,7 +88,7 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--op-s3);
 }
 
 .switch-text {
@@ -108,7 +107,7 @@
 .endpoint-fields {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--op-s3);
 }
 
 .event-types {
@@ -118,8 +117,9 @@
 }
 
 .event-types legend {
-  padding: 0;
-  font-weight: 500;
+  padding: 0 0 var(--op-s1);
+  font: var(--op-text-caption);
+  color: var(--op-fg-2);
 }
 
 .type-grid {
@@ -133,7 +133,7 @@
 .scope-picker {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--op-s2);
 }
 
 .scope-picker {
@@ -142,9 +142,59 @@
   border: 0;
 }
 
-.scope-picker legend {
+.scope-picker legend,
+.access-picker legend {
+  padding: 0 0 var(--op-s1);
+  font: var(--op-text-caption);
+  color: var(--op-fg-2);
+}
+
+/* The access choice: three option cards, the chosen one washed in green. */
+.access-picker {
+  margin: 0;
   padding: 0;
-  font-weight: 500;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px var(--op-s3);
+  border-radius: var(--op-s3);
+  background: var(--op-card-2);
+  cursor: pointer;
+}
+
+.opt.on {
+  background: var(--op-accent-wash);
+}
+
+.opt input {
+  accent-color: var(--op-accent);
+  margin: 2px 0 0;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.opt-text b {
+  font-weight: 600;
+}
+
+.opt-text small {
+  font: var(--op-text-small);
+  font-size: 12px;
+  color: var(--op-fg-2);
 }
 
 .scope-group {
@@ -155,8 +205,9 @@
 }
 
 .scope-resource {
-  padding-top: 8px;
-  color: var(--muted);
+  padding-top: 6px;
+  color: var(--op-fg-2);
+  font-size: 12px;
 }
 
 .scope-items {
@@ -168,5 +219,5 @@
 .named {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--op-s2);
 }

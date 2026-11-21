@@ -52,6 +52,7 @@ export function TenantSwitcher() {
       <label htmlFor="acting-tenant">Acting tenant</label>
       <select
         id="acting-tenant"
+        className="input"
         value={acting.id}
         disabled={busy}
         onChange={(e) => {

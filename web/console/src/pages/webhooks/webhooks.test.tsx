@@ -98,8 +98,8 @@ describe("webhooks", () => {
   it("creates an endpoint and shows its signing secret once", async () => {
     const secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
     const { api, queryClient } = view({ "POST /v1/webhooks": { status: 201, body: { ...hook, secret } } }, LIST);
-    await userEvent.click(await screen.findByRole("button", { name: "Add endpoint" }));
-    const ask = screen.getByRole("dialog", { name: "Add a webhook endpoint" });
+    await userEvent.click(await screen.findByRole("button", { name: "New endpoint" }));
+    const ask = screen.getByRole("dialog", { name: "New endpoint" });
     await userEvent.type(within(ask).getByLabelText("Endpoint URL"), URL1);
     await userEvent.type(within(ask).getByLabelText("Description (optional)"), "Research warehouse");
     await userEvent.click(within(ask).getByRole("checkbox", { name: "data.written" }));
@@ -115,6 +115,7 @@ describe("webhooks", () => {
       description: "Research warehouse",
       event_types: ["data.written"],
     });
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "I have stored it somewhere safe" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => {
       expect(screen.queryByDisplayValue(secret)).not.toBeInTheDocument();
@@ -124,7 +125,7 @@ describe("webhooks", () => {
 
   it("asks for the URL before creating", async () => {
     const { api } = view({}, LIST);
-    await userEvent.click(await screen.findByRole("button", { name: "Add endpoint" }));
+    await userEvent.click(await screen.findByRole("button", { name: "New endpoint" }));
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create endpoint" }));
     expect(await screen.findByText("Enter the endpoint URL.")).toBeInTheDocument();
     expect(api.callsTo("POST /v1/webhooks")).toHaveLength(0);
@@ -132,7 +133,7 @@ describe("webhooks", () => {
 
   it("offers every event type of the schema", async () => {
     view({}, LIST);
-    await userEvent.click(await screen.findByRole("button", { name: "Add endpoint" }));
+    await userEvent.click(await screen.findByRole("button", { name: "New endpoint" }));
     const ask = screen.getByRole("dialog");
     expect(within(ask).getAllByRole("checkbox")).toHaveLength(EVENT_TYPES.length);
   });
@@ -228,6 +229,7 @@ describe("webhooks", () => {
       expect(mutationsHold(queryClient, secret)).toBe(false);
     });
     expect(api.callsTo(`POST ${BASE}/rotate-secret`)[0]?.body).toEqual({});
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "I have stored it somewhere safe" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => {
       expect(screen.queryByDisplayValue(secret)).not.toBeInTheDocument();
@@ -301,7 +303,7 @@ describe("webhooks", () => {
   it("a read only session sees no action", async () => {
     view({}, LIST, readOnly);
     await screen.findByRole("row", { name: /Research warehouse/ });
-    expect(screen.queryByRole("button", { name: "Add endpoint" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New endpoint" })).not.toBeInTheDocument();
   });
 
   it("a read only session sees no action on the endpoint", async () => {

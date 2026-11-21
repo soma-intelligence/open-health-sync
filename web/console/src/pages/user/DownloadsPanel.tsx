@@ -25,7 +25,7 @@ interface FileSpec {
 }
 
 /** Downloads: the file is fetched with the session and built in the page as an object URL. No link holds a key or a token. */
-export function DownloadsPanel({ userId }: { userId: string }) {
+export function DownloadsPanel({ userId, bare = false }: { userId: string; bare?: boolean }) {
   const api = useApi();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
@@ -63,6 +63,7 @@ export function DownloadsPanel({ userId }: { userId: string }) {
         {specs.map((s) => (
           <Button
             key={s.name}
+            size="sm"
             disabled={busy !== null}
             onClick={() => {
               void save(s);
@@ -75,12 +76,25 @@ export function DownloadsPanel({ userId }: { userId: string }) {
     </>
   );
 
-  return (
-    <Card title="Downloads">
-      <p className="muted">Each export is recorded in the audit log.</p>
+  const body = (
+    <>
+      <p className="card-hint">
+        Each export is recorded in the audit log. FHIR and Open mHealth hold the first 1,000 records; the archive holds everything.
+      </p>
       {group("Standard formats", standard)}
       {group("CSV", csv)}
-      <p className="muted small">FHIR and Open mHealth hold the first 1,000 records; the archive holds everything.</p>
-    </Card>
+    </>
   );
+  // Bare: inside the Consent and privacy card, under its own heading.
+  if (bare) {
+    return (
+      <section className="export" aria-labelledby={`export-${userId}`}>
+        <h3 id={`export-${userId}`} className="sub-title">
+          Export
+        </h3>
+        {body}
+      </section>
+    );
+  }
+  return <Card title="Downloads">{body}</Card>;
 }
