@@ -51,6 +51,9 @@ const (
 // validator used and what the recovery tooling greps for.
 var unbounded = math.Inf(1)
 
+// maxBodyKg is the ceiling of a body mass and of each of its parts.
+const maxBodyKg = 650
+
 // rangeRule is the value contract for one canonical quantity type.
 //
 // Bands nest: HardMin <= SoftMin < SoftMax <= HardMax. Outside the hard band is
@@ -99,15 +102,18 @@ var rangeRules = map[string]rangeRule{
 	},
 	model.QTHRVSDNN: {
 		Unit: "ms",
-		// Soft floor 3 ms catches the classic dropped reading: SDNN of exactly 0
-		// means no beat-to-beat variability at all, which no live heart produces.
-		HardMin: 0, HardMax: unbounded, SoftMin: 3, SoftMax: 300,
+		// An SDNN of exactly 0 means no beat-to-beat variability at all, which
+		// no live heart produces: a dropped reading, refused. Under 3 ms is
+		// flagged.
+		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 3, SoftMax: 300,
 	},
 	model.QTHRVRMSSD: {
 		Unit: "ms",
 		// Same reasoning as SDNN: an RMSSD of 0 is a dropped reading. Nightly
-		// RMSSD rarely passes 250 ms even in endurance athletes.
-		HardMin: 0, HardMax: unbounded, SoftMin: 3, SoftMax: 300,
+		// RMSSD rarely passes 250 ms even in endurance athletes. (The HRV
+		// figure of a night or a day is checked against this band without the
+		// exclusive zero: a 0 there is flagged, not a reason to drop the night.)
+		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 3, SoftMax: 300,
 	},
 	"vo2_max": {
 		Unit: "mL/kg/min",
@@ -158,34 +164,38 @@ var rangeRules = map[string]rangeRule{
 	},
 
 	// --- Body composition ---------------------------------------------------
+	// The heaviest person on record weighed about 635 kg, so no body and no
+	// part of one weighs more than maxBodyKg: above it is a unit slip (grams
+	// or pounds sent as kg) or a broken scale, refused.
 	"body_mass": {
 		Unit:    "kg",
-		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 20, SoftMax: 300,
+		HardMin: 0, HardMinExclusive: true, HardMax: maxBodyKg, SoftMin: 20, SoftMax: 300,
 	},
 	"body_mass_index": {
+		// The highest BMI on record is about 205.
 		Unit:    "kg/m2",
-		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 10, SoftMax: 70,
+		HardMin: 0, HardMinExclusive: true, HardMax: 250, SoftMin: 10, SoftMax: 70,
 	},
 	"lean_body_mass": {
 		Unit:    "kg",
-		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 10, SoftMax: 150,
+		HardMin: 0, HardMinExclusive: true, HardMax: maxBodyKg, SoftMin: 10, SoftMax: 150,
 	},
 	"body_fat_mass": {
 		Unit:    "kg",
-		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 1, SoftMax: 150,
+		HardMin: 0, HardMinExclusive: true, HardMax: maxBodyKg, SoftMin: 1, SoftMax: 150,
 	},
 	"muscle_mass": {
 		Unit:    "kg",
-		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 5, SoftMax: 120,
+		HardMin: 0, HardMinExclusive: true, HardMax: maxBodyKg, SoftMin: 5, SoftMax: 120,
 	},
 	"bone_mass": {
 		// The adult skeleton is roughly 2 to 4 kg dry; scales report 2 to 5.
 		Unit:    "kg",
-		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 1, SoftMax: 8,
+		HardMin: 0, HardMinExclusive: true, HardMax: maxBodyKg, SoftMin: 1, SoftMax: 8,
 	},
 	"water_mass": {
 		Unit:    "kg",
-		HardMin: 0, HardMinExclusive: true, HardMax: unbounded, SoftMin: 10, SoftMax: 100,
+		HardMin: 0, HardMinExclusive: true, HardMax: maxBodyKg, SoftMin: 10, SoftMax: 100,
 	},
 	"body_fat_percentage": {
 		// Essential fat is about 3 percent in men and 10 in women, so a reading
@@ -206,9 +216,10 @@ var rangeRules = map[string]rangeRule{
 	"blood_glucose": {
 		// mg/dL is the storage unit; mmol/L readings are converted upstream by
 		// model.ToStorageUnit ("blood_glucose|mmol/l"). The hard ceiling covers
-		// severe DKA and HHS, which reach roughly 1000 to 1200.
+		// severe DKA and HHS, which reach roughly 1000 to 1200. A glucose of 0
+		// is no reading (a meter shows LO, never 0), refused.
 		Unit:    "mg/dL",
-		HardMin: 0, HardMax: 1500, SoftMin: 30, SoftMax: 600,
+		HardMin: 0, HardMinExclusive: true, HardMax: 1500, SoftMin: 30, SoftMax: 600,
 	},
 
 	// --- Activity -----------------------------------------------------------

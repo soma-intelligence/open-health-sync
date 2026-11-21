@@ -46,22 +46,54 @@ func TestValidate_NonNegativeMetrics(t *testing.T) {
 	}
 }
 
-// TestValidate_HRVSDNNBands: the hard rule stays "non-negative", the soft band
-// is what catches the two garbage shapes a real feed produces.
+// TestValidate_HRVSDNNBands: an SDNN of 0 is a dropped reading, refused like
+// a negative one; the soft band flags the off-scale ones.
 func TestValidate_HRVSDNNBands(t *testing.T) {
 	assert.Empty(t, ValidateMapResult(qs("hrv_sdnn", 42)))
 	assert.Empty(t, ValidateMapResult(qs("hrv_sdnn", 180)))
 
-	for _, v := range []float64{0, 1234.5} {
+	for _, v := range []float64{1, 1234.5} {
 		errs := ValidateMapResult(qs("hrv_sdnn", v))
 		require.Lenf(t, errs, 1, "hrv_sdnn=%v", v)
 		assert.Equal(t, SeveritySuspect, errs[0].Severity, "kept and flagged, not dropped")
 	}
 
-	errs := ValidateMapResult(qs("hrv_sdnn", -1))
+	for _, qt := range []string{"hrv_sdnn", "hrv_rmssd"} {
+		for _, v := range []float64{0, -1} {
+			errs := ValidateMapResult(qs(qt, v))
+			require.Lenf(t, errs, 1, "%s=%v", qt, v)
+			assert.Equal(t, SeverityReject, errs[0].Severity)
+			assert.Contains(t, errs[0].Message, "must be positive")
+		}
+	}
+}
+
+// TestValidate_ZeroGlucoseRefused: a meter shows LO, never 0 mg/dL.
+func TestValidate_ZeroGlucoseRefused(t *testing.T) {
+	errs := ValidateMapResult(qsUnit("blood_glucose", 0, "mg/dL"))
 	require.Len(t, errs, 1)
 	assert.Equal(t, SeverityReject, errs[0].Severity)
-	assert.Contains(t, errs[0].Message, "non-negative")
+	assert.Contains(t, errs[0].Message, "must be positive")
+	assert.Empty(t, ValidateMapResult(qsUnit("blood_glucose", 45, "mg/dL")))
+}
+
+// TestValidate_BodyMassCeiling: no body, and no part of one, weighs over
+// 650 kg (the heaviest person on record was about 635 kg): 3000 kg is a unit
+// slip, refused, where it used to be stored with a flag.
+func TestValidate_BodyMassCeiling(t *testing.T) {
+	for _, qt := range []string{"body_mass", "lean_body_mass", "body_fat_mass", "muscle_mass", "bone_mass", "water_mass"} {
+		errs := ValidateMapResult(qsUnit(qt, 3000, "kg"))
+		require.Lenf(t, errs, 1, qt)
+		assert.Equal(t, SeverityReject, errs[0].Severity, qt)
+		assert.Contains(t, errs[0].Message, "out of range [0,650]", qt)
+		require.Lenf(t, ValidateMapResult(qsUnit(qt, 650, "kg")), 1, "%s at the ceiling is flagged, kept", qt)
+		assert.Equal(t, SeveritySuspect, ValidateMapResult(qsUnit(qt, 650, "kg"))[0].Severity)
+	}
+	assert.Empty(t, ValidateMapResult(qsUnit("body_mass", 72.4, "kg")))
+	require.Len(t, ValidateMapResult(qsUnit("body_mass", 400, "kg")), 1, "heavy but possible: flagged")
+	errs := ValidateMapResult(qsUnit("body_mass_index", 900, "kg/m2"))
+	require.Len(t, errs, 1)
+	assert.Equal(t, SeverityReject, errs[0].Severity)
 }
 
 func TestValidate_BodyFatPercentageRange(t *testing.T) {

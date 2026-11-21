@@ -144,14 +144,22 @@ func (p point) fromHealthKit() bool {
 // attributed to the store it came from, so it is a stream of its own: it
 // never adds up with the tracker's minutes, and fusion ranks it against the
 // same data read directly from that store.
+//
+// A point without a dataSource (the field is optional) names no source, so
+// it is a stream of its own too, with no name. Its content hash cannot match
+// the same point sent with its source, and both are stored; as two streams of
+// one provider they are counted once: the merged reads keep one of them and
+// the daily total takes the larger stream, never their sum.
 func (p point) source() (slug, name string) {
-	if s := p.DataSource; s != nil {
-		switch strings.ToUpper(s.Platform) {
-		case platformHealthKit:
-			return "apple_health", "Apple Health"
-		case platformHealthConnect:
-			return "health_connect", "Health Connect"
-		}
+	s := p.DataSource
+	if s == nil {
+		return Slug, ""
+	}
+	switch strings.ToUpper(s.Platform) {
+	case platformHealthKit:
+		return "apple_health", "Apple Health"
+	case platformHealthConnect:
+		return "health_connect", "Health Connect"
 	}
 	return Slug, sourceName
 }

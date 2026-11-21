@@ -25,10 +25,9 @@ Spec: [specs/synthetic-data.md](../specs/synthetic-data.md).
 
 ## Next
 
-1. **Decide the open findings** (spec, "Seen and left as they are"): a lower bound for
-   timestamps, an exclusive zero for glucose and HRV, a ceiling for body mass, the skipped
-   HealthKit types, the Fitbit point re-sent without its source. Each is a small rule change
-   plus a test once decided.
+1. **The skipped HealthKit types** (spec, "Seen and left as they are"). The other findings
+   are decided: timestamps before 1990 refused, an exclusive zero for glucose and HRV, a
+   650 kg ceiling for body mass, the Fitbit point without a source a stream of its own.
 2. **Fetch level tests.** The renderers produce what each API answers; serving those answers
    from the existing fakes (`connectors/<provider>/<provider>fake`) would run `Fetch`, paging and the day
    grouping on the same data, not only `Map`.
