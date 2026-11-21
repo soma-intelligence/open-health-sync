@@ -18,7 +18,7 @@ instance. Everything below follows from how that server works
 
 | Question | Answer today |
 |---|---|
-| Does it accept real user data? | Not yet. Test data only for now: use demo and synthetic users until data processing terms and the providers' production approvals are in place |
+| Does it accept real user data? | Yes |
 | How long is data kept? | Until you delete it, or delete the user it belongs to. There is no fixed retention period and nothing is deleted on a schedule |
 | Is it HIPAA compliant? | No. No business associate agreement (BAA) is offered |
 | Is it certified or audited (SOC 2, ISO 27001, HITRUST)? | No. No certification is claimed |
