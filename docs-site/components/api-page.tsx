@@ -6,6 +6,7 @@ import { javascript } from "fumadocs-openapi/requests/generators/javascript";
 import { python } from "fumadocs-openapi/requests/generators/python";
 import { createOpenAPIPage } from "fumadocs-openapi/ui";
 import { DynamicCodeBlock } from "fumadocs-ui/components/dynamic-codeblock";
+import { Check, Copy } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useState } from "react";
 import { MethodBadge } from "@/components/method-badge";
 
@@ -112,7 +113,7 @@ function CodePanel() {
           ))}
         </div>
       </div>
-      <div id={`${tabsId}-code`} role="tabpanel" aria-labelledby={`${tabsId}-${current}`}>
+      <div id={`${tabsId}-code`} className="ohs-code-request" role="tabpanel" aria-labelledby={`${tabsId}-${current}`}>
         <DynamicCodeBlock lang={registry.get(current)?.lang ?? "bash"} code={code ?? ""} />
       </div>
       {response ? (
@@ -155,6 +156,29 @@ function scopesOf(security: { scopes: string[] }[][]): string[] {
   return [...new Set(security.flatMap((alt) => alt.flatMap((s) => s.scopes)))];
 }
 
+/** Copies "GET /v1/users/{id}/samples", the line a developer pastes into an issue or a client. */
+function CopyRoute({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }
+  return (
+    <button
+      type="button"
+      className="ohs-copy-btn"
+      onClick={copy}
+      aria-label={copied ? "Copied" : "Copy method and path"}
+      title={copied ? "Copied" : "Copy method and path"}
+    >
+      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+    </button>
+  );
+}
+
 function EndpointBar({ method, path }: { method: string; path: string }) {
   const { security } = useOperation();
   const scopes = scopesOf(security);
@@ -163,6 +187,7 @@ function EndpointBar({ method, path }: { method: string; path: string }) {
       <MethodBadge method={method.toUpperCase()} />
       <code>{path}</code>
       {scopes.length ? <span className="ohs-endpoint-scope">scope {scopes.join(", ")}</span> : null}
+      <CopyRoute text={`${method.toUpperCase()} ${path}`} />
     </div>
   );
 }

@@ -376,8 +376,6 @@ kbd {
   padding: var(--op-s2);
   color: var(--op-fg-2);
   font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   border-radius: var(--op-r-control);
 }
 .ohs-nav-section-btn:hover {
@@ -450,6 +448,24 @@ details[open] > summary .ohs-caret {
 .ohs-nav-name {
   min-width: 0;
   flex: 1;
+}
+/* one line per page; the full name is on the link's title */
+.ohs-sidebar-nav,
+.ohs-nav-section,
+.ohs-nav-group,
+.ohs-nav-children,
+.ohs-nav-item {
+  min-width: 0;
+}
+.ohs-sidebar-nav,
+.ohs-nav-section,
+.ohs-nav-children {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ohs-nav-item .ohs-nav-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ohs-nav-status {
   padding: 0 var(--op-s2);
@@ -642,8 +658,6 @@ details[open] > summary .ohs-caret {
   margin: 0 0 var(--op-s2);
   color: var(--op-fg-2);
   font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 .ohs-toc-list {
   display: grid;
@@ -852,8 +866,9 @@ details[open] > summary .ohs-caret {
 .ohs-docs figure.shiki > .absolute button:hover {
   color: var(--op-fg);
 }
-.ohs-docs figure.shiki:has(> .absolute) {
-  --padding-right: 44px;
+/* each line keeps the width of the copy button free at its end */
+.ohs-docs figure.shiki:has(> .absolute) .line {
+  padding-right: 44px;
 }
 /* github-dark comments (#6A737D) read at 3.5:1 on the dark code surface: lifted above 4.5:1 */
 .dark .ohs-docs .shiki code span:is([style*="--shiki-dark:#6A737D" i], [style*="--shiki-dark: #6A737D" i]) {
@@ -1213,13 +1228,41 @@ a.ohs-tile:hover {
   overflow-wrap: anywhere;
 }
 .ohs-endpoint-scope {
-  margin-left: auto;
   color: var(--op-fg-2);
   font: var(--op-text-caption);
   font-weight: 400;
 }
 .ohs-endpoint {
   font: var(--op-text-body);
+}
+.ohs-copy-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--op-s2);
+  background: var(--op-field);
+  color: var(--op-fg-2);
+  cursor: pointer;
+  flex: none;
+}
+.ohs-copy-btn:hover {
+  color: var(--op-fg);
+}
+.ohs-copy-btn svg {
+  width: 16px;
+  height: 16px;
+}
+/* request and response wrap instead of hiding the end of a long URL or token behind a scroll */
+.ohs-code-panel figure.shiki :is(pre, code, .line) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ohs-code-panel figure.shiki pre.w-max {
+  width: auto;
 }
 .ohs-code-panel {
   display: grid;
@@ -1248,8 +1291,6 @@ a.ohs-tile:hover {
 .ohs-code-title {
   color: var(--op-fg-2);
   font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 .ohs-segmented {
   display: inline-flex;

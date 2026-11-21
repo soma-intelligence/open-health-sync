@@ -32,7 +32,7 @@ function PageLink({ page, pathname, onNavigate }: { page: NavPage; pathname: str
     </>
   );
   return page.external ? (
-    <a href={page.url} className="ohs-nav-item">
+    <a href={page.url} className="ohs-nav-item" title={page.name}>
       {body}
     </a>
   ) : (
@@ -40,6 +40,7 @@ function PageLink({ page, pathname, onNavigate }: { page: NavPage; pathname: str
       ref={ref}
       href={page.url}
       className="ohs-nav-item"
+      title={page.name}
       aria-current={current ? "page" : undefined}
       onClick={onNavigate}
     >
