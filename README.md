@@ -158,7 +158,8 @@ Other ways to run it:
 ## Don't want to run a server?
 
 <a id="hosted-beta"></a>Use the [free hosted beta](https://app.openhealthsync.com/portal/signup?utm_source=github&utm_medium=readme&utm_campaign=section):
-same API, nothing to install. Test data only for now: see
+same API, nothing to install. It accepts real user data. It is not HIPAA compliant, offers no BAA
+and holds no certification: self-host the same server if you need those. See
 [what the hosted beta does with data](docs/hosted-beta.md).
 
 ## How it works
