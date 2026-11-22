@@ -11,6 +11,7 @@ import { useKeysQuery } from "../keys/api";
 import { auditQuery, useAdminTenantsQuery, useAuditQuery, useRetentionDays, type AuditFilter } from "./api";
 import { AuditFilters } from "./AuditFilters";
 import { AuditTable } from "./AuditTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 export function AuditPage() {
   const { session } = useSession();
@@ -68,22 +69,24 @@ export function AuditPage() {
           <AuditFilters filter={filter} keys={keys.data?.data ?? []} onChange={change} />
         </div>
       </header>
-      {audit.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
-      {data ? (
-        <Card title="Events">
-          <AuditTable
-            rows={data.data}
-            keys={keys.data?.data ?? []}
-            actingTenantId={session?.acting_tenant.id ?? ""}
-            tenantNames={tenantNames}
-            selectedId={selected?.id}
-            onSelect={setSelected}
-            filtered={filter.action !== "" || filter.keyId !== ""}
-          />
-          <Pager pager={pager} nextCursor={data.next_cursor} loading={audit.isPlaceholderData} />
-        </Card>
-      ) : null}
+      <Card title="Events">
+        {audit.isPending ? <Skeleton count={8} /> : null}
+        {error !== null && data === undefined ? <ErrorPanel title="The audit log did not load." error={error} retry /> : null}
+        {data ? (
+          <>
+            <AuditTable
+              rows={data.data}
+              keys={keys.data?.data ?? []}
+              actingTenantId={session?.acting_tenant.id ?? ""}
+              tenantNames={tenantNames}
+              selectedId={selected?.id}
+              onSelect={setSelected}
+              filtered={filter.action !== "" || filter.keyId !== ""}
+            />
+            <Pager pager={pager} nextCursor={data.next_cursor} loading={audit.isPlaceholderData} />
+          </>
+        ) : null}
+      </Card>
     </div>
   );
 }

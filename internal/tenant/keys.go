@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -23,7 +25,9 @@ var ErrAmbiguousPrefix = errors.New("tenant: key prefix matches several keys")
 // APIKey describes one tenant API key, never its secret. ID is what the
 // audit log names the key by (auth.Principal.KeyID).
 type APIKey struct {
-	ID         uuid.UUID
+	ID uuid.UUID
+	// Name says what the key is for. Empty for a key created without one.
+	Name       string
 	Prefix     string
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
@@ -37,6 +41,9 @@ type APIKey struct {
 
 // KeyOptions are the choices made when a key is created.
 type KeyOptions struct {
+	// Name says what the key is for: trimmed, at most MaxKeyName
+	// characters (ErrKeyName past it). Empty creates the key without one.
+	Name string
 	// ExpiresAt is when the key stops working. Nil means it lives until it
 	// is revoked. A time that is not in the future is ErrExpiryPast.
 	ExpiresAt *time.Time
@@ -49,15 +56,21 @@ type KeyOptions struct {
 // that does not exist.
 var ErrInvalidKeyScopes = auth.ErrInvalidKeyScopes
 
+// MaxKeyName bounds the name of a key, in characters.
+const MaxKeyName = 100
+
+// ErrKeyName means the name asked for a new key is longer than MaxKeyName.
+var ErrKeyName = errors.New("tenant: the key name is longer than 100 characters")
+
 // ErrExpiryPast means the expiry asked for a new key is not in the future.
 var ErrExpiryPast = errors.New("tenant: the key expiry is not in the future")
 
 // apiKeyCols are the columns of an APIKey, in the order of scanAPIKey.
-const apiKeyCols = `id, key_prefix, created_at, last_used_at, revoked_at, expires_at, scopes`
+const apiKeyCols = `id, coalesce(name, ''), key_prefix, created_at, last_used_at, revoked_at, expires_at, scopes`
 
 func scanAPIKey(r pgx.Row) (APIKey, error) {
 	var k APIKey
-	err := r.Scan(&k.ID, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt, &k.ExpiresAt, &k.Scopes)
+	err := r.Scan(&k.ID, &k.Name, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt, &k.ExpiresAt, &k.Scopes)
 	return k, err
 }
 
@@ -177,6 +190,10 @@ func (s *Store) createKey(ctx context.Context, tenantID uuid.UUID, o KeyOptions,
 	if o.ExpiresAt != nil && !o.ExpiresAt.After(time.Now()) {
 		return "", APIKey{}, ErrExpiryPast
 	}
+	name := strings.TrimSpace(o.Name)
+	if utf8.RuneCountInString(name) > MaxKeyName {
+		return "", APIKey{}, ErrKeyName
+	}
 	scopes, err := auth.NormalizeKeyScopes(o.Scopes)
 	if err != nil {
 		return "", APIKey{}, err
@@ -190,12 +207,12 @@ func (s *Store) createKey(ctx context.Context, tenantID uuid.UUID, o KeyOptions,
 		return "", APIKey{}, fmt.Errorf("tenant: begin: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	k := APIKey{Prefix: full[:keyPrefixLen]}
+	k := APIKey{Name: name, Prefix: full[:keyPrefixLen]}
 	err = tx.QueryRow(ctx,
-		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash, expires_at, scopes)
-		 SELECT id, $2, $3, $4::timestamptz, $5 FROM ohs_core.tenants WHERE id = $1
+		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash, expires_at, scopes, name)
+		 SELECT id, $2, $3, $4::timestamptz, $5, nullif($6, '') FROM ohs_core.tenants WHERE id = $1
 		 RETURNING id, created_at, expires_at, scopes`,
-		tenantID, k.Prefix, hash, o.ExpiresAt, scopes).Scan(&k.ID, &k.CreatedAt, &k.ExpiresAt, &k.Scopes)
+		tenantID, k.Prefix, hash, o.ExpiresAt, scopes, name).Scan(&k.ID, &k.CreatedAt, &k.ExpiresAt, &k.Scopes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", APIKey{}, ErrNotFound
 	}
@@ -268,6 +285,9 @@ func keyEvent(ev audit.Event, tenantID uuid.UUID, k APIKey) audit.Event {
 	detail["key_id"] = k.ID.String()
 	detail["key_prefix"] = k.Prefix + "..."
 	detail["scopes"] = k.Scopes
+	if k.Name != "" {
+		detail["key_name"] = k.Name
+	}
 	ev.Tenant, ev.Detail = tenantID, detail
 	return ev
 }

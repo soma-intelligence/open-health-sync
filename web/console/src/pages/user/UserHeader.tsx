@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { ConnectSession, User } from "../../api/types";
 import { classifyUser } from "../../lib/classify";
+import { isDemoUser } from "../../lib/demo";
 import { absTime, humanize, relTime } from "../../lib/format";
 import { useCanWrite } from "../../session/SessionProvider";
 import { Button } from "../../ui/Button";
@@ -33,6 +34,7 @@ export function UserHeader({ user }: { user: User }) {
           <div className="user-title">
             <h1 className="page-title">{name}</h1>
             <Pill tone={classifyUser(user)}>{humanize(user.status)}</Pill>
+            {isDemoUser(user) ? <Pill tone="info">Demo</Pill> : null}
           </div>
           <p className="page-sub user-sub">
             <Mono>{user.id}</Mono>

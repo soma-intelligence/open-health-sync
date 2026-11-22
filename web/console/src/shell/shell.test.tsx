@@ -76,6 +76,13 @@ describe("shell", () => {
   it("marks a read only session", () => {
     renderWithApp(null, { session: readOnlySession });
     expect(within(nav()).getByText("Read only")).toBeInTheDocument();
+    // And says above the page why the write buttons are missing.
+    expect(screen.getByRole("note")).toHaveTextContent("This console is read only");
+  });
+
+  it("shows no read only notice to a session that may write", () => {
+    renderWithApp(null);
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 
   it("lists tenants for an admin and switches", async () => {
@@ -104,7 +111,7 @@ describe("shell", () => {
       .map((q) => q.queryKey[0]);
     // The overview is open now and loads the new tenant's own data; the old users are gone.
     expect(keys).toContain("session");
-    expect(keys).not.toContain("users");
+    expect(view.queryClient.getQueryData(["users"])).toBeUndefined();
   });
 
   it("has no switcher for a tenant that is not an admin", () => {
@@ -182,7 +189,7 @@ describe("shell", () => {
 
   it("unknown console path shows Not found inside the shell", () => {
     renderWithApp(null, { session: tenantSession, route: "/console/nowhere" });
-    expect(screen.getByRole("heading", { name: "Not found" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Page not found", level: 1 })).toBeInTheDocument();
     expect(nav()).toBeInTheDocument();
   });
 

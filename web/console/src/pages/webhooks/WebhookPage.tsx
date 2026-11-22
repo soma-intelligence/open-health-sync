@@ -30,6 +30,7 @@ import {
 import { DeliveriesTable } from "./DeliveriesTable";
 import { EndpointFields, changedFields, valuesOf, type EndpointValues } from "./EndpointForm";
 import { eventsLabel } from "./EndpointsTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 function Crumbs() {
   return (
@@ -79,7 +80,7 @@ function WebhookView() {
   if (query.isPending) {
     return (
       <div className="page">
-        <p role="status">Loading</p>
+        <Skeleton kind="page" />
       </div>
     );
   }
@@ -167,14 +168,6 @@ function Detail({ hook }: { hook: Webhook }) {
             >
               {on ? "Pause" : "Resume"}
             </Button>
-            <Button
-              kind="danger"
-              onClick={() => {
-                setAction({ kind: "delete" });
-              }}
-            >
-              Delete
-            </Button>
           </div>
         ) : null}
       </header>
@@ -192,7 +185,7 @@ function Detail({ hook }: { hook: Webhook }) {
         </Card>
         <Card title="Recent deliveries">
           <p className="muted">The last 30 days, newest first. Retry sends a delivery again; Replay sends its event as a new delivery.</p>
-          {deliveries.isPending ? <p role="status">Loading</p> : null}
+          {deliveries.isPending ? <Skeleton count={3} /> : null}
           {deliveries.error !== null && deliveries.data === undefined ? <ErrorPanel error={deliveries.error} retry /> : null}
           {deliveries.data ? (
             <DeliveriesTable
@@ -209,6 +202,22 @@ function Detail({ hook }: { hook: Webhook }) {
           {deliveries.data?.next_cursor ? <p className="muted">{`Showing the latest ${String(DELIVERIES_QUERY.limit)}.`}</p> : null}
         </Card>
         {canWrite ? <EditEndpoint hook={hook} /> : null}
+        {canWrite ? (
+          // Apart from the everyday actions, at the bottom: the one that cannot be undone.
+          <Card title="Delete this endpoint">
+            <p className="muted">It stops receiving events and its delivery history is deleted. To stop deliveries for a while, Pause it instead.</p>
+            <div className="button-row">
+              <Button
+                kind="danger"
+                onClick={() => {
+                  setAction({ kind: "delete" });
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </Card>
+        ) : null}
       </div>
 
       {action?.kind === "test" ? (

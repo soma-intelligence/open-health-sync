@@ -78,18 +78,24 @@ export function pipelineStages(p: Pipeline): Stage[] {
   const reauth = sum((s) => conn(s, "needs_reauth"));
   const broken = sum((s) => s.broken);
   const paused = sources.filter((s) => s.paused_until).length;
-  const { sync, processing: proc, storage: store, delivery: del, users } = p;
+  const { sync, processing: proc, storage: store, delivery: del, users, data } = p;
   const nbsp = " ";
+  const day = `last 24${nbsp}h`;
   const inFlight = sync.queued + sync.running + sync.retrying + sync.rate_limited;
   const drafts: StageDraft[] = [
     {
       key: "sources",
       title: "Sources",
-      role: "Accounts users connect and app uploads",
-      // No provider on and nothing connected is a tenant still being set up: idle, not a fault.
-      tone: active + reauth === 0 && enabled.length === 0 ? "off" : worst(when(reauth > 0, "bad"), when(broken > 0, "warn")),
+      role: "Accounts users connect, app uploads and imports",
+      // No provider on, nothing connected and no record is a tenant still being set up: idle, not a fault.
+      tone:
+        active + reauth === 0 && enabled.length === 0 && data.sources === 0
+          ? "off"
+          : worst(when(reauth > 0, "bad"), when(broken > 0, "warn")),
       idle: "No source yet",
       figures: [
+        // The same count as the user page's "Sources with data", over every user.
+        { label: "Sources with data", value: formatCount(data.sources) },
         { label: "Connections", value: formatCount(active) },
         { label: "Cloud providers on", value: formatCount(enabled.length), to: PROVIDERS },
         { label: "Users", value: formatCount(users.active), to: USERS },
@@ -105,10 +111,10 @@ export function pipelineStages(p: Pipeline): Stage[] {
           ? "off"
           : worst(when(sync.failed_24h > 0, "bad"), when(sync.retrying > 0 || paused > 0 || sync.rate_limited > 0, "warn")),
       figures: [
-        { label: `Runs succeeded, 24${nbsp}h`, value: formatCount(sync.succeeded_24h) },
+        { label: `Runs succeeded, ${day}`, value: formatCount(sync.succeeded_24h) },
         { label: "Queued", value: formatCount(inFlight - sync.running) },
         { label: "Running", value: formatCount(sync.running) },
-        { label: `Failed, 24${nbsp}h`, value: formatCount(sync.failed_24h), to: JOBS, ...(sync.failed_24h > 0 ? { tone: "bad" as const } : {}) },
+        { label: `Failed, ${day}`, value: formatCount(sync.failed_24h), to: JOBS, ...(sync.failed_24h > 0 ? { tone: "bad" as const } : {}) },
       ],
     },
     {
@@ -129,11 +135,15 @@ export function pipelineStages(p: Pipeline): Stage[] {
     {
       key: "storage",
       title: "Storage",
-      role: "The raw archive, kept for replay",
-      tone: store.raw_objects_24h === 0 ? "off" : "ok",
+      role: "Records kept, and the raw archive for replay",
+      tone: data.records === 0 && store.raw_objects_24h === 0 ? "off" : "ok",
+      idle: "Empty",
       figures: [
-        { label: `Raw data, 24${nbsp}h`, value: formatBytes(store.raw_bytes_24h) },
-        { label: `Raw objects, 24${nbsp}h`, value: formatCount(store.raw_objects_24h) },
+        // A total, since the first record: the 24 hour figures below are activity.
+        { label: "Records stored", value: formatCount(data.records) },
+        { label: "Users with data", value: formatCount(data.users), to: USERS },
+        { label: `Raw data, ${day}`, value: formatBytes(store.raw_bytes_24h) },
+        { label: `Raw objects, ${day}`, value: formatCount(store.raw_objects_24h) },
       ],
     },
     {
@@ -314,12 +324,13 @@ function hostOf(url: string): string {
 
 /** The five steps from an empty install to data flowing out. */
 export function gettingStarted(p: Pipeline): ChecklistItem[] {
-  const connected = p.sources.some((s) => Object.values(s.connections).some((n) => n > 0));
+  // An app upload or an import is a source as much as a connected account: records from it count.
+  const connected = p.sources.some((s) => s.records > 0 || Object.values(s.connections).some((n) => n > 0));
   return [
     { id: "provider", title: "Turn on a cloud provider", done: p.sources.some((s) => s.enabled && isCloud(s)), to: PROVIDERS },
     { id: "user", title: "Add a user", done: p.users.active > 0, to: USERS },
     { id: "connection", title: "Connect an account or an app", done: connected, to: USERS },
-    { id: "data", title: "Receive data", done: p.sync.succeeded_24h > 0 || p.storage.raw_objects_24h > 0, to: USERS },
+    { id: "data", title: "Receive data", done: p.data.records > 0 || p.sync.succeeded_24h > 0 || p.storage.raw_objects_24h > 0, to: USERS },
     { id: "webhook", title: "Add a webhook endpoint", done: p.delivery.endpoints > 0, to: WEBHOOKS },
   ];
 }

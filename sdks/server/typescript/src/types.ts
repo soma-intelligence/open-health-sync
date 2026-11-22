@@ -87,6 +87,8 @@ export interface TenantKey {
 
 export interface APIKey {
   id: string;
+  /** What the key is for. Null for a key created without a name. */
+  name: string | null;
   /** The start of the key, kept in clear to tell keys apart. */
   prefix: string;
   created_at: string;
@@ -112,6 +114,11 @@ export type KeyScopes = KeyScope[];
 
 export interface CreateKeyRequest {
   /**
+   * What the key is for ("Production backend", "CI"): at most 100 characters once trimmed.
+   * Absent, null or blank: the key has no name. The console asks for one.
+   */
+  name?: string | null;
+  /**
    * When the key stops working by itself (RFC 3339, in the future). Absent or null: the
    * key lives until it is revoked.
    */
@@ -125,6 +132,8 @@ export interface CreateKeyRequest {
 
 export interface CreatedAPIKey {
   id: string;
+  /** What the key is for. Null for a key created without a name. */
+  name: string | null;
   /** The start of the key, kept in clear to tell keys apart. */
   prefix: string;
   created_at: string;
@@ -211,6 +220,12 @@ export interface Pipeline {
   storage: PipelineStorage;
   /** Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done. */
   delivery: PipelineDelivery;
+  /**
+   * What the tenant has stored since its first record, whatever the way in (a connection, an
+   * app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+   * figures of the other stages are activity, not totals.
+   */
+  data: PipelineData;
 }
 
 export interface PipelineUser {
@@ -255,6 +270,21 @@ export interface PipelineDelivery {
   parked: number;
 }
 
+/**
+ * What the tenant has stored since its first record, whatever the way in (a connection, an
+ * app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+ * figures of the other stages are activity, not totals.
+ */
+export interface PipelineData {
+  records: number;
+  /** Users with at least one record. */
+  users: number;
+  /** Providers with at least one record. */
+  sources: number;
+  /** When the last record landed; null before the first. */
+  last_synced_at: string | null;
+}
+
 export interface PipelineSource {
   slug: string;
   name: string;
@@ -264,6 +294,11 @@ export interface PipelineSource {
   connections: Record<string, number>;
   /** Active connections whose health is not ok. */
   broken: number;
+  /**
+   * The tenant's records stored from this provider. A provider with records and no
+   * connection (app uploads, a demo seed) is listed for them.
+   */
+  records: number;
   /** Set while the provider's rate limit pauses every pull. */
   paused_until: string | null;
 }
@@ -659,6 +694,31 @@ export interface User {
    * Null when `timezone` is.
    */
   timezone_source: "explicit" | "learnt" | null;
+}
+
+/** A user of the list, with what the coverage report holds for them. */
+export interface UserListItem {
+  id: string;
+  external_ref: string | null;
+  status: "active" | "deleting";
+  created_at: string;
+  /**
+   * The user's IANA time zone, null when none is known. It is the zone of the local
+   * day of a sample that carries no zone of its own: daily totals take the sample's
+   * zone, then this one, then UTC.
+   */
+  timezone: string | null;
+  /**
+   * Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+   * when it was taken from the latest record of a device upload (Apple Health, Health
+   * Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+   * Null when `timezone` is.
+   */
+  timezone_source: "explicit" | "learnt" | null;
+  /** The providers the user has records from, whatever the way in. */
+  sources: number;
+  /** When the user's last record landed; null before the first. */
+  last_data_at: string | null;
 }
 
 export interface DeletionJob {
@@ -2365,7 +2425,7 @@ export interface ListProvidersResponse {
 }
 
 export interface ListUsersResponse {
-  data: User[];
+  data: UserListItem[];
   /** Null on the last page. */
   next_cursor: string | null;
 }

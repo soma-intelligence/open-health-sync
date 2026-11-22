@@ -107,7 +107,8 @@ describe("user page", () => {
       [`GET ${BASE}/consents`]: { body: { data: [], categories: [] } },
       [`GET ${BASE}/consents/history`]: { body: { data: [], next_cursor: null } },
     });
-    expect(await screen.findByRole("heading", { name: "demo-user", level: 1 })).toBeInTheDocument();
+    const title = await screen.findByRole("heading", { name: "demo-user", level: 1 });
+    expect(within(title.parentElement as HTMLElement).getByText("Demo"), "the demo seed's user is marked").toBeInTheDocument();
     const tabs = within(screen.getByRole("tablist", { name: "User" }));
     expect(tabs.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Data", "Connections", "Consents", "Sync runs", "Shares"]);
     expect(tabs.getByRole("tab", { name: "Data" })).toHaveAttribute("aria-selected", "true");

@@ -31,7 +31,9 @@ type keyRefJSON struct {
 }
 
 type apiKeyJSON struct {
-	ID         uuid.UUID  `json:"id"`
+	ID uuid.UUID `json:"id"`
+	// Name says what the key is for; null for a key created without one.
+	Name       *string    `json:"name"`
 	Prefix     string     `json:"prefix"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
@@ -52,6 +54,9 @@ type createdKeyJSON struct {
 
 // createKeyRequest is the optional body of the routes that create a key.
 type createKeyRequest struct {
+	// Name says what the key is for: at most 100 characters, trimmed.
+	// Absent, null or blank creates the key without one.
+	Name *string `json:"name"`
 	// ExpiresAt is when the key stops working. Absent or null means it
 	// lives until it is revoked.
 	ExpiresAt *time.Time `json:"expires_at"`
@@ -61,6 +66,16 @@ type createKeyRequest struct {
 }
 
 const errExpiryPast = "expires_at must be a time in the future"
+
+const errKeyName = "name is at most 100 characters"
+
+// keyName is the name of a createKeyRequest, empty when absent.
+func (r createKeyRequest) keyName() string {
+	if r.Name == nil {
+		return ""
+	}
+	return *r.Name
+}
 
 // errKeyScopes is the detail for a scope that does not exist.
 var errKeyScopes = "scopes must be a list of: " + strings.Join(auth.KeyScopes, ", ")
@@ -72,7 +87,12 @@ func forbidScope(w http.ResponseWriter, scope string) {
 }
 
 func toAPIKeyJSON(k tenant.APIKey, current string) apiKeyJSON {
-	return apiKeyJSON{ID: k.ID, Prefix: k.Prefix, CreatedAt: k.CreatedAt.UTC(), LastUsedAt: utcPtr(k.LastUsedAt),
+	var name *string
+	if k.Name != "" {
+		n := k.Name
+		name = &n
+	}
+	return apiKeyJSON{ID: k.ID, Name: name, Prefix: k.Prefix, CreatedAt: k.CreatedAt.UTC(), LastUsedAt: utcPtr(k.LastUsedAt),
 		RevokedAt: utcPtr(k.RevokedAt), ExpiresAt: utcPtr(k.ExpiresAt), Scopes: k.Scopes, Current: k.ID.String() == current}
 }
 
@@ -153,10 +173,14 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	full, k, err := s.d.Store.CreateKeyWith(r.Context(), p.TenantID, tenant.KeyOptions{ExpiresAt: req.ExpiresAt, Scopes: scopes})
+	full, k, err := s.d.Store.CreateKeyWith(r.Context(), p.TenantID,
+		tenant.KeyOptions{Name: req.keyName(), ExpiresAt: req.ExpiresAt, Scopes: scopes})
 	switch {
 	case errors.Is(err, tenant.ErrExpiryPast):
 		badRequest(w, errExpiryPast)
+		return
+	case errors.Is(err, tenant.ErrKeyName):
+		badRequest(w, errKeyName)
 		return
 	case err != nil:
 		internalError(w, r, "api: create key", err)

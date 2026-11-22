@@ -14,6 +14,7 @@ import { useToast } from "../../ui/Toast";
 import { KEYS_PATH, useKeysQuery, useRevokeKey } from "./api";
 import { CreateKeyDialog } from "./CreateKeyDialog";
 import { KeysTable } from "./KeysTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 function RevokeKey({ target, onClose }: { target: APIKey; onClose: () => void }) {
   const toast = useToast();
@@ -21,7 +22,7 @@ function RevokeKey({ target, onClose }: { target: APIKey; onClose: () => void })
   return (
     <ConfirmDialog
       title="Revoke this key?"
-      body="Every service using it is refused at once, and so is every user token it minted. This cannot be undone."
+      body={`${target.name ? `${target.name}: e` : "E"}very service using it is refused at once, and so is every user token it minted. This cannot be undone.`}
       confirmLabel="Revoke key"
       danger
       typed={target.prefix}
@@ -52,7 +53,7 @@ export function KeysPage() {
     if (selected) {
       return {
         kind: "keys",
-        title: `${selected.prefix}...`,
+        title: selected.name ?? `${selected.prefix}...`,
         id: selected.id,
         request: { method: "GET", path: KEYS_PATH },
         response: selected,
@@ -84,24 +85,22 @@ export function KeysPage() {
           ) : null}
         </div>
       </header>
-      {query.isPending ? (
-        <p role="status" className="loading">
-          Loading
-        </p>
-      ) : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
-      {data ? (
-        <Card>
-          <KeysTable
-            rows={data.data}
-            sessionPrefix={session?.key_prefix ?? ""}
-            selectedId={selected?.id}
-            onSelect={setSelected}
-            {...(canWrite ? { onRevoke: setRevoking } : {})}
-          />
-          {canWrite ? <p className="card-hint">The key of this session cannot revoke itself: sign in with another key first.</p> : null}
-        </Card>
-      ) : null}
+      <Card title="Keys">
+        {query.isPending ? <Skeleton count={3} /> : null}
+        {error !== null && data === undefined ? <ErrorPanel title="The keys did not load." error={error} retry /> : null}
+        {data ? (
+          <>
+            <KeysTable
+              rows={data.data}
+              sessionPrefix={session?.key_prefix ?? ""}
+              selectedId={selected?.id}
+              onSelect={setSelected}
+              {...(canWrite ? { onRevoke: setRevoking } : {})}
+            />
+            {canWrite ? <p className="card-hint">The key of this session cannot revoke itself: sign in with another key first.</p> : null}
+          </>
+        ) : null}
+      </Card>
       {creating ? (
         <CreateKeyDialog
           onCreated={(value) => {

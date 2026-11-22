@@ -76,11 +76,23 @@ a {
   color: var(--op-accent-text);
 }
 
+/* Links that stand alone (breadcrumb, card header, inspector, sign in) get a 24 px target. */
+.crumbs a,
+.card-r a,
+.insp-sec a,
+.setup-form > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
 .mono,
 code,
 pre {
   font-family: var(--op-font-mono);
   font-size: 13px;
+  /* Code reads as typed: no ligature turns " --" or "=>" into another glyph. */
+  font-variant-ligatures: none;
 }
 
 kbd {
@@ -190,7 +202,4 @@ kbd {
     padding: var(--op-s5) var(--op-s4) 96px;
   }
 
-  .page-title {
-    font-size: 24px;
-  }
 }

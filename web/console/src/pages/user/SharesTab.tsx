@@ -7,6 +7,7 @@ import { Pager, usePager } from "../../ui/Pager";
 import { Pill } from "../../ui/Pill";
 import { useSharesQuery, userPath } from "./api";
 import { useTabInspect } from "./inspect";
+import { Skeleton } from "../../ui/Skeleton";
 
 const columns: Column<Share>[] = [
   { key: "label", header: "Share", cell: (s) => <div className="cell-stack"><span>{s.label}</span><span className="muted small">{s.categories.map(humanize).join(", ")}</span></div> },
@@ -25,7 +26,7 @@ export function SharesTab({ userId }: { userId: string }) {
   useTabInspect("Shares", userId, userPath(userId, "shares"), { cursor: pager.cursor }, shares.data, shares.error);
   return (
     <>
-      {shares.isPending ? <p role="status">Loading</p> : null}
+      {shares.isPending ? <Skeleton count={3} /> : null}
       {shares.error !== null && shares.data === undefined ? <ErrorPanel error={shares.error} retry /> : null}
       {shares.data ? (
         <>

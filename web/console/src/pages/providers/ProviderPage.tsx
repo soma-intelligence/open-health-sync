@@ -20,6 +20,7 @@ import { ProviderSwitch } from "./ProviderSwitch";
 import { keysFrom } from "./ProvidersTable";
 import { RegisterUrls } from "./RegisterUrls";
 import { TenantProviderSwitch } from "./TenantProviderSwitch";
+import { Skeleton } from "../../ui/Skeleton";
 
 function Crumbs() {
   return (
@@ -63,7 +64,7 @@ function AdminProviderView({ slug }: { slug: string }) {
   if (query.isPending) {
     return (
       <div className="page">
-        <p role="status">Loading</p>
+        <Skeleton kind="page" />
       </div>
     );
   }
@@ -164,7 +165,7 @@ function TenantProvider({ slug }: { slug: string }) {
   if (list.isPending) {
     return (
       <div className="page">
-        <p role="status">Loading</p>
+        <Skeleton kind="page" />
       </div>
     );
   }

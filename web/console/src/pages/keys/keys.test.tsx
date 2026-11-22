@@ -13,6 +13,7 @@ const readOnly = readOnlyJson as ConsoleSession;
 
 const own: APIKey = {
   id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  name: null,
   prefix: "ohs_sk_AbCdE",
   created_at: "2026-09-01T08:00:00Z",
   last_used_at: "2026-10-02T08:00:00Z",
@@ -24,13 +25,14 @@ const own: APIKey = {
 const ci: APIKey = {
   ...own,
   id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  name: "Nightly export",
   prefix: "ohs_sk_Zz9Yy",
   last_used_at: null,
   expires_at: "2030-02-01T00:00:00Z",
   scopes: ["users:read", "data:read"],
   current: false,
 };
-const old: APIKey = { ...ci, id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", prefix: "ohs_sk_Old11", revoked_at: "2026-09-20T08:00:00Z", expires_at: null, scopes: ["*"] };
+const old: APIKey = { ...ci, id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", name: null, prefix: "ohs_sk_Old11", revoked_at: "2026-09-20T08:00:00Z", expires_at: null, scopes: ["*"] };
 
 const loaded: Record<string, FakeHandler> = { "GET /v1/keys": { body: { data: [own, ci, old] } } };
 
@@ -82,6 +84,7 @@ describe("keys", () => {
     const { api, queryClient } = view({ "POST /v1/keys": { status: 201, body: { ...ci, key } } });
     await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     const ask = screen.getByRole("dialog", { name: "New API key" });
+    await userEvent.type(within(ask).getByLabelText("Name"), "  Analytics export ");
     await userEvent.click(within(ask).getByRole("radio", { name: /Pick scopes/ }));
     await userEvent.click(within(ask).getByRole("checkbox", { name: "users:read" }));
     await userEvent.click(within(ask).getByRole("checkbox", { name: "data:read" }));
@@ -93,7 +96,11 @@ describe("keys", () => {
     await waitFor(() => {
       expect(mutationsHold(queryClient, key)).toBe(false);
     });
-    expect(api.callsTo("POST /v1/keys")[0]?.body).toEqual({ scopes: ["users:read", "data:read"], expires_at: "2027-01-01T00:00:00Z" });
+    expect(api.callsTo("POST /v1/keys")[0]?.body).toEqual({
+      name: "Analytics export",
+      scopes: ["users:read", "data:read"],
+      expires_at: "2027-01-01T00:00:00Z",
+    });
     await userEvent.click(within(dialog).getByRole("checkbox", { name: "I have stored it somewhere safe" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => {
@@ -108,9 +115,11 @@ describe("keys", () => {
     await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     const ask = screen.getByRole("dialog");
     expect(within(ask).getByRole("radio", { name: /Read only/ })).toBeChecked();
+    await userEvent.type(within(ask).getByLabelText("Name"), "Dashboard");
     await userEvent.click(within(ask).getByRole("button", { name: "Create key" }));
     await screen.findByRole("dialog", { name: "Your new API key" });
     expect(api.callsTo("POST /v1/keys")[0]?.body).toEqual({
+      name: "Dashboard",
       scopes: ["tenant:read", "users:read", "data:read", "connections:read", "webhooks:read", "exports:read", "keys:read", "audit:read"],
     });
   });
@@ -120,15 +129,30 @@ describe("keys", () => {
     await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     const ask = screen.getByRole("dialog");
     await userEvent.click(within(ask).getByRole("radio", { name: /Full access/ }));
+    await userEvent.type(within(ask).getByLabelText("Name"), "CI");
     await userEvent.click(within(ask).getByRole("button", { name: "Create key" }));
     await screen.findByRole("dialog", { name: "Your new API key" });
-    expect(api.callsTo("POST /v1/keys")[0]?.body).toEqual({ scopes: ["*"] });
+    expect(api.callsTo("POST /v1/keys")[0]?.body).toEqual({ name: "CI", scopes: ["*"] });
+  });
+
+  it("a key without a name is refused before any call, and the table shows each name", async () => {
+    const { api } = view({ "POST /v1/keys": { status: 201, body: { ...ci, key: "ohs_sk_x" } } });
+    expect(await screen.findByRole("row", { name: /Nightly export/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("row", { name: /No name/ })).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "New API key" }));
+    const ask = screen.getByRole("dialog");
+    expect(within(ask).getByLabelText("Name")).toHaveAttribute("aria-required", "true");
+    await userEvent.type(within(ask).getByLabelText("Name"), "   ");
+    await userEvent.click(within(ask).getByRole("button", { name: "Create key" }));
+    expect(await within(ask).findByText("Name the key: say what it is for.")).toBeInTheDocument();
+    expect(api.callsTo("POST /v1/keys")).toHaveLength(0);
   });
 
   it("picking scopes with none checked is refused before any call", async () => {
     const { api } = view({ "POST /v1/keys": { status: 201, body: { ...ci, key: "ohs_sk_x" } } });
     await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
     const ask = screen.getByRole("dialog");
+    await userEvent.type(within(ask).getByLabelText("Name"), "Empty");
     await userEvent.click(within(ask).getByRole("radio", { name: /Pick scopes/ }));
     await userEvent.click(within(ask).getByRole("button", { name: "Create key" }));
     expect(await within(ask).findByText("Pick at least one scope.")).toBeInTheDocument();
@@ -152,6 +176,7 @@ describe("keys", () => {
   it("a 403 naming a missing scope is shown", async () => {
     view({ "POST /v1/keys": { status: 403, body: { title: "Forbidden", status: 403, detail: "this key lacks the scope keys:write" } } });
     await userEvent.click(await screen.findByRole("button", { name: "New API key" }));
+    await userEvent.type(within(screen.getByRole("dialog")).getByLabelText("Name"), "Backend");
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create key" }));
     expect(await screen.findByText("this key lacks the scope keys:write")).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "New API key" })).toBeInTheDocument();

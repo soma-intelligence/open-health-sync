@@ -14,11 +14,12 @@ const session = sessionJson as ConsoleSession;
 const quiet: Pipeline = {
   generated_at: "2026-10-13T12:00:00Z",
   users: { active: 2, deleting: 0 },
-  sources: [{ slug: "oura", name: "Oura", kinds: ["oauth"], enabled: true, connections: { active: 2 }, broken: 0, paused_until: null }],
+  sources: [{ slug: "oura", name: "Oura", kinds: ["oauth"], enabled: true, connections: { active: 2 }, broken: 0, records: 0, paused_until: null }],
   sync: { queued: 1, running: 0, retrying: 0, rate_limited: 0, failed_24h: 0, succeeded_24h: 40 },
   processing: { pending: 0, running: 0, parked: 0, rejected_records: 0 },
   storage: { raw_objects_24h: 12, raw_bytes_24h: 2_500_000 },
   delivery: { endpoints: 1, endpoints_failing: 0, endpoints_disabled: 0, pending: 0, parked: 0 },
+  data: { records: 1234, users: 2, sources: 1, last_synced_at: "2026-10-13T11:00:00Z" },
 };
 
 const fresh: Pipeline = {
@@ -28,6 +29,7 @@ const fresh: Pipeline = {
   sync: { ...quiet.sync, queued: 0, succeeded_24h: 0 },
   storage: { raw_objects_24h: 0, raw_bytes_24h: 0 },
   delivery: { ...quiet.delivery, endpoints: 0 },
+  data: { records: 0, users: 0, sources: 0, last_synced_at: null },
 };
 
 const trouble: Pipeline = {
@@ -62,14 +64,20 @@ describe("overview", () => {
     expect(screen.getByText("Everything flowing into Acme, right now.")).toBeInTheDocument();
     const band = await screen.findByRole("region", { name: "Pipeline, live" });
     expect(band).toHaveClass("pipeline");
-    const headline: Record<string, string> = { Sources: "2", Sync: "40", Processing: "0", Storage: "2.5", Delivery: "1" };
+    // Totals stored lead Sources and Storage: the same counts as the user page, over every user.
+    const headline: Record<string, string> = { Sources: "1", Sync: "40", Processing: "0", Storage: "1,234", Delivery: "1" };
+    const stages = within(within(band).getByRole("list", { name: "Stages, in the order data flows" }));
     for (const [title, figure] of Object.entries(headline)) {
-      const card = within(band).getByRole("article", { name: title });
-      expect(card.querySelector(".stage-num")).toHaveTextContent(new RegExp(`^${figure}$`));
+      const stage = stages.getByRole("listitem", { name: title });
+      expect(stage.querySelector(".stage-num")).toHaveTextContent(new RegExp(`^${figure}$`));
     }
-    expect(within(band).getAllByRole("article")).toHaveLength(5);
-    expect(within(within(band).getByRole("article", { name: "Storage" })).getByText("MB")).toBeInTheDocument();
-    expect(within(within(band).getByRole("article", { name: "Sync" })).getByText("OK")).toBeInTheDocument();
+    expect(stages.getAllByRole("listitem")).toHaveLength(5);
+    expect(stages.getAllByRole("listitem").map((s) => s.querySelector(".stage-step")?.textContent)).toEqual(["1", "2", "3", "4", "5"]);
+    const storage = within(stages.getByRole("listitem", { name: "Storage" }));
+    expect(storage.getByText("Records stored")).toBeInTheDocument();
+    expect(storage.getByText("2.5 MB")).toBeInTheDocument();
+    expect(storage.getByText(/^Raw data, last 24\sh$/)).toBeInTheDocument();
+    expect(within(stages.getByRole("listitem", { name: "Sync" })).getByText("OK")).toBeInTheDocument();
   });
 
   it("lists what needs you, each with one button to the page that fixes it", async () => {
@@ -81,9 +89,12 @@ describe("overview", () => {
     expect(list.getByRole("link", { name: /2 processing jobs are parked/ })).toHaveAttribute("href", "/console/jobs");
   });
 
-  it("says so when nothing needs attention", async () => {
+  it("says so in one line under the stages when nothing needs attention", async () => {
     view({ body: quiet });
-    expect(await screen.findByText("Nothing needs you.")).toBeInTheDocument();
+    const band = await screen.findByRole("region", { name: "Pipeline, live" });
+    expect(within(band).getByText("Nothing needs you.")).toBeInTheDocument();
+    expect(within(band).getByText(/Last check/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Needs you" })).not.toBeInTheDocument();
   });
 
   it("shows the getting started checklist until every item is done", async () => {
@@ -91,9 +102,16 @@ describe("overview", () => {
     const heading = await screen.findByRole("heading", { name: "Get started" });
     expect(screen.getByText("0 of 5 done")).toBeInTheDocument();
     const card = within(heading.closest("section") as HTMLElement);
-    expect(card.getAllByRole("link")).toHaveLength(5);
-    expect(card.getByRole("link", { name: "Turn on a cloud provider" })).toHaveAttribute("href", "/console/providers");
-    expect(card.getByRole("link", { name: "Add a webhook endpoint" })).toHaveAttribute("href", "/console/webhooks");
+    // One line a step; only the next one has a button.
+    expect(card.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      expect.stringContaining("Turn on a cloud provider"),
+      "Add a user",
+      "Connect an account or an app",
+      "Receive data",
+      "Add a webhook endpoint",
+    ]);
+    expect(card.getAllByRole("link")).toHaveLength(1);
+    expect(card.getByRole("link", { name: "Open providers: Turn on a cloud provider" })).toHaveAttribute("href", "/console/providers");
     first.unmount();
 
     view({ body: quiet });
@@ -101,9 +119,33 @@ describe("overview", () => {
     expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
   });
 
-  it("counts the steps that are done", async () => {
+  it("counts the steps that are done, and the next step carries the button", async () => {
     view({ body: { ...fresh, users: { active: 1, deleting: 0 } } });
     expect(await screen.findByText("1 of 5 done")).toBeInTheDocument();
+    const card = within(screen.getByRole("heading", { name: "Get started" }).closest("section") as HTMLElement);
+    expect(card.getByText("Add a user").closest("li")).toHaveClass("done");
+    expect(card.getByRole("link", { name: "Open providers: Turn on a cloud provider" })).toBeInTheDocument();
+  });
+
+  it("says when the tenant holds demo data only", async () => {
+    const demo = (ref: string) => ({
+      id: `id-${ref}`,
+      external_ref: ref,
+      status: "active",
+      created_at: "2026-10-01T08:00:00Z",
+      timezone: null,
+      timezone_source: null,
+      sources: 2,
+      last_data_at: "2026-10-13T11:00:00Z",
+    });
+    const first = view({ body: quiet }, { "GET /v1/users": { body: { data: [demo("demo-user"), demo("demo-runner")], next_cursor: null } } });
+    expect(await screen.findByRole("note")).toHaveTextContent(/Demo data only/);
+    first.unmount();
+
+    view({ body: quiet }, { "GET /v1/users": { body: { data: [demo("demo-user"), demo("customer-9")], next_cursor: null } } });
+    await screen.findByRole("region", { name: "Pipeline, live" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/Demo data only/)).not.toBeInTheDocument();
   });
 
   it("shows healthz and readyz", async () => {

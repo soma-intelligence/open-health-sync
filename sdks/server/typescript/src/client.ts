@@ -125,6 +125,7 @@ import type {
   UpdateUserRequest,
   UpdateWebhookRequest,
   User,
+  UserListItem,
   UserToken,
   Webhook,
   WebhookDelivery,
@@ -893,7 +894,7 @@ export class OpenHealthSync {
   iterUsers(
     params: Omit<ListUsersParams, "cursor"> = {},
     options?: RequestOptions,
-  ): AsyncGenerator<User> {
+  ): AsyncGenerator<UserListItem> {
     return paginate((cursor) => this.listUsers({ ...params, cursor }, options));
   }
 
@@ -3252,9 +3253,10 @@ export class OpenHealthSync {
    * `GET /v1/pipeline`
    *
    * Counts of the tenant's work at each stage, in the order data flows: the sources (providers
-   * that are on, and any provider still holding the tenant's connections), the sync runs, the
-   * processing jobs, the raw archive and the webhook deliveries. Counts only, never a health
-   * value. The console's overview is this answer.
+   * that are on, any provider still holding the tenant's connections and any provider with the
+   * tenant's records), the sync runs, the processing jobs, the raw archive, the webhook deliveries
+   * and the records stored. Counts only, never a health value. The console's overview is this
+   * answer.
    */
   getPipeline(options?: RequestOptions): Promise<Pipeline> {
     return this.#request<Pipeline>({

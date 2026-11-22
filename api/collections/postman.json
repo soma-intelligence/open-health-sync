@@ -3837,7 +3837,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"expires_at\": \"2026-01-01T00:00:00Z\",\n  \"scopes\": [\n    \"*\"\n  ]\n}",
+              "raw": "{\n  \"expires_at\": \"2026-01-01T00:00:00Z\",\n  \"name\": \"example\",\n  \"scopes\": [\n    \"*\"\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3880,7 +3880,7 @@
           "name": "The tenant's pipeline, stage by stage",
           "request": {
             "method": "GET",
-            "description": "The tenant's pipeline, stage by stage.\n\n`GET /v1/pipeline`\n\nCounts of the tenant's work at each stage, in the order data flows: the sources (providers\nthat are on, and any provider still holding the tenant's connections), the sync runs, the\nprocessing jobs, the raw archive and the webhook deliveries. Counts only, never a health\nvalue. The console's overview is this answer.",
+            "description": "The tenant's pipeline, stage by stage.\n\n`GET /v1/pipeline`\n\nCounts of the tenant's work at each stage, in the order data flows: the sources (providers\nthat are on, any provider still holding the tenant's connections and any provider with the\ntenant's records), the sync runs, the processing jobs, the raw archive, the webhook deliveries\nand the records stored. Counts only, never a health value. The console's overview is this\nanswer.",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/v1/pipeline",

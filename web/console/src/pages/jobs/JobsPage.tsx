@@ -20,6 +20,7 @@ import {
 } from "./api";
 import { FailedRunsTable } from "./FailedRunsTable";
 import { ParkedJobsTable } from "./ParkedJobsTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 type Action = { kind: "one"; job: EtlJob } | { kind: "all" };
 
@@ -56,8 +57,8 @@ export function JobsPage() {
       </header>
       <Card title="Failed sync runs">
         <p className="muted">Pulls that gave up. The next scheduled sync tries again; Sync now on the user's page tries at once.</p>
-        {runs.isPending ? <p role="status">Loading</p> : null}
-        {runs.error !== null && runs.data === undefined ? <ErrorPanel error={runs.error} retry /> : null}
+        {runs.isPending ? <Skeleton count={3} /> : null}
+        {runs.error !== null && runs.data === undefined ? <ErrorPanel title="The failed sync runs did not load." error={runs.error} retry /> : null}
         {runs.data ? <FailedRunsTable rows={failed} /> : null}
       </Card>
       <Card
@@ -78,8 +79,8 @@ export function JobsPage() {
         <p className="muted">
           A raw file that failed to process 5 times. Fix the cause (often a provider change or a full disk), then retry. The raw file is kept.
         </p>
-        {jobs.isPending ? <p role="status">Loading</p> : null}
-        {jobs.error !== null && jobs.data === undefined ? <ErrorPanel error={jobs.error} retry /> : null}
+        {jobs.isPending ? <Skeleton count={3} /> : null}
+        {jobs.error !== null && jobs.data === undefined ? <ErrorPanel title="The parked jobs did not load." error={jobs.error} retry /> : null}
         {jobs.data ? (
           <ParkedJobsTable
             rows={parked}

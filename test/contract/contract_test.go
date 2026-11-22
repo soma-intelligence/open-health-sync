@@ -203,7 +203,12 @@ func TestQuickstartMatchesOpenAPI(t *testing.T) {
 	require.Equal(t, 201, r.status, "%s", r.body)
 	var made struct{ ID string }
 	r.json(t, &made)
-	assert.Equal(t, 400, c.json("POST", "/v1/keys", key, `{"name":"x"}`).status)
+	assert.Equal(t, 400, c.json("POST", "/v1/keys", key, `{"label":"x"}`).status)
+	r = c.json("POST", "/v1/keys", key, `{"name":"Contract"}`)
+	require.Equal(t, 201, r.status, "%s", r.body)
+	var named struct{ ID string }
+	r.json(t, &named)
+	assert.Equal(t, 204, c.json("DELETE", "/v1/keys/"+named.ID, key, "").status)
 	assert.Equal(t, 200, c.json("GET", "/v1/keys", key, "").status)
 	assert.Equal(t, 204, c.json("DELETE", "/v1/keys/"+made.ID, key, "").status)
 	assert.Equal(t, 404, c.json("DELETE", "/v1/keys/not-a-key", key, "").status)

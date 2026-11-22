@@ -153,6 +153,8 @@ class TenantKey(TypedDict):
 
 class APIKey(TypedDict):
     id: str
+    # What the key is for. Null for a key created without a name.
+    name: Optional[str]
     # The start of the key, kept in clear to tell keys apart.
     prefix: str
     created_at: str
@@ -167,6 +169,9 @@ class APIKey(TypedDict):
 
 
 class CreateKeyRequest(TypedDict, total=False):
+    # What the key is for ("Production backend", "CI"): at most 100 characters once trimmed.
+    # Absent, null or blank: the key has no name. The console asks for one.
+    name: Optional[str]
     # When the key stops working by itself (RFC 3339, in the future). Absent or null: the
     # key lives until it is revoked.
     expires_at: Optional[str]
@@ -177,6 +182,8 @@ class CreateKeyRequest(TypedDict, total=False):
 
 class CreatedAPIKey(TypedDict):
     id: str
+    # What the key is for. Null for a key created without a name.
+    name: Optional[str]
     # The start of the key, kept in clear to tell keys apart.
     prefix: str
     created_at: str
@@ -255,6 +262,10 @@ class Pipeline(TypedDict):
     storage: PipelineStorage
     # Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done.
     delivery: PipelineDelivery
+    # What the tenant has stored since its first record, whatever the way in (a connection, an
+    # app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+    # figures of the other stages are activity, not totals.
+    data: PipelineData
 
 
 class PipelineUser(TypedDict):
@@ -302,6 +313,21 @@ class PipelineDelivery(TypedDict):
     parked: int
 
 
+class PipelineData(TypedDict):
+    """What the tenant has stored since its first record, whatever the way in (a connection, an
+    app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+    figures of the other stages are activity, not totals.
+    """
+
+    records: int
+    # Users with at least one record.
+    users: int
+    # Providers with at least one record.
+    sources: int
+    # When the last record landed; null before the first.
+    last_synced_at: Optional[str]
+
+
 class PipelineSource(TypedDict):
     slug: str
     name: str
@@ -311,6 +337,9 @@ class PipelineSource(TypedDict):
     connections: Dict[str, int]
     # Active connections whose health is not ok.
     broken: int
+    # The tenant's records stored from this provider. A provider with records and no
+    # connection (app uploads, a demo seed) is listed for them.
+    records: int
     # Set while the provider's rate limit pauses every pull.
     paused_until: Optional[str]
 
@@ -691,6 +720,28 @@ class User(TypedDict):
     # Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
     # Null when `timezone` is.
     timezone_source: Optional[Literal["explicit", "learnt"]]
+
+
+class UserListItem(TypedDict):
+    """A user of the list, with what the coverage report holds for them."""
+
+    id: str
+    external_ref: Optional[str]
+    status: Literal["active", "deleting"]
+    created_at: str
+    # The user's IANA time zone, null when none is known. It is the zone of the local
+    # day of a sample that carries no zone of its own: daily totals take the sample's
+    # zone, then this one, then UTC.
+    timezone: Optional[str]
+    # Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+    # when it was taken from the latest record of a device upload (Apple Health, Health
+    # Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+    # Null when `timezone` is.
+    timezone_source: Optional[Literal["explicit", "learnt"]]
+    # The providers the user has records from, whatever the way in.
+    sources: int
+    # When the user's last record landed; null before the first.
+    last_data_at: Optional[str]
 
 
 class DeletionJob(TypedDict):
@@ -2429,7 +2480,7 @@ class ListProvidersResponse(TypedDict):
 
 
 class ListUsersResponse(TypedDict):
-    data: List[User]
+    data: List[UserListItem]
     # Null on the last page.
     next_cursor: Optional[str]
 
@@ -2788,6 +2839,7 @@ __all__ = [
     "PageBase",
     "PasscodeProblem",
     "Pipeline",
+    "PipelineData",
     "PipelineDelivery",
     "PipelineProcessing",
     "PipelineSource",
@@ -2854,6 +2906,7 @@ __all__ = [
     "UpdateUserRequest",
     "UpdateWebhookRequest",
     "User",
+    "UserListItem",
     "UserToken",
     "Webhook",
     "WebhookAttempt",

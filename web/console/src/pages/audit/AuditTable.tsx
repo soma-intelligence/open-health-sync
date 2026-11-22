@@ -65,6 +65,7 @@ export function AuditTable({ rows, keys, actingTenantId, tenantNames, selectedId
     {
       key: "status",
       header: "Status",
+      className: "num",
       cell: (e) => (e.status === null ? <span className="muted">-</span> : <Pill tone={statusTone(e.status)}>{String(e.status)}</Pill>),
     },
   ];

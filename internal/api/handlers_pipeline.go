@@ -27,6 +27,22 @@ type pipelineJSON struct {
 	Processing  pipelineProcessing `json:"processing"`
 	Storage     pipelineStorage    `json:"storage"`
 	Delivery    pipelineDelivery   `json:"delivery"`
+	// Data is what the tenant has stored since its first record, whatever
+	// the way in (a connection, an app upload, a demo seed): the 24 hour
+	// figures of the other stages are activity, not totals.
+	Data pipelineData `json:"data"`
+}
+
+// pipelineData sums the coverage report (ohs_sync.pull_coverage) over every
+// user of the tenant.
+type pipelineData struct {
+	Records int64 `json:"records"`
+	// Users counts the users with at least one record, Sources the
+	// providers with at least one.
+	Users   int64 `json:"users"`
+	Sources int64 `json:"sources"`
+	// LastSyncedAt is when the last record landed; null before the first.
+	LastSyncedAt *time.Time `json:"last_synced_at"`
 }
 
 type pipelineUsers struct {
@@ -46,6 +62,10 @@ type pipelineSource struct {
 	// health is not ok.
 	Connections map[string]int64 `json:"connections"`
 	Broken      int64            `json:"broken"`
+	// Records counts the tenant's records stored from this provider; a
+	// provider with records but no connection (app uploads, a demo seed) is
+	// listed for them.
+	Records int64 `json:"records"`
 	// PausedUntil is set while the provider's rate limit pauses every pull.
 	PausedUntil *time.Time `json:"paused_until"`
 }
@@ -172,6 +192,40 @@ func (s *server) pipeline(ctx context.Context, tenantID uuid.UUID) (pipelineJSON
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return out, fmt.Errorf("connections: %w", err)
+	}
+	// Stored records by provider, from the coverage summary: its primary key
+	// leads with tenant_id.
+	rows, err = db.Query(ctx, `SELECT provider, sum(records_count)::bigint, max(last_synced_at)
+		FROM ohs_sync.pull_coverage WHERE tenant_id = $1 GROUP BY provider`, tenantID)
+	if err != nil {
+		return out, fmt.Errorf("coverage: %w", err)
+	}
+	for rows.Next() {
+		var provider string
+		var n int64
+		var last time.Time
+		if err := rows.Scan(&provider, &n, &last); err != nil {
+			rows.Close()
+			return out, fmt.Errorf("coverage: %w", err)
+		}
+		if n == 0 {
+			continue
+		}
+		source(provider).Records = n
+		out.Data.Records += n
+		out.Data.Sources++
+		if out.Data.LastSyncedAt == nil || last.After(*out.Data.LastSyncedAt) {
+			l := last.UTC()
+			out.Data.LastSyncedAt = &l
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return out, fmt.Errorf("coverage: %w", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(DISTINCT user_id) FROM ohs_sync.pull_coverage
+		WHERE tenant_id = $1 AND records_count > 0`, tenantID).Scan(&out.Data.Users); err != nil {
+		return out, fmt.Errorf("coverage: %w", err)
 	}
 	rows, err = db.Query(ctx, `SELECT provider, paused_until FROM ohs_core.provider_limits WHERE paused_until > now()`)
 	if err != nil {

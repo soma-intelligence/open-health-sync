@@ -5,6 +5,7 @@ import type { User } from "../../api/types";
 import { useInspect, type InspectorEntry } from "../../inspector/InspectorProvider";
 import { useCanWrite } from "../../session/SessionProvider";
 import { Button } from "../../ui/Button";
+import { Card } from "../../ui/Card";
 import { EmptyState } from "../../ui/EmptyState";
 import { ErrorPanel } from "../../ui/ErrorPanel";
 import { useOpenCreate } from "../../palette/useOpenCreate";
@@ -13,6 +14,7 @@ import { PAGE_SIZE, useUsersQuery } from "./api";
 import { CreateUserDialog } from "./CreateUserDialog";
 import { UserSearch } from "./UserSearch";
 import { UsersTable } from "./UsersTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 export function UsersPage() {
   const canWrite = useCanWrite();
@@ -66,7 +68,6 @@ export function UsersPage() {
           <p className="page-sub">People whose devices and accounts feed this tenant.</p>
         </div>
         <div className="page-actions">
-          <UserSearch key={externalRef} value={externalRef} onSearch={search} />
           {canWrite ? (
             <Button
               kind="primary"
@@ -79,20 +80,20 @@ export function UsersPage() {
           ) : null}
         </div>
       </header>
-      {users.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
-      {data ? (
-        <>
-          <UsersTable
-            rows={data.data}
-            selectedId={selected?.id}
-            onSelect={setSelected}
-            empty={empty}
-          />
-          <Pager pager={pager} nextCursor={data.next_cursor}
-            loading={users.isPlaceholderData} />
-        </>
-      ) : null}
+      {/* The block keeps its frame in every state: loading, failed, empty, full. */}
+      <Card
+        title={externalRef === "" ? "All users" : "Search result"}
+        actions={<UserSearch key={externalRef} value={externalRef} onSearch={search} />}
+      >
+        {users.isPending ? <Skeleton count={6} /> : null}
+        {error !== null && data === undefined ? <ErrorPanel title="The users did not load." error={error} retry /> : null}
+        {data ? (
+          <>
+            <UsersTable rows={data.data} selectedId={selected?.id} onSelect={setSelected} empty={empty} />
+            <Pager pager={pager} nextCursor={data.next_cursor} loading={users.isPlaceholderData} />
+          </>
+        ) : null}
+      </Card>
       {creating ? (
         <CreateUserDialog
           onClose={() => {

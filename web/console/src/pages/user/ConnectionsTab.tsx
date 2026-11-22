@@ -13,6 +13,7 @@ import { Pill } from "../../ui/Pill";
 import { useToast } from "../../ui/Toast";
 import { useConnectionsQuery, useDisconnect, useFreshnessQuery, useSyncNow, userPath } from "./api";
 import { useTabInspect } from "./inspect";
+import { Skeleton } from "../../ui/Skeleton";
 
 type Action = { kind: "sync" | "disconnect"; provider: string };
 
@@ -83,7 +84,7 @@ export function ConnectionsTab({ userId }: { userId: string }) {
 
   return (
     <>
-      {connections.isPending ? <p role="status">Loading</p> : null}
+      {connections.isPending ? <Skeleton count={3} /> : null}
       {connections.error !== null && connections.data === undefined ? <ErrorPanel error={connections.error} retry /> : null}
       {connections.data ? (
         <DataTable

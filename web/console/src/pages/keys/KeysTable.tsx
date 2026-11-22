@@ -53,15 +53,16 @@ export function KeysTable({ rows, sessionPrefix, selectedId, onSelect, onRevoke 
   const [now] = useState(() => Date.now());
   const columns: Column<APIKey>[] = [
     {
-      key: "key",
-      header: "Key",
+      key: "name",
+      header: "Name",
       cell: (k) => (
         <span className="named">
-          <Mono>{k.prefix}...</Mono>
+          {k.name ? <span className="key-name">{k.name}</span> : <span className="muted">No name</span>}
           {k.prefix === sessionPrefix ? <Pill tone="ok">This session</Pill> : null}
         </span>
       ),
     },
+    { key: "key", header: "Key", cell: (k) => <Mono>{k.prefix}...</Mono> },
     {
       key: "scopes",
       header: "Access",

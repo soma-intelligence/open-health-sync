@@ -54,7 +54,9 @@ func TestRecorderAcceptsDocumentedExchange(t *testing.T) {
 
 func TestRecorderFlagsUndocumentedField(t *testing.T) {
 	c := record(t, func(*http.Request) (int, string, string) {
-		return 200, "application/json", `{"data":[` + strings.TrimSuffix(user, "}") + `,"secret":1},` + strings.TrimSuffix(user, "}") + `,"secret":2}],"next_cursor":null,"total":3}`
+		// A list item is the user with its sources and last_data_at (UserListItem).
+		item := strings.TrimSuffix(user, "}") + `,"sources":0,"last_data_at":null`
+		return 200, "application/json", `{"data":[` + item + `,"secret":1},` + item + `,"secret":2}],"next_cursor":null,"total":3}`
 	}, "GET", "/v1/users", "k")
 	assert.Contains(t, c.Problems, "response: undocumented field $.data[].secret")
 	assert.Contains(t, c.Problems, "response: undocumented field $.total")

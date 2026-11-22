@@ -101,6 +101,16 @@
   color: var(--danger);
 }
 
+/* A label, not a state: Demo. */
+.pill.info {
+  background: var(--info-wash);
+  color: var(--info);
+}
+
+.pill.info::before {
+  display: none;
+}
+
 .pill.plain::before {
   display: none;
 }
@@ -149,8 +159,6 @@
 .card-b h4 {
   margin: var(--op-s2) 0 0;
   font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   color: var(--faint);
 }
 
@@ -171,7 +179,6 @@
   margin: 0 0 var(--op-s1);
   color: var(--op-fg);
   font: var(--op-text-card-title);
-  font-size: 15px;
   text-transform: none;
   letter-spacing: 0;
 }
@@ -283,7 +290,7 @@
 
 .dialog-body > h2 {
   margin: 0;
-  font: 700 18px/1.3 var(--op-font-display);
+  font: 700 17px/1.3 var(--op-font-display);
   letter-spacing: -0.01em;
 }
 
@@ -409,4 +416,114 @@
   .check {
     min-height: 44px;
   }
+}
+
+/* ---------- loading: grey bars at the real size, no shimmer, shown after 200 ms ---------- */
+.skeleton {
+  opacity: 0;
+  animation: skel-show 1ms linear 200ms forwards;
+}
+
+@keyframes skel-show {
+  to {
+    opacity: 1;
+  }
+}
+
+.skel-bar {
+  display: block;
+  height: 12px;
+  border-radius: var(--op-r-chip);
+  background: var(--op-field);
+}
+
+.skel-bar.big {
+  height: 28px;
+  border-radius: var(--op-s2);
+}
+
+.skel-bar.title {
+  height: 28px;
+  border-radius: var(--op-s2);
+}
+
+.skel-bar.w-15 { width: 15%; }
+.skel-bar.w-20 { width: 20%; }
+.skel-bar.w-30 { width: 30%; }
+.skel-bar.w-40 { width: 40%; }
+.skel-bar.w-60 { width: 60%; }
+.skel-bar.w-90 { width: 90%; }
+
+.skel-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The height of a data-table row: 10 px padding, two lines of 13 px text. */
+.skel-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  align-items: center;
+  gap: var(--op-s3);
+  min-height: 49px;
+  padding: 0 var(--op-s2);
+  border-top: 1px solid var(--op-line);
+}
+
+.skel-row .skel-bar {
+  width: auto;
+  max-width: 100%;
+}
+
+.skel-row .skel-bar.w-40 { width: 70%; }
+.skel-row .skel-bar.w-20 { width: 50%; }
+.skel-row .skel-bar.w-15 { width: 40%; }
+
+.skel-row.head {
+  min-height: 28px;
+  border-top: 0;
+}
+
+.skel-row.head .skel-bar {
+  height: 8px;
+}
+
+.skel-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--op-s4);
+}
+
+.skel-tile,
+.skel-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s3);
+  padding: var(--op-s5);
+  border-radius: var(--op-r-card);
+  background: var(--op-card);
+  box-shadow: var(--op-shadow);
+}
+
+.skel-tile {
+  min-height: 108px;
+}
+
+.skel-lines,
+.skel-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.error-title {
+  font-weight: 600;
+  color: var(--op-fg);
 }

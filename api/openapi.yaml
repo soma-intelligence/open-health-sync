@@ -211,7 +211,7 @@ paths:
                     properties:
                       data:
                         type: array
-                        items: { $ref: "#/components/schemas/User" }
+                        items: { $ref: "#/components/schemas/UserListItem" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -3597,9 +3597,10 @@ paths:
       summary: The tenant's pipeline, stage by stage
       description: |
         Counts of the tenant's work at each stage, in the order data flows: the sources (providers
-        that are on, and any provider still holding the tenant's connections), the sync runs, the
-        processing jobs, the raw archive and the webhook deliveries. Counts only, never a health
-        value. The console's overview is this answer.
+        that are on, any provider still holding the tenant's connections and any provider with the
+        tenant's records), the sync runs, the processing jobs, the raw archive, the webhook deliveries
+        and the records stored. Counts only, never a health value. The console's overview is this
+        answer.
       responses:
         "200":
           description: The pipeline.
@@ -6290,9 +6291,13 @@ components:
 
     APIKey:
       type: object
-      required: [id, prefix, created_at, last_used_at, revoked_at, expires_at, scopes, current]
+      required: [id, name, prefix, created_at, last_used_at, revoked_at, expires_at, scopes, current]
       properties:
         id: { type: string, format: uuid }
+        name:
+          type: [string, "null"]
+          maxLength: 100
+          description: What the key is for. Null for a key created without a name.
         prefix: { type: string, description: "The start of the key, kept in clear to tell keys apart." }
         created_at: { type: string, format: date-time }
         last_used_at: { type: [string, "null"], format: date-time }
@@ -6342,6 +6347,11 @@ components:
       type: object
       additionalProperties: false
       properties:
+        name:
+          type: [string, "null"]
+          description: |
+            What the key is for ("Production backend", "CI"): at most 100 characters once trimmed.
+            Absent, null or blank: the key has no name. The console asks for one.
         expires_at:
           type: [string, "null"]
           format: date-time
@@ -6439,7 +6449,7 @@ components:
 
     Pipeline:
       type: object
-      required: [generated_at, users, sources, sync, processing, storage, delivery]
+      required: [generated_at, users, sources, sync, processing, storage, delivery, data]
       properties:
         generated_at: { type: string, format: date-time }
         users:
@@ -6491,10 +6501,25 @@ components:
             endpoints_disabled: { type: integer, format: int64 }
             pending: { type: integer, format: int64 }
             parked: { type: integer, format: int64 }
+        data:
+          type: object
+          description: |
+            What the tenant has stored since its first record, whatever the way in (a connection, an
+            app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+            figures of the other stages are activity, not totals.
+          required: [records, users, sources, last_synced_at]
+          properties:
+            records: { type: integer, format: int64 }
+            users: { type: integer, format: int64, description: Users with at least one record. }
+            sources: { type: integer, format: int64, description: Providers with at least one record. }
+            last_synced_at:
+              type: [string, "null"]
+              format: date-time
+              description: When the last record landed; null before the first.
 
     PipelineSource:
       type: object
-      required: [slug, name, kinds, enabled, connections, broken, paused_until]
+      required: [slug, name, kinds, enabled, connections, broken, records, paused_until]
       properties:
         slug: { type: string }
         name: { type: string }
@@ -6507,6 +6532,12 @@ components:
           description: The tenant's connections by status (active, needs_reauth, disconnected).
           additionalProperties: { type: integer, format: int64 }
         broken: { type: integer, format: int64, description: Active connections whose health is not ok. }
+        records:
+          type: integer
+          format: int64
+          description: |
+            The tenant's records stored from this provider. A provider with records and no
+            connection (app uploads, a demo seed) is listed for them.
         paused_until:
           type: [string, "null"]
           format: date-time
@@ -6969,6 +7000,22 @@ components:
             when it was taken from the latest record of a device upload (Apple Health, Health
             Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
             Null when `timezone` is.
+
+    UserListItem:
+      description: A user of the list, with what the coverage report holds for them.
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          required: [sources, last_data_at]
+          properties:
+            sources:
+              type: integer
+              format: int64
+              description: The providers the user has records from, whatever the way in.
+            last_data_at:
+              type: [string, "null"]
+              format: date-time
+              description: When the user's last record landed; null before the first.
 
     DeletionJob:
       type: object

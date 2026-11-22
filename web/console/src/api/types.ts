@@ -21,6 +21,8 @@ export type Tenant = Schemas["Tenant"];
 export type AdminTenant = Schemas["AdminTenant"];
 export type AdminTenantList = JsonOf<"/v1/admin/tenants", "get", 200>;
 export type User = Schemas["User"];
+/** A user of GET /v1/users: the user, with their sources and when their last record landed. */
+export type UserListItem = Schemas["UserListItem"];
 export type CreateUserRequest = Schemas["CreateUserRequest"];
 /** One page of GET /v1/users, as the schema says it. */
 export type UserList = JsonOf<"/v1/users", "get", 200>;

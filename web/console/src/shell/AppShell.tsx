@@ -9,6 +9,7 @@ import { CommandPalette } from "../palette/CommandPalette";
 import { NavPane } from "./NavPane";
 import { OfflineNotice } from "./OfflineNotice";
 import { PageBoundary } from "./PageBoundary";
+import { ReadOnlyNotice } from "./ReadOnlyNotice";
 import { TopBar } from "./TopBar";
 import { useMediaQuery } from "./useMediaQuery";
 
@@ -116,6 +117,7 @@ export function AppShell() {
               {/* Another acting tenant remounts the page, so none of it keeps the old tenant's data. */}
               <main key={session?.acting_tenant.id ?? ""} className="shell-main">
                 <OfflineNotice />
+                <ReadOnlyNotice />
                 <PageBoundary>
                   <Outlet />
                 </PageBoundary>

@@ -12,6 +12,7 @@ import { ErrorPanel } from "../../ui/ErrorPanel";
 import { Pill } from "../../ui/Pill";
 import { adminProvidersPath, useAdminProvidersQuery, useProvidersQuery, useTenantProvidersQuery } from "./api";
 import { ProvidersTable } from "./ProvidersTable";
+import { Skeleton } from "../../ui/Skeleton";
 
 const SUBTITLE = "Keys saved here are sealed with the instance encryption key.";
 
@@ -65,26 +66,29 @@ function AdminProviders() {
           </p>
         </div>
       </header>
-      {providers.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
-      {tenantList.isError ? <ErrorPanel error={tenantList.error} retry /> : null}
+      {tenantList.isError ? <ErrorPanel title="This tenant's providers did not load." error={tenantList.error} retry /> : null}
       {data && !data.public_url ? (
         <p className="notice warn">
           <span className="mono">OHS_PUBLIC_URL</span> is not set: the redirect and notification addresses name localhost, which no provider can reach.
         </p>
       ) : null}
-      {data ? (
-        <div className="stack">
-          <Card title="Cloud providers">
-            <ProvidersTable
-              rows={cloud}
-              tenant={tenant}
-              selected={selected?.slug}
-              onSelect={setSelected}
-              empty={<EmptyState title="No cloud provider in this build" />}
-            />
-          </Card>
-          <Card title="App uploads">
+      <Card title="Cloud providers">
+        {providers.isPending ? <Skeleton count={6} /> : null}
+        {error !== null && data === undefined ? <ErrorPanel title="The providers did not load." error={error} retry /> : null}
+        {data ? (
+          <ProvidersTable
+            rows={cloud}
+            tenant={tenant}
+            selected={selected?.slug}
+            onSelect={setSelected}
+            empty={<EmptyState title="No cloud provider in this build" />}
+          />
+        ) : null}
+      </Card>
+      {error !== null && data === undefined ? null : (
+        <Card title="App uploads">
+          {providers.isPending ? <Skeleton count={3} /> : null}
+          {data ? (
             <ProvidersTable
               rows={uploads}
               tenant={tenant}
@@ -92,9 +96,9 @@ function AdminProviders() {
               onSelect={setSelected}
               empty={<EmptyState title="No app upload source in this build" />}
             />
-          </Card>
-        </div>
-      ) : null}
+          ) : null}
+        </Card>
+      )}
     </div>
   );
 }
@@ -122,18 +126,18 @@ function TenantProviders() {
           <p className="page-sub">{data ? `${String(data.data.length)} on for this tenant. ` : ""}Only the instance admin tenant can change them.</p>
         </div>
       </header>
-      {providers.isPending ? <p role="status">Loading</p> : null}
-      {error !== null && data === undefined ? <ErrorPanel error={error} retry /> : null}
-      {data ? (
-        <Card title="On for this tenant">
+      <Card title="On for this tenant">
+        {providers.isPending ? <Skeleton count={6} /> : null}
+        {error !== null && data === undefined ? <ErrorPanel title="The providers did not load." error={error} retry /> : null}
+        {data ? (
           <DataTable
             columns={readOnlyColumns}
             rows={data.data}
             rowKey={(p) => p.slug}
             empty={<EmptyState title="No provider is on">Ask the instance admin to turn one on.</EmptyState>}
           />
-        </Card>
-      ) : null}
+        ) : null}
+      </Card>
     </div>
   );
 }

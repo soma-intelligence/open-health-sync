@@ -13,7 +13,7 @@
 
 .insp-heading {
   margin: 0;
-  font: 600 15px var(--op-font-display);
+  font: var(--op-text-card-title);
 }
 
 .insp-title {
@@ -42,8 +42,6 @@
 .insp-sec h4 {
   margin: 0 0 var(--op-s2);
   font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   color: var(--faint);
 }
 

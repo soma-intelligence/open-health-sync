@@ -44,9 +44,24 @@
   display: flex;
   align-items: center;
   gap: var(--op-s2);
-  font: 600 15px var(--op-font-display);
+  font: 600 17px var(--op-font-display);
   letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.brand-scope {
+  font: 500 12px/1.3 var(--op-font);
+  letter-spacing: 0;
+  color: var(--op-fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-mark {
@@ -108,9 +123,10 @@
   color: var(--op-fg);
 }
 
+/* A pressed toggle (the inspector): neutral, like the page you are on in the navigation. */
 .icon-btn.on {
-  color: var(--op-accent-text);
-  background: var(--op-accent-wash);
+  color: var(--op-fg);
+  background: var(--op-field);
 }
 
 .insp {
@@ -137,7 +153,7 @@
   align-items: center;
   gap: var(--op-s2);
   padding: 0 var(--op-s2) var(--op-s3);
-  font: 600 15px var(--op-font-display);
+  font: 600 17px var(--op-font-display);
   letter-spacing: -0.01em;
 }
 
@@ -226,8 +242,6 @@
 .nav-heading {
   margin: var(--op-s3) var(--op-s2) var(--op-s1);
   font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   color: var(--faint);
 }
 
@@ -248,9 +262,10 @@
   color: var(--op-fg);
 }
 
+/* The page you are on: a neutral grey pill, never the accent (the accent is for the action). */
 .nav-link.on {
-  background: var(--op-accent-wash);
-  color: var(--op-accent-text);
+  background: var(--op-field);
+  color: var(--op-fg);
   font-weight: 600;
 }
 
@@ -262,7 +277,7 @@
 }
 
 .nav-link.on .nav-count {
-  color: var(--op-accent-text);
+  color: var(--op-fg-2);
 }
 
 .nav-count.bad {
@@ -350,13 +365,34 @@
 
 /* ---------- under 768 px: the inspector is a bottom sheet ---------- */
 @media (max-width: 767px) {
+  .brand {
+    min-width: 0;
+    flex: 1;
+  }
+
   .brand-name {
-    display: none;
+    font: 600 13px/1.3 var(--op-font);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The search folds to its icon; its words stay as the button's name. */
+  .search {
+    flex: none;
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+    margin-left: auto;
+    border-color: transparent;
+    background: transparent;
   }
 
   .search span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
     overflow: hidden;
-    text-overflow: ellipsis;
+    clip-path: inset(50%);
     white-space: nowrap;
   }
 
@@ -374,12 +410,20 @@
   }
 }
 
-.offline-notice {
+.offline-notice,
+.readonly-notice {
   margin: var(--op-s4) var(--op-s6) 0;
+  max-width: calc(1120px - 2 * var(--op-s6));
+}
+
+.readonly-notice {
+  background: var(--op-card-2);
+  box-shadow: inset 0 0 0 1px var(--op-line);
 }
 
 @media (max-width: 767px) {
-  .offline-notice {
+  .offline-notice,
+  .readonly-notice {
     margin: var(--op-s3) var(--op-s4) 0;
   }
 }
@@ -389,8 +433,19 @@
     min-height: 44px;
   }
 
+  .icon-btn,
+  .search {
+    min-height: 44px;
+  }
+
   .icon-btn {
     width: 44px;
     height: 44px;
+  }
+}
+
+@media (pointer: coarse) and (max-width: 767px) {
+  .search {
+    width: 44px;
   }
 }

@@ -12,6 +12,7 @@ const adminSession: ConsoleSession = { ...session, tenant: { ...session.tenant, 
 
 const key: APIKey = {
   id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  name: null,
   prefix: "ohs_sk_AbCdE",
   created_at: "2026-09-01T08:00:00Z",
   last_used_at: null,

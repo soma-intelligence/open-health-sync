@@ -28,8 +28,8 @@
   border-radius: var(--op-r-dialog) var(--op-r-dialog) 0 0;
   background: transparent;
   color: var(--op-fg);
-  font: var(--op-text-body);
-  font-size: 15px;
+  font: var(--op-text-card-title);
+  font-weight: 400;
 }
 
 .palette-input::placeholder {
@@ -53,8 +53,6 @@
   padding: var(--op-s2) 10px var(--op-s1);
   color: var(--faint);
   font: var(--op-text-caption);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 .palette-item {
@@ -67,8 +65,7 @@
 }
 
 .palette-item.on {
-  background: var(--op-accent-wash);
-  color: var(--op-accent-text);
+  background: var(--op-field);
 }
 
 .palette-title {
@@ -87,7 +84,7 @@
 }
 
 .palette-item.on .palette-hint {
-  color: var(--op-accent-text);
+  color: var(--op-fg-2);
 }
 
 .palette-empty {
