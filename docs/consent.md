@@ -26,6 +26,7 @@ chose. Open Health Sync does not show consent screens itself.
 | `nutrition` | Food, drinks, water, caffeine |
 | `reproductive` | Menstrual cycle, ovulation, basal body temperature, sexual activity, pregnancy |
 | `mental` | Mindfulness, state of mind, mood, stress, reported feeling, mood, stress and energy |
+| `labs` | Lab results uploaded to `POST /v1/users/{id}/labs` ([labs.md](labs.md)) |
 | `other` | Anything no category above describes, reported pain included |
 
 A record goes with its parent: route points are `location` but also go when `activity` is not
@@ -45,7 +46,8 @@ returns the list of categories, so your consent screen can follow it.
   first consent counts as not granted.
 - **Revocation**: from the moment it commits, new records of the category are dropped. The
   records already stored from that source are deleted by the etl role in the background
-  (usually within seconds). Granting the category again before the purge runs keeps the data.
+  (usually within seconds), with the HealthKit sample ids (record aliases) that point at them.
+  Granting the category again before the purge runs keeps the data.
 - **Raw payloads** (the files the engine keeps as received) are not split by category: they
   follow `OHS_RETENTION_DAYS` and are deleted with the user or with the provider's data. A
   reprocess of a raw file applies the consent current at that time.

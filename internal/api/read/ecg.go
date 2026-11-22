@@ -3,14 +3,20 @@
 package read
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
+	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
 
 // MaxECGSamples bounds the voltage samples served for one recording: an
@@ -149,10 +155,11 @@ func ECGRecordings(ctx context.Context, db Querier, tenantID, userID uuid.UUID, 
 	if err := userExists(ctx, db, tenantID, userID); err != nil {
 		return Page[ECGRecording]{}, err
 	}
-	l := list{table: "ohs_data.ecg_recordings", timeCol: "start_date", cols: ecgCols}
+	l := list{table: "ohs_data.ecg_recordings", timeCol: "start_date", cols: ecgSel.List("")}
+	keys := keysFor(ctx, tenantID, userID)
 	return run(ctx, db, tenantID, userID, l, n, func(r pgx.Rows) (ECGRecording, time.Time, int64, error) {
 		var e ecgRow
-		err := r.Scan(e.dest()...)
+		err := ecgSel.Scan(ctx, keys, r, e.dest())
 		rec := e.finish()
 		return rec, rec.StartDate, rec.ID, err
 	})
@@ -165,8 +172,8 @@ func ecgRecording(ctx context.Context, db Querier, tenantID, userID uuid.UUID, i
 		return ECGRecording{}, err
 	}
 	var e ecgRow
-	err := db.QueryRow(ctx, `SELECT `+ecgCols+` FROM ohs_data.ecg_recordings
-		WHERE tenant_id = $1 AND user_id = $2 AND id = $3 LIMIT 1`, tenantID, userID, id).Scan(e.dest()...)
+	err := ecgSel.Scan(ctx, keysFor(ctx, tenantID, userID), db.QueryRow(ctx, `SELECT `+ecgSel.List("")+` FROM ohs_data.ecg_recordings
+		WHERE tenant_id = $1 AND user_id = $2 AND id = $3 LIMIT 1`, tenantID, userID, id), e.dest())
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ECGRecording{}, ErrNotFound
 	}
@@ -197,19 +204,82 @@ func ECGRecordingSummary(ctx context.Context, db Querier, tenantID, userID uuid.
 	if err != nil {
 		return ECGSummary{}, err
 	}
-	from, to := ecgSpan([]ECGRecording{rec})
 	s := ECGSummary{ECGRecording: rec}
-	err = db.QueryRow(ctx, `SELECT count(*), min(time_since_sample_start), max(time_since_sample_start),
-			min(voltage_uv), max(voltage_uv)
-		FROM ohs_data.ecg_samples
-		WHERE tenant_id = $1 AND user_id = $2 AND ecg_id = $3 AND ts >= $4 AND ts < $5`,
-		tenantID, userID, id, from, to).
-		Scan(&s.StoredSamples, &s.FirstOffsetS, &s.LastOffsetS, &s.MinVoltageUV, &s.MaxVoltageUV)
+	widen := func(lo, hi **float64, v *float64) {
+		if v == nil {
+			return
+		}
+		if *lo == nil || *v < **lo {
+			x := *v
+			*lo = &x
+		}
+		if *hi == nil || *v > **hi {
+			x := *v
+			*hi = &x
+		}
+	}
+	blobs, err := ecgBlobs(ctx, db, tenantID, userID, []int64{id})
 	if err != nil {
+		return ECGSummary{}, err
+	}
+	if pts, ok := blobs[id]; ok {
+		for _, p := range pts {
+			s.StoredSamples++
+			widen(&s.FirstOffsetS, &s.LastOffsetS, p.Value(series.ECGOffset))
+			widen(&s.MinVoltageUV, &s.MaxVoltageUV, p.Value(series.ECGVoltage))
+		}
+		return s, nil
+	}
+	from, to := ecgSpan([]ECGRecording{rec})
+	// The offsets and voltages are sealed: the bounds are taken over the
+	// opened samples, a NULL left out as min and max leave it out.
+	rows, err := db.Query(ctx, `SELECT `+ecgSampleSel.List("")+` FROM ohs_data.ecg_samples
+		WHERE tenant_id = $1 AND user_id = $2 AND ecg_id = $3 AND ts >= $4 AND ts < $5`,
+		tenantID, userID, id, from, to)
+	if err != nil {
+		return ECGSummary{}, fmt.Errorf("read: ecg samples: %w", err)
+	}
+	defer rows.Close()
+	keys := keysFor(ctx, tenantID, userID)
+	for rows.Next() {
+		var off, uv *float64
+		if err := ecgSampleSel.Scan(ctx, keys, rows, []any{&off, &uv}); err != nil {
+			return ECGSummary{}, fmt.Errorf("read: ecg samples: scan: %w", err)
+		}
+		s.StoredSamples++
+		widen(&s.FirstOffsetS, &s.LastOffsetS, off)
+		widen(&s.MinVoltageUV, &s.MaxVoltageUV, uv)
+	}
+	if err := rows.Err(); err != nil {
 		return ECGSummary{}, fmt.Errorf("read: ecg samples: %w", err)
 	}
 	return s, nil
 }
+
+// ecgBlobs reads the samples of the recordings ids held by a blob, keyed by
+// recording id, in offset order.
+func ecgBlobs(ctx context.Context, db Querier, tenantID, userID uuid.UUID, ids []int64) (map[int64][]series.Point, error) {
+	parents := make([]string, len(ids))
+	for i, id := range ids {
+		parents[i] = strconv.FormatInt(id, 10)
+	}
+	blobs, err := readBlobs(ctx, db, tenantID, userID, series.ECG, "parent = ANY($3::text[])", "", parents)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64][]series.Point, len(blobs))
+	for _, b := range blobs {
+		id, err := strconv.ParseInt(b.parent, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("read: ecg blob parent %q: %w", b.parent, err)
+		}
+		out[id] = b.points
+	}
+	return out, nil
+}
+
+// ecgSampleSel reads the offset and the voltage of an ECG sample.
+var ecgSampleSel = vault.Select("ecg_samples", `time_since_sample_start, voltage_uv`)
 
 // ecgSpan bounds the time of the samples of recs: a sample is stored at its
 // recording's start plus its offset, and the offsets run over the
@@ -248,45 +318,90 @@ func ecgSamples(ctx context.Context, db Querier, tenantID, userID uuid.UUID, rec
 	if len(recs) == 0 {
 		return out, nil
 	}
-	ids := make([]int64, 0, len(recs))
+	all := make([]int64, 0, len(recs))
 	for _, r := range recs {
-		ids = append(ids, r.ID)
+		all = append(all, r.ID)
 		out[r.ID] = ECGSamples{OffsetsS: []float64{}, VoltagesUV: []float64{}}
 	}
-	from, to := ecgSpan(recs)
+	blobs, err := ecgBlobs(ctx, db, tenantID, userID, all)
+	if err != nil {
+		return nil, err
+	}
+	// The recordings converted to a blob are served from it, in offset
+	// order (the blob's order); the others from their rows.
+	ids := make([]int64, 0, len(recs))
+	var rowRecs []ECGRecording
+	for _, r := range recs {
+		pts, ok := blobs[r.ID]
+		if !ok {
+			ids = append(ids, r.ID)
+			rowRecs = append(rowRecs, r)
+			continue
+		}
+		s := out[r.ID]
+		if len(pts) > MaxECGSamples {
+			s.Truncated = true
+			pts = pts[:MaxECGSamples]
+		}
+		for _, p := range pts {
+			s.Count++
+			s.OffsetsS = append(s.OffsetsS, p.V[series.ECGOffset])
+			s.VoltagesUV = append(s.VoltagesUV, p.V[series.ECGVoltage])
+		}
+		out[r.ID] = s
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	from, to := ecgSpan(rowRecs)
 	// One bounded read per recording: the lateral LIMIT stops at the cap
-	// instead of reading a recording's every row.
-	rows, err := db.Query(ctx, `SELECT r.id, s.time_since_sample_start, s.voltage_uv
+	// instead of reading a recording's every row. The offset is sealed, so
+	// the samples are taken in the order of their time (a sample is stored at
+	// its recording's start plus its offset, so the two orders agree) and
+	// put in offset order once opened.
+	rows, err := db.Query(ctx, `SELECT `+ecgSampleSel.List("s")+`, r.id, s.id
 		FROM unnest($3::bigint[]) AS r(id)
 		CROSS JOIN LATERAL (
-			SELECT id, time_since_sample_start, voltage_uv FROM ohs_data.ecg_samples
+			SELECT * FROM ohs_data.ecg_samples
 			WHERE tenant_id = $1 AND user_id = $2 AND ecg_id = r.id AND ts >= $4 AND ts < $5
-			ORDER BY time_since_sample_start, id LIMIT $6) s
-		ORDER BY r.id, s.time_since_sample_start, s.id`, tenantID, userID, ids, from, to, MaxECGSamples+1)
+			ORDER BY ts, id LIMIT $6) s
+		ORDER BY r.id, s.ts, s.id`, tenantID, userID, ids, from, to, MaxECGSamples+1)
 	if err != nil {
 		return nil, fmt.Errorf("read: ecg samples: %w", err)
 	}
 	defer rows.Close()
+	type sample struct {
+		off, v float64
+		id     int64
+	}
+	read := make(map[int64][]sample, len(recs))
+	keys := keysFor(ctx, tenantID, userID)
 	for rows.Next() {
-		var (
-			id     int64
-			off, v float64
-		)
-		if err := rows.Scan(&id, &off, &v); err != nil {
+		var id int64
+		var x sample
+		if err := ecgSampleSel.Scan(ctx, keys, rows, []any{&x.off, &x.v}, &id, &x.id); err != nil {
 			return nil, fmt.Errorf("read: ecg samples: scan: %w", err)
 		}
-		s := out[id]
-		if s.Count == MaxECGSamples {
-			s.Truncated = true
-		} else {
-			s.Count++
-			s.OffsetsS = append(s.OffsetsS, off)
-			s.VoltagesUV = append(s.VoltagesUV, v)
-		}
-		out[id] = s
+		read[id] = append(read[id], x)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read: ecg samples: %w", err)
+	}
+	for id, samples := range read {
+		slices.SortStableFunc(samples, func(a, b sample) int {
+			return cmp.Or(cmp.Compare(a.off, b.off), cmp.Compare(a.id, b.id))
+		})
+		s := out[id]
+		if len(samples) > MaxECGSamples {
+			s.Truncated = true
+			samples = samples[:MaxECGSamples]
+		}
+		for _, x := range samples {
+			s.Count++
+			s.OffsetsS = append(s.OffsetsS, x.off)
+			s.VoltagesUV = append(s.VoltagesUV, x.v)
+		}
+		out[id] = s
 	}
 	return out, nil
 }

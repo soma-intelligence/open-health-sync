@@ -111,10 +111,15 @@ resources:
 
 # Run each role as its own Deployment instead, so they scale apart. Needs a
 # raw store every pod can reach (s3, or a ReadWriteMany volume). Only the api
-# role serves HTTP. Each process opens its own database pool: keep the sum of
+# role serves the API. The collect and etl pods serve /healthz, /readyz and
+# /metrics on opsPort (OHS_OPS_LISTEN), without a credential and never behind
+# the Service. Each process opens its own database pool: keep the sum of
 # their pool_max_conns under the server's max_connections.
 splitRoles:
   enabled: false
+  # The port of the collect and etl pods' ops listener. 0 turns the listener
+  # off (OHS_OPS_LISTEN=off): no HTTP probe, no worker metrics.
+  opsPort: 8081
   api:
     replicaCount: 2
     resources: {}
@@ -132,6 +137,16 @@ migrations:
   backoffLimit: 2
   activeDeadlineSeconds: 600
   resources: {}
+
+# `ohs serve` refuses to start when the database schema is not the version
+# its binary migrates to. During a rolling upgrade the Job has already
+# migrated: an old pod that restarts in that window fails until the rollout
+# replaces it, and `helm rollback` to an older image fails the same way.
+# true starts the pods with `--allow-newer-schema`, which accepts a newer
+# schema (never an older or a half migrated one). The flag exists from 0.3.0:
+# an older image.tag exits on it. Only safe while the newer
+# migrations add things and remove nothing: see docs/helm.md, "Upgrade".
+allowNewerSchema: false
 
 # Extra environment for the ohs containers, as Kubernetes EnvVar entries.
 env: []
@@ -158,6 +173,40 @@ readinessProbe:
   periodSeconds: 5
   timeoutSeconds: 4
   failureThreshold: 3
+
+# The probes of the collect and etl pods of splitRoles, on their ops listener
+# (splitRoles.opsPort). /healthz answers 503, naming the loop, when a
+# background loop of the pod is hung: it missed three of its rounds (a minute
+# at least) while none of its jobs is still inside its time limit. A minute
+# of that (6 failures) restarts the pod. A database that is away fails
+# /readyz, not /healthz, so it restarts nothing. Set one to null to remove it.
+workerStartupProbe:
+  httpGet: { path: /healthz, port: ops }
+  periodSeconds: 2
+  failureThreshold: 60
+workerLivenessProbe:
+  httpGet: { path: /healthz, port: ops }
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 6
+workerReadinessProbe:
+  httpGet: { path: /readyz, port: ops }
+  periodSeconds: 5
+  timeoutSeconds: 4
+  failureThreshold: 3
+# With an image older than 0.3.0 (no ops listener), or splitRoles.opsPort=0,
+# probe the workers from inside the pod instead: set workerStartupProbe and
+# workerReadinessProbe to null, and workerLivenessProbe to
+#   httpGet: null
+#   exec:
+#     command: ["/ohs", "doctor", "--quick"]
+#   initialDelaySeconds: 30
+#   periodSeconds: 30
+#   timeoutSeconds: 15
+#   failureThreshold: 10
+# (httpGet: null removes the default above, which Helm would otherwise merge
+# with exec.) It checks that the database and the raw store answer, and does
+# not see a worker loop that is stuck while both still do.
 
 # On SIGTERM ohs gives work in flight 25 s, plus a 3 s margin.
 terminationGracePeriodSeconds: 35
@@ -194,7 +243,13 @@ ingress:
   className: ""
   # Uploads carry up to 64 MiB of body: raise your controller's limit, for
   # example nginx.ingress.kubernetes.io/proxy-body-size: 64m.
-  annotations: {}
+  # The event stream (GET /v1/events/stream, Server-Sent Events) must reach
+  # the client unbuffered, and the read timeout must exceed its 15 s
+  # heartbeat: the two nginx annotations below do that (other controllers
+  # ignore them; set one to null to drop it).
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
   hosts:
     - host: ohs.example.org
       paths:
@@ -204,20 +259,27 @@ ingress:
   #  - secretName: ohs-tls
   #    hosts: [ohs.example.org]
 
-# Needs the Prometheus Operator CRDs, and config.metrics.
+# Needs the Prometheus Operator CRDs, and config.metrics. With splitRoles, a
+# PodMonitor is created too: it scrapes the collect and etl pods on their ops
+# port, which no Service fronts.
 serviceMonitor:
   enabled: false
   interval: 30s
   scrapeTimeout: 10s
   labels: {}
 
-# Restricts the pods' traffic. Ingress: port 8080 only, from the peers below.
-# Egress: DNS, the database, and HTTPS (providers, S3, webhooks).
+# Restricts the pods' traffic. Ingress: port 8080 only, from the peers below,
+# and with splitRoles the ops port of the workers. Egress: DNS, the database,
+# and HTTPS (providers, S3, webhooks).
 networkPolicy:
   enabled: false
   # NetworkPolicyPeer entries allowed to reach port 8080. Empty allows any
   # source (still on port 8080 only).
   ingressFrom: []
+  # NetworkPolicyPeer entries allowed to reach splitRoles.opsPort: your
+  # Prometheus. Empty allows any source (on that port only). The kubelet's
+  # probes come from the node and are not subject to the policy.
+  opsFrom: []
   # Port and peers of the database. Empty peers allow any destination on that
   # port.
   databasePort: 5432

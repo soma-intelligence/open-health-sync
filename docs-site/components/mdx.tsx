@@ -7,6 +7,7 @@ import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { MDXComponents } from "mdx/types";
 import type { ComponentProps, ComponentType } from "react";
 import { docsHref } from "@/lib/shared";
+import { DocsHome } from "./docs-home";
 import { Pipeline } from "./pipeline";
 import { Shot } from "./shot";
 import { Status } from "./status";
@@ -25,6 +26,7 @@ export function getMDXComponents(components?: MDXComponents) {
     ...defaultMdxComponents,
     a: docsLink(defaultMdxComponents.a as ComponentType<ComponentProps<"a">>),
     Card,
+    DocsHome,
     Accordion,
     Accordions,
     File,

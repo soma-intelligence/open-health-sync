@@ -146,6 +146,8 @@ func RecordDevice(r read.ObservationRecord) read.Device {
 		return read.ProvenanceDevice(r.ECG.Provenance)
 	case read.KindNutrition:
 		return read.ProvenanceDevice(r.Nutrition.Provenance)
+	case read.KindLab:
+		return read.Device{Provider: r.Lab.Provider, Source: deref(r.Lab.Source)}
 	}
 	return read.Device{}
 }
@@ -241,10 +243,11 @@ func ProvenanceSet(base, self string, provs []Provenance) SearchBundle[Provenanc
 
 // Everything is one page of a Patient's $everything: the Patient (on the
 // first page only, patient nil on the others) and the page's Observations as
-// matches, then, as includes, the Devices those Observations reference (each
+// matches, with the DiagnosticReport of each lab report those Observations
+// belong to (reports), then, as includes, the Devices those Observations reference (each
 // once per page) and the Provenance of each Observation. The page is the
 // Observations' page: next is empty on the last one.
-func Everything(user uuid.UUID, base, self, next string, patient *Patient, recs []read.ObservationRecord) SearchBundle[any] {
+func Everything(user uuid.UUID, base, self, next string, patient *Patient, recs []read.ObservationRecord, reports ...read.LabReport) SearchBundle[any] {
 	b := newSearchSet[any](self, next)
 	if patient != nil {
 		b.add(base+"/Patient/"+patient.ID, *patient, ModeMatch)
@@ -262,6 +265,10 @@ func Everything(user uuid.UUID, base, self, next string, patient *Patient, recs 
 			}
 		}
 		provs = append(provs, FromRecordProvenance(user, r))
+	}
+	for _, rep := range reports {
+		d := FromLabReport(user, rep)
+		b.add(base+"/DiagnosticReport/"+d.ID, d, ModeMatch)
 	}
 	for _, d := range devices {
 		b.add(base+"/Device/"+d.ID, d, ModeInclude)

@@ -15,6 +15,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/fhir"
+	"github.com/soma-intelligence/open-health-sync/internal/labs"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -26,6 +27,8 @@ func (s *server) mountFHIR(mux *http.ServeMux) {
 	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/Observation/{observation_id}", s.fhirObservation)
 	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/Patient/{patient_id}", s.fhirPatient)
 	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/Patient/{patient_id}/$everything", s.fhirEverything)
+	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/DiagnosticReport", s.fhirDiagnosticReports)
+	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/DiagnosticReport/{report_id}", s.fhirDiagnosticReport)
 	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/Device", s.fhirDevices)
 	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/Device/{device_id}", s.fhirDevice)
 	s.tenantRoute(mux, "GET /v1/users/{id}/fhir/Provenance", s.fhirProvenances)
@@ -35,8 +38,8 @@ func (s *server) mountFHIR(mux *http.ServeMux) {
 
 // fhirObservations serves the user's records as a searchset Bundle of
 // Observations: quantity samples, blood pressure panels, sleep sessions,
-// workouts, daily summaries, ECG recordings and nutrition logs in one list,
-// paged like every list.
+// workouts, daily summaries, ECG recordings, nutrition logs and lab results
+// in one list, paged like every list.
 func (s *server) fhirObservations(w http.ResponseWriter, r *http.Request) {
 	p, user, ok := pathUser(w, r)
 	if !ok {
@@ -157,8 +160,20 @@ func (s *server) fhirEverything(w http.ResponseWriter, r *http.Request) {
 	if q.Cursor == "" {
 		patient = &pt
 	}
+	// The reports of the page's lab results come along with them.
+	var reportIDs []string
+	for _, rec := range pg.Records {
+		if rec.Lab != nil && rec.Lab.ReportID != nil && !slices.Contains(reportIDs, *rec.Lab.ReportID) {
+			reportIDs = append(reportIDs, *rec.Lab.ReportID)
+		}
+	}
+	reports, err := read.LabReportsByIDs(r.Context(), s.d.Pool, p.TenantID, user, reportIDs)
+	if err != nil {
+		readError(w, r, err, "patient")
+		return
+	}
 	self, next := s.pageLinks(r, pg.NextCursor)
-	writeFHIR(w, fhir.Everything(user, s.fhirBase(r, user), self, next, patient, pg.Records))
+	writeFHIR(w, fhir.Everything(user, s.fhirBase(r, user), self, next, patient, pg.Records, reports...))
 }
 
 // fhirDevices serves the devices of the user's records in a time window as
@@ -266,6 +281,105 @@ func (s *server) fhirProvenance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeFHIR(w, fhir.FromRecordProvenance(user, rec))
+}
+
+// fhirDiagnosticReports serves the user's lab reports as a searchset Bundle
+// of DiagnosticReports, paged by the collection time of each report's first
+// result. Every report is a laboratory one, so a category search for any
+// other finds nothing.
+func (s *server) fhirDiagnosticReports(w http.ResponseWriter, r *http.Request) {
+	p, user, ok := pathUser(w, r)
+	if !ok {
+		return
+	}
+	qs := r.URL.Query()
+	for name := range qs {
+		switch {
+		case slices.Contains(diagnosticReportParams, name):
+		case name == "_format" && slices.Contains([]string{"json", "application/json", fhirJSON}, qs.Get(name)):
+		case fhirHints[name] != "":
+			badRequest(w, "search parameter "+name+" is not supported: "+fhirHints[name])
+			return
+		default:
+			badRequest(w, "search parameter "+name+" is not supported: use "+strings.Join(diagnosticReportParams, ", "))
+			return
+		}
+	}
+	lab := true
+	if v := qs["category"]; len(v) > 0 {
+		if len(v) > 1 || strings.Contains(v[0], ",") {
+			badRequest(w, "category takes a single value")
+			return
+		}
+		system, code, found := strings.Cut(v[0], "|")
+		if !found {
+			system, code = "", v[0]
+		}
+		switch {
+		case (system == "" || system == fhir.DiagnosticServiceSystem) && code == "LAB":
+		case (system == "" || system == fhir.ObservationCategory) && code == fhir.CategoryLaboratory:
+		case system == "" || system == fhir.DiagnosticServiceSystem || system == fhir.ObservationCategory:
+			lab = false
+		default:
+			badRequest(w, "category system not supported: use "+fhir.DiagnosticServiceSystem+" or "+fhir.ObservationCategory)
+			return
+		}
+	}
+	q, err := parseReadQuery(r)
+	if err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	if q.Type != "" {
+		badRequest(w, "the DiagnosticReport search takes category, start, end, limit and cursor")
+		return
+	}
+	if err := read.CheckLabReportQuery(q); err != nil {
+		readError(w, r, err, "user")
+		return
+	}
+	if err := read.CheckUser(r.Context(), s.d.Pool, p.TenantID, user); err != nil {
+		readError(w, r, err, "user")
+		return
+	}
+	pg := read.Page[read.LabReport]{Records: []read.LabReport{}}
+	if lab {
+		if pg, err = read.LabReports(r.Context(), s.d.Pool, p.TenantID, user, q); err != nil {
+			readError(w, r, err, "user")
+			return
+		}
+	}
+	self, next := s.pageLinks(r, pg.NextCursor)
+	writeFHIR(w, fhir.DiagnosticReportSet(user, s.fhirBase(r, user), self, next, pg.Records))
+}
+
+// diagnosticReportParams are the search parameters the DiagnosticReport
+// search takes.
+var diagnosticReportParams = []string{"category", "start", "end", "limit", "cursor"}
+
+// fhirDiagnosticReport reads one DiagnosticReport by the id the Bundle gave
+// it.
+func (s *server) fhirDiagnosticReport(w http.ResponseWriter, r *http.Request) {
+	p, user, ok := pathUser(w, r)
+	if !ok {
+		return
+	}
+	hash, ok := fhir.ParseLabReportID(r.PathValue("report_id"))
+	if !ok {
+		notFound(w, "diagnostic report")
+		return
+	}
+	id, err := read.LabReportIDByHash(r.Context(), s.d.Pool, p.TenantID, user, hash)
+	if err != nil {
+		readError(w, r, err, "diagnostic report")
+		return
+	}
+	rep, err := read.LabReportByID(r.Context(), s.d.Pool, p.TenantID, user, id)
+	if err != nil {
+		readError(w, r, err, "diagnostic report")
+		return
+	}
+	writeFHIR(w, fhir.FromLabReport(user, rep))
 }
 
 // fhirMetadata serves the CapabilityStatement of the user's FHIR base.
@@ -417,8 +531,11 @@ func (s *server) observationFilter(r *http.Request, tenantID, user uuid.UUID, ty
 		if g.Types == nil {
 			g.Types = []string{}
 		}
-		if fs.category == fhir.CategoryActivity {
+		switch fs.category {
+		case fhir.CategoryActivity:
 			g.Workouts, g.Daily = true, true
+		case fhir.CategoryLaboratory:
+			g.Labs = true
 		}
 		f = f.And(g)
 	}
@@ -449,7 +566,7 @@ func (s *server) codeFilter(r *http.Request, system, code string, quantityType f
 		}
 		return read.ObservationFilter{Quantities: true, Types: types,
 			Sleep: code == fhir.LOINCSleepDuration, Workouts: code == fhir.LOINCExerciseDuration,
-			ECG: code == fhir.LOINCECGStudy}, nil
+			ECG: code == fhir.LOINCECGStudy, Labs: true, LabCodes: []string{labs.LOINCPrefix + code}}, nil
 	case fhir.QuantityTypeSystem:
 		return quantityType(code)
 	}

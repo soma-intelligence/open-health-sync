@@ -1,0 +1,88 @@
+{
+  "buckets": [
+    {
+      "avg": 536.3125,
+      "count": 16,
+      "max": 1165,
+      "min": 58,
+      "provider": "apple_health",
+      "source": "Demo Phone",
+      "start": "2026-09-24T00:00:00Z",
+      "sum": 8581,
+      "unit": "count"
+    },
+    {
+      "avg": 542.1875,
+      "count": 16,
+      "max": 1261,
+      "min": 147,
+      "provider": "apple_health",
+      "source": "Demo Phone",
+      "start": "2026-09-25T00:00:00Z",
+      "sum": 8675,
+      "unit": "count"
+    },
+    {
+      "avg": 636.6,
+      "count": 15,
+      "max": 1198,
+      "min": 162,
+      "provider": "apple_health",
+      "source": "Demo Phone",
+      "start": "2026-09-26T00:00:00Z",
+      "sum": 9549,
+      "unit": "count"
+    },
+    {
+      "avg": 864.2,
+      "count": 15,
+      "max": 6022,
+      "min": 125,
+      "provider": "apple_health",
+      "source": "Demo Phone",
+      "start": "2026-09-27T00:00:00Z",
+      "sum": 12963,
+      "unit": "count"
+    },
+    {
+      "avg": 420.75,
+      "count": 16,
+      "max": 1377,
+      "min": 104,
+      "provider": "apple_health",
+      "source": "Demo Phone",
+      "start": "2026-09-28T00:00:00Z",
+      "sum": 6732,
+      "unit": "count"
+    },
+    {
+      "avg": 328.375,
+      "count": 16,
+      "max": 836,
+      "min": 78,
+      "provider": "apple_health",
+      "source": "Demo Phone",
+      "start": "2026-09-29T00:00:00Z",
+      "sum": 5254,
+      "unit": "count"
+    },
+    {
+      "avg": 630.8125,
+      "count": 16,
+      "max": 1476,
+      "min": 111,
+      "provider": "apple_health",
+      "source": "Demo Phone",
+      "start": "2026-09-30T00:00:00Z",
+      "sum": 10093,
+      "unit": "count"
+    }
+  ],
+  "end": "2026-10-01T00:00:00Z",
+  "interval": "day",
+  "start": "2026-09-24T00:00:00Z",
+  "truncated": false,
+  "type": "step_count",
+  "tz": "UTC",
+  "view": "merged"
+}

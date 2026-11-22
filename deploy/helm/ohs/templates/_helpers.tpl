@@ -19,8 +19,8 @@
 {{- end -}}
 
 {{- define "ohs.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "ohs.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/name: {{ include "ohs.name" . | quote }}
+app.kubernetes.io/instance: {{ .Release.Name | quote }}
 {{- end -}}
 
 {{- define "ohs.labels" -}}
@@ -87,6 +87,23 @@ store they all reach: s3, or a ReadWriteMany volume.
 {{- if and .Values.serviceMonitor.enabled (not .Values.config.metrics) -}}
 {{- fail "serviceMonitor.enabled needs config.metrics=true" -}}
 {{- end -}}
+{{- $ops := int .Values.splitRoles.opsPort -}}
+{{- if or (lt $ops 0) (gt $ops 65535) (eq $ops 8080) -}}
+{{- fail "splitRoles.opsPort must be a port other than 8080 (the API's), or 0 to turn the workers' ops listener off" -}}
+{{- end -}}
+{{- if and .Values.splitRoles.enabled (eq $ops 0) -}}
+{{- range $name := list "workerStartupProbe" "workerLivenessProbe" "workerReadinessProbe" -}}
+{{- $probe := index $.Values $name -}}
+{{- if and $probe (index $probe "httpGet") -}}
+{{- fail (printf "splitRoles.opsPort=0 turns the workers' ops listener off: set %s to null, or to an exec probe" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The ops port of the collect and etl pods, empty when it is off or the roles are not split. */}}
+{{- define "ohs.opsPort" -}}
+{{- if and .Values.splitRoles.enabled (gt (int .Values.splitRoles.opsPort) 0) -}}{{ int .Values.splitRoles.opsPort }}{{- end -}}
 {{- end -}}
 
 {{/* Whether the pods mount a single-writer volume (file store, not ReadWriteMany). */}}
@@ -117,6 +134,7 @@ roles (OHS_ROLES), replicas, resources, http (serves the api role).
 {{- define "ohs.deployment" -}}
 {{- $root := .root -}}
 {{- $v := $root.Values -}}
+{{- $ops := include "ohs.opsPort" $root -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -160,11 +178,11 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with $v.serviceAccountName }}
-      serviceAccountName: {{ . }}
+      serviceAccountName: {{ . | quote }}
       {{- end }}
       automountServiceAccountToken: false
       {{- with $v.priorityClassName }}
-      priorityClassName: {{ . }}
+      priorityClassName: {{ . | quote }}
       {{- end }}
       securityContext:
         {{- toYaml $v.podSecurityContext | nindent 8 }}
@@ -174,12 +192,22 @@ spec:
           image: {{ include "ohs.image" $root }}
           imagePullPolicy: {{ $v.image.pullPolicy }}
           # Migrations run in their own Job (or by hand): the pods only serve.
+          # serve refuses a database that is not at its own schema version.
+          {{- if eq (toString $v.allowNewerSchema) "true" }}
+          args: ["serve", "--allow-newer-schema"]
+          {{- else }}
           args: ["serve"]
+          {{- end }}
           envFrom:
             {{- include "ohs.envFrom" $root | nindent 12 }}
           env:
             - name: OHS_ROLES
               value: {{ .roles | quote }}
+            {{- if not .http }}
+            # /healthz, /readyz and /metrics of a pod without the api role.
+            - name: OHS_OPS_LISTEN
+              value: {{ if $ops }}{{ printf ":%s" $ops | quote }}{{ else }}"off"{{ end }}
+            {{- end }}
             {{- with $v.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -197,6 +225,25 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- with $v.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- else }}
+          {{- if $ops }}
+          ports:
+            - name: ops
+              containerPort: {{ $ops }}
+              protocol: TCP
+          {{- end }}
+          {{- with $v.workerStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $v.workerLivenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $v.workerReadinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}

@@ -22,6 +22,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/rekey"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
@@ -109,6 +110,10 @@ func seed(t *testing.T) fixture {
 	_, _, err = tenantkeys.NewPG(pool, oldBox, nil).Put(ctx, tenantkeys.Keys{Tenant: f.tenant, Provider: "oura",
 		Keys: config.ProviderKeys{"CLIENT_ID": "tenant-id", "CLIENT_SECRET": "tenant-secret"}},
 		func(config.ProviderKeys) bool { return true }, nil)
+	require.NoError(t, err)
+	// A secret setting saved in the console, under the old key.
+	_, err = settings.NewPG(pool, oldBox).Apply(ctx, 0, settings.Change{By: uuid.New(),
+		Put: map[string]string{"OHS_METRICS_TOKEN": "metrics-token-secret"}})
 	require.NoError(t, err)
 	return f
 }
@@ -200,6 +205,14 @@ func TestRunRekeysEverySealedColumn(t *testing.T) {
 	require.Len(t, own, 1)
 	require.NoError(t, own[0].OpenErr)
 	require.Equal(t, "tenant-secret", own[0].Keys["CLIENT_SECRET"])
+
+	var own2 settings.State
+	own2, err = settings.NewPG(f.pool, alone).Load(ctx)
+	require.NoError(t, err)
+	require.NoError(t, own2.Rows["OHS_METRICS_TOKEN"].OpenErr)
+	require.Equal(t, "metrics-token-secret", own2.Rows["OHS_METRICS_TOKEN"].Value)
+	require.Equal(t, rekey.Counts{Column: "ohs_core.instance_settings.sealed", Rewritten: 1},
+		c["ohs_core.instance_settings.sealed"])
 
 	// The row no key opens is left exactly as it was, never deleted.
 	var lost []byte

@@ -171,6 +171,9 @@ func (f *fakeProvider) data(w http.ResponseWriter, r *http.Request) {
 	case "500":
 		http.Error(w, "boom", http.StatusInternalServerError)
 		return
+	case "503":
+		http.Error(w, "down for maintenance", http.StatusServiceUnavailable)
+		return
 	case "hang":
 		// Answers only once the caller gives up.
 		<-r.Context().Done()
@@ -258,6 +261,9 @@ func (c fakeConnector) Fetch(ctx context.Context, conn connector.Connection, fro
 		return connector.ErrNeedsReauth
 	case http.StatusForbidden:
 		return fmt.Errorf("data endpoint: 403: %w", connector.ErrMissingScope)
+	case http.StatusServiceUnavailable:
+		// The wording of the real connectors.
+		return fmt.Errorf("fakefit: GET /data: HTTP %d", resp.StatusCode)
 	default:
 		return fmt.Errorf("data endpoint: %d", resp.StatusCode)
 	}

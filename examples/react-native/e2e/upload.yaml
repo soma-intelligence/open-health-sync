@@ -12,6 +12,8 @@ appId: org.openhealthsync.example.reactnative
 - extendedWaitUntil:
     visible: "Open Health Sync example"
     timeout: 180000
+# The field selects its text on focus: a tap puts the cursor where it lands, and
+# eraseText only removes what is before the cursor.
 - tapOn:
     id: "server-url"
 - eraseText: 80
@@ -31,13 +33,19 @@ appId: org.openhealthsync.example.reactnative
 - hideKeyboard
 - tapOn:
     id: "upload"
-- extendedWaitUntil:
-    visible: "Stored"
+# The result card is under the form: on a small emulator screen, with Android's edge to
+# edge layout, it starts below the navigation bar, so scroll to it.
+- scrollUntilVisible:
+    element:
+      text: "Stored"
+    direction: DOWN
     timeout: 60000
 - assertNotVisible: "Upload failed"
 - tapOn:
     id: "send-again"
-- extendedWaitUntil:
-    visible: "Duplicate \\(already stored\\)"
+- scrollUntilVisible:
+    element:
+      text: "Duplicate \\(already stored\\)"
+    direction: DOWN
     timeout: 60000
 - assertNotVisible: "Upload failed"

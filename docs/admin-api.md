@@ -25,6 +25,29 @@ ohs admin tenant create --name tooling --admin   # prints the tooling tenant's f
 Rotate that key with the routes below (create a new key for the tooling tenant, deploy it,
 revoke the old one). A key cannot revoke itself, so the tooling cannot lock itself out.
 
+### What an admin key can do, and a reduced one
+
+An admin key is an API key like any other: it holds [scopes](api.md#key-scopes). The routes
+here need `admin:read` for a `GET` and `admin:write` for everything else, whatever the route
+does for the tenant it names. A key of an admin tenant created without scopes holds `*`: it
+reaches every tenant, as before version 0.3.0.
+
+Two reduced admin credentials exist:
+
+```sh
+# Reads every tenant (dashboards, support), changes nothing.
+ohs admin key create --tenant $TOOLING --scopes admin:read
+# A key of the admin tenant that is no admin at all: its own tenant's users and data only.
+ohs admin key create --tenant $TOOLING --scopes users:read,data:read
+```
+
+`admin:read` still reads every tenant's health data through the tenant routes below.
+`admin:write` is power over the instance: it creates a key with any scope for any tenant, the
+admin tenant included, so it is `*` in practice. There is no admin credential limited to one
+tenant other than that tenant's own key: for that, create a key for the tenant
+(`POST /v1/admin/tenants/{tenant_id}/keys` with the scopes you want) and use it on the tenant
+routes.
+
 ## Routes
 
 | Route | Answer |
@@ -56,10 +79,19 @@ A tenant is:
 }
 ```
 
-`active_keys` counts the keys that are not revoked. A key is the object of `GET /v1/keys`: `id`,
-`prefix` (the first 12 characters, kept to tell keys apart), `created_at`, `last_used_at`,
-`revoked_at` and `current`, true only for the key making the call (so only when you list your
-own tenant's keys). A key just created also has `key`, the whole secret, in that answer only.
+`active_keys` counts the keys that are neither revoked nor expired. A key is the object of
+`GET /v1/keys`: `id`, `prefix` (the first 12 characters, kept to tell keys apart), `created_at`,
+`last_used_at`, `revoked_at`, `expires_at` (null for a key that does not expire), `scopes`
+(what the key may do, `["*"]` for everything) and `current`,
+true only for the key making the call (so only when you list your own tenant's keys). A key
+just created also has `key`, the whole secret, in that answer only.
+
+`POST /v1/admin/tenants/{tenant_id}/keys` takes an optional body `{"expires_at": "<RFC 3339
+time>", "scopes": ["users:read", "data:read"]}`. With `expires_at` the key is refused from
+that time on; a time that is not in the future is a 400. With `scopes` the key does only what
+they allow (the [list](api.md#key-scopes)); without, everything. An unknown scope is a 400. An
+admin grants any scope, one its own key does not hold included.
+Revoking a key also revokes the user tokens it minted.
 
 An unknown `tenant_id` or `key_id`, a malformed one, or a key of another tenant is a 404. Errors
 are [problem details](api.md#conventions):
@@ -111,7 +143,7 @@ curl -s "$OHS/v1/admin/tenants/$TENANT/keys" -H "Authorization: Bearer $ADMIN_KE
 curl -s -X DELETE "$OHS/v1/admin/tenants/$TENANT/keys/$KEY_ID" -H "Authorization: Bearer $ADMIN_KEY"
 ```
 
-`POST .../keys` takes no body (or `{}`) and answers the new key with its secret, 201,
+`POST .../keys` takes no body (or `{}`, or the `expires_at` and `scopes` above) and answers the new key with its secret, 201,
 `Cache-Control: no-store`. `DELETE` answers 204; revoking a revoked key succeeds again. The key
 making the call cannot be revoked (409): revoke it with another key of its tenant. Nothing stops
 you from revoking a tenant's last key: `POST .../keys` makes a new one.
@@ -322,7 +354,7 @@ any tenant: it spares minting one, and the tenant's log names the admin.
 |---|---|
 | `GET /users`, `POST /users`, `GET /users/{id}`, `DELETE /users/{id}`, `GET /deletions/{job_id}` | [Users](api.md#users) |
 | `GET /users/{id}/daily`, `/samples`, `/samples/stats`, `/sleep`, `/workouts`, `/nutrition`, `/coverage` | [Reading data](api.md#reading-data) |
-| `GET /users/{id}/connections`, `/freshness`, `/sync-runs`, `/sync-runs/{run}`; `POST /users/{id}/connect-sessions`, `/connections/{provider}/sync`; `DELETE /users/{id}/connections/{provider}` | [Connecting a provider](api.md#connecting-a-provider), [the connection page](connect-page.md), [sync history](sync-health.md) |
+| `GET /users/{id}/connections`, `/freshness`, `/sync-runs`, `/sync-runs/{run}`; `POST /users/{id}/connect-sessions`, `/connections/{provider}/sync`, `/sync-runs/{run_id}/retry`, `/connections/{provider}/sync-runs/retry`; `DELETE /users/{id}/connections/{provider}` | [Connecting a provider](api.md#connecting-a-provider), [the connection page](connect-page.md), [sync history](sync-health.md) |
 | `/webhooks` and every route under it: create, list, read, change, delete, `rotate-secret`, `test`, deliveries, `retry`, `replay` | [Webhooks](webhooks.md) |
 | `GET /pipeline/sync-runs`, `/pipeline/etl-jobs`; `POST /pipeline/etl-jobs/retry`, `/pipeline/etl-jobs/{job_id}/retry` | [Running the instance](api.md#running-the-instance) |
 | `GET /audit` | The tenant's [audit log](audit-log.md) |
@@ -369,7 +401,11 @@ request through the tenant routes gets an event too, with the user of the path.
 
 - Renaming or deleting a tenant.
 - Making a tenant an instance admin, or clearing the mark: `ohs admin tenant admin`.
-- The [admin console](console.md) still shows the tenant of the key signed in.
+- The [admin console](console.md) shows the tenant of the key signed in, until an admin session
+  switches tenant with `PUT /console/session/tenant` (body `{"tenant_id": "..."}`, a session of an
+  instance admin tenant, key with `admin:read`; 404 for an unknown tenant). It is a console session
+  route, not a bearer route: a request with a bearer key answers 401. The switch is recorded as
+  `session.tenant`, see [audit-log.md](audit-log.md#console-sessions).
 - The server SDKs leave these routes out, as they do the provider settings; their types
   (`AdminTenant`, `CreatedAdminTenant`, `DemoUser`, `AdminTenantProvider`,
   `AdminTenantProviderKeys`) are generated. The

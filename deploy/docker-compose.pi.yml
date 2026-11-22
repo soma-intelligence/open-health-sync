@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Overlay for a Raspberry Pi 5 with 4 GB of memory.
-#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.pi.yml up -d
+#   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.pi.yml up -d
 services:
   postgres:
     command:

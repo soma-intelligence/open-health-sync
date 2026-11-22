@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -22,8 +23,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -64,7 +67,16 @@ func testConfig(t *testing.T, url string) config.Config {
 		Roles:           map[string]bool{"api": true, "etl": true},
 		Metrics:         true,
 		EncryptionKey:   make([]byte, 32),
+		Vault:           testVault(t),
 	}
+}
+
+// testVault is the local provider with the root key Load derives from the
+// zero encryption key of testConfig.
+func testVault(t *testing.T) config.Vault {
+	root, err := config.DeriveVaultRootKey(make([]byte, 32))
+	require.NoError(t, err)
+	return config.Vault{Provider: "local", RootKey: root, RootDerived: true}
 }
 
 // start runs the app until the test ends and waits for /healthz.
@@ -391,4 +403,94 @@ func TestRunDeletesUserThroughWorker(t *testing.T) {
 	require.NoError(t, pool.QueryRow(context.Background(),
 		`SELECT status FROM ohs_core.deletion_jobs WHERE id = $1`, job.JobID).Scan(&status))
 	assert.Equal(t, "done", status)
+}
+
+// A read's audit event waits in the batch writer; stopping the process
+// writes it, after the HTTP server has stopped and before the pool closes.
+func TestRunFlushesAuditAtShutdown(t *testing.T) {
+	url := db.TestDB(t)
+	cfg := testConfig(t, url)
+	logs := &syncBuffer{}
+	stop := start(t, cfg, logs)
+	keys := bootstrapKeys(t, logs.String())
+	require.Len(t, keys, 1)
+	const reads = 5
+	for range reads {
+		req, _ := http.NewRequest("GET", "http://"+cfg.Listen+"/v1/providers", nil)
+		req.Header.Set("Authorization", "Bearer "+keys[0])
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		res.Body.Close()
+		require.Equal(t, http.StatusOK, res.StatusCode)
+	}
+	require.NoError(t, stop(), "graceful shutdown")
+	assert.NotContains(t, logs.String(), "audit: batch not written")
+	assert.NotContains(t, logs.String(), "audit: flush at shutdown")
+
+	pool, err := db.Open(context.Background(), url)
+	require.NoError(t, err)
+	defer pool.Close()
+	var n int
+	require.NoError(t, pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM ohs_core.audit_events WHERE action = 'config.read'`).Scan(&n))
+	assert.Equal(t, reads, n, "every read is in the audit log once the process has stopped")
+}
+
+// A level saved in the console reaches the running process without a
+// restart: after a reload a debug line is written, before it none.
+func TestLiveSettingsApplyWithoutRestart(t *testing.T) {
+	url := db.TestDB(t)
+	cfg := testConfig(t, url)
+	logs := &syncBuffer{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	opts := options{
+		grace: time.Second, margin: time.Second,
+		// The environment a reload resolves the stored rows over.
+		lookup: func(k string) (string, bool) {
+			v, ok := map[string]string{
+				"OHS_DATABASE_URL":   url,
+				"OHS_ENCRYPTION_KEY": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+			}[k]
+			return v, ok
+		},
+		environ:     []string{},
+		reloadEvery: 200 * time.Millisecond,
+	}
+	go func() { done <- runWith(ctx, cfg, logs, opts) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Logf("run stopped: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("run did not stop")
+		}
+	})
+	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "ohs started") },
+		30*time.Second, 50*time.Millisecond)
+
+	slog.Debug("probe before")
+	require.NotContains(t, logs.String(), "probe before", "info level: no debug line")
+
+	pool, err := db.Open(ctx, url)
+	require.NoError(t, err)
+	defer pool.Close()
+	box, err := crypto.NewKeyring(cfg.EncryptionKey)
+	require.NoError(t, err)
+	_, err = settings.NewPG(pool, box).Apply(ctx, 0, settings.Change{
+		By: uuid.New(), Put: map[string]string{"OHS_LOG_LEVEL": "debug"},
+	})
+	require.NoError(t, err)
+
+	// Within two reload intervals (and the test's own slack for a slow CI).
+	ok := assert.Eventually(t, func() bool {
+		slog.Debug("probe after")
+		return strings.Contains(logs.String(), "probe after")
+	}, 5*time.Second, 50*time.Millisecond)
+	if !ok {
+		t.Log(logs.String())
+	}
 }

@@ -14,8 +14,9 @@ in SQL.
 
 ## 1. Start an instance
 
-Follow the [quickstart](../../README.md#quickstart) to *Start the stack*: clone the repository,
-create `.env` with a fresh encryption key, and start it with Docker Compose. Then create your
+Follow the [quickstart](../../README.md#quickstart): clone the repository, create `.env` with a
+fresh encryption key, and start it with Docker Compose (skip `ohs seed --demo` if you only want
+your own data). Then create your
 own user:
 
 ```sh

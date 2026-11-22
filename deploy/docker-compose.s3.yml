@@ -2,7 +2,7 @@
 #
 # Overlay: keep raw files in a local S3 compatible store (VersityGW, POSIX
 # backend) instead of a plain directory.
-#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.s3.yml up -d
+#   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.s3.yml up -d
 # Use a real S3 bucket instead by setting OHS_RAW_STORE (and AWS_* credentials)
 # in .env and skipping this overlay.
 services:
@@ -23,7 +23,7 @@ services:
       retries: 20
 
   s3-init:
-    image: amazon/aws-cli:2.38.1
+    image: amazon/aws-cli:2.38.4
     restart: "no"
     depends_on:
       s3:

@@ -24,7 +24,7 @@ func (f fakeServer) RoundTrip(r *http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: status, Header: h, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 }
 
-const user = `{"id":"3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11","external_ref":null,"status":"active","created_at":"2026-01-10T10:00:00Z"}`
+const user = `{"id":"3f0c2f8e-8b8a-4c55-9f5e-2b0f3a1d9c11","external_ref":null,"status":"active","created_at":"2026-01-10T10:00:00Z","timezone":null,"timezone_source":null}`
 
 func record(t *testing.T, srv fakeServer, method, path, auth string) Call {
 	t.Helper()
@@ -54,7 +54,9 @@ func TestRecorderAcceptsDocumentedExchange(t *testing.T) {
 
 func TestRecorderFlagsUndocumentedField(t *testing.T) {
 	c := record(t, func(*http.Request) (int, string, string) {
-		return 200, "application/json", `{"data":[` + strings.TrimSuffix(user, "}") + `,"secret":1},` + strings.TrimSuffix(user, "}") + `,"secret":2}],"next_cursor":null,"total":3}`
+		// A list item is the user with its sources and last_data_at (UserListItem).
+		item := strings.TrimSuffix(user, "}") + `,"sources":0,"last_data_at":null`
+		return 200, "application/json", `{"data":[` + item + `,"secret":1},` + item + `,"secret":2}],"next_cursor":null,"total":3}`
 	}, "GET", "/v1/users", "k")
 	assert.Contains(t, c.Problems, "response: undocumented field $.data[].secret")
 	assert.Contains(t, c.Problems, "response: undocumented field $.total")
@@ -144,7 +146,7 @@ func TestRecorderFHIRGoldenFiles(t *testing.T) {
 	assert.Equal(t, "searchFHIRObservations", c.Operation)
 
 	c = record(t, func(*http.Request) (int, string, string) {
-		return 200, "application/fhir+json", `{"resourceType":"Observation","id":"qs-1","status":"preliminary","code":{"text":"x"},"subject":{"reference":"Patient/x"}}`
+		return 200, "application/fhir+json", `{"resourceType":"Observation","id":"qs-1","status":"registered","code":{"text":"x"},"subject":{"reference":"Patient/x"}}`
 	}, "GET", fhirPath+"/qs-1", "k")
 	require.NotEmpty(t, c.Problems, "the body is checked against the schema")
 	assert.Contains(t, c.Problems[0], "response:")

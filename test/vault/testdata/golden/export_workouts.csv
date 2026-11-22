@@ -1,0 +1,4 @@
+activity_type,start_date,end_date,duration_s,active_energy_kcal,distance_m,avg_heart_rate,max_heart_rate,avg_speed_mps,elevation_gain_m,vo2_max,external_id,metadata,provider,source,device
+cycling,2026-09-24T16:00:00Z,2026-09-24T17:08:00Z,4080,633,31641,144,160,7.76,161,,demo-polar-exercise-2026-09-24,"{""timezone"":""Europe/Paris"",""synthetic"":true}",polar,polar,
+running,2026-09-26T07:36:00Z,2026-09-26T09:05:00Z,5340,855,14952,147,161,2.8,41,46.6,demo-polar-exercise-2026-09-26,"{""timezone"":""Europe/Paris"",""synthetic"":true}",polar,polar,
+walking,2026-09-27T12:55:00Z,2026-09-27T14:01:00Z,3960,398,5286,115,127,1.33,17,,demo-polar-exercise-2026-09-27,"{""timezone"":""Europe/Paris"",""synthetic"":true}",polar,polar,

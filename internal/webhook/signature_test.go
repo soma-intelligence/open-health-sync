@@ -66,3 +66,39 @@ func TestVerifyRefuses(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// During a rotation a request carries one signature per secret: a receiver
+// holding either secret accepts it.
+func TestSignAll(t *testing.T) {
+	current, _ := NewSecret()
+	previous, _ := NewSecret()
+	now := time.Now()
+	body := []byte(`{"a":1}`)
+	one, _ := Sign(current, "id", now, body)
+	got, err := SignAll([]string{current}, "id", now, body)
+	if err != nil || got != one {
+		t.Fatalf("SignAll with one secret = %q, %v, want %q", got, err, one)
+	}
+	both, err := SignAll([]string{current, previous}, "id", now, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parts := strings.Fields(both); len(parts) != 2 || parts[0] != one {
+		t.Fatalf("SignAll = %q, want the current secret's signature first, then one more", both)
+	}
+	for name, secret := range map[string]string{"current": current, "previous": previous} {
+		if err := Verify(secret, "id", itoa(now.Unix()), both, body, now); err != nil {
+			t.Errorf("%s secret: %v", name, err)
+		}
+	}
+	other, _ := NewSecret()
+	if err := Verify(other, "id", itoa(now.Unix()), both, body, now); !errors.Is(err, ErrVerify) {
+		t.Errorf("other secret: %v", err)
+	}
+	if _, err := SignAll([]string{current, "nope"}, "id", now, body); !errors.Is(err, ErrSecret) {
+		t.Errorf("malformed secret: %v", err)
+	}
+	if _, err := SignAll(nil, "id", now, body); !errors.Is(err, ErrSecret) {
+		t.Errorf("no secret: %v", err)
+	}
+}

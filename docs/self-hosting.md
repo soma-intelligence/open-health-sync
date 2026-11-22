@@ -15,6 +15,7 @@ root. This is the README sequence:
 ```sh
 cp .env.example .env
 sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
 docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
 docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs doctor
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs admin tenant create --name dev
@@ -30,6 +31,19 @@ docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs seed -
 Compose reads `${...}` variables (`OHS_VERSION`, `OHS_HTTP_PORT`, `OHS_HTTP_BIND`, `POSTGRES_PASSWORD`, `S3_*`)
 from the shell or `--env-file`, so keep `--env-file .env` on every `docker compose` command.
 The containers read `.env` themselves either way.
+
+`POSTGRES_PASSWORD` is required (0.3.0 and later): the compose file has no default, and every
+`docker compose` command stops with "set POSTGRES_PASSWORD" when it is missing or empty. The
+second `sed` line generates one, in hex because compose puts it into `OHS_DATABASE_URL` as it
+is, without percent-encoding. If you choose your own, keep to hex or URL-safe characters
+(letters, digits, `-`, `.`, `_`, `~`): an `@`, `/`, `?`, `#`, `&`, `:` or `%` breaks the URL or
+changes what it means, and compose reads a `$` as the start of a variable. The
+password is only applied when the database volume is first created. An install made before
+0.3.0 without one runs on the old default: put `POSTGRES_PASSWORD=ohs` in `.env` to keep it
+running, then change it as described under [rotating secrets](#rotating-secrets). The
+connection inside the compose network uses `sslmode=disable`: the bundled Postgres has no
+certificate, its port is not published, and the traffic stays on this host. A database on
+another host needs TLS, see [hardening.md](hardening.md#network-and-tls).
 
 `OHS_ENCRYPTION_KEY` must hold 32 random bytes in base64; the `sed` line above fills it. Keep
 it: it encrypts the OAuth tokens stored in the database. To change it later, follow
@@ -85,12 +99,18 @@ a probe object in the raw store; a host folder bind mounted at `/var/lib/ohs/raw
 writable by the container user (`chown -R 65532:65532 <folder>`). `ohs serve` runs the same
 write check at start and stops if it fails.
 
+The doctor also reads the settings saved from the console. A `warn` line lists stored names no release setting reads
+any more (`warn  settings: stored values no release setting reads any more: OHS_X (remove them with PATCH
+/v1/admin/settings {"OHS_X": null})`), and one line per stored value a process would skip as invalid
+(`warn  settings: stored value skipped: OHS_X: ...`). Neither fails the run. Before migration `0056` it prints
+`skip  settings`.
+
 ## Images and architectures
 
 Each release publishes `ghcr.io/soma-intelligence/open-health-sync` for `linux/amd64` and
-`linux/arm64`, tagged with the version (`0.2.0`) and `edge` (the newest final release, never a pre-release such as `0.2.0-rc.1`).
+`linux/arm64`, tagged with the version (`0.3.0`) and `edge` (the newest final release, never a pre-release such as `0.3.0-rc.1`).
 There is no `latest` tag while the version is 0.x: pin a version. The compose file
-uses `${OHS_VERSION:-0.2.0}`; set `OHS_VERSION` to move to another release.
+uses `${OHS_VERSION:-0.3.0}`; set `OHS_VERSION` to move to another release.
 Release binaries for Linux and macOS (amd64, arm64) and their `checksums.txt` are
 attached to each [GitHub release](https://github.com/soma-intelligence/open-health-sync/releases).
 Releases after 0.1.0 sign the image digest and `checksums.txt` with Sigstore cosign (keyless);
@@ -129,7 +149,7 @@ Add it before any other overlay (Raspberry Pi, S3). The end to end suites
 ## Raspberry Pi 5 (4 GB)
 
 ```sh
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.pi.yml up -d
+docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.pi.yml up -d
 ```
 
 The overlay trims Postgres (`shared_buffers=128MB`, `effective_cache_size=512MB`,
@@ -141,7 +161,7 @@ small hosts.
 ## S3 compatible raw store
 
 ```sh
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.s3.yml up -d
+docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.s3.yml up -d
 ```
 
 The overlay runs VersityGW (`versity/versitygw:v1.8.0`, pinned by digest, POSIX
@@ -153,9 +173,38 @@ conditional writes (`If-None-Match`) depend on the stored metadata. Set
 credentials. To use AWS S3 or another service instead, skip the overlay and set
 `OHS_RAW_STORE=s3://bucket?region=...` plus the usual `AWS_*` credentials.
 
+To have every object encrypted by the service as it is written, whatever the bucket's default,
+add `sse` to the URL (0.3.0 and later). It is off by default, because not every S3 compatible
+server accepts the header:
+
+| URL parameter | Effect on every write |
+|---|---|
+| `sse=AES256` | `x-amz-server-side-encryption: AES256` (keys managed by S3) |
+| `sse=aws:kms` | `x-amz-server-side-encryption: aws:kms`, with the account's default KMS key |
+| `sse=aws:kms&sse_kms_key_id=<key id or ARN>` | the same, with that KMS key; the credentials need `kms:GenerateDataKey` and `kms:Decrypt` on it |
+
+```
+OHS_RAW_STORE=s3://my-ohs-raw?region=eu-west-3&sse=aws:kms&sse_kms_key_id=alias/ohs-raw
+```
+
+Any other value stops `ohs` at start. Objects written before the setting keep the encryption
+they had.
+
 ## Configuration
 
-Environment variables only, documented line by line in `.env.example`.
+Environment variables, documented line by line in `.env.example`. Most settings can also be saved from the
+[console](console.md#settings-saved-from-the-console), and for each setting a process runs with the first of: its
+environment variable (or `_FILE` twin), the value saved in the console, the default. The environment wins.
+
+A setting applies in one of three ways. **Live** settings reach every process within 30 seconds, without a restart:
+`OHS_LOG_LEVEL`, `OHS_RETENTION_DAYS`, `OHS_AUDIT_RETENTION_DAYS`, `OHS_TRACKING_RETENTION_DAYS`,
+`OHS_CONSENT_REQUIRED`, `OHS_BACKFILL_DAYS`, `OHS_WEBHOOK_PAUSE_AFTER`, `OHS_WEBHOOK_ROTATION_GRACE_HOURS`,
+`OHS_RATE_LIMIT_API`, `OHS_RATE_LIMIT_AUTH_FAILURES`, `OHS_RATE_LIMIT_INBOUND`,
+`OHS_RATE_LIMIT_INBOUND_PROVIDER` and `OHS_RATE_LIMIT_OAUTH`. **Restart** settings (all the others) are stored at once
+and apply when each process next starts. **Bootstrap** settings are only read from the environment, never stored:
+`OHS_DATABASE_URL`, `OHS_ENCRYPTION_KEY`, `OHS_ENCRYPTION_KEY_FILE`, `OHS_PREVIOUS_ENCRYPTION_KEYS`, every
+`OHS_VAULT_*` variable, `OHS_RAW_STORE`, `OHS_LISTEN`, `OHS_OPS_LISTEN`, `OHS_METRICS_LISTEN`, `OHS_ROLES`,
+`OHS_CONSOLE`, `OHS_SETUP_TOKEN`, `OHS_SETUP_TOKEN_FILE` and `OHS_BOOTSTRAP_TENANT`.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -163,8 +212,20 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_ENCRYPTION_KEY` | none, required | 32 random bytes, base64. Seals stored OAuth tokens and webhook secrets. `openssl rand -base64 32` makes one, or `ohs doctor` prints one |
 | `OHS_ENCRYPTION_KEY_FILE` | none | Path of a file holding the key, used instead of `OHS_ENCRYPTION_KEY` (setting both is an error). If the file does not exist, `ohs` writes a random key into it on first start (mode 0600, parent folder created) and reads it back on every start after. For app store templates and Docker secrets. Back the file up with the database. 0.2.0 and later |
 | `OHS_PREVIOUS_ENCRYPTION_KEYS` | none | Comma separated keys `OHS_ENCRYPTION_KEY` replaced: they still open what they sealed, never seal. Set only while [rotating the key](key-rotation.md). 0.2.0 and later |
+| `OHS_VAULT_KEY_PROVIDER` | `local` | Which key guards the keys of the [health data vault](security-model.md#health-data-vault): `local`, `hashicorp`, `azurekv` or `awskms`. The last two need a binary built with their provider: the release binaries and image are (`-tags azurekv,awskms`); `make build` is not |
+| `OHS_VAULT_ROOT_KEY` | derived | `local` provider: 32 random bytes, base64. Unset, the root key is derived from `OHS_ENCRYPTION_KEY` (HKDF-SHA-256), so an upgrade needs no new secret, and `ohs doctor` warns that one secret then guards both |
+| `OHS_VAULT_ROOT_KEY_FILE` | none | Path of a file holding the root key, used instead of `OHS_VAULT_ROOT_KEY` (not both). It is never created: a missing file is an error |
+| `OHS_VAULT_ROOT_KEY_PREVIOUS` | none | Comma separated root keys that were replaced: they still open, never wrap. Set only while rotating the root key |
+| `OHS_VAULT_HASHICORP_ADDR` | none | HashiCorp Vault address, for example `https://vault.example.org:8200`. Required with `hashicorp` |
+| `OHS_VAULT_HASHICORP_MOUNT` | `transit` | Mount of the transit engine |
+| `OHS_VAULT_HASHICORP_KEY` | none | Name of the transit key, created with `derived=true` (`ohs` refuses it otherwise). Required with `hashicorp` |
+| `OHS_VAULT_HASHICORP_TOKEN_FILE` | none | Path of a file holding the Vault token, read at each call so a renewed token is picked up. Unset, the token is `VAULT_TOKEN`. The file wins when both are set |
+| `OHS_VAULT_AZURE_KEY_ID` | none | Azure Key Vault or Managed HSM key URI. Required with `azurekv` |
+| `OHS_VAULT_AWS_KEY_ARN` | none | AWS KMS key ARN. Required with `awskms` |
+| `OHS_VAULT_CACHE_USERS` | `1024` | Users whose unwrapped keys are kept in memory |
+| `OHS_VAULT_CACHE_TTL` | `10m` | How long an unwrapped key stays in memory |
 | `OHS_PUBLIC_URL` | `http://localhost:8080` | Public base URL, used for OAuth callbacks, notification URLs and [share links](share-links.md). Use your https address |
-| `OHS_RAW_STORE` | `file:///var/lib/ohs/raw` | `file:///path` or `s3://bucket?endpoint=&region=&path_style=true` |
+| `OHS_RAW_STORE` | `file:///var/lib/ohs/raw` | `file:///path` or `s3://bucket?endpoint=&region=&path_style=true&sse=` |
 | `OHS_ROLES` | `api,collect,etl` | Roles this process runs |
 | `OHS_BOOTSTRAP_TENANT` | none | Creates this tenant at first start and logs its API key once. It is an [instance admin](console.md#the-instance-admin) |
 | `OHS_LISTEN` | `:8080` | Listen address |
@@ -175,20 +236,37 @@ Environment variables only, documented line by line in `.env.example`.
 | `OHS_METRICS` | `true` | Serve Prometheus metrics on `/metrics` (see [Metrics](self-hosting.md#metrics)) |
 | `OHS_METRICS_TOKEN` | none | Bearer token a scrape of `/metrics` presents, 16 characters or more (`openssl rand -hex 32`). Without it the API listener refuses every scrape |
 | `OHS_METRICS_LISTEN` | none | Serve `/metrics` on this address instead of the API listener, for example `127.0.0.1:9464`; the token is then asked for only when set |
+| `OHS_OPS_LISTEN` | `127.0.0.1:8081` without the `api` role, none with it | Serve `/healthz`, `/readyz` and `/metrics` on this address, without a credential: the health checks and [worker metrics](observability.md#worker-metrics) of a process that serves no API. `/healthz` answers 503 when a [background loop is hung](observability.md#health). `off` turns it off. In a container set `:8081` and do not publish the port |
 | `OHS_CONSENT_REQUIRED` | `false` | Store nothing from a source until the user's [consent](consent.md) for it is recorded; by default a source without consent stores everything |
 | `OHS_AUDIT_RETENTION_DAYS` | `365` | Delete [audit events](audit-log.md) older than this many days, once a day; 0 keeps every event |
 | `OHS_RETENTION_DAYS` | `0` | Delete raw files and normalized data older than this many days (the HealthKit record aliases of those rows included; deletion tombstones and tags are kept); 0 keeps everything |
 | `OHS_PULLS_PER_PROVIDER` | `4` | Pulls of one provider running at once, across every `collect` instance. See [provider rate limits](background-sync.md#provider-rate-limits) |
 | `OHS_BACKFILLS_PER_PROVIDER` | `2` | Of those, backfills of new connections |
+| `OHS_PULL_CONCURRENCY` | `4` | Pulls one `collect` process runs at once, all providers together (1 to 256). Each holds a database connection while it writes: see [pool size](#database-pool-size). 0.3.0 and later |
+| `OHS_SCHEDULE_BATCH` | `1000` | Pulls one scheduling pass queues, once a minute (1 to 100000); the rest wait for the next pass. See [scheduling at scale](background-sync.md#scheduling-at-scale). 0.3.0 and later |
+| `OHS_BACKFILL_DAYS` | none | How far back a new connection is pulled, in days, for every provider (1 to 1825, five years). Unset, each provider keeps its own window, 30 days for most; a provider that declares less keeps its own value. See [backfill](background-sync.md#backfill). 0.3.0 and later |
+| `OHS_ETL_CONCURRENCY` | `4` | Processing jobs each tier of one `etl` process runs at once (1 to 64). There are two tiers, so the default is 8 jobs: size the [pool](#database-pool-size) with it. 0.3.0 and later |
+| `OHS_ETL_JOBS_PER_USER` | `1` | Of the running jobs of one tier, how many may belong to one user, across every `etl` process (0 to 64, `0` for no cap). The writes of one user take turns anyway, so more than one mostly holds slots the other users wait for. 0.3.0 and later |
+| `OHS_TRACKING_RETENTION_DAYS` | `90` | Delete sync log rows and finished processing jobs older than this many days, once a day. `0` means the default (90), 1 to 13 count as 14 and a negative value such as `-1` keeps them for ever. It never touches health data. 0.3.0 and later |
 | `OHS_INGEST_CONCURRENCY` | `8` | Device uploads one `api` process handles at once; more answer 503 with `Retry-After`. The Pi overlay sets 2 |
 | `OHS_INGEST_TENANT_CONCURRENCY` | half of `OHS_INGEST_CONCURRENCY`, rounded up | Of those, the share one tenant is sure to get. Past it a tenant still takes free slots, but leaves a reserve of one slot in eight (at least one) to the other tenants, so one tenant (a large import, a gzip bomb) cannot refuse their uploads: a lone tenant uses 7 of the 8 default slots. From 1 to `OHS_INGEST_CONCURRENCY`; equal to it, there is no share and no reserve (a single-tenant instance that wants every slot) |
 | `OHS_INGEST_MAX_DECOMPRESSED_MIB` | `64` | How far one uploaded part may expand once decompressed, in MiB (1 to 512); a larger part answers 413. The SDKs and `ohs import` write parts of at most 8 MiB of NDJSON. 0.2.0 and earlier allowed 512 |
 | `OHS_MAX_CONNECTIONS` | `4096` | HTTP connections the `api` process holds open at once (about 35 KB each); one over it is closed as soon as it is accepted, and the client retries |
 | `OHS_WEBHOOK_ALLOW_PRIVATE` | `false` | `true` lets [webhook](webhooks.md) endpoints use plain http and private, loopback or link-local addresses (a receiver on the same host or network). Leave it off when tenants are not trusted |
+| `OHS_WEBHOOK_CONCURRENCY` | `8` | [Webhook](webhooks.md) deliveries one `etl` process posts at once (1 to 256). 0.3.0 and later |
+| `OHS_WEBHOOK_PER_ENDPOINT` | `2` | Of those, deliveries in flight to one endpoint, counted over every `etl` process (1 to `OHS_WEBHOOK_CONCURRENCY`). Give every `etl` process the same value. 0.3.0 and later |
+| `OHS_WEBHOOK_PER_TENANT` | half of `OHS_WEBHOOK_CONCURRENCY` | Deliveries in flight to all the endpoints of one tenant, counted over every `etl` process (1 to `OHS_WEBHOOK_CONCURRENCY`; `4` with the default concurrency, at least 1), so one tenant with many slow endpoints leaves slots to the others. An instance with a single tenant can set it to `OHS_WEBHOOK_CONCURRENCY`. Give every `etl` process the same value. 0.3.0 and later |
+| `OHS_WEBHOOK_PAUSE_AFTER` | `5` | Failed attempts in a row after which an endpoint is paused, then probed (0 to 1000, `0` never pauses). 0.3.0 and later |
+| `OHS_STREAM_MAX` | `1000` | [Event streams](events-stream.md) one `api` process holds open at once (0 to 100000); one more answers 429. `0` turns the event stream off: its routes answer 404 and no event is kept for it. Give every process the same value. 0.3.0 and later |
+| `OHS_STREAM_MAX_PER_TENANT` | `10` | Of those, the streams of one tenant (1 to `OHS_STREAM_MAX`); one more answers 429. Counted per `api` process. 0.3.0 and later |
+| `OHS_WEBHOOK_ROTATION_GRACE_HOURS` | `24` | Hours the secret a rotation replaced keeps signing next to the new one (0 to 168); `0` ends it at once on every rotation. Read by the `api` role. 0.3.0 and later |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Turns on OpenTelemetry traces, sent over OTLP to this address. The other standard `OTEL_` variables apply; see [observability](observability.md) |
 | `OHS_RATE_LIMIT_INBOUND` | `30/120` | Notification requests (`/inbound/{provider}`) per client address: `rate/burst` in requests per second, `0` disables. See [rate limits](#rate-limits). 0.2.0 and later |
 | `OHS_RATE_LIMIT_INBOUND_PROVIDER` | `300/600` | Notification requests per provider, whatever the address; `0` disables. 0.2.0 and later |
 | `OHS_RATE_LIMIT_OAUTH` | `2/20` | OAuth callback requests per client address, and in buckets of their own `POST /v1/setup` requests and share link manifest and file requests; `0` disables. 0.2.0 and later |
+| `OHS_RATE_LIMIT_API` | `200/2000` | Requests of one credential on the authenticated API (an API key by itself, the tokens of one user together), per `api` process; `0` disables. See [rate limits](#rate-limits). 0.3.0 and later |
+| `OHS_RATE_LIMIT_AUTH_FAILURES` | `1/60` | Refused keys and tokens (401) per client address: past it, the refused ones of that address answer 429 instead of 401; a request with a valid key or token is never refused by it. `0` turns the throttle off (refused credentials are still recorded as `auth.failed`). Behind a reverse proxy it needs `OHS_TRUSTED_PROXIES`. 0.3.0 and later |
+| `OHS_COMPRESSION` | `true` | Gzip JSON, NDJSON, FHIR, CSV and YAML responses of 1 KiB and more for a client that sends `Accept-Encoding: gzip`. Set `false` behind a reverse proxy that compresses. 0.3.0 and later |
 | `OHS_TRUSTED_PROXIES` | none | Comma-separated CIDRs (or addresses) of your reverse proxies. Only a request from one of them has its client address read from `X-Forwarded-For`. 0.2.0 and later |
 | `OHS_<PROVIDER>_CLIENT_ID`, `_CLIENT_SECRET` | none | Keys of a provider; its connector is on when they are set. Every process that runs `collect` or `etl` needs them (see below). Or save them from the [console](console.md#where-provider-keys-come-from) instead (0.2.0 and later); set here, they win |
 
@@ -197,6 +275,13 @@ Environment variables only, documented line by line in `.env.example`.
 An upload in flight holds its whole body (at most 64 MiB of gzip) while it is checked and
 stored, and the check decompresses it in a stream (at most 64 MiB, `OHS_INGEST_MAX_DECOMPRESSED_MIB`).
 The rest of the process (the ETL workers, the pulls, the pools) stays around 100 to 300 MB.
+An ETL job does not hold its part: a part with more than 10,000 samples is read twice and
+written in chunks of 10,000 inside its one transaction, so a job peaks near 40 MiB of heap
+whatever the size of the part (a 64 MiB part took over 500 MiB when it was held whole). Under the low memory profile (a soft
+limit of 512 MiB or less) the chunks are 2,500 samples and a job peaks near 12 MiB. What a job
+still holds whole are the records that need each other: sleep sessions with their stages,
+workouts with their routes, ECG recordings, nutrition logs, provider daily summaries and
+deletions.
 Plan for about 200 MB plus 100 MB per upload slot in the worst case, when every slot holds a
 large part at once; real parts from the SDKs and `ohs import` are 8 MiB of NDJSON or less.
 
@@ -227,10 +312,12 @@ Keep the two together: about 200 MB plus 100 MB per slot of `OHS_INGEST_CONCURRE
 Each process opens one Postgres pool. The compose file sets `pool_max_conns=20` (all roles in
 one process). Set it in the URL form of `OHS_DATABASE_URL` (`postgres://...?pool_max_conns=20`):
 the keyword/value form (`host=db pool_max_conns=20`) is not supported for it, because the
-migrations and `ohs doctor` drop the `pool_` parameters from the URL form only. Elsewhere, without a setting pgx sizes it to the number of CPUs (at
-least 4), which is too small once several roles share it: the ETL alone runs 4 jobs per tier on
-two tiers, and the uploads, pulls, deletion worker and background jobs each hold a connection
-while they work. Set the size with `pool_max_conns` in the URL:
+migrations and `ohs doctor` drop the `pool_` parameters from the URL form only. Without a
+setting, the pool holds up to 20 connections (0.3.0 and later; before, pgx sized it to the
+number of CPUs, at least 4, which was too small once several roles shared it: the ETL alone
+runs 4 jobs per tier on two tiers, and the uploads, pulls, deletion worker and background jobs
+each hold a connection while they work). The pool only opens the connections it uses. Set
+another size with `pool_max_conns` in the URL:
 
 ```
 OHS_DATABASE_URL=postgres://ohs:secret@db:5432/ohs?sslmode=disable&pool_max_conns=20
@@ -243,8 +330,15 @@ OHS_DATABASE_URL=postgres://ohs:secret@db:5432/ohs?sslmode=disable&pool_max_conn
 | `collect` only | 8 |
 | `etl` only | 12 |
 
+The table fits the defaults. A process holds a connection per job at work: add what you add to
+`OHS_ETL_CONCURRENCY` twice (it counts per tier, and there are two), and once what you add to
+`OHS_PULL_CONCURRENCY` and `OHS_WEBHOOK_CONCURRENCY`. A pool that is too small does not fail:
+jobs wait for a connection, and the extra concurrency buys nothing.
+
 Keep the sum over all processes under Postgres `max_connections` (100 by default, 30 in the Pi
-overlay), with a few to spare for `psql` and migrations.
+overlay), with a few to spare for `psql` and migrations. With the default of 20, that is four
+processes on a stock Postgres: with more (split roles and several replicas), set a smaller
+`pool_max_conns` per role from the table, or raise `max_connections`.
 
 ### Provider keys in every role
 
@@ -273,6 +367,12 @@ uptime monitor or a load balancer reads as down (and breaks the provider callbac
 Check from outside with `curl -i https://health.example.org/healthz`: the answer is `200` and
 `ok`, with no `Location` header.
 
+The file also adds the usual security headers to every response: `Strict-Transport-Security`
+(one year; without `includeSubDomains`, which you add only when every subdomain serves https),
+and, where `ohs` did not already send its own, `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a `Permissions-Policy` that turns
+off camera, microphone, geolocation and payment. With another proxy, set the same headers there.
+
 ### Rate limits
 
 The provider-facing routes take no credential: `POST` and `GET /inbound/{provider}`
@@ -283,8 +383,15 @@ verify a signature, write rows and queue pulls, and each callback reads the data
 in-memory token bucket bounds them, per `api` process. A request over a limit is answered 429
 with `Retry-After` (seconds) before any work, and counted in `/metrics` as
 `ohs_rate_limited_total{route_group="inbound"}`, `{route_group="oauth_callback"}`,
-`{route_group="setup"}` or `{route_group="share"}`. The
-authenticated API is not limited.
+`{route_group="setup"}` or `{route_group="share"}`.
+
+Since 0.3.0 the authenticated API is limited too, per credential rather than per address
+(`{route_group="api"}`), and a client address that presents refused keys or tokens in a row
+gets 429 instead of 401 for the next ones it presents (`{route_group="auth_failure"}`); see
+[api.md](api.md#rate-limit) for what a client sees. That throttle only answers requests whose
+credential was refused: a valid key or token is looked up and served whatever its address
+presented before, so one client guessing cannot lock out the others behind the same address.
+Each refused credential also counts in `ohs_auth_failures_total`.
 
 | Bucket | Default | Variable |
 |---|---|---|
@@ -293,13 +400,22 @@ authenticated API is not limited.
 | OAuth callbacks, per client address | 2 requests/s, bursts of 20 | `OHS_RATE_LIMIT_OAUTH` |
 | First-run setup (`POST /v1/setup`), per client address | same as OAuth callbacks, its own bucket | `OHS_RATE_LIMIT_OAUTH` |
 | Share link manifest and file requests, per client address | same as OAuth callbacks, their own bucket | `OHS_RATE_LIMIT_OAUTH` |
+| Authenticated requests, per credential (an API key; the tokens of one user together) | 200 requests/s, bursts of 2,000 | `OHS_RATE_LIMIT_API` |
+| Refused keys and tokens (401), per client address | 60 in a row, then 1 a second | `OHS_RATE_LIMIT_AUTH_FAILURES` |
 
 The values are `rate/burst` (`30/120`; the rate may be a decimal, `0.5/10`), and `0` turns a
 bucket off. The defaults sit well above what a provider sends, batched notifications and a
 large backfill included; providers retry a 429. The per provider bucket keeps a flood from
 many spoofed addresses from queueing unlimited work. An IPv6 client is counted by its /64.
 Buckets idle for 10 minutes are dropped, and at most 100,000 addresses are tracked per route
-group: beyond that, new addresses share one bucket until idle ones are dropped.
+group: beyond that, new addresses share one bucket until idle ones are dropped, except for
+refused credentials, where an address past the cap is counted and never throttled.
+
+The limits per client address need `OHS_TRUSTED_PROXIES` behind a reverse proxy. Without it
+every client has the proxy's address: the 60 refused credentials are shared by all of them, a
+guesser is slowed down no more than anyone, and a client presenting a revoked or expired key
+gets 429 where it would get 401. `ohs serve` logs a warning at start when it listens on
+anything but a loopback address and `OHS_TRUSTED_PROXIES` is empty.
 
 The client address is the TCP peer. Behind a reverse proxy every request comes from the proxy,
 so list the proxy in `OHS_TRUSTED_PROXIES`: for a request from one of those addresses, the
@@ -326,25 +442,114 @@ Releases are 0.x: any of them may change the API, the configuration or the schem
 the new version in `.env` and recreate the container:
 
 ```sh
-# .env: OHS_VERSION=0.2.0
+# .env: OHS_VERSION=0.3.0
 docker compose --env-file .env -f deploy/docker-compose.yml pull ohs
 docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
 docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs version
 ```
 
 The container runs `ohs up`, so pending migrations apply on start; `ohs migrate version` prints
-the schema version. There is no step-by-step downgrade (`ohs migrate down --all` drops
+the schema version. From 0.3.0 new health data is sealed by the
+[vault](security-model.md#health-data-vault); after the upgrade run `ohs vault seal` once to
+seal what the earlier version stored (it works in batches and resumes after a stop), then
+`ohs vault status --check`, which exits non-zero while anything is still stored in clear. Once a
+row is sealed, 0.2.0 cannot read it. There is no step-by-step downgrade (`ohs migrate down --all` drops
 everything): to go back, run the old version on a restored backup.
 
 Without compose, the order is the same: back up, stop `ohs`, replace the binary, then start it
 with `ohs up` (or run `ohs migrate up` before `ohs serve`). Several processes on one database
 (split roles) must all run the same version: stop them all, migrate once, then start the new
-version everywhere. If a migration fails, `ohs migrate version` shows `(dirty)` and `ohs up`
-refuses to serve: restore the backup and report the error rather than editing the schema by
-hand.
+version everywhere.
 
 With the Helm chart, see [Upgrading](helm.md#upgrading) there: a Job applies the migrations
 before the new pods start.
+
+### Schema version check
+
+Since 0.3.0, `ohs serve` compares the schema version of the database (`ohs migrate version`)
+with the one its binary migrates to (`ohs migrate latest`) before it starts any role, and exits
+with a message naming both when they differ:
+
+| The database is | `ohs serve` says | Do |
+|---|---|---|
+| behind the binary | `database schema is behind this binary ... run ohs migrate up` | `ohs migrate up`, or start with `ohs up` |
+| ahead of the binary | `database schema is ahead of this binary` | run the release that migrated it, or restore the backup taken before the upgrade |
+| dirty | `database schema is dirty` | [recover from the failed migration](#recover-from-a-failed-migration) |
+
+The check runs at start only: a process that is already running keeps running when another one
+migrates the database under it. That is what makes the order above matter. The safe order is
+always: back up, migrate once, then start (or restart) every process on the new version. An old
+process left running after the migration works only as long as the migration was additive; if
+it restarts, it refuses to start until it runs the new version.
+
+`ohs serve --allow-newer-schema` starts on a database that is ahead (never on one that is
+behind or dirty) and logs a warning. It exists for one case: rolling the binary back without
+restoring a backup. Use it only when the release notes of the newer version say its migrations
+are additive.
+
+**Expand, then contract.** From 0.3.0 the project writes its migrations so that the previous
+release still runs on the new schema: a migration adds tables, columns, indexes or policies
+(expand); a column or table the previous release still reads is only dropped or renamed one
+release later (contract). A release whose migrations break that rule says so at the top of its
+release notes, and then needs every process stopped before the migration.
+
+### Recover from a failed migration
+
+A migration that fails, or whose process is killed half way (an out of memory kill, a deadline
+on a Kubernetes Job, a lost connection), leaves the schema marked dirty: `ohs migrate version`
+prints `schema version N (dirty)`, where N is the migration `ohs migrate up` did not finish, and
+`ohs migrate up`, `ohs up` and `ohs serve` all refuse to go on. Nothing clears the mark by
+itself.
+
+1. Find out why it stopped: the error `ohs migrate up` printed, the Postgres log. Report it if
+   it is not a local cause (disk full, a timeout, a killed process).
+2. If you have the backup taken before the upgrade and can afford to lose what was written
+   since, restoring it is the simplest way back: [backup-and-restore.md](backup-and-restore.md).
+3. Otherwise decide which version the schema is really at. Each migration file runs as one
+   statement batch, and most of them are a single transaction, so a failed migration N has
+   normally changed nothing: the schema is still at the version before N. Compare with
+   `internal/db/migrations/<N>_*.up.sql` in the source of that release (`\d` in `psql` on the
+   tables it touches). If part of it was applied, undo that part by hand, or finish it.
+4. Record that version and clear the mark, then migrate again:
+
+   ```sh
+   ohs migrate force <version> --yes   # the version before N; 0 when N is the first migration
+   ohs migrate up
+   ohs migrate version                 # schema version <latest>, no "(dirty)"
+   ```
+
+   With compose: `docker compose --env-file .env -f deploy/docker-compose.yml run --rm ohs migrate force <version> --yes`.
+   If you finished migration N by hand instead, force N itself.
+
+`ohs migrate force` runs no migration and checks nothing about the tables: it only rewrites
+the recorded version and clears the mark. It refuses to run without `--yes`, on a schema that
+is not dirty (there is nothing to recover, and a wrong version would make the next
+`ohs migrate up` run migrations again or skip some), and for a version that cannot be the
+right one. The mark is set on the version a migration leads to, before it runs, so with
+`N (dirty)` only three versions are accepted (the numbering has gaps, so the version before
+0018 is 0015; `ls internal/db/migrations` shows them, and 0 stands for no migration applied):
+
+| After | The mark is on | Force |
+|---|---|---|
+| a failed `ohs migrate up` to N | N | the version before N when nothing of N is applied (the usual case), or N once you finished it by hand |
+| a failed `ohs migrate down --all` while it reverted M | N, the version before M (`0 (dirty)` when M is the first migration) | N once you finished reverting M by hand, or M, the version after N, once you undid the part that was reverted |
+
+Within those three, forcing a version the schema is not really at still makes the next
+`ohs migrate up` fail or, worse, skip a migration.
+
+### Storage layout
+
+The measurements are TimescaleDB hypertables. Since 0.3.0 (migration 0049):
+
+- **Compression.** Unchanged: chunks of `quantity_samples` older than 30 days are compressed
+  (since 0.1.0). `heartbeat_samples`, `ecg_samples` and `route_points` are not compressed: their
+  duplicate check needs a unique index, which a compressed chunk cannot serve for a period
+  delivered again.
+- **Chunk interval.** New chunks of the sparse tables (`sleep_sessions`, `workouts`,
+  `nutrition_logs`, `ecg_recordings`, `daily_summaries`) cover 30 days instead of 7, which
+  divides the number of chunks a long history creates by four. Existing chunks keep their size.
+  To pick another interval for new chunks:
+  `SELECT set_chunk_time_interval('ohs_data.workouts', INTERVAL '90 days');`
 
 ### What the upgrade test checks
 
@@ -389,19 +594,34 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
   $DC exec ohs /ohs admin key revoke --tenant <tenant id> --key <old prefix>
   ```
 
-  A user token minted with the old key keeps working until it expires. `key revoke` with a
-  whole user token (`ohs_ut_...`) revokes that token.
+  Revoking the old key revokes the user tokens it minted; a token minted before 0.3.0 is tied
+  to no key and keeps working until it expires. `key revoke` with a whole user token
+  (`ohs_ut_...`) revokes that token.
 - **`OHS_ENCRYPTION_KEY`.** Since 0.2.0, rotate it online: put the new key in `OHS_ENCRYPTION_KEY` and the
   old one in `OHS_PREVIOUS_ENCRYPTION_KEYS`, restart every process, run `ohs admin rekey`, then
   remove the old key once `ohs doctor` says nothing uses it. The whole procedure, and what
   happens when a step is skipped, is in [rotating the encryption key](key-rotation.md). On 0.1.0,
   and whenever the old key is not kept, replacing it leaves the stored OAuth tokens, webhook secrets
-  and provider keys saved in the console unreadable: each user must connect the provider again. Uploads and stored data are not
-  affected.
+  and provider keys saved in the console unreadable: each user must connect the provider again.
+  While the vault root key is derived from `OHS_ENCRYPTION_KEY` (the default), the old key also
+  opens the tenant keys until `ohs admin rekey` has rewrapped them: losing it then loses every
+  sealed health record.
+- **Vault root key.** Set the new key (`OHS_VAULT_ROOT_KEY` or its file, the replaced one in
+  `OHS_VAULT_ROOT_KEY_PREVIOUS`), run `ohs vault rotate root`, then restart every process.
+  The same command moves a derived root key to one of its own. See
+  [the vault root key](key-rotation.md#the-vault-root-key).
 - **Provider secrets.** See the Withings note under operating notes below.
 - **`POSTGRES_PASSWORD`** only applies when the database volume is first created. To change it
-  later, run `ALTER USER ohs PASSWORD '...'` in `psql`, then update `.env` and recreate both
-  containers.
+  later (also the way off the old default `ohs` of an install made before 0.3.0), run
+  `ALTER USER ohs PASSWORD '...'` in `psql`, then update `.env` and recreate both containers:
+
+  ```sh
+  DC="docker compose --env-file .env -f deploy/docker-compose.yml"
+  NEW=$(openssl rand -hex 24)
+  $DC exec postgres psql -U ohs -d ohs -c "ALTER USER ohs PASSWORD '$NEW'"
+  sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$NEW|" .env
+  $DC up -d --wait
+  ```
 
 ## Operating notes
 
@@ -493,6 +713,12 @@ archive, a cron example, the S3 raw store, restore steps and how to verify a bac
 - **Rate limits on the provider-facing routes.** Notifications and OAuth callbacks over the
   limits answer 429 with `Retry-After`; see [rate limits](self-hosting.md#rate-limits). Behind a
   reverse proxy, set `OHS_TRUSTED_PROXIES`, or every request counts against the proxy's address.
+- **Rate limits on the authenticated API.** One credential gets 200 requests a second with
+  bursts of 2,000 per `api` process (`OHS_RATE_LIMIT_API`), and an address that keeps
+  presenting refused keys or tokens gets 429 for them (`OHS_RATE_LIMIT_AUTH_FAILURES`), so a
+  runaway client costs no database work and a key guesser one lookup a guess, with no audit
+  row. Behind a reverse proxy the second limit needs `OHS_TRUSTED_PROXIES` too. A load test from one key needs
+  `OHS_RATE_LIMIT_API=0`, or a higher value, on the instance under test.
 
 ### Metrics
 
@@ -519,5 +745,9 @@ instance, so it is closed unless you open it one of two ways:
 
 With neither, `/metrics` answers 403 and names the two settings. `OHS_METRICS=false` removes the
 route altogether.
-[observability.md](observability.md) lists the metrics, and how to turn on OpenTelemetry
-traces.
+A process without the `api` role (`OHS_ROLES=collect`, `etl`) has no API listener: it serves
+`/healthz`, `/readyz` and its own `/metrics` on `OHS_OPS_LISTEN` (`127.0.0.1:8081` by default),
+without a token. Scrape each worker there, and never publish that port either.
+
+[observability.md](observability.md) lists the metrics, the health checks of the workers, and
+how to turn on OpenTelemetry traces.

@@ -39,7 +39,7 @@ export interface PageBase {
   next_cursor: string | null;
 }
 
-export type ConsentCategoryName = "activity" | "location" | "heart" | "ecg" | "blood_pressure" | "glucose" | "respiratory" | "body" | "sleep" | "nutrition" | "reproductive" | "mental" | "other";
+export type ConsentCategoryName = "activity" | "location" | "heart" | "ecg" | "blood_pressure" | "glucose" | "respiratory" | "body" | "sleep" | "nutrition" | "reproductive" | "mental" | "labs" | "other";
 
 export interface ConsentCategory {
   category: ConsentCategoryName;
@@ -81,26 +81,68 @@ export interface Tenant {
 export interface TenantKey {
   id: string;
   prefix: string;
+  /** What the key may do. `["*"]` is everything; never empty. */
+  scopes: KeyScopes;
 }
 
 export interface APIKey {
   id: string;
+  /** What the key is for. Null for a key created without a name. */
+  name: string | null;
   /** The start of the key, kept in clear to tell keys apart. */
   prefix: string;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  /** When the key stops working by itself. Null for a key that does not expire. */
+  expires_at: string | null;
+  /** What the key may do. `["*"]` is everything; never empty. */
+  scopes: KeyScopes;
   /** True for the key making the call. */
   current: boolean;
 }
 
+/**
+ * One thing an API key may do. `*` is everything. A `:write` scope also grants the
+ * `:read` of the same resource. `admin:read` and `admin:write` count only on a key of an
+ * instance admin tenant.
+ */
+export type KeyScope = "*" | "tenant:read" | "users:read" | "users:write" | "tokens:write" | "data:read" | "data:write" | "data:delete" | "connections:read" | "connections:write" | "webhooks:read" | "webhooks:write" | "exports:read" | "exports:write" | "keys:read" | "keys:write" | "audit:read" | "admin:read" | "admin:write";
+
+/** What the key may do. `["*"]` is everything; never empty. */
+export type KeyScopes = KeyScope[];
+
+export interface CreateKeyRequest {
+  /**
+   * What the key is for ("Production backend", "CI"): at most 100 characters once trimmed.
+   * Absent, null or blank: the key has no name. The console asks for one.
+   */
+  name?: string | null;
+  /**
+   * When the key stops working by itself (RFC 3339, in the future). Absent or null: the
+   * key lives until it is revoked.
+   */
+  expires_at?: string | null;
+  /**
+   * What the key may do. Absent, null or empty: on `POST /v1/keys` the scopes of the
+   * key making the call, on the admin route `["*"]`. A list holding `*` is `["*"]`.
+   */
+  scopes?: KeyScope[] | null;
+}
+
 export interface CreatedAPIKey {
   id: string;
+  /** What the key is for. Null for a key created without a name. */
+  name: string | null;
   /** The start of the key, kept in clear to tell keys apart. */
   prefix: string;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  /** When the key stops working by itself. Null for a key that does not expire. */
+  expires_at: string | null;
+  /** What the key may do. `["*"]` is everything; never empty. */
+  scopes: KeyScopes;
   /** True for the key making the call. */
   current: boolean;
   /** The whole key, returned this once. */
@@ -113,7 +155,7 @@ export interface AdminTenant {
   /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
   admin: boolean;
   created_at: string;
-  /** The tenant's keys that are not revoked. */
+  /** The tenant's keys that are neither revoked nor expired. */
   active_keys: number;
 }
 
@@ -123,7 +165,7 @@ export interface CreatedAdminTenant {
   /** True for an instance admin tenant, whose keys reach the /v1/admin routes. */
   admin: boolean;
   created_at: string;
-  /** The tenant's keys that are not revoked. */
+  /** The tenant's keys that are neither revoked nor expired. */
   active_keys: number;
   /** The tenant's first key, with its secret, returned this once. */
   key: CreatedAPIKey;
@@ -178,6 +220,12 @@ export interface Pipeline {
   storage: PipelineStorage;
   /** Webhook endpoints (failing ones are on but their last deliveries failed) and the deliveries not done. */
   delivery: PipelineDelivery;
+  /**
+   * What the tenant has stored since its first record, whatever the way in (a connection, an
+   * app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+   * figures of the other stages are activity, not totals.
+   */
+  data: PipelineData;
 }
 
 export interface PipelineUser {
@@ -222,6 +270,21 @@ export interface PipelineDelivery {
   parked: number;
 }
 
+/**
+ * What the tenant has stored since its first record, whatever the way in (a connection, an
+ * app upload, a demo seed), summed from the coverage report of every user. The 24 hour
+ * figures of the other stages are activity, not totals.
+ */
+export interface PipelineData {
+  records: number;
+  /** Users with at least one record. */
+  users: number;
+  /** Providers with at least one record. */
+  sources: number;
+  /** When the last record landed; null before the first. */
+  last_synced_at: string | null;
+}
+
 export interface PipelineSource {
   slug: string;
   name: string;
@@ -231,6 +294,11 @@ export interface PipelineSource {
   connections: Record<string, number>;
   /** Active connections whose health is not ok. */
   broken: number;
+  /**
+   * The tenant's records stored from this provider. A provider with records and no
+   * connection (app uploads, a demo seed) is listed for them.
+   */
+  records: number;
   /** Set while the provider's rate limit pauses every pull. */
   paused_until: string | null;
 }
@@ -333,6 +401,86 @@ export interface AdminProviderKey {
   value: string | null;
 }
 
+export interface AdminSetting {
+  name: string;
+  label: string;
+  section: string;
+  help: string;
+  type: "bool" | "int" | "duration" | "enum" | "url" | "list" | "rate" | "string";
+  /** The lower bound of an `int`, else null. */
+  min: number | null;
+  /** The upper bound of an `int`, else null. */
+  max: number | null;
+  /** The choices of an `enum`, else null. */
+  values: string[] | null;
+  /** The default as a string; empty when it is derived (see `default_note`). */
+  default: string;
+  /** How a derived default is computed. */
+  default_note: string | null;
+  /** Write only; its value is never served. */
+  secret: boolean;
+  /**
+   * `live` is applied by every process within moments, `restart` when a process next starts,
+   * `bootstrap` is read from the environment before the database opens and cannot be edited here.
+   */
+  apply: "live" | "restart" | "bootstrap";
+  source: "env" | "console" | "default";
+  /** The effective value; for a secret `"set"`, or null when it is not set. */
+  value: string | null;
+  /** The value saved in the console while `source` is `env` (`"set"` for a secret), else null. */
+  stored_value: string | null;
+  /** Why the saved value is skipped, else null. */
+  invalid: string | null;
+}
+
+export interface AdminSettings {
+  revision: number;
+  /** Every setting, in registry order. */
+  data: AdminSetting[];
+}
+
+/** Setting name to its new value, or null to go back to the default. */
+export type AdminSettingsPatch = Record<string, string | null>;
+
+/** A refused settings change, with one entry per setting at fault. */
+export interface AdminSettingsProblem {
+  type: string;
+  title: string;
+  status: number;
+  detail?: string;
+  /** The X-Request-Id of the response, to quote when reporting the error. */
+  request_id?: string;
+  settings: AdminSettingsProblemSetting[];
+}
+
+export interface AdminSettingsProblemSetting {
+  name: string;
+  message: string;
+}
+
+export interface AdminProcess {
+  id: string;
+  host: string;
+  roles: string[];
+  version: string;
+  started_at: string;
+  seen_at: string;
+  start_revision: number;
+  live_revision: number;
+  /** Saved settings this process did not use (names only). */
+  skipped: string[];
+  reload_error: string | null;
+  /** It started before the last change to a `restart` setting. */
+  behind: boolean;
+  /** Its live revision trails the stored one for over a minute. */
+  stale: boolean;
+}
+
+export interface AdminProcesses {
+  revision: number;
+  data: AdminProcess[];
+}
+
 export interface AdminProviderPatch {
   /** Key name to its new value; null removes the key. */
   keys?: Record<string, string | null>;
@@ -431,16 +579,22 @@ export interface AuditEvent {
   at: string;
   actor: AuditEventActor;
   /**
-   * data.read, data.export, data.write, user.create, user.read, user.delete,
+   * data.read, data.export, data.write, user.create, user.read, user.update, user.delete,
    * user.erased, token.create, connection.read, connection.create,
    * connection.delete, connection.sync, webhook.read, webhook.write, audit.read, config.read,
    * config.write, tenant.create, tenant.provider, tenant.provider_keys, key.create,
    * key.revoke, share.create,
-   * share.read, share.revoke, share.access (more may be added).
+   * share.read, share.revoke, share.access, session.create, session.read,
+   * session.delete, session.tenant (more may be added).
    */
   action: string;
   /** The end user the action concerns. */
   user_id: string | null;
+  /**
+   * The tenant of the console session behind the request, which differs from the tenant
+   * of the event when an admin session views another tenant. Null for a key or token.
+   */
+  actor_tenant_id: string | null;
   /** The HTTP method, absent outside a request. */
   method?: string;
   /** The route pattern, absent outside a request. */
@@ -463,6 +617,41 @@ export interface AuditEventActor {
   id: string;
 }
 
+export interface ConsoleSignIn {
+  /** A tenant API key (`ohs_sk_`) with the `tenant:read` scope. Never stored or logged. */
+  key: string;
+}
+
+export interface ConsoleTenantSwitch {
+  tenant_id: string;
+}
+
+export interface ConsoleTenant {
+  id: string;
+  name: string;
+  /** True for the instance admin tenant. */
+  admin: boolean;
+}
+
+export interface ConsoleSession {
+  /**
+   * Sent for the `X-OHS-CSRF` header of every write. Present after sign in and on
+   * `GET /console/session` (which replaces the token); absent after a tenant switch.
+   */
+  csrf_token?: string;
+  /** The tenant of the key that signed in. */
+  tenant: ConsoleTenant;
+  /** The tenant requests of the session run as. */
+  acting_tenant: ConsoleTenant;
+  /** The first 12 characters of the key, as `/v1/keys` shows them. */
+  key_prefix: string;
+  key_scopes: string[];
+  /** True when the server runs with OHS_CONSOLE=read-only. */
+  read_only: boolean;
+  /** Seven days after sign in. Twelve hours without a request ends it sooner. */
+  expires_at: string;
+}
+
 export interface Provider {
   slug: string;
   /** Display name, the slug when the build has none. Older servers leave it out. */
@@ -475,6 +664,16 @@ export interface Provider {
 export interface CreateUserRequest {
   /** The tenant's own reference, unique per tenant. */
   external_ref?: string;
+  /**
+   * The user's IANA time zone, such as `Europe/Paris`. Left out or null, the user has
+   * none until one is set or learnt from a device upload. See `User.timezone`.
+   */
+  timezone?: string | null;
+}
+
+export interface UpdateUserRequest {
+  /** An IANA time zone name such as `Europe/Paris`, or null to clear the user's zone. */
+  timezone: string | null;
 }
 
 export interface User {
@@ -482,6 +681,44 @@ export interface User {
   external_ref: string | null;
   status: "active" | "deleting";
   created_at: string;
+  /**
+   * The user's IANA time zone, null when none is known. It is the zone of the local
+   * day of a sample that carries no zone of its own: daily totals take the sample's
+   * zone, then this one, then UTC.
+   */
+  timezone: string | null;
+  /**
+   * Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+   * when it was taken from the latest record of a device upload (Apple Health, Health
+   * Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+   * Null when `timezone` is.
+   */
+  timezone_source: "explicit" | "learnt" | null;
+}
+
+/** A user of the list, with what the coverage report holds for them. */
+export interface UserListItem {
+  id: string;
+  external_ref: string | null;
+  status: "active" | "deleting";
+  created_at: string;
+  /**
+   * The user's IANA time zone, null when none is known. It is the zone of the local
+   * day of a sample that carries no zone of its own: daily totals take the sample's
+   * zone, then this one, then UTC.
+   */
+  timezone: string | null;
+  /**
+   * Where `timezone` came from: `explicit` when it was set through this API, `learnt`
+   * when it was taken from the latest record of a device upload (Apple Health, Health
+   * Connect) that carried a zone. An explicit zone is never replaced by a learnt one.
+   * Null when `timezone` is.
+   */
+  timezone_source: "explicit" | "learnt" | null;
+  /** The providers the user has records from, whatever the way in. */
+  sources: number;
+  /** When the user's last record landed; null before the first. */
+  last_data_at: string | null;
 }
 
 export interface DeletionJob {
@@ -505,6 +742,11 @@ export interface MintTokenRequest {
 }
 
 export interface UserToken {
+  /**
+   * Names the token without revealing it (the first 16 hex characters of its SHA-256
+   * hash): the audit log's `actor.id`, and what revoking this one token takes.
+   */
+  id: string;
   /** ohs_ut_ token. Shown only once. */
   token: string;
   expires_at: string;
@@ -558,6 +800,19 @@ export interface Webhook {
   last_success_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Failed attempts since the last success, whatever the deliveries. */
+  consecutive_failures: number;
+  /**
+   * Set while the endpoint is paused after failures in a row: nothing is sent to it before
+   * this time, then one request probes it. Null when it is not paused. Enabling the
+   * endpoint or changing its `url` ends a pause.
+   */
+  paused_until: string | null;
+  /**
+   * Until when the secret the last rotation replaced also signs requests; null outside a
+   * rotation's grace period.
+   */
+  previous_secret_expires_at: string | null;
 }
 
 export interface WebhookWithSecret {
@@ -576,6 +831,19 @@ export interface WebhookWithSecret {
   last_success_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Failed attempts since the last success, whatever the deliveries. */
+  consecutive_failures: number;
+  /**
+   * Set while the endpoint is paused after failures in a row: nothing is sent to it before
+   * this time, then one request probes it. Null when it is not paused. Enabling the
+   * endpoint or changing its `url` ends a pause.
+   */
+  paused_until: string | null;
+  /**
+   * Until when the secret the last rotation replaced also signs requests; null outside a
+   * rotation's grace period.
+   */
+  previous_secret_expires_at: string | null;
   /** whsec_ signing secret. Shown only once. */
   secret: string;
 }
@@ -1358,6 +1626,164 @@ export interface SelfReportsResponse {
   duplicate: boolean;
 }
 
+export type LabStatus = "preliminary" | "final" | "amended" | "corrected" | "cancelled";
+
+/** HL7 v3 ObservationInterpretation flags; HH, LL and AA are the critical ones. An upload may send `critical`, stored as AA. */
+export type LabInterpretation = "H" | "L" | "N" | "A" | "HH" | "LL" | "AA";
+
+/** The simple form of a lab upload (docs/labs.md). Unknown fields are a 400. */
+export interface LabUpload {
+  reports: LabReportInput[];
+}
+
+/** One report. Its status (final when absent), collection time, issued time and performer are the defaults of its results. */
+export interface LabReportInput {
+  /** Your id of the report. Unique in the upload. */
+  id?: string;
+  /** The panel's LOINC code. */
+  loinc?: string;
+  /** Your own code of the panel. */
+  code?: string;
+  system?: string;
+  display?: string;
+  status?: LabStatus;
+  /** The default of its results' collection times. */
+  collected_at?: string;
+  issued_at?: string;
+  /** The lab that ran the tests. */
+  performer?: string;
+  /** Who ordered them. */
+  orderer?: string;
+  results: LabResultInput[];
+}
+
+/**
+ * One test result. `loinc` or `code` is required. At most one of `value`,
+ * `value_string` and `value_code`; none only for a cancelled result or one with
+ * `absent`. `collected_at` is required here or on the report.
+ */
+export interface LabResultInput {
+  /** Your id of the result. Sending it again replaces it. */
+  id: string;
+  loinc?: string;
+  /** Your own code of the test. */
+  code?: string;
+  system?: string;
+  display?: string;
+  value?: number;
+  comparator?: "<" | "<=" | ">=" | ">";
+  /** The UCUM unit of `value`. */
+  unit?: string;
+  value_string?: string;
+  value_code?: string;
+  value_system?: string;
+  reference_low?: number;
+  reference_high?: number;
+  reference_text?: string;
+  interpretation?: "H" | "L" | "N" | "A" | "HH" | "LL" | "AA" | "critical";
+  status?: LabStatus;
+  specimen?: string;
+  collected_at?: string;
+  collected_end?: string;
+  issued_at?: string;
+  performer?: string;
+  /** Why there is no value (a FHIR data absent reason code). */
+  absent?: string;
+}
+
+/**
+ * A FHIR R4 Bundle, DiagnosticReport or Observation of category laboratory. A
+ * DiagnosticReport's results are resolved in the Bundle (by fullUrl or Type/id) or in
+ * its contained resources. See docs/labs.md for the elements read and those rejected.
+ */
+export interface FHIRLabUpload {
+  resourceType: "Bundle" | "DiagnosticReport" | "Observation";
+}
+
+export interface LabUploadResponse {
+  /** The reports accepted, in upload order. */
+  reports: LabUploadResponseReport[];
+  /** true when this exact body had already been received. */
+  duplicate: boolean;
+}
+
+export interface LabUploadResponseReport {
+  /** Null for the results a FHIR upload sent without a DiagnosticReport. */
+  id: string | null;
+  results: LabUploadResponseReportResult[];
+}
+
+export interface LabUploadResponseReportResult {
+  id: string;
+  /** `lab:loinc:<code>` or `lab:local:<code>`. */
+  code: string;
+  status: LabStatus;
+}
+
+export interface LabResult {
+  /** The integration the record came through (apple_health, withings...). */
+  provider: string;
+  /** The vendor that produced the record, when it differs or is known. */
+  source: string | null;
+  device: string | null;
+  ingested_at: string;
+  id: number;
+  report_id: string | null;
+  code: string;
+  loinc: string | null;
+  source_code: string | null;
+  source_system: string | null;
+  display: string | null;
+  value: number | null;
+  unit: string | null;
+  comparator: string | null;
+  value_string: string | null;
+  value_code: string | null;
+  value_system: string | null;
+  /** The value in `normalized_unit`, only for the analytes and units of the normalization table (docs/labs.md). */
+  normalized_value: number | null;
+  normalized_unit: string | null;
+  reference_low: number | null;
+  reference_high: number | null;
+  reference_text: string | null;
+  interpretation: LabInterpretation | unknown;
+  interpretation_text: string | null;
+  critical: boolean;
+  status: LabStatus;
+  specimen: string | null;
+  collected_at: string;
+  collected_end: string | null;
+  issued_at: string | null;
+  /** The source gave no collection time; `collected_at` is the issued time. */
+  issued_as_collected: boolean;
+  data_absent_reason: string | null;
+  performer: string | null;
+  orderer: string | null;
+  /** The source's id of the result. */
+  external_id: string;
+}
+
+export interface LabResultPage {
+  data: LabResult[];
+  /** Null on the last page. */
+  next_cursor: string | null;
+}
+
+export interface LabReport {
+  id: string;
+  loinc: string | null;
+  code: string | null;
+  system: string | null;
+  display: string | null;
+  status: LabStatus | unknown;
+  /** The report's collection time, else the earliest of its results'. */
+  collected_at: string;
+  issued_at: string | null;
+  performer: string | null;
+  orderer: string | null;
+  results: LabResult[];
+}
+
 export interface CreateTimeTagRequest {
   /** The controlled vocabulary of time tags; see docs/time-tags.md. */
   kind: TimeTagKind;
@@ -1392,7 +1818,7 @@ export interface TimeTagPage {
 
 /**
  * The consent categories a share link can hold: those with records in the FHIR view.
- * location, ecg, nutrition, reproductive and mental are refused (400).
+ * location, ecg, nutrition, reproductive, mental and labs are refused (400).
  */
 export type ShareCategory = "activity" | "heart" | "blood_pressure" | "glucose" | "respiratory" | "body" | "sleep" | "other";
 
@@ -1760,7 +2186,7 @@ export interface FHIREverythingBundle {
 
 export interface FHIREverythingBundleEntry {
   fullUrl: string;
-  resource: FHIRPatient | FHIRObservation | FHIRDevice | FHIRProvenance;
+  resource: FHIRPatient | FHIRObservation | FHIRDiagnosticReport | FHIRDevice | FHIRProvenance;
   search?: FHIREverythingBundleEntrySearch;
 }
 
@@ -1808,9 +2234,52 @@ export interface OMHDataPointPage {
   next_cursor: string | null;
 }
 
+/** A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md). */
+export interface FHIRDiagnosticReport {
+  resourceType: "DiagnosticReport";
+  id: string;
+  meta?: FHIRDiagnosticReportMeta;
+  /** The source's report id. */
+  identifier?: FHIRIdentifier[];
+  status: "preliminary" | "final" | "amended" | "corrected" | "cancelled" | "unknown";
+  category: FHIRCodeableConcept[];
+  code: FHIRCodeableConcept;
+  subject: FHIRReference;
+  effectiveDateTime?: string;
+  issued?: string;
+  performer?: FHIRReference[];
+  /** The Observations (`lab-` ids) of its results. */
+  result?: FHIRReference[];
+}
+
+export interface FHIRDiagnosticReportMeta {
+  source?: string;
+}
+
+/** A FHIR R4 searchset Bundle of DiagnosticReports. */
+export interface FHIRDiagnosticReportBundle {
+  resourceType: "Bundle";
+  type: "searchset";
+  link: FHIRBundleLink[];
+  /** Absent on an empty page. */
+  entry?: FHIRDiagnosticReportBundleEntry[];
+}
+
+export interface FHIRDiagnosticReportBundleEntry {
+  fullUrl: string;
+  /** A FHIR R4 DiagnosticReport made from one lab report (docs/labs.md). */
+  resource: FHIRDiagnosticReport;
+  search?: FHIRDiagnosticReportBundleEntrySearch;
+}
+
+export interface FHIRDiagnosticReportBundleEntrySearch {
+  mode?: "match";
+}
+
 /**
  * A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
- * session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+ * session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+ * docs/labs.md).
  */
 export interface FHIRObservation {
   resourceType: "Observation";
@@ -1818,20 +2287,29 @@ export interface FHIRObservation {
   meta?: FHIRObservationMeta;
   /** The provider's own id of the record (of each sample of a panel), when it has one. */
   identifier?: FHIRObservationIdentifier[];
-  status: "final";
+  /** final, except for a lab result, which keeps its own status. */
+  status: "final" | "preliminary" | "amended" | "corrected" | "cancelled";
   category?: FHIRCodeableConcept[];
   code: FHIRCodeableConcept;
   subject: FHIRReference;
   effectiveDateTime?: string;
   effectivePeriod?: FHIRObservationEffectivePeriod;
-  /** When the record was ingested (the later of a panel's two samples). */
+  /** When the record was ingested (the later of a panel's two samples); for a lab result, when the lab issued it. */
   issued?: string;
-  /** The person, on a self report (category survey); absent otherwise. */
+  /** The person, on a self report (category survey); the lab, on a lab result when known; absent otherwise. */
   performer?: FHIRReference[];
   valueQuantity?: FHIRQuantity;
-  /** Instead of valueQuantity for a classification (ecg_afib_classification). */
+  /** Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result. */
   valueCodeableConcept?: FHIRObservationValueCodeableConcept;
+  /** A lab result given as text. */
+  valueString?: string;
   dataAbsentReason?: FHIRCodeableConcept;
+  /** A lab result's flag (v3 ObservationInterpretation H, L, N, A, HH, LL, AA). */
+  interpretation?: FHIRCodeableConcept[];
+  /** A lab result's specimen, as a display. */
+  specimen?: FHIRObservationSpecimen;
+  /** A lab result's reference range, in the unit of its value. */
+  referenceRange?: FHIRObservationReferenceRange[];
   device?: FHIRReference;
   /**
    * The two values of a blood pressure panel, or a sleep session's, workout's, daily
@@ -1858,9 +2336,22 @@ export interface FHIRObservationEffectivePeriod {
   end?: string;
 }
 
-/** Instead of valueQuantity for a classification (ecg_afib_classification). */
+/** Instead of valueQuantity for a classification (ecg_afib_classification) or a coded lab result. */
 export interface FHIRObservationValueCodeableConcept {
   coding?: FHIRCoding[];
+  text?: string;
+}
+
+/** A lab result's specimen, as a display. */
+export interface FHIRObservationSpecimen {
+  reference?: string;
+  identifier?: FHIRIdentifier;
+  display?: string;
+}
+
+export interface FHIRObservationReferenceRange {
+  low?: FHIRQuantity;
+  high?: FHIRQuantity;
   text?: string;
 }
 
@@ -1893,6 +2384,8 @@ export interface FHIRSampledData {
 
 export interface FHIRQuantity {
   value?: number;
+  /** A lab result's bound (`<5`). */
+  comparator?: "<" | "<=" | ">=" | ">";
   unit?: string;
   system?: "http://unitsofmeasure.org";
   code?: string;
@@ -1916,7 +2409,8 @@ export interface FHIRBundleEntry {
   fullUrl: string;
   /**
    * A FHIR R4 Observation made from one quantity sample, a blood pressure pair, a sleep
-   * session, a workout, a daily summary or an ECG recording (docs/fhir.md).
+   * session, a workout, a daily summary, an ECG recording or a lab result (docs/fhir.md,
+   * docs/labs.md).
    */
   resource: FHIRObservation;
   search?: FHIRBundleEntrySearch;
@@ -1931,7 +2425,7 @@ export interface ListProvidersResponse {
 }
 
 export interface ListUsersResponse {
-  data: User[];
+  data: UserListItem[];
   /** Null on the last page. */
   next_cursor: string | null;
 }
@@ -1946,14 +2440,26 @@ export interface ListWebhooksResponse {
   next_cursor: string | null;
 }
 
+export interface RotateWebhookSecretRequest {
+  /** End the replaced secret at once instead of after the grace period. */
+  expire_previous?: boolean;
+}
+
 export interface RotateWebhookSecretResponse {
   secret: string;
+  /** Until when the replaced secret also signs; null when it stopped at once. */
+  previous_secret_expires_at: string | null;
 }
 
 export interface ListWebhookDeliveriesResponse {
   data: WebhookDelivery[];
   /** Null on the last page. */
   next_cursor: string | null;
+}
+
+export interface RevokeUserTokensResponse {
+  /** How many tokens were still valid. */
+  revoked: number;
 }
 
 export interface ListConnectionsResponse {
@@ -2001,6 +2507,10 @@ export interface DeleteProviderDataResponse {
 
 export interface SyncConnectionRequest {
   from?: string;
+}
+
+export interface RetryFailedSyncRunsResponse {
+  retried: number;
 }
 
 export interface ListSyncRunsResponse {
@@ -2073,6 +2583,18 @@ export interface RetryParkedETLJobsRequest {
 }
 
 export interface RetryParkedETLJobsResponse {
+  retried: number;
+}
+
+export interface UpdateAdminSettingsResponse {
+  revision: number;
+  /** The names saved or reset, sorted. */
+  changed: string[];
+  /** The names of `changed` that apply at the next start of each process, sorted. */
+  restart_required: string[];
+}
+
+export interface RetryAdminTenantFailedSyncRunsResponse {
   retried: number;
 }
 

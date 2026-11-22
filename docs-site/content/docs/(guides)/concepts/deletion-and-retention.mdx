@@ -52,7 +52,8 @@ curl -s "$OHS/v1/deletions/$JOB_ID" -H "Authorization: Bearer $KEY"
 ## Disconnecting a provider
 
 `DELETE /v1/users/{id}/connections/{provider}` revokes the grant (best effort) and stops pulling.
-Data already collected is kept. Delete the user to remove it.
+Data already collected is kept. Add `?delete_data=true`, or call
+`DELETE /v1/users/{id}/data/{provider}`, to remove what came from that provider.
 
 ## Retention
 
@@ -65,6 +66,9 @@ OHS_RETENTION_DAYS=365
 
 ## Backups hold deleted data
 
-A deletion removes data from the live instance, not from backups you took before it. Size your
-backup retention to match your own erasure commitments. See
+A deletion removes data from the live instance, not from backups you took before it. The
+deletion destroys the user's vault keys first, so the live rows and objects left behind no longer
+open, but a backup taken before the erasure still holds that user's data for whoever has the root
+key: expire backups, or rotate the root key (`ohs vault rotate root`) and destroy the previous
+version. Size your backup retention to match your own erasure commitments. See
 [Backup and restore](/documentation/self-hosting/backup).

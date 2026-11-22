@@ -1,0 +1,316 @@
+/* ---------- data table, pager, list search, form fields ---------- */
+
+/* The table scrolls inside its card: at 390 px every column and the row actions stay reachable,
+   and the page itself never scrolls sideways. */
+.table-scroll {
+  overflow-x: auto;
+  min-width: 0;
+  margin: 0 calc(-1 * var(--op-s2));
+  padding: 0 var(--op-s2);
+  scrollbar-width: thin;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--op-text-small);
+}
+
+.data-table:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--op-r-control);
+}
+
+.data-table th {
+  text-align: left;
+  font: 500 12px/1.4 var(--op-font);
+  color: var(--op-fg-2);
+  padding: 0 var(--op-s3) var(--op-s2);
+  white-space: nowrap;
+}
+
+.data-table th.num,
+.data-table td.num {
+  text-align: right;
+}
+
+.data-table td {
+  padding: 10px var(--op-s3);
+  border-top: 1px solid var(--op-line);
+  vertical-align: middle;
+}
+
+.data-table th:first-child,
+.data-table td:first-child {
+  padding-left: var(--op-s2);
+}
+
+.data-table th:last-child,
+.data-table td:last-child {
+  padding-right: var(--op-s2);
+}
+
+/* A click on a row only selects it, so the row keeps the default cursor.
+   Rows that open carry a link in their first cell, which shows the way. */
+.row-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--op-fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.row-link .icon {
+  flex: none;
+  color: var(--faint);
+}
+
+.row-link:hover,
+.row-link:focus-visible {
+  color: var(--op-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.row-link:hover .icon,
+.row-link:focus-visible .icon {
+  color: var(--op-accent-text);
+}
+
+.data-table tbody tr:hover td {
+  background: var(--op-card-2);
+}
+
+.data-table tbody tr.selected td {
+  background: var(--op-accent-wash);
+}
+
+/* The action cell stays in view while the rest of the row scrolls under it. */
+.data-table .row-actions-cell {
+  position: sticky;
+  right: 0;
+  background: var(--op-card);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.named {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--op-s2);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--op-s3);
+}
+
+/* ---------- inputs: filled field, a visible 1px boundary, a 2px green focus ring ---------- */
+.list-search {
+  display: flex;
+  gap: var(--op-s2);
+  min-width: 0;
+}
+
+.list-search .input {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 360px;
+}
+
+/* A search in a card header takes the rest of the line, and a whole line when it wraps. */
+.card-r:has(.list-search) {
+  flex: 1 1 320px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.card-r .list-search {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.input,
+select.input,
+textarea.input {
+  font: var(--op-text-body);
+  color: var(--op-fg);
+  background: var(--op-field);
+  border: 1px solid var(--field-border);
+  border-radius: var(--op-r-control);
+  min-height: 36px;
+  padding: 6px var(--op-s3);
+  min-width: 0;
+}
+
+.input.mono {
+  font-family: var(--op-font-mono);
+  font-size: 13px;
+}
+
+.input::placeholder {
+  color: var(--op-fg-2);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  background: var(--op-card);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label,
+.field > .field-label {
+  font: var(--op-text-caption);
+  color: var(--op-fg-2);
+}
+
+.field p {
+  margin: 0;
+}
+
+.confirm-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s3);
+}
+
+.confirm-body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s2);
+}
+
+.confirm-body p {
+  margin: 0;
+}
+
+.filters {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--op-s3);
+  flex-wrap: wrap;
+}
+
+@media (pointer: coarse) {
+  .input {
+    min-height: 44px;
+  }
+}
+
+/* ---------- under 600 px of page width: each row is a card, one label and value per line ---------- */
+@container page (max-width: 599px) {
+  .table-scroll {
+    overflow-x: visible;
+    margin: 0;
+    padding: 0;
+  }
+
+  .data-table,
+  .data-table tbody,
+  .data-table tr,
+  .data-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .data-table tbody tr {
+    padding: var(--op-s3) 0;
+    border-top: 1px solid var(--op-line);
+  }
+
+  .data-table tbody tr:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .data-table td,
+  .data-table th:first-child,
+  .data-table td:first-child,
+  .data-table td:last-child {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--op-s3);
+    padding: var(--op-s1) 0;
+    border-top: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table td::before {
+    content: attr(data-label);
+    flex: none;
+    font: 500 12px/1.4 var(--op-font);
+    color: var(--op-fg-2);
+  }
+
+  /* The first cell names the row: full width, no label. */
+  .data-table td:first-child {
+    display: block;
+    padding-bottom: var(--op-s2);
+    text-align: left;
+  }
+
+  .data-table td:first-child::before,
+  .data-table td.row-actions-cell::before {
+    content: none;
+  }
+
+  .data-table td:empty {
+    display: none;
+  }
+
+  .data-table td {
+    text-align: right;
+  }
+
+  .data-table .row-actions-cell {
+    position: static;
+    justify-content: flex-end;
+    background: transparent;
+    padding-top: var(--op-s2);
+  }
+
+  .data-table tbody tr:hover td {
+    background: transparent;
+  }
+
+  .data-table tbody tr.selected {
+    background: var(--op-accent-wash);
+  }
+
+  .data-table tbody tr.selected td {
+    background: transparent;
+  }
+}

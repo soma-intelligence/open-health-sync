@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // ErrUserNotActive is returned by WriteSynthetic when the user does not exist
@@ -28,7 +29,12 @@ var ErrUserNotActive = errors.New("etl: user not found or not active")
 // fails the whole call, because generated data has no raw line to park. A
 // suspect value is written and flagged, as in the ETL. mr is modified in
 // place. No raw object, sync log row or failed record is written.
-func WriteSynthetic(ctx context.Context, pool *pgxpool.Pool, tenant, user uuid.UUID, provider string, mr *model.MapResult) (Counts, error) {
+//
+// v is the vault, as in Options.Vault: with it the rows are sealed under the
+// user's keys, and a user with no keys is refused (ErrUserNotActive when the
+// user is being deleted, as ProcessWith ends such a job). nil writes clear
+// rows, for an instance with no vault configured.
+func WriteSynthetic(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault, tenant, user uuid.UUID, provider string, mr *model.MapResult) (Counts, error) {
 	if provider == "" {
 		return nil, errors.New("etl: write synthetic: empty provider")
 	}
@@ -36,6 +42,20 @@ func WriteSynthetic(ctx context.Context, pool *pgxpool.Pool, tenant, user uuid.U
 		return Counts{}, nil
 	}
 	sc := scope{tenant: tenant, user: user, provider: provider}
+	if v != nil {
+		keys, err := v.ForUser(ctx, tenant, user)
+		if errors.Is(err, vault.ErrNoKeys) {
+			if active, aerr := userActive(ctx, pool, sc, false); aerr != nil {
+				return nil, aerr
+			} else if !active {
+				return nil, ErrUserNotActive
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("etl: write synthetic: user keys: %w", err)
+		}
+		sc.uv = keys
+	}
 	cov, err := prepareSynthetic(mr, sc, time.Now())
 	if err != nil {
 		return nil, err

@@ -104,7 +104,7 @@ func TestAdminTenantsCreateListGet(t *testing.T) {
 	var raw map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(r.body, &raw))
 	assert.ElementsMatch(t, []string{"id", "name", "admin", "created_at", "active_keys", "key"}, keysOfAny(r.body))
-	assert.ElementsMatch(t, []string{"id", "prefix", "created_at", "last_used_at", "revoked_at", "current", "key"},
+	assert.ElementsMatch(t, []string{"id", "name", "prefix", "created_at", "last_used_at", "revoked_at", "expires_at", "scopes", "current", "key"},
 		keysOfAny(raw["key"]), "the key object of POST /v1/keys")
 
 	// The new key works, for its own tenant only.
@@ -206,7 +206,9 @@ func TestAdminTenantKeys(t *testing.T) {
 	r.json(t, &own)
 	assert.Equal(t, blue.ID, own.ID)
 	assert.Equal(t, http.StatusCreated, e.do("POST", keys, e.keyA, `{}`).code)
-	assert.Equal(t, http.StatusBadRequest, e.do("POST", keys, e.keyA, `{"name":"x"}`).code)
+	assert.Equal(t, http.StatusBadRequest, e.do("POST", keys, e.keyA, `{"label":"x"}`).code)
+	r = e.do("POST", keys, e.keyA, `{"name":"`+strings.Repeat("k", 101)+`"}`)
+	assert.Equal(t, http.StatusBadRequest, r.code, string(r.body))
 
 	var list struct{ Data []keyInfo }
 	r = e.do("GET", keys, e.keyA, nil)
@@ -323,7 +325,7 @@ func TestAdminTenantDemoUser(t *testing.T) {
 	assert.ElementsMatch(t, []string{"user", "days", "rows_written", "persona"}, keysOfAny(r.body))
 	var raw map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(r.body, &raw))
-	assert.ElementsMatch(t, []string{"id", "external_ref", "status", "created_at"}, keysOfAny(raw["user"]),
+	assert.ElementsMatch(t, []string{"id", "external_ref", "status", "created_at", "timezone", "timezone_source"}, keysOfAny(raw["user"]),
 		"the user object of POST /v1/users")
 
 	// Readable with the tenant's own key, not with the admin's.

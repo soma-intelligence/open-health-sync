@@ -11,6 +11,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"io"
 	"net"
 	"net/http"
@@ -207,6 +208,11 @@ func startServer(t *testing.T) (string, string) {
 	require.NoError(t, err)
 	addr := l.Addr().String()
 	require.NoError(t, l.Close())
+	// A Config built here, not by Load: the vault settings are the ones Load
+	// derives from the encryption key alone.
+	encKey := bytes.Repeat([]byte{7}, 32)
+	vaultCfg, err := config.DerivedVault(encKey)
+	require.NoError(t, err)
 	cfg := config.Config{
 		DatabaseURL:         dbURL,
 		RawStore:            "file://" + t.TempDir(),
@@ -214,12 +220,13 @@ func startServer(t *testing.T) (string, string) {
 		LogLevel:            "warn",
 		PublicURL:           "http://" + addr,
 		Roles:               map[string]bool{"api": true, "collect": true, "etl": true},
-		EncryptionKey:       bytes.Repeat([]byte{7}, 32),
+		EncryptionKey:       encKey,
+		Vault:               vaultCfg,
 		WebhookAllowPrivate: true, // the receiver listens on loopback
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- app.Run(ctx, cfg) }()
+	go func() { done <- app.Run(ctx, cfg, settings.Start{}) }()
 	t.Cleanup(func() {
 		cancel()
 		select {

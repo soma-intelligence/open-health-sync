@@ -1,0 +1,223 @@
+/* ---------- providers ---------- */
+.notice {
+  margin: 0;
+  padding: var(--op-s2) var(--op-s3);
+  border-radius: var(--op-r-control);
+  background: var(--op-card-2);
+}
+
+.notice.warn {
+  background: var(--warn-soft);
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  gap: var(--op-s2);
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) 1fr;
+  gap: var(--op-s3);
+}
+
+.fact dt {
+  color: var(--op-fg-2);
+}
+
+.fact dd {
+  margin: 0;
+}
+
+.url-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--op-s2);
+  margin-top: var(--op-s2);
+}
+
+.url-label {
+  min-width: 140px;
+  font-weight: 600;
+}
+
+.url-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.key-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) 1fr;
+  gap: var(--op-s3);
+  padding: var(--op-s3) 0;
+  border-bottom: 1px solid var(--op-line);
+}
+
+.key-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.key-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--op-s2);
+}
+
+.key-control .input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.form-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--op-s3);
+  margin-top: var(--op-s3);
+}
+
+.switch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--op-s3);
+}
+
+.switch-text {
+  margin: 0;
+  flex: 1;
+}
+
+@media (max-width: 767px) {
+  .fact,
+  .key-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- webhooks ---------- */
+.endpoint-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s3);
+}
+
+.event-types {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.event-types legend {
+  padding: 0 0 var(--op-s1);
+  font: var(--op-text-caption);
+  color: var(--op-fg-2);
+}
+
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0 12px;
+}
+
+/* ---------- api keys ---------- */
+.key-form,
+.scope-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s2);
+}
+
+.scope-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.scope-picker legend,
+.access-picker legend {
+  padding: 0 0 var(--op-s1);
+  font: var(--op-text-caption);
+  color: var(--op-fg-2);
+}
+
+/* The access choice: three option cards, the chosen one washed in green. */
+.access-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px var(--op-s3);
+  border-radius: var(--op-s3);
+  background: var(--op-card-2);
+  cursor: pointer;
+}
+
+.opt.on {
+  background: var(--op-accent-wash);
+}
+
+.opt input {
+  accent-color: var(--op-accent);
+  margin: 2px 0 0;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.opt-text b {
+  font-weight: 600;
+}
+
+.opt-text small {
+  font: var(--op-text-small);
+  font-size: 12px;
+  color: var(--op-fg-2);
+}
+
+.scope-group {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 4px 12px;
+  align-items: start;
+}
+
+.scope-resource {
+  padding-top: 6px;
+  color: var(--op-fg-2);
+  font-size: 12px;
+}
+
+.scope-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0 12px;
+}
+
+.named {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--op-s2);
+}

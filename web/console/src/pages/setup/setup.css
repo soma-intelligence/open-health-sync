@@ -1,0 +1,88 @@
+/* ---------- sign in and first run: one card, centred on the page ---------- */
+.setup-page {
+  min-height: 100%;
+  display: grid;
+  place-items: start center;
+  padding: 12vh var(--op-s4) var(--op-s6);
+  background: var(--op-bg);
+}
+
+.setup-panel {
+  width: min(440px, 100%);
+  background: var(--op-card);
+  border-radius: var(--op-r-dialog);
+  padding: var(--op-s6);
+  box-shadow: var(--op-shadow);
+}
+
+.setup-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--op-s5);
+  font: 600 17px var(--op-font-display);
+  letter-spacing: -0.01em;
+}
+
+.setup-brand .brand-mark {
+  width: 32px;
+  height: 32px;
+}
+
+.setup-eyebrow {
+  font: var(--op-text-caption);
+  color: var(--op-fg-2);
+}
+
+.setup-panel h1 {
+  margin: 2px 0 var(--op-s5);
+  font: var(--op-text-title);
+  letter-spacing: -0.02em;
+}
+
+.setup-form,
+.setup-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-s4);
+}
+
+.setup-form .btn-primary,
+.setup-form .btn.primary {
+  width: 100%;
+}
+
+.setup-panel p {
+  margin: 0;
+}
+
+.setup-panel a {
+  color: var(--op-accent-text);
+  font-weight: 500;
+}
+
+.setup-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: var(--op-r-control);
+  padding: 10px var(--op-s3);
+}
+
+.setup-panel .muted {
+  color: var(--op-fg-2);
+  font: var(--op-text-small);
+}
+
+.setup-panel .form-error {
+  color: var(--danger);
+}
+
+@media (max-width: 767px) {
+  .setup-page {
+    padding-top: var(--op-s6);
+  }
+
+  .setup-panel {
+    padding: var(--op-s5);
+  }
+}

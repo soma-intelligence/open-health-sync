@@ -16,17 +16,18 @@ import (
 // user, and the ones that pick a provider record name its provider and id.
 func TestDeletionStatementsScopedToTenantAndUser(t *testing.T) {
 	all := map[string]string{
-		"deletionTombstone": deletionTombstone,
-		"deletionSleep":     deletionSleep,
-		"deletionPhases":    deletionPhases,
-		"deletionWorkout":   deletionWorkout,
-		"deletionRoutes":    deletionRoutes,
-		"deletionTracks":    deletionTracks,
-		"deletionSamples":   deletionSamples,
-		"deletionCategory":  deletionCategory,
-		"deletionNutrition": deletionNutrition,
-		"tombstonesAny":     tombstonesAny,
-		"tombstonesOf":      tombstonesOf,
+		"deletionTombstone":  deletionTombstone,
+		"deletionSleep":      deletionSleep,
+		"deletionPhases":     deletionPhases,
+		"deletionWorkout":    deletionWorkout,
+		"deletionRoutes":     deletionRoutes,
+		"deletionTracks":     deletionTracks,
+		"deletionRouteBlobs": deletionRouteBlobs,
+		"deletionSamples":    deletionSamples,
+		"deletionCategory":   deletionCategory,
+		"deletionNutrition":  deletionNutrition,
+		"tombstonesAny":      tombstonesAny,
+		"tombstonesOf":       tombstonesOf,
 	}
 	for name, q := range all {
 		if name == "deletionTombstone" {
@@ -132,17 +133,10 @@ func TestSummaryClearFigures(t *testing.T) {
 	got, _ = summaryClearFigures(nil)
 	assert.Empty(t, got)
 
-	q := summaryClearStatement([]string{"recovery_score", "resting_hr"})
-	assert.Contains(t, q, "SET recovery_score = NULL, resting_hr = NULL")
-	assert.Contains(t, q, "(recovery_score IS NOT NULL OR resting_hr IS NOT NULL)")
-	for name, q := range map[string]string{"clear": q, "dropEmpty": summaryDropEmpty} {
-		assert.Contains(t, q, "tenant_id = $1 AND user_id = $2 AND provider = $3 AND summary_date = ANY($4::date[])", name)
-		assert.Contains(t, q, "metadata->>'derived' IS DISTINCT FROM 'true'", "%s: the derived row is the ETL's", name)
-	}
-	for _, f := range dailyFigures {
-		assert.Contains(t, summaryDropEmpty, f+" IS NULL", "only a summary without any figure goes")
-	}
-	assert.Contains(t, deletionSamples, "RETURNING metadata->>'"+model.MetadataSummaryDate+"'")
+	assert.Contains(t, summaryScope, "tenant_id = $1 AND user_id = $2 AND provider = $3 AND summary_date = ANY($4::date[])")
+	assert.Contains(t, summaryScope, "derived IS DISTINCT FROM true", "the derived row is the ETL's")
+	assert.Contains(t, summaryDrop, "tenant_id = $1 AND user_id = $2")
+	assert.Contains(t, deletionSamples, "RETURNING to_char(summary_date, 'YYYY-MM-DD')")
 }
 
 func TestParseSummaryDays(t *testing.T) {

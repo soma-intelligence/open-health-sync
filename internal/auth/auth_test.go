@@ -296,3 +296,241 @@ func TestTenantAdmin(t *testing.T) {
 	// An admin key still passes every tenant key route.
 	require.Equal(t, http.StatusNoContent, do(t, Middleware(lookup, TenantKey)(next), "Bearer "+admin).Code)
 }
+
+// Every response of a route behind a credential says no-store, unless the
+// handler sets its own value.
+func TestMiddlewareSetsNoStore(t *testing.T) {
+	key, hash, err := NewSecret(PrefixSecretKey)
+	require.NoError(t, err)
+	lookup := lookupMap(map[string]Principal{hash: principalFor(uuid.New(), nil)})
+	plain := Middleware(lookup, TenantKey)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	own := Middleware(lookup, TenantKey)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "private, max-age=60")
+	}))
+	require.Equal(t, "no-store", do(t, plain, "Bearer "+key).Header().Get("Cache-Control"))
+	require.Equal(t, "no-store", do(t, plain, "").Header().Get("Cache-Control"), "a 401 too")
+	require.Equal(t, "private, max-age=60", do(t, own, "Bearer "+key).Header().Get("Cache-Control"))
+}
+
+// A refused credential is left on the Slot for the audit log: its hash and,
+// for an API key, its prefix, never the secret. A request with no credential
+// leaves nothing.
+func TestMiddlewareReportsTheRefusedCredential(t *testing.T) {
+	h := Middleware(lookupMap(nil), TenantKey)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("the handler must not run")
+	}))
+	call := func(authz string) *Slot {
+		ctx, slot := WithSlot(context.Background())
+		req := httptest.NewRequest("GET", "/", nil).WithContext(ctx)
+		if authz != "" {
+			req.Header.Set("Authorization", authz)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code)
+		return slot
+	}
+	key, hash, err := NewSecret(PrefixSecretKey)
+	require.NoError(t, err)
+	f, ok := call("Bearer " + key).Failure()
+	require.True(t, ok)
+	require.Equal(t, Failure{Hash: hash, Prefix: key[:KeyPrefixLen]}, f)
+
+	token, hash, err := NewSecret(PrefixUserToken)
+	require.NoError(t, err)
+	f, ok = call("Bearer " + token).Failure()
+	require.True(t, ok)
+	require.Equal(t, Failure{Hash: hash, UserToken: true}, f)
+
+	for _, authz := range []string{"", "Bearer nothing", "Basic abc"} {
+		_, ok = call(authz).Failure()
+		require.False(t, ok, authz)
+	}
+}
+
+// A lookup that says the credential is over its rate limit is a 429 with
+// Retry-After in the problem format.
+func TestMiddlewareRateLimited(t *testing.T) {
+	key, _, err := NewSecret(PrefixSecretKey)
+	require.NoError(t, err)
+	lookup := func(context.Context, string) (Principal, error) {
+		return Principal{}, fmt.Errorf("wrapped: %w", &LimitedError{RetryAfter: 1500 * time.Millisecond})
+	}
+	h := Middleware(lookup, TenantKey)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("the handler must not run")
+	}))
+	rec := do(t, h, "Bearer "+key)
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	require.Equal(t, "2", rec.Header().Get("Retry-After"))
+	require.Equal(t, "application/problem+json", rec.Header().Get("Content-Type"))
+}
+
+// The Slot's failure hook decides whether a refused credential answers 401
+// or, for a caller that failed too often, 429. It is never asked about a
+// credential the lookup accepts, nor about a request without one.
+func TestMiddlewareAsksTheFailureHook(t *testing.T) {
+	good, goodHash, err := NewSecret(PrefixSecretKey)
+	require.NoError(t, err)
+	bad, badHash, err := NewSecret(PrefixSecretKey)
+	require.NoError(t, err)
+	h := Middleware(lookupMap(map[string]Principal{goodHash: {TenantID: uuid.New()}}), TenantKey)(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	var asked []Failure
+	limited := false
+	call := func(authz string) *httptest.ResponseRecorder {
+		ctx, slot := WithSlot(context.Background())
+		slot.OnFailure(func(f Failure) (time.Duration, bool) {
+			asked = append(asked, f)
+			return 90 * time.Second, limited
+		})
+		req := httptest.NewRequest("GET", "/", nil).WithContext(ctx)
+		if authz != "" {
+			req.Header.Set("Authorization", authz)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	require.Equal(t, http.StatusUnauthorized, call("Bearer "+bad).Code)
+	require.Equal(t, []Failure{{Hash: badHash, Prefix: bad[:KeyPrefixLen]}}, asked)
+
+	limited = true
+	rec := call("Bearer " + bad)
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	require.Equal(t, "90", rec.Header().Get("Retry-After"))
+	require.Empty(t, rec.Header().Get("WWW-Authenticate"))
+	require.Len(t, asked, 2)
+
+	// A valid credential passes whatever the hook would say.
+	require.Equal(t, http.StatusNoContent, call("Bearer "+good).Code)
+	require.Equal(t, http.StatusUnauthorized, call("").Code)
+	require.Equal(t, http.StatusUnauthorized, call("Bearer nothing").Code)
+	require.Len(t, asked, 2)
+}
+
+// cookieReq is a request carrying only the console session cookie.
+func cookieReq(token string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: token})
+	return req
+}
+
+func okHandler(got *Principal) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p, ok := From(r.Context()); ok && got != nil {
+			*got = p
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func TestCookieAuthenticatesWhenAccepted(t *testing.T) {
+	tenant := uuid.New()
+	var calls []string
+	ctx, slot := WithSlot(context.Background())
+	slot.AcceptSession(func(_ *http.Request, token string) (Principal, error) {
+		calls = append(calls, token)
+		return Principal{TenantID: tenant, SessionID: uuid.New()}, nil
+	})
+	var seen Principal
+	h := MiddlewareAny(lookupMap(nil), TenantKey)(okHandler(&seen))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, cookieReq("tok").WithContext(ctx))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, []string{"tok"}, calls)
+	require.Equal(t, tenant, seen.TenantID)
+	p, ok := slot.Principal()
+	require.True(t, ok)
+	require.Equal(t, tenant, p.TenantID)
+}
+
+func TestCookieIgnoredWithoutSessionFunc(t *testing.T) {
+	ctx, _ := WithSlot(context.Background())
+	h := MiddlewareAny(lookupMap(nil), TenantKey)(okHandler(nil))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, cookieReq("tok").WithContext(ctx))
+	requireProblem(t, rec, http.StatusUnauthorized)
+	require.Equal(t, "Bearer", rec.Header().Get("WWW-Authenticate"))
+
+	// An empty cookie is absent, with a SessionFunc installed too.
+	called := false
+	ctx, slot := WithSlot(context.Background())
+	slot.AcceptSession(func(*http.Request, string) (Principal, error) {
+		called = true
+		return Principal{}, nil
+	})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, cookieReq("").WithContext(ctx))
+	requireProblem(t, rec, http.StatusUnauthorized)
+	require.False(t, called)
+}
+
+func TestBearerWinsOverCookie(t *testing.T) {
+	tenant := uuid.New()
+	secret, hash, err := NewSecret(PrefixSecretKey)
+	require.NoError(t, err)
+	lookups := 0
+	lookup := func(_ context.Context, h string) (Principal, error) {
+		lookups++
+		return lookupMap(map[string]Principal{hash: principalFor(tenant, nil)})(context.Background(), h)
+	}
+	called := false
+	ctx, slot := WithSlot(context.Background())
+	slot.AcceptSession(func(*http.Request, string) (Principal, error) {
+		called = true
+		return Principal{}, nil
+	})
+	req := cookieReq("tok").WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+secret)
+	rec := httptest.NewRecorder()
+	MiddlewareAny(lookup, TenantKey)(okHandler(nil)).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 1, lookups)
+	require.False(t, called)
+}
+
+func TestSessionFuncErrors(t *testing.T) {
+	failures := 0
+	run := func(err error) *httptest.ResponseRecorder {
+		ctx, slot := WithSlot(context.Background())
+		slot.OnFailure(func(Failure) (time.Duration, bool) { failures++; return 0, false })
+		slot.AcceptSession(func(*http.Request, string) (Principal, error) { return Principal{}, err })
+		rec := httptest.NewRecorder()
+		MiddlewareAny(lookupMap(nil), TenantKey)(okHandler(nil)).ServeHTTP(rec, cookieReq("tok").WithContext(ctx))
+		return rec
+	}
+	rec := run(ErrUnauthenticated)
+	requireProblem(t, rec, http.StatusUnauthorized)
+	require.Equal(t, 0, failures)
+
+	rec = run(&ForbiddenError{Detail: DetailCSRF})
+	requireProblem(t, rec, http.StatusForbidden)
+	require.Contains(t, rec.Body.String(), DetailCSRF)
+
+	rec = run(&LimitedError{RetryAfter: 2 * time.Second})
+	requireProblem(t, rec, http.StatusTooManyRequests)
+	require.Equal(t, "2", rec.Header().Get("Retry-After"))
+
+	rec = run(errors.New("boom"))
+	requireProblem(t, rec, http.StatusInternalServerError)
+}
+
+func TestCookiePrincipalStillNeedsScope(t *testing.T) {
+	ctx, slot := WithSlot(context.Background())
+	slot.RequireScope(func(*http.Request) string { return "webhooks:write" })
+	slot.AcceptSession(func(*http.Request, string) (Principal, error) {
+		return Principal{TenantID: uuid.New(), KeyScopes: []string{"users:read"}}, nil
+	})
+	rec := httptest.NewRecorder()
+	MiddlewareAny(lookupMap(nil), TenantKey)(okHandler(nil)).ServeHTTP(rec, cookieReq("tok").WithContext(ctx))
+	requireProblem(t, rec, http.StatusForbidden)
+	require.Equal(t, "webhooks:write", slot.MissingScope())
+}
+
+func TestPrincipalActor(t *testing.T) {
+	tenant, actor := uuid.New(), uuid.New()
+	require.Equal(t, tenant, Principal{TenantID: tenant}.Actor())
+	require.Equal(t, actor, Principal{TenantID: tenant, ActorTenantID: actor}.Actor())
+}

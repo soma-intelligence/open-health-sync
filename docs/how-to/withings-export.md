@@ -41,7 +41,7 @@ yourself:
 3. Open Withings' consent page and allow access:
 
    ```sh
-   python3 recipes/connect.py withings
+   go run ./recipes/connect withings
    ```
 
 The first data arrives a few seconds later. The connector backfills the last 30 days, then
@@ -66,8 +66,8 @@ curl -sOJ "$OHS_URL/v1/users/$OHS_USER/exports/samples?type=blood_pressure_systo
 Or everything at once, one file per list:
 
 ```sh
-python3 recipes/export-all.py                     # CSV, into health-export-<date>/
-python3 recipes/export-all.py --format parquet    # Parquet, for pandas, Polars or DuckDB
+go run ./recipes/export-all                    # CSV, into health-export-<date>/
+go run ./recipes/export-all -format parquet    # Parquet, for DuckDB, Polars or pandas
 ```
 
 | Withings data | `type` values in the `samples` export |

@@ -69,14 +69,14 @@ func TestOuraPullThenDeleteWebhook(t *testing.T) {
 	for qt, unit := range map[string]string{"sleep_score": "score", "stress_high_time": "min", "recovery_high_time": "min", "vo2_max": "mL/kg/min"} {
 		var got string
 		var n int
-		require.NoError(t, e.pool.QueryRow(ctx, `SELECT min(unit), count(*) FROM ohs_data.quantity_samples
+		require.NoError(t, e.read().QueryRow(ctx, `SELECT min(unit), count(*) FROM ohs_data.quantity_samples
 			WHERE tenant_id = $1 AND user_id = $2 AND quantity_type = $3`, e.tenant, e.user, qt).Scan(&got, &n))
 		assert.Equal(t, unit, got, qt)
 		assert.NotZero(t, n, qt)
 	}
 	nightSamples := func() int {
 		var n int
-		require.NoError(t, e.pool.QueryRow(ctx, `SELECT count(*) FROM ohs_data.quantity_samples
+		require.NoError(t, e.read().QueryRow(ctx, `SELECT count(*) FROM ohs_data.quantity_samples
 			WHERE tenant_id = $1 AND user_id = $2 AND external_id LIKE 'sleep-0001\_%'`, e.tenant, e.user).Scan(&n))
 		return n
 	}

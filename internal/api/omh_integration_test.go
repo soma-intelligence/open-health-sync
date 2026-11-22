@@ -204,12 +204,12 @@ func TestExports(t *testing.T) {
 	assert.EqualValues(t, 0, f.NumRows())
 
 	for path, want := range map[string]int{
-		base + "samples?format=xlsx":     http.StatusBadRequest,
-		base + "samples?limit=10":        http.StatusBadRequest,
-		base + "samples?cursor=abc":      http.StatusBadRequest,
-		base + "samples?type=heartrate":  http.StatusBadRequest,
-		base + "samples?start=yesterday": http.StatusBadRequest,
-		base + "routes":                  http.StatusNotFound,
+		base + "samples?format=xlsx":                                     http.StatusBadRequest,
+		base + "samples?limit=10":                                        http.StatusBadRequest,
+		base + "samples?cursor=abc":                                      http.StatusBadRequest,
+		base + "samples?type=heartrate":                                  http.StatusBadRequest,
+		base + "samples?start=yesterday":                                 http.StatusBadRequest,
+		base + "routes":                                                  http.StatusNotFound,
 		"/v1/users/00000000-0000-4000-8000-000000000000/exports/samples": http.StatusNotFound,
 	} {
 		r := e.do("GET", path, e.keyA, nil)

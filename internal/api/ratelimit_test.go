@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -262,4 +264,112 @@ func TestRouterRateLimitsOff(t *testing.T) {
 		h.ServeHTTP(rec, httptest.NewRequest("POST", "/inbound/noop", strings.NewReader("{}")))
 		require.Equal(t, http.StatusNotFound, rec.Code, "zero limits disable the limiter")
 	}
+}
+
+// limitedHandler is a route behind s.rateLimit with limits read from get.
+func limitedHandler(get func() RateLimits) (http.Handler, *server) {
+	s := &server{d: Deps{RateLimits: get}, metrics: newHTTPMetrics()}
+	ll := s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.OAuth, RateLimit{} })
+	return s.rateLimit(groupSetup, ll, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})), s
+}
+
+func hit(h http.Handler, addr string) int {
+	r := httptest.NewRequest(http.MethodGet, "/x", nil)
+	r.RemoteAddr = addr + ":1234"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w.Code
+}
+
+func TestLiveLimiterRebuildsOnChange(t *testing.T) {
+	var cur atomic.Pointer[RateLimits]
+	set := func(l RateLimit) { cur.Store(&RateLimits{OAuth: l}) }
+	set(RateLimit{Rate: 1, Burst: 1})
+	h, _ := limitedHandler(func() RateLimits { return *cur.Load() })
+
+	assert.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"))
+	assert.Equal(t, http.StatusTooManyRequests, hit(h, "192.0.2.1"))
+
+	set(RateLimit{Rate: 100, Burst: 100})
+	assert.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"), "counters restart full")
+}
+
+func TestLiveLimiterOffThenOn(t *testing.T) {
+	var cur atomic.Pointer[RateLimits]
+	cur.Store(&RateLimits{})
+	h, _ := limitedHandler(func() RateLimits { return *cur.Load() })
+	for range 10 {
+		require.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"))
+	}
+	cur.Store(&RateLimits{OAuth: RateLimit{Rate: 1, Burst: 1}})
+	assert.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"))
+	assert.Equal(t, http.StatusTooManyRequests, hit(h, "192.0.2.1"))
+	cur.Store(&RateLimits{})
+	assert.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"), "turned off again")
+}
+
+func TestLiveLimiterSameLimitKeepsCounters(t *testing.T) {
+	h, _ := limitedHandler(func() RateLimits { return RateLimits{OAuth: RateLimit{Rate: 0.001, Burst: 2}} })
+	assert.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"))
+	assert.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"))
+	assert.Equal(t, http.StatusTooManyRequests, hit(h, "192.0.2.1"))
+}
+
+func TestLiveLimiterConcurrentChange(t *testing.T) {
+	var cur atomic.Pointer[RateLimits]
+	cur.Store(&RateLimits{OAuth: RateLimit{Rate: 5, Burst: 5}})
+	h, _ := limitedHandler(func() RateLimits { return *cur.Load() })
+	var wg sync.WaitGroup
+	for g := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 200 {
+				if g == 0 && i%10 == 0 {
+					cur.Store(&RateLimits{OAuth: RateLimit{Rate: float64(1 + i%7), Burst: 1 + i%5}})
+				}
+				c := hit(h, fmt.Sprintf("192.0.2.%d", g))
+				assert.Contains(t, []int{http.StatusNoContent, http.StatusTooManyRequests}, c)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestLiveAuthFailuresFollowLimit(t *testing.T) {
+	var cur atomic.Pointer[RateLimit]
+	cur.Store(&RateLimit{Rate: 0.001, Burst: 1})
+	a := newLiveAuthFailures(func() RateLimit { return *cur.Load() })
+	_, limited := a.fail("192.0.2.1")
+	assert.False(t, limited)
+	_, limited = a.fail("192.0.2.1")
+	assert.True(t, limited)
+	cur.Store(&RateLimit{Rate: 0.001, Burst: 3})
+	_, limited = a.fail("192.0.2.1")
+	assert.False(t, limited, "restarted full")
+	cur.Store(&RateLimit{})
+	for range 5 {
+		_, limited = a.fail("192.0.2.1")
+		require.False(t, limited, "off")
+	}
+}
+
+func TestStaticLimitsUnchanged(t *testing.T) {
+	// No Deps.RateLimits: the fixed fields limit as before, and the zero
+	// API and auth failure limits are the defaults unless turned off.
+	d := Deps{RateLimitOAuth: RateLimit{Rate: 0.001, Burst: 2}}
+	s := &server{d: d, metrics: newHTTPMetrics(), staticLimits: staticLimitsOf(d)}
+	h := s.rateLimit(groupSetup, s.liveLimiter(func(r RateLimits) (RateLimit, RateLimit) { return r.OAuth, RateLimit{} }), nil,
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	assert.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"))
+	assert.Equal(t, http.StatusNoContent, hit(h, "192.0.2.1"))
+	assert.Equal(t, http.StatusTooManyRequests, hit(h, "192.0.2.1"))
+
+	assert.Equal(t, DefaultRateLimitAPI, s.limits().API)
+	assert.Equal(t, DefaultRateLimitAuthFailures, s.limits().AuthFailures)
+	off := staticLimitsOf(Deps{RateLimitAPIOff: true, RateLimitAuthFailuresOff: true})
+	assert.Equal(t, RateLimit{}, off.API)
+	assert.Equal(t, RateLimit{}, off.AuthFailures)
 }

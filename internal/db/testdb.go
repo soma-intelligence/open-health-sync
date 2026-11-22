@@ -22,7 +22,7 @@ import (
 
 // TestImage is the TimescaleDB image used by integration tests: the image
 // deploy/docker-compose.yml pins, digest included, so tests run what users run.
-const TestImage = "timescale/timescaledb:latest-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2"
+const TestImage = "timescale/timescaledb:latest-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538"
 
 var (
 	containerOnce sync.Once

@@ -20,14 +20,14 @@ as well.
 | Price | Free. You pay for your own server | Start Up: 499 EUR a month for 500 users. Scale Up: 1,000 EUR a month for 5,000 users. Enterprise: on request. A free trial for 25 users ([pricing](https://thryve.health/product/pricing)) |
 | Where the data is kept | Your Postgres and your raw store, for as long as you decide | Thryve's infrastructure in Germany, for 2 weeks on Start Up and 1 month on Scale Up, per the pricing page |
 | History when a user connects | A backfill of what each provider's API serves | Not on Start Up; up to 14 days on Scale Up |
-| Sources | 18 available ([list](../connectors/README.md)) | 500+ wearables and health trackers advertised, Garmin included. Apple Health, Health Connect and Samsung Health through its SDK |
+| Sources | 19 available ([list](../connectors/README.md)) | 500+ wearables and health trackers advertised, Garmin included. Apple Health, Health Connect and Samsung Health through its SDK |
 | Garmin | A Health API connector ([guide](../connectors/garmin.md)) for operators with their own Garmin business app (Starter or Enterprise tier; Garmin reopened its program on 2026-10-21). A Personal API connector is planned. Garmin exports import as activity files | Yes, and a Garmin companion module for real-time Bluetooth data, which needs a Garmin license |
 | Data model | One canonical model with named types (`heart_rate`, `step_count`), one unit per quantity, UCUM units and LOINC codes ([data model](../data-model.md)) | Epoch data and daily data, with 250+ numbered data types (`1000` steps, `3000` heart rate) |
 | FHIR and Open mHealth | FHIR R4 checked with the official HL7 validator, Open mHealth checked against the official schemas ([FHIR R4](../fhir.md), [Open mHealth](../open-mhealth.md)) | Not found on its site |
 | Raw payloads | Every payload kept verbatim, so a mapping fix can re-process history | Not stated |
 | How you get the data | REST read API, signed webhooks, CSV and Parquet exports, or SQL on your own Postgres | Data push webhooks that carry the data, notification webhooks, and API requests |
 | AI agents | Read-only MCP server on your instance, over stdio or Streamable HTTP ([MCP](../mcp.md)) | Not found on its site |
-| Mobile SDKs | Swift, Kotlin, React Native and Flutter, installed from the repository for now ([SDKs](../sdks/README.md)) | Swift, Kotlin, React Native and Flutter |
+| Mobile SDKs | Swift, Kotlin, React Native and Flutter, at 0.1.0 and installed from the repository for now. Swift reads HealthKit, Kotlin reads Health Connect, and the React Native and Flutter health modules read both through those two. The Kotlin reader and the Flutter plugin have not run on a device yet, the React Native module only on an iOS simulator ([SDKs](../sdks/README.md)) | Swift, Kotlin, React Native and Flutter |
 | Vendor developer apps | You register your own app with each vendor | Thryve's shared OAuth clients by default. Your own from Scale Up |
 | Compliance | Not certified. It depends on how you run it ([security model](../security-model.md)) | GDPR and HIPAA, ISO 27001 and ISO 9001 certified, per Thryve |
 | Runs on | Linux, macOS, Docker, Kubernetes, a Raspberry Pi 5 | Thryve's cloud in Germany |
@@ -47,7 +47,7 @@ for as long as you keep it. It idles in about 22 MB of memory and runs on a Rasp
 
 - **You want an EU provider to run it**: Thryve hosts everything in Germany and holds ISO 27001
   and ISO 9001 certificates, so you have no server of your own to secure and audit.
-- **You need Garmin without a Garmin app of your own**, or trackers beyond the 18 sources here, under one contract.
+- **You need Garmin without a Garmin app of your own**, or trackers beyond the 19 sources here, under one contract.
 - **You need real-time Garmin data in your app** through its Garmin companion module.
 - **You do not want to register a developer app with each vendor**: Thryve's shared OAuth
   clients cover that until you want your own.
@@ -78,7 +78,7 @@ The main concepts have a direct counterpart:
 | Epoch data, by numbered data type (`1000` steps, `3000` heart rate) | `samples`, by named type (`step_count`, `heart_rate`), in one unit per type |
 | Daily data | `daily`: one summary per local calendar day |
 | Sleep data types (`2000` sleep duration and the others) | `sleep`, and each session's `phases` |
-| Native sources through the SDK (Apple Health, Health Connect) | The [Swift and Kotlin SDKs](../sdks/README.md), or the upload contract |
+| Native sources through the SDK (Apple Health, Health Connect) | The [Swift SDK](../sdks/swift.md#healthkit-sync) for HealthKit, the [Kotlin SDK](../sdks/kotlin.md#health-connect-sync) for Health Connect, and the [React Native](../sdks/react-native.md) and [Flutter](../sdks/flutter.md) health modules for both. The Kotlin reader has not run on a device yet |
 
 For each cloud provider, register your own developer app and set its keys: every connector guide
 starts with that step ([connectors](../connectors/README.md)).

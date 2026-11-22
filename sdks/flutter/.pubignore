@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The patterns of .gitignore, which this file replaces for pub.
+.dart_tool/
+pubspec.lock
+build/
+# The Flutter plugin is a package of its own.
+open_health_sync_health/

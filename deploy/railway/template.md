@@ -15,7 +15,7 @@ In the Railway dashboard: **Templates, New Template** (the template composer). A
 ### Service 1: `ohs-db`
 
 - **Source:** Docker Image,
-  `timescale/timescaledb:latest-pg17@sha256:b346edcdb51a1fd6020e3965e0bd1c9f3406fa6d5fbce1e28f4852587ef934e2`
+  `timescale/timescaledb:latest-pg17@sha256:b56a3f51991df1f79d0c1a0841cad5c5fa8058fdd6a3ee6886394a6d4c174538`
   (the digest of `deploy/docker-compose.yml`; keep them in step).
 - **Volume:** mount path `/var/lib/postgresql/data`.
 - **Networking:** no public domain. ohs reaches it on the private network.

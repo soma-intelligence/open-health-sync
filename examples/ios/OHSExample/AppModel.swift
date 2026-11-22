@@ -108,7 +108,8 @@ final class AppModel: ObservableObject {
             let types = Set(HealthDataType.all.map { $0.sampleType })
             #if DEBUG
             if let heartRates = UITestSeed.heartRates {
-                try await UITestSeed.authorizeAndWrite(heartRates, store: healthStore, read: types)
+                try await UITestSeed.authorizeAndWrite(
+                    heartRates, store: healthStore, read: HealthKitSync.authorizationTypes(for: types))
             }
             #endif
             try await healthSync.requestAuthorization(for: types)

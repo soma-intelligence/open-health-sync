@@ -22,6 +22,11 @@ type httpMetrics struct {
 	ingestInFlight atomic.Int64
 	ingestRejected atomic.Int64
 	auditFailures  atomic.Int64
+	// authFailures counts the well formed credentials refused with 401.
+	authFailures atomic.Int64
+	// auditDropped reads the events the buffered audit writer dropped: the
+	// database did not take them after every attempt. Nil without a writer.
+	auditDropped func() int64
 
 	// rateLimited counts the requests refused with 429, by route group.
 	rateLimited map[string]*atomic.Int64
@@ -40,6 +45,8 @@ func newHTTPMetrics() *httpMetrics {
 			groupOAuthCallback: new(atomic.Int64),
 			groupSetup:         new(atomic.Int64),
 			groupShare:         new(atomic.Int64),
+			groupAPI:           new(atomic.Int64),
+			groupAuthFailure:   new(atomic.Int64),
 		},
 	}
 }
@@ -111,9 +118,19 @@ func renderMetrics(w io.Writer, m *httpMetrics, etl map[string]int64) {
 	fmt.Fprint(w, "# HELP ohs_audit_write_failures_total Audit events that could not be written.\n")
 	fmt.Fprint(w, "# TYPE ohs_audit_write_failures_total counter\n")
 	fmt.Fprintf(w, "ohs_audit_write_failures_total %d\n", m.auditFailures.Load())
-	fmt.Fprint(w, "# HELP ohs_rate_limited_total Unauthenticated requests refused with 429 by the rate limiter.\n")
+	var dropped int64
+	if m.auditDropped != nil {
+		dropped = m.auditDropped()
+	}
+	fmt.Fprint(w, "# HELP ohs_audit_dropped_total Audit events the buffered writer dropped: the database did not take their batch after every attempt.\n")
+	fmt.Fprint(w, "# TYPE ohs_audit_dropped_total counter\n")
+	fmt.Fprintf(w, "ohs_audit_dropped_total %d\n", dropped)
+	fmt.Fprint(w, "# HELP ohs_auth_failures_total Well formed API keys and user tokens refused with 401.\n")
+	fmt.Fprint(w, "# TYPE ohs_auth_failures_total counter\n")
+	fmt.Fprintf(w, "ohs_auth_failures_total %d\n", m.authFailures.Load())
+	fmt.Fprint(w, "# HELP ohs_rate_limited_total Requests refused with 429 by a rate limiter, by route group.\n")
 	fmt.Fprint(w, "# TYPE ohs_rate_limited_total counter\n")
-	for _, g := range []string{groupInbound, groupOAuthCallback, groupSetup, groupShare} {
+	for _, g := range []string{groupAPI, groupAuthFailure, groupInbound, groupOAuthCallback, groupSetup, groupShare} {
 		fmt.Fprintf(w, "ohs_rate_limited_total{route_group=\"%s\"} %d\n", g, m.rateLimited[g].Load())
 	}
 

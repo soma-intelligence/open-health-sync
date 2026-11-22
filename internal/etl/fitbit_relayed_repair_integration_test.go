@@ -59,7 +59,7 @@ func TestFitbitRelayedRepairScript(t *testing.T) {
 	}
 	get := func(hash string) (row, bool) {
 		var r row
-		err := e.pool.QueryRow(context.Background(), `SELECT quantity_type, source_slug, source_name, value, metadata
+		err := e.read().QueryRow(context.Background(), `SELECT quantity_type, source_slug, source_name, value, metadata
 			FROM ohs_data.quantity_samples WHERE tenant_id = $1 AND content_hash = $2`, e.tenant, hash).
 			Scan(&r.qt, &r.slug, &r.name, &r.v, &r.md)
 		return r, err == nil

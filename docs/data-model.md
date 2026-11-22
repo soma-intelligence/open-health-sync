@@ -10,6 +10,12 @@ schema. Every stored row carries `tenant_id` and `user_id`; the two are
 set by the pipeline and are never part of a content hash. Times are UTC. A field
 typed as a pointer is optional and reads as null in the API when absent.
 
+A local calendar day (a daily total, the coverage of a day) is the day in the
+record's own time zone, the `timezone` of its metadata; else in the user's time
+zone (`ohs_core.end_users.timezone`, set through the API or learnt from device
+uploads); else in UTC. The zone a sample's day was taken in is stored with it
+(`tz`), so changing the user's zone moves no stored sample to another day.
+
 Field names below are the Go names used inside the pipeline, not the wire names:
 the JSON the API returns uses snake_case names, and some differ (for example
 `SummaryDate` is `date`). Use [../api/openapi.yaml](../api/openapi.yaml) for the JSON shapes.
@@ -150,7 +156,7 @@ Stored in `ohs_data.workouts`.
 
 RoutePoint represents a GPS coordinate from a workout route.
 
-Stored in `ohs_data.route_points`.
+Stored in `ohs_data.series_blobs`: one compressed blob per series, the route of one workout (kind 2), sealed like any sealed row. Rows stored before 0.3.0 stay in `ohs_data.route_points` until `ohs vault seal` moves them into their blob.
 
 | Field | Type | Note |
 |---|---|---|
@@ -218,7 +224,7 @@ Stored in `ohs_data.ecg_recordings`.
 
 ECGVoltageSample represents a single voltage measurement from an ECG recording.
 
-Stored in `ohs_data.ecg_samples`.
+Stored in `ohs_data.series_blobs`: one compressed blob per series, the voltages of one recording (kind 1), sealed like any sealed row. Rows stored before 0.3.0 stay in `ohs_data.ecg_samples` until `ohs vault seal` moves them into their blob.
 
 | Field | Type | Note |
 |---|---|---|
@@ -263,7 +269,7 @@ Stored in `ohs_data.daily_summaries`.
 
 HeartbeatSample represents a single beat-to-beat RR interval measurement.
 
-Stored in `ohs_data.heartbeat_samples`.
+Stored in `ohs_data.series_blobs`: one compressed blob per series, the beats of one series (kind 3), sealed like any sealed row. Rows stored before 0.3.0 stay in `ohs_data.heartbeat_samples` until `ohs vault seal` moves them into their blob.
 
 | Field | Type | Note |
 |---|---|---|
@@ -278,7 +284,7 @@ Stored in `ohs_data.heartbeat_samples`.
 
 Observation is a generic coded health fact (the long-tail catch-all).
 
-Stored in `ohs_data.observations`. No connector writes it yet, and no read route serves it (planned).
+Stored in `ohs_data.observations`. Lab results are its only rows today (canonical code `lab:...`, provider `labs`), served by `/labs` ([labs.md](labs.md)); no other connector writes it yet.
 
 | Field | Type | Note |
 |---|---|---|
@@ -296,11 +302,14 @@ Stored in `ohs_data.observations`. No connector writes it yet, and no read route
 | `SourceName` | `string` |  |
 | `DeviceID` | `string` |  |
 | `IsPrimarySource` | `bool` |  |
-| `TypeConcept` | `string` | `device`, `survey`, `ehr` or `derived`. |
+| `TypeConcept` | `string` | `device`, `survey`, `ehr` or `derived`. A lab result is `ehr`. |
 | `SourceValue` | `string` |  |
 | `S3Ref` | `string` |  |
 | `ContentHash` | `string` | De-duplication identity of the source record. Part of the unique key with the time column. |
 | `Metadata` | `map[string]any` | Provider fields kept as sent, plus `timezone` (IANA name) when the provider gives one. |
+| `ExternalID` | `string` | The source's id of the record. Clear: an id carries no value. |
+| `ReportID` | `string` | The source's id of the report (panel) a lab result belongs to. Clear, like ExternalID. |
+| `Replaceable` | `bool` | Writer instruction, not a column: the latest copy of the source record (same provider and external id) replaces every stored copy whole, also under another time (an amended lab result). |
 
 ### MapResult
 

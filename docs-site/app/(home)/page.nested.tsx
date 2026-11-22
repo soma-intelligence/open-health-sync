@@ -7,7 +7,7 @@ import { latestVersion, repoUrl, signupUrl } from "@/lib/shared";
 
 // The README's "Sources and outputs" table, in short.
 const available = [
-  "Eighteen sources: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom, OMRON and more",
+  "Nineteen sources: Apple Health, Health Connect, Withings, Oura, WHOOP, Fitbit, Garmin, Dexcom, OMRON and more",
   "REST API described by OpenAPI 3.1",
   "Read-only MCP server",
   "FHIR R4 and Open mHealth",
@@ -20,99 +20,81 @@ export const metadata: Metadata = { alternates: { canonical: asset("") || "/" } 
 
 function Feature({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
-    <div className="rounded-xl border bg-fd-card p-5">
-      <div className="mb-3 inline-flex size-9 items-center justify-center rounded-lg border bg-fd-background text-fd-primary">
-        {icon}
-      </div>
-      <h3 className="mb-1 font-medium">{title}</h3>
-      <p className="text-sm leading-relaxed text-fd-muted-foreground">{children}</p>
+    <div className="ohs-tile">
+      <span className="ohs-tile-icon">{icon}</span>
+      <h3 className="ohs-tile-title">{title}</h3>
+      <p className="ohs-tile-text">{children}</p>
     </div>
   );
 }
 
 export default function HomePage() {
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-16 md:py-24">
-      <section className="flex flex-col items-center text-center">
-        <span className="mb-6 rounded-full border border-fd-primary/30 bg-fd-primary/10 px-3 py-1 text-xs font-medium text-fd-primary">
-          v{latestVersion} · early preview · AGPL-3.0
-        </span>
-        <h1 className="max-w-3xl text-4xl font-semibold tracking-tight md:text-6xl">
-          Health data from devices and apps, in one clean model.
-        </h1>
-        <p className="mt-6 max-w-2xl text-lg text-fd-muted-foreground">
+    <main className="ohs-home">
+      <section className="ohs-home-hero">
+        <span className="ohs-chip">v{latestVersion} · early preview · AGPL-3.0</span>
+        <h1>Health data from devices and apps, in one clean model.</h1>
+        <p className="ohs-page-lede">
           Open Health Sync pulls from providers, accepts uploads from phones, keeps every payload verbatim, and serves
           normalized data over a REST API and a read-only MCP server. Self-hosted, free, one Go binary plus Postgres.
         </p>
-        <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <Link
-            href="/documentation/quickstart"
-            className="inline-flex items-center gap-2 rounded-full bg-fd-primary px-5 py-2.5 text-sm font-medium text-fd-primary-foreground transition-opacity hover:opacity-90"
-          >
-            Quickstart <ArrowRight className="size-4" />
+        <div className="ohs-actions">
+          <Link href="/documentation/quickstart" className="ohs-btn ohs-btn-primary">
+            Quickstart <ArrowRight aria-hidden="true" />
           </Link>
-          <Link
-            href="/documentation"
-            className="inline-flex items-center gap-2 rounded-full border bg-fd-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
-          >
+          <Link href="/documentation" className="ohs-btn ohs-btn-secondary">
             Read the docs
           </Link>
-          <a
-            href={repoUrl}
-            className="inline-flex items-center gap-2 rounded-full border bg-fd-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
-          >
+          <a href={repoUrl} className="ohs-btn ohs-btn-secondary">
             GitHub
           </a>
         </div>
-        <pre className="mt-10 w-full max-w-xl whitespace-pre-wrap rounded-xl border bg-fd-card px-5 py-4 text-left font-mono text-sm [overflow-wrap:anywhere]">
-          <span className="select-none text-fd-muted-foreground">$ </span>
+        <pre className="ohs-home-cmd">
+          <span aria-hidden="true">$ </span>
           docker pull ghcr.io/soma-intelligence/open-health-sync:{latestVersion}
         </pre>
       </section>
 
-      <section className="mt-20 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Feature icon={<Database className="size-4" />} title="One canonical model">
+      <section className="ohs-tiles">
+        <Feature icon={<Database aria-hidden="true" />} title="One canonical model">
           Samples, sleep, workouts, nutrition and daily summaries, with one unit per quantity and provenance on every
           record.
         </Feature>
-        <Feature icon={<FileArchive className="size-4" />} title="Raw payloads kept">
+        <Feature icon={<FileArchive aria-hidden="true" />} title="Raw payloads kept">
           Every upload and pull lands verbatim in the raw store first, so any user can be re-processed after a fix.
         </Feature>
-        <Feature icon={<Globe className="size-4" />} title="Local days, not UTC days">
+        <Feature icon={<Globe aria-hidden="true" />} title="Local days, not UTC days">
           Daily totals follow each record's own time zone, and two devices are never added together.
         </Feature>
-        <Feature icon={<Braces className="size-4" />} title="OpenAPI first">
+        <Feature icon={<Braces aria-hidden="true" />} title="OpenAPI first">
           An OpenAPI 3.1 file leads the code, and contract tests hold the server to it.
         </Feature>
-        <Feature icon={<Bot className="size-4" />} title="Read-only MCP">
+        <Feature icon={<Bot aria-hidden="true" />} title="Read-only MCP">
           A person can point their own AI agent at their own data, with a token that can only read.
         </Feature>
-        <Feature icon={<Server className="size-4" />} title="Runs small">
+        <Feature icon={<Server aria-hidden="true" />} title="Runs small">
           A Raspberry Pi 5 with 4 GB runs the whole stack. The queue lives in Postgres: no broker.
         </Feature>
       </section>
 
-      <section className="mt-16 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border bg-fd-card p-5">
-          <h2 className="mb-3 font-medium">Available</h2>
-          <ul className="space-y-2 text-sm text-fd-muted-foreground">
+      <section className="ohs-tiles ohs-tiles-2">
+        <div className="ohs-tile">
+          <h2 className="ohs-tile-title">Available</h2>
+          <ul className="ohs-list">
             {available.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
-          <p className="mt-4 text-xs text-fd-muted-foreground">
+          <p className="ohs-tile-text">
             All of it ships in v{latestVersion}.{" "}
-            <Link
-              href="/documentation/connectors/sources"
-              className="text-fd-primary underline-offset-4 hover:underline"
-            >
+            <Link href="/documentation/connectors/sources" className="ohs-link">
               Every source
             </Link>
           </p>
         </div>
-        <div className="rounded-xl border border-dashed p-5">
-          <h2 className="mb-3 font-medium">Planned</h2>
-          <ul className="space-y-2 text-sm text-fd-muted-foreground">
+        <div className="ohs-tile">
+          <h2 className="ohs-tile-title">Planned</h2>
+          <ul className="ohs-list">
             {planned.map((item) => (
               <li key={item}>{item}</li>
             ))}
@@ -120,21 +102,15 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="mt-16 flex flex-col items-center gap-2 rounded-2xl border border-dashed p-8 text-center">
-        <h2 className="text-lg font-medium">Rather not run it yourself?</h2>
-        <p className="max-w-xl text-sm text-fd-muted-foreground">
+      <section className="ohs-tile ohs-home-cta">
+        <h2 className="ohs-tile-title">Rather not run it yourself?</h2>
+        <p className="ohs-tile-text">
           The hosted Open Health Sync is in free beta with open sign-up, with the same API and nothing to run.{" "}
-          <a
-            href={`${signupUrl}?utm_source=docs&utm_medium=docs&utm_campaign=home`}
-            className="font-medium text-fd-primary underline-offset-4 hover:underline"
-          >
+          <a href={`${signupUrl}?utm_source=docs&utm_medium=docs&utm_campaign=home`} className="ohs-link">
             Get started for free
           </a>{" "}
           or{" "}
-          <Link
-            href="/documentation/platform"
-            className="font-medium text-fd-primary underline-offset-4 hover:underline"
-          >
+          <Link href="/documentation/platform" className="ohs-link">
             read what the beta gives you
           </Link>
           .

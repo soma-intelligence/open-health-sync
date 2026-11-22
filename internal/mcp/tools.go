@@ -48,6 +48,14 @@ type listArgs struct {
 	pageArgs
 }
 
+type labArgs struct {
+	userArgs
+	Code   string `json:"code,omitempty" jsonschema:"only the results of this LOINC code (2345-7) or this source code"`
+	Report string `json:"report,omitempty" jsonschema:"only the results of this report id"`
+	windowArgs
+	pageArgs
+}
+
 type dailyArgs struct {
 	userArgs
 	windowArgs
@@ -205,6 +213,17 @@ func addTools(s *sdk.Server, t *tools) {
 		"the macronutrients in g, sodium in mg; in nutrients, minerals and vitamins in mg or mcg and water in mL.",
 		func(ctx context.Context, a listArgs) (any, error) {
 			return listTool(ctx, t, a.userArgs, read.Query{}, a.windowArgs, a.pageArgs, read.Nutrition)
+		})
+	add(s, "get_lab_results", "Lab results, by collection time, oldest first: test code (LOINC when the lab gave one), "+
+		"the value as sent with its unit (or a text or coded result), the normalized value for the few analytes with an exact "+
+		"conversion, reference range, interpretation flag (H, L, N, A, HH, LL, AA; critical for the last three), status, "+
+		"specimen, issued time, lab and report id. Values come from the lab as sent: this server does not interpret them.",
+		func(ctx context.Context, a labArgs) (any, error) {
+			f := read.LabFilter{Code: a.Code, Report: a.Report}
+			return listTool(ctx, t, a.userArgs, read.Query{}, a.windowArgs, a.pageArgs,
+				func(ctx context.Context, db read.Querier, tenantID, userID uuid.UUID, q read.Query) (read.Page[read.LabResult], error) {
+					return read.Labs(ctx, db, tenantID, userID, q, f)
+				})
 		})
 	add(s, "get_daily", "Daily summaries (scores, steps, energy, resting heart rate, HRV) per local day, oldest first. "+
 		"By default one summary per day, each figure from the best ranked source (sources names it); view all gives one per source.",
@@ -411,7 +430,7 @@ func (t *tools) listUsers(ctx context.Context, a pageArgs) (any, error) {
 	if a.Limit < 0 || a.Limit > read.MaxLimit {
 		return nil, errLimit
 	}
-	users, next, err := t.d.Store.ListUsers(ctx, t.p.TenantID, a.Cursor, a.Limit)
+	users, next, err := t.d.Store.ListUsers(ctx, t.p.TenantID, tenant.UserFilter{}, a.Cursor, a.Limit)
 	if errors.Is(err, tenant.ErrInvalidCursor) {
 		return nil, toolError("the cursor is not valid")
 	}

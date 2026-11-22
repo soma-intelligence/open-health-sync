@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -109,14 +110,30 @@ func decodeCursor(c string) (time.Time, uuid.UUID, error) {
 	return t, id, nil
 }
 
+// A tag is health data (its kind names an illness, an injury or a
+// medication): under a vault (the Vault the request context carries, see
+// vault.NewContext) its kind, label, timezone, note and source are sealed
+// together in the row's sealed column and their own columns are NULL
+// (docs/specs/vault.md). The times and the id stay clear: lists filter and
+// page on them. A row written before the vault stays clear until it is
+// updated or converted, and reads the same.
+
 const cols = `id, kind, label, start_at, end_at, timezone, note, source, created_at, updated_at`
 
-func scan(row pgx.Row) (Tag, error) {
+// tagSel reads a tag, sealed or clear.
+var tagSel = vault.Select("time_tags", cols)
+
+func scan(ctx context.Context, keys *vault.Reader, row vault.Scanner) (Tag, error) {
 	var t Tag
-	err := row.Scan(&t.ID, &t.Kind, &t.Label, &t.StartAt, &t.EndAt, &t.Timezone, &t.Note, &t.Source,
-		&t.CreatedAt, &t.UpdatedAt)
+	err := tagSel.Scan(ctx, keys, row, []any{&t.ID, &t.Kind, &t.Label, &t.StartAt, &t.EndAt, &t.Timezone, &t.Note, &t.Source,
+		&t.CreatedAt, &t.UpdatedAt})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Tag{}, ErrNotFound
+	}
+	if errors.Is(err, vault.ErrNoKeys) {
+		// The user's keys are gone (an erasure shredded them): the user
+		// reads as an absent one.
+		return Tag{}, ErrUserNotFound
 	}
 	if err != nil {
 		return Tag{}, err
@@ -127,6 +144,35 @@ func scan(row pgx.Row) (Tag, error) {
 		t.EndAt = &end
 	}
 	return t, nil
+}
+
+// sealTag seals the sensitive fields of the tag id under the user's keys. It
+// returns nil when the request carries no vault: the tag is then written
+// clear, as on an instance with no vault configured. A user with no keys
+// (erased, or being erased) is refused as an absent user.
+func sealTag(ctx context.Context, keys *vault.Reader, id uuid.UUID, f Fields) ([]byte, error) {
+	if !keys.HasVault() {
+		return nil, nil
+	}
+	uv, err := keys.Keys(ctx)
+	if errors.Is(err, vault.ErrNoKeys) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("timetag: user keys: %w", err)
+	}
+	text := func(p *string) any {
+		if p == nil {
+			return nil
+		}
+		return *p
+	}
+	// The order of vault.Schema["time_tags"].Sealed.
+	sealed, err := uv.SealRow(tagSel.Table(), id[:], []any{f.Kind, text(f.Label), text(f.Timezone), text(f.Note), f.Source})
+	if err != nil {
+		return nil, fmt.Errorf("timetag: seal: %w", err)
+	}
+	return sealed, nil
 }
 
 // userExists reports whether user is an active user of tenant.
@@ -174,47 +220,69 @@ func List(ctx context.Context, db Querier, tenant, user uuid.UUID, q Query) (Pag
 	if !n.Start.IsZero() && n.Start.Equal(n.End) {
 		return Page{Records: []Tag{}}, nil // an empty window
 	}
-	args := []any{tenant, user}
-	arg := func(v any) string {
-		args = append(args, v)
-		return "$" + strconv.Itoa(len(args))
-	}
-	where := []string{"tenant_id = $1", "user_id = $2"}
-	if n.Kind != "" {
-		where = append(where, "kind = "+arg(n.Kind))
-	}
-	if !n.End.IsZero() {
-		where = append(where, "start_at < "+arg(n.End))
-	}
-	if !n.Start.IsZero() {
-		where = append(where, "(end_at IS NULL OR end_at > "+arg(n.Start)+")")
-	}
-	if n.paged {
-		where = append(where, "(start_at, id) > ("+arg(n.afterT)+", "+arg(n.afterID)+")")
-	}
-	rows, err := db.Query(ctx, "SELECT "+cols+" FROM ohs_data.time_tags WHERE "+strings.Join(where, " AND ")+
-		" ORDER BY start_at, id LIMIT "+arg(n.Limit+1), args...)
-	if err != nil {
-		return Page{}, fmt.Errorf("timetag: list: %w", err)
-	}
-	defer rows.Close()
+	keys := vault.ReaderFor(ctx, tenant, user)
 	out := Page{Records: []Tag{}}
-	for rows.Next() {
-		if len(out.Records) == n.Limit {
-			last := out.Records[len(out.Records)-1]
-			out.NextCursor = encodeCursor(last.StartAt, last.ID)
-			break
+	// The kind of a sealed tag is sealed: SQL keeps the clear tags of the
+	// kind and every sealed tag, and the sealed ones of another kind are left
+	// out here. A statement of Limit+1 rows can then hold fewer matches than
+	// the page takes, so the read goes on from its last row until the page is
+	// full or no row is left.
+	afterT, afterID, paged := n.afterT, n.afterID, n.paged
+	for {
+		args := []any{tenant, user}
+		arg := func(v any) string {
+			args = append(args, v)
+			return "$" + strconv.Itoa(len(args))
 		}
-		t, err := scan(rows)
+		where := []string{"tenant_id = $1", "user_id = $2"}
+		if n.Kind != "" {
+			where = append(where, "(kind = "+arg(n.Kind)+" OR sealed IS NOT NULL)")
+		}
+		if !n.End.IsZero() {
+			where = append(where, "start_at < "+arg(n.End))
+		}
+		if !n.Start.IsZero() {
+			where = append(where, "(end_at IS NULL OR end_at > "+arg(n.Start)+")")
+		}
+		if paged {
+			where = append(where, "(start_at, id) > ("+arg(afterT)+", "+arg(afterID)+")")
+		}
+		rows, err := db.Query(ctx, "SELECT "+tagSel.List("")+" FROM ohs_data.time_tags WHERE "+strings.Join(where, " AND ")+
+			" ORDER BY start_at, id LIMIT "+arg(n.Limit+1), args...)
 		if err != nil {
-			return Page{}, fmt.Errorf("timetag: list: scan: %w", err)
+			return Page{}, fmt.Errorf("timetag: list: %w", err)
 		}
-		out.Records = append(out.Records, t)
+		read := 0
+		for rows.Next() {
+			t, err := scan(ctx, keys, rows)
+			if err != nil {
+				rows.Close()
+				if errors.Is(err, ErrUserNotFound) {
+					return Page{}, err
+				}
+				return Page{}, fmt.Errorf("timetag: list: scan: %w", err)
+			}
+			read++
+			afterT, afterID, paged = t.StartAt, t.ID, true
+			if n.Kind != "" && t.Kind != n.Kind {
+				continue
+			}
+			if len(out.Records) == n.Limit {
+				rows.Close()
+				last := out.Records[len(out.Records)-1]
+				out.NextCursor = encodeCursor(last.StartAt, last.ID)
+				return out, nil
+			}
+			out.Records = append(out.Records, t)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return Page{}, fmt.Errorf("timetag: list: %w", err)
+		}
+		if read <= n.Limit {
+			return out, nil
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return Page{}, fmt.Errorf("timetag: list: %w", err)
-	}
-	return out, nil
 }
 
 // Get returns one tag of the user.
@@ -222,9 +290,9 @@ func Get(ctx context.Context, db Querier, tenant, user, id uuid.UUID) (Tag, erro
 	if err := userExists(ctx, db, tenant, user); err != nil {
 		return Tag{}, err
 	}
-	t, err := scan(db.QueryRow(ctx, `SELECT `+cols+` FROM ohs_data.time_tags
+	t, err := scan(ctx, vault.ReaderFor(ctx, tenant, user), db.QueryRow(ctx, `SELECT `+tagSel.List("")+` FROM ohs_data.time_tags
 		WHERE tenant_id = $1 AND user_id = $2 AND id = $3`, tenant, user, id))
-	if err != nil && !errors.Is(err, ErrNotFound) {
+	if err != nil && !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrUserNotFound) {
 		return Tag{}, fmt.Errorf("timetag: get: %w", err)
 	}
 	return t, err
@@ -240,12 +308,26 @@ func Create(ctx context.Context, db DB, tenant, user uuid.UUID, f Fields) (Tag, 
 	if err != nil {
 		return Tag{}, err
 	}
+	keys := vault.ReaderFor(ctx, tenant, user)
 	return inTx(ctx, db, tenant, user, func(tx pgx.Tx) (Tag, error) {
-		t, err := scan(tx.QueryRow(ctx, `INSERT INTO ohs_data.time_tags
-			(id, tenant_id, user_id, kind, label, start_at, end_at, timezone, note, source)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-			RETURNING `+cols,
-			id, tenant, user, f.Kind, f.Label, f.StartAt, f.EndAt, f.Timezone, f.Note, f.Source))
+		sealed, err := sealTag(ctx, keys, id, f)
+		if err != nil {
+			return Tag{}, err
+		}
+		var row pgx.Row
+		if sealed != nil {
+			row = tx.QueryRow(ctx, `INSERT INTO ohs_data.time_tags
+				(id, tenant_id, user_id, kind, label, start_at, end_at, timezone, note, source, sealed)
+				VALUES ($1, $2, $3, NULL, NULL, $4, $5, NULL, NULL, NULL, $6)
+				RETURNING `+tagSel.List(""), id, tenant, user, f.StartAt, f.EndAt, sealed)
+		} else {
+			row = tx.QueryRow(ctx, `INSERT INTO ohs_data.time_tags
+				(id, tenant_id, user_id, kind, label, start_at, end_at, timezone, note, source)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+				RETURNING `+tagSel.List(""),
+				id, tenant, user, f.Kind, f.Label, f.StartAt, f.EndAt, f.Timezone, f.Note, f.Source)
+		}
+		t, err := scan(ctx, keys, row)
 		if err != nil {
 			return Tag{}, fmt.Errorf("timetag: create: %w", err)
 		}
@@ -260,8 +342,9 @@ func Update(ctx context.Context, db DB, tenant, user, id uuid.UUID, p Patch) (Ta
 	if err := p.check(); err != nil {
 		return Tag{}, err
 	}
+	keys := vault.ReaderFor(ctx, tenant, user)
 	return inTx(ctx, db, tenant, user, func(tx pgx.Tx) (Tag, error) {
-		cur, err := scan(tx.QueryRow(ctx, `SELECT `+cols+` FROM ohs_data.time_tags
+		cur, err := scan(ctx, keys, tx.QueryRow(ctx, `SELECT `+tagSel.List("")+` FROM ohs_data.time_tags
 			WHERE tenant_id = $1 AND user_id = $2 AND id = $3 FOR UPDATE`, tenant, user, id))
 		if err != nil {
 			return Tag{}, err
@@ -273,11 +356,26 @@ func Update(ctx context.Context, db DB, tenant, user, id uuid.UUID, p Patch) (Ta
 		if err := f.Check(); err != nil {
 			return Tag{}, err
 		}
-		t, err := scan(tx.QueryRow(ctx, `UPDATE ohs_data.time_tags SET
-				kind = $4, label = $5, start_at = $6, end_at = $7, timezone = $8, note = $9, updated_at = now()
-			WHERE tenant_id = $1 AND user_id = $2 AND id = $3
-			RETURNING `+cols,
-			tenant, user, id, f.Kind, f.Label, f.StartAt, f.EndAt, f.Timezone, f.Note))
+		sealed, err := sealTag(ctx, keys, id, f)
+		if err != nil {
+			return Tag{}, err
+		}
+		var row pgx.Row
+		if sealed != nil {
+			// A tag still clear is converted by its first update.
+			row = tx.QueryRow(ctx, `UPDATE ohs_data.time_tags SET
+					kind = NULL, label = NULL, start_at = $4, end_at = $5, timezone = NULL, note = NULL,
+					source = NULL, sealed = $6, updated_at = now()
+				WHERE tenant_id = $1 AND user_id = $2 AND id = $3
+				RETURNING `+tagSel.List(""), tenant, user, id, f.StartAt, f.EndAt, sealed)
+		} else {
+			row = tx.QueryRow(ctx, `UPDATE ohs_data.time_tags SET
+					kind = $4, label = $5, start_at = $6, end_at = $7, timezone = $8, note = $9, updated_at = now()
+				WHERE tenant_id = $1 AND user_id = $2 AND id = $3
+				RETURNING `+tagSel.List(""),
+				tenant, user, id, f.Kind, f.Label, f.StartAt, f.EndAt, f.Timezone, f.Note)
+		}
+		t, err := scan(ctx, keys, row)
 		if err != nil {
 			return Tag{}, fmt.Errorf("timetag: update: %w", err)
 		}

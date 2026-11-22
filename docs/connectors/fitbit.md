@@ -115,7 +115,8 @@ Disconnecting, or deleting the user, revokes the grant at `oauth2.googleapis.com
 
 ## 5. What is pulled
 
-A new connection is backfilled over the last 30 days, then pulled every 6 hours. Each data type is
+A new connection is backfilled over the last 30 days, then pulled every 6 hours while
+notifications arrive, and every 3 hours without them. Each data type is
 read with `users.dataTypes.dataPoints.list`
 (`GET /v4/users/me/dataTypes/<type>/dataPoints`), page after page (`pageSize` 10,000, or 25 for
 `exercise` and `sleep`, the API's maximums; `nextPageToken`). Every page is stored as one raw

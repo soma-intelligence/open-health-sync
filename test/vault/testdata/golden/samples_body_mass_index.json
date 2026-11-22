@@ -1,0 +1,68 @@
+{
+  "data": [
+    {
+      "device": "",
+      "device_model": "",
+      "end_date": "2026-09-25T04:47:00Z",
+      "external_id": "",
+      "is_primary_source": true,
+      "metadata": {
+        "synthetic": true,
+        "timezone": "Europe/Paris"
+      },
+      "product_type": "",
+      "provider": "withings",
+      "source": "withings",
+      "source_bundle_id": "",
+      "source_name": "Demo Scale",
+      "start_date": "2026-09-25T04:47:00Z",
+      "type": "body_mass_index",
+      "unit": "kg/m2",
+      "value": 24.9,
+      "was_user_entered": null
+    },
+    {
+      "device": "",
+      "device_model": "",
+      "end_date": "2026-09-26T05:37:00Z",
+      "external_id": "",
+      "is_primary_source": true,
+      "metadata": {
+        "synthetic": true,
+        "timezone": "Europe/Paris"
+      },
+      "product_type": "",
+      "provider": "withings",
+      "source": "withings",
+      "source_bundle_id": "",
+      "source_name": "Demo Scale",
+      "start_date": "2026-09-26T05:37:00Z",
+      "type": "body_mass_index",
+      "unit": "kg/m2",
+      "value": 25,
+      "was_user_entered": null
+    },
+    {
+      "device": "",
+      "device_model": "",
+      "end_date": "2026-09-27T05:38:00Z",
+      "external_id": "",
+      "is_primary_source": true,
+      "metadata": {
+        "synthetic": true,
+        "timezone": "Europe/Paris"
+      },
+      "product_type": "",
+      "provider": "withings",
+      "source": "withings",
+      "source_bundle_id": "",
+      "source_name": "Demo Scale",
+      "start_date": "2026-09-27T05:38:00Z",
+      "type": "body_mass_index",
+      "unit": "kg/m2",
+      "value": 24.9,
+      "was_user_entered": null
+    }
+  ],
+  "next_cursor": null
+}

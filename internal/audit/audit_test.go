@@ -21,14 +21,20 @@ func TestClassify(t *testing.T) {
 		{"GET", "GET /v1/users", UserRead},
 		{"GET", "GET /v1/users/{id}", UserRead},
 		{"DELETE", "DELETE /v1/users/{id}", UserDelete},
+		{"PATCH", "PATCH /v1/users/{id}", UserUpdate},
 		{"GET", "GET /v1/deletions/{job_id}", UserRead},
 		{"POST", "POST /v1/users/{id}/tokens", TokenCreate},
+		{"DELETE", "DELETE /v1/users/{id}/tokens", TokenRevoke},
+		{"DELETE", "DELETE /v1/users/{id}/tokens/{token_id}", TokenRevoke},
 		{"GET", "GET /v1/users/{id}/connections", ConnectionRead},
 		{"POST", "POST /v1/users/{id}/connections/{provider}", ConnectionCreate},
 		{"DELETE", "DELETE /v1/users/{id}/connections/{provider}", ConnectionDelete},
 		{"POST", "POST /v1/users/{id}/connections/{provider}/sync", ConnectionSync},
 		{"GET", "GET /v1/users/{id}/sync-runs", ConnectionRead},
 		{"GET", "GET /v1/users/{id}/sync-runs/{run}", ConnectionRead},
+		{"POST", "POST /v1/users/{id}/sync-runs/{run}/retry", ConnectionSync},
+		{"POST", "POST /v1/users/{id}/connections/{provider}/sync-runs/retry", ConnectionSync},
+		{"POST", "POST /v1/admin/tenants/{tenant_id}/users/{id}/sync-runs/{run}/retry", ConnectionSync},
 		{"POST", "POST /v1/users/{id}/connect-sessions", ConnectionCreate},
 		{"GET", "GET /v1/users/{id}/menstrual-cycles", DataRead},
 		{"GET", "GET /v1/users/{id}/consents/history", ConsentRead},
@@ -138,5 +144,30 @@ func TestDetailJSONCleansEveryType(t *testing.T) {
 	clean, err := detailJSON(map[string]any{"job_id": "j1", "n": 2})
 	if err != nil || string(clean) != `{"job_id":"j1","n":2}` {
 		t.Fatalf("%s %v", clean, err)
+	}
+}
+
+func TestClassifyConsoleSession(t *testing.T) {
+	cases := []struct{ method, pattern, want string }{
+		{"POST", "POST /console/session", SessionCreate},
+		{"GET", "GET /console/session", SessionRead},
+		{"DELETE", "DELETE /console/session", SessionDelete},
+		{"PUT", "PUT /console/session/tenant", SessionTenant},
+	}
+	for _, c := range cases {
+		if got := Classify(c.method, c.pattern); got != c.want {
+			t.Errorf("Classify(%q, %q) = %q, want %q", c.method, c.pattern, got, c.want)
+		}
+	}
+}
+
+func TestBufferedSessionActions(t *testing.T) {
+	if !Buffered(SessionRead) {
+		t.Error("session.read should be buffered")
+	}
+	for _, a := range []string{SessionCreate, SessionDelete, SessionTenant} {
+		if Buffered(a) {
+			t.Errorf("%s should be written synchronously", a)
+		}
 	}
 }

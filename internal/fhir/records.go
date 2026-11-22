@@ -82,6 +82,7 @@ var idPrefixes = []struct {
 	{DailyIDPrefix, read.KindDaily, false},
 	{ECGIDPrefix, read.KindECG, false},
 	{NutritionIDPrefix, read.KindNutrition, false},
+	{LabIDPrefix, read.KindLab, false},
 }
 
 // RecordID is the stable id of the Observation made from r.
@@ -102,6 +103,8 @@ func RecordID(r read.ObservationRecord) string {
 		return ECGIDPrefix + strconv.FormatInt(r.ECG.ID, 10)
 	case read.KindNutrition:
 		return NutritionIDPrefix + strconv.FormatInt(r.Nutrition.ID, 10)
+	case read.KindLab:
+		return LabIDPrefix + strconv.FormatInt(r.Lab.ID, 10)
 	}
 	return ""
 }
@@ -148,6 +151,8 @@ func FromRecord(user uuid.UUID, r read.ObservationRecord) Observation {
 		return FromECG(user, *r.ECG)
 	case read.KindNutrition:
 		return FromNutritionLog(user, *r.Nutrition)
+	case read.KindLab:
+		return FromLabResult(user, *r.Lab)
 	}
 	if r.Partner != nil {
 		return FromBloodPressure(user, *r.Sample, *r.Partner)

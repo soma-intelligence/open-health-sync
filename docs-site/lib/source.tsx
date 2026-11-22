@@ -1,9 +1,6 @@
 import { llms, loader } from "fumadocs-core/source";
-import { lucideIconsPlugin } from "fumadocs-core/source/plugins/lucide-icons";
-import { statusBadgesPlugin } from "fumadocs-core/source/plugins/status-badges";
 import { metaSchema, pageSchema } from "fumadocs-core/source/schema";
 import { defineDocs } from "fumadocs-mdx/macro";
-import { openapiPlugin } from "fumadocs-openapi/server";
 import { z } from "zod";
 import { absoluteUrl } from "./asset";
 import { docsHref, docsRoute } from "./shared";
@@ -16,6 +13,8 @@ const docs = defineDocs({
       source: z.string().optional(),
       /** a sidebar badge, such as "planned" or "soon" */
       status: z.string().optional(),
+      /** the route of a generated endpoint page, such as "/v1/users/{id}" (scripts/generate-api.mts) */
+      route: z.string().optional(),
     }),
     postprocess: {
       includeProcessedMarkdown: true,
@@ -29,17 +28,8 @@ const docs = defineDocs({
 export const source = loader({
   baseUrl: docsRoute,
   source: docs.toFumadocsSource(),
-  plugins: [
-    lucideIconsPlugin(),
-    openapiPlugin(),
-    statusBadgesPlugin({
-      renderBadge: (status) => (
-        <span className="ms-auto rounded-full border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-fd-muted-foreground">
-          {status}
-        </span>
-      ),
-    }),
-  ],
+  // No tree plugins: lib/nav.ts reads the method and status badges from each page's data, and
+  // the sidebar draws them, so page names stay plain text.
 });
 
 export const docsLlms = llms(source, {

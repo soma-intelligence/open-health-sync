@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -23,12 +25,60 @@ var ErrAmbiguousPrefix = errors.New("tenant: key prefix matches several keys")
 // APIKey describes one tenant API key, never its secret. ID is what the
 // audit log names the key by (auth.Principal.KeyID).
 type APIKey struct {
-	ID         uuid.UUID
+	ID uuid.UUID
+	// Name says what the key is for. Empty for a key created without one.
+	Name       string
 	Prefix     string
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
 	RevokedAt  *time.Time
+	// ExpiresAt is when the key stops working by itself. Nil means never.
+	ExpiresAt *time.Time
+	// Scopes are what the key may do (auth.KeyScopes): never empty,
+	// auth.ScopeAll alone for a key that does everything.
+	Scopes []string
 }
+
+// KeyOptions are the choices made when a key is created.
+type KeyOptions struct {
+	// Name says what the key is for: trimmed, at most MaxKeyName
+	// characters (ErrKeyName past it). Empty creates the key without one.
+	Name string
+	// ExpiresAt is when the key stops working. Nil means it lives until it
+	// is revoked. A time that is not in the future is ErrExpiryPast.
+	ExpiresAt *time.Time
+	// Scopes are what the key may do (auth.KeyScopes). Empty means every
+	// scope (auth.ScopeAll). An unknown scope is ErrInvalidKeyScopes.
+	Scopes []string
+}
+
+// ErrInvalidKeyScopes means the scopes asked for a new key name a scope
+// that does not exist.
+var ErrInvalidKeyScopes = auth.ErrInvalidKeyScopes
+
+// MaxKeyName bounds the name of a key, in characters.
+const MaxKeyName = 100
+
+// ErrKeyName means the name asked for a new key is longer than MaxKeyName.
+var ErrKeyName = errors.New("tenant: the key name is longer than 100 characters")
+
+// ErrExpiryPast means the expiry asked for a new key is not in the future.
+var ErrExpiryPast = errors.New("tenant: the key expiry is not in the future")
+
+// apiKeyCols are the columns of an APIKey, in the order of scanAPIKey.
+const apiKeyCols = `id, coalesce(name, ''), key_prefix, created_at, last_used_at, revoked_at, expires_at, scopes`
+
+func scanAPIKey(r pgx.Row) (APIKey, error) {
+	var k APIKey
+	err := r.Scan(&k.ID, &k.Name, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt, &k.ExpiresAt, &k.Scopes)
+	return k, err
+}
+
+// revokeTokensOfKey revokes the user tokens the key minted that are still
+// valid. LookupKey refuses them as soon as the key is revoked; this states
+// it on each token.
+const revokeTokensOfKey = `UPDATE ohs_core.user_tokens SET revoked_at = now()
+	WHERE minted_by_key = $1 AND revoked_at IS NULL`
 
 // TenantSummary is a tenant with its count of active API keys.
 type TenantSummary struct {
@@ -38,7 +88,8 @@ type TenantSummary struct {
 
 // selectTenantSummary selects tenants with their count of active keys.
 const selectTenantSummary = `SELECT t.id, t.name, t.created_at, t.admin,
-	(SELECT count(*) FROM ohs_core.api_keys k WHERE k.tenant_id = t.id AND k.revoked_at IS NULL)
+	(SELECT count(*) FROM ohs_core.api_keys k WHERE k.tenant_id = t.id AND k.revoked_at IS NULL
+		AND (k.expires_at IS NULL OR k.expires_at > now()))
 	FROM ohs_core.tenants t`
 
 func scanTenantSummary(r pgx.CollectableRow) (TenantSummary, error) {
@@ -115,17 +166,38 @@ func (s *Store) CreateKey(ctx context.Context, tenantID uuid.UUID) (string, erro
 
 // CreateKeyInfo is CreateKey that also describes the new key.
 func (s *Store) CreateKeyInfo(ctx context.Context, tenantID uuid.UUID) (string, APIKey, error) {
-	return s.createKey(ctx, tenantID, nil)
+	return s.createKey(ctx, tenantID, KeyOptions{}, nil)
+}
+
+// CreateKeyWith is CreateKeyInfo with options (an expiry, scopes).
+func (s *Store) CreateKeyWith(ctx context.Context, tenantID uuid.UUID, o KeyOptions) (string, APIKey, error) {
+	return s.createKey(ctx, tenantID, o, nil)
 }
 
 // CreateKeyAudited is CreateKeyInfo that records ev in the audit log in the
 // same transaction, for the tenant and with the new key's id and prefix added
 // to its detail: a failed audit write leaves no key behind.
 func (s *Store) CreateKeyAudited(ctx context.Context, tenantID uuid.UUID, ev audit.Event) (string, APIKey, error) {
-	return s.createKey(ctx, tenantID, &ev)
+	return s.createKey(ctx, tenantID, KeyOptions{}, &ev)
 }
 
-func (s *Store) createKey(ctx context.Context, tenantID uuid.UUID, ev *audit.Event) (string, APIKey, error) {
+// CreateKeyAuditedWith is CreateKeyAudited with options (an expiry, scopes).
+func (s *Store) CreateKeyAuditedWith(ctx context.Context, tenantID uuid.UUID, o KeyOptions, ev audit.Event) (string, APIKey, error) {
+	return s.createKey(ctx, tenantID, o, &ev)
+}
+
+func (s *Store) createKey(ctx context.Context, tenantID uuid.UUID, o KeyOptions, ev *audit.Event) (string, APIKey, error) {
+	if o.ExpiresAt != nil && !o.ExpiresAt.After(time.Now()) {
+		return "", APIKey{}, ErrExpiryPast
+	}
+	name := strings.TrimSpace(o.Name)
+	if utf8.RuneCountInString(name) > MaxKeyName {
+		return "", APIKey{}, ErrKeyName
+	}
+	scopes, err := auth.NormalizeKeyScopes(o.Scopes)
+	if err != nil {
+		return "", APIKey{}, err
+	}
 	full, hash, err := auth.NewSecret(auth.PrefixSecretKey)
 	if err != nil {
 		return "", APIKey{}, err
@@ -135,12 +207,12 @@ func (s *Store) createKey(ctx context.Context, tenantID uuid.UUID, ev *audit.Eve
 		return "", APIKey{}, fmt.Errorf("tenant: begin: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	k := APIKey{Prefix: full[:keyPrefixLen]}
+	k := APIKey{Name: name, Prefix: full[:keyPrefixLen]}
 	err = tx.QueryRow(ctx,
-		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash)
-		 SELECT id, $2, $3 FROM ohs_core.tenants WHERE id = $1
-		 RETURNING id, created_at`,
-		tenantID, k.Prefix, hash).Scan(&k.ID, &k.CreatedAt)
+		`INSERT INTO ohs_core.api_keys (tenant_id, key_prefix, key_hash, expires_at, scopes, name)
+		 SELECT id, $2, $3, $4::timestamptz, $5, nullif($6, '') FROM ohs_core.tenants WHERE id = $1
+		 RETURNING id, created_at, expires_at, scopes`,
+		tenantID, k.Prefix, hash, o.ExpiresAt, scopes, name).Scan(&k.ID, &k.CreatedAt, &k.ExpiresAt, &k.Scopes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", APIKey{}, ErrNotFound
 	}
@@ -158,8 +230,9 @@ func (s *Store) createKey(ctx context.Context, tenantID uuid.UUID, ev *audit.Eve
 	return full, k, nil
 }
 
-// RevokeKeyByID revokes one API key of the tenant by its id. An id of no key
-// of the tenant is ErrNotFound; revoking an already revoked key succeeds.
+// RevokeKeyByID revokes one API key of the tenant by its id, and the user
+// tokens it minted. An id of no key of the tenant is ErrNotFound; revoking an
+// already revoked key succeeds.
 func (s *Store) RevokeKeyByID(ctx context.Context, tenantID, keyID uuid.UUID) error {
 	_, err := s.revokeKeyByID(ctx, tenantID, keyID, nil)
 	return err
@@ -179,16 +252,18 @@ func (s *Store) revokeKeyByID(ctx context.Context, tenantID, keyID uuid.UUID, ev
 		return APIKey{}, fmt.Errorf("tenant: begin: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var k APIKey
-	err = tx.QueryRow(ctx,
+	k, err := scanAPIKey(tx.QueryRow(ctx,
 		`UPDATE ohs_core.api_keys SET revoked_at = coalesce(revoked_at, now()) WHERE tenant_id = $1 AND id = $2
-		 RETURNING id, key_prefix, created_at, last_used_at, revoked_at`,
-		tenantID, keyID).Scan(&k.ID, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt)
+		 RETURNING `+apiKeyCols,
+		tenantID, keyID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return APIKey{}, ErrNotFound
 	}
 	if err != nil {
 		return APIKey{}, fmt.Errorf("tenant: revoke: %w", err)
+	}
+	if _, err := tx.Exec(ctx, revokeTokensOfKey, k.ID); err != nil {
+		return APIKey{}, fmt.Errorf("tenant: revoke tokens of key: %w", err)
 	}
 	if ev != nil {
 		if err := audit.Record(ctx, tx, keyEvent(*ev, tenantID, k)); err != nil {
@@ -201,14 +276,18 @@ func (s *Store) revokeKeyByID(ctx context.Context, tenantID, keyID uuid.UUID, ev
 	return k, nil
 }
 
-// keyEvent is ev recorded for tenantID, with the key's id and prefix added to
-// a copy of its detail. The prefix is the one ListKeys shows followed by
+// keyEvent is ev recorded for tenantID, with the key's id, prefix and scopes
+// added to a copy of its detail. The prefix is the one ListKeys shows followed by
 // "...", as `ohs admin` writes it; the key itself never reaches the log.
 func keyEvent(ev audit.Event, tenantID uuid.UUID, k APIKey) audit.Event {
 	detail := make(map[string]any, len(ev.Detail)+2)
 	maps.Copy(detail, ev.Detail)
 	detail["key_id"] = k.ID.String()
 	detail["key_prefix"] = k.Prefix + "..."
+	detail["scopes"] = k.Scopes
+	if k.Name != "" {
+		detail["key_name"] = k.Name
+	}
 	ev.Tenant, ev.Detail = tenantID, detail
 	return ev
 }
@@ -217,16 +296,12 @@ func keyEvent(ev audit.Event, tenantID uuid.UUID, k APIKey) audit.Event {
 // first. An unknown tenant is ErrNotFound.
 func (s *Store) ListKeys(ctx context.Context, tenantID uuid.UUID) ([]APIKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, key_prefix, created_at, last_used_at, revoked_at FROM ohs_core.api_keys
+		`SELECT `+apiKeyCols+` FROM ohs_core.api_keys
 		 WHERE tenant_id = $1 ORDER BY created_at, id`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("tenant: list keys: %w", err)
 	}
-	keys, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (APIKey, error) {
-		var k APIKey
-		err := r.Scan(&k.ID, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt)
-		return k, err
-	})
+	keys, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (APIKey, error) { return scanAPIKey(r) })
 	if err != nil || len(keys) > 0 {
 		return keys, err
 	}
@@ -243,7 +318,8 @@ func (s *Store) ListKeys(ctx context.Context, tenantID uuid.UUID) ([]APIKey, err
 // RevokeKeyByPrefix revokes one API key of the tenant, named by the prefix
 // ListKeys shows or by the whole key. A prefix matching no key of the tenant
 // is ErrNotFound, one matching several is ErrAmbiguousPrefix. Revoking an
-// already revoked key succeeds.
+// already revoked key succeeds. The user tokens the key minted are revoked
+// with it.
 func (s *Store) RevokeKeyByPrefix(ctx context.Context, tenantID uuid.UUID, key string) error {
 	if len(key) > keyPrefixLen {
 		return s.RevokeKey(ctx, tenantID, auth.Hash(key))
@@ -260,10 +336,19 @@ func (s *Store) RevokeKeyByPrefix(ctx context.Context, tenantID uuid.UUID, key s
 	case n > 1:
 		return ErrAmbiguousPrefix
 	}
-	if _, err := s.pool.Exec(ctx,
-		`UPDATE ohs_core.api_keys SET revoked_at = coalesce(revoked_at, now()) WHERE tenant_id = $1 AND key_prefix = $2`,
-		tenantID, key); err != nil {
+	var id uuid.UUID
+	err := s.pool.QueryRow(ctx,
+		`UPDATE ohs_core.api_keys SET revoked_at = coalesce(revoked_at, now()) WHERE tenant_id = $1 AND key_prefix = $2
+		 RETURNING id`,
+		tenantID, key).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
 		return fmt.Errorf("tenant: revoke: %w", err)
+	}
+	if _, err := s.pool.Exec(ctx, revokeTokensOfKey, id); err != nil {
+		return fmt.Errorf("tenant: revoke tokens of key: %w", err)
 	}
 	return nil
 }

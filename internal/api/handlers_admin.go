@@ -96,6 +96,9 @@ func (s *server) mountAdmin(mux *http.ServeMux) {
 		mux.Handle(pattern, auth.Middleware(s.lookup, auth.TenantAdmin)(h))
 	}
 	s.mountAdminTenants(admin)
+	if s.d.Settings != nil {
+		s.mountAdminSettings(admin)
+	}
 	if s.d.Providers == nil {
 		return
 	}

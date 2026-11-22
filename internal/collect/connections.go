@@ -27,6 +27,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -65,6 +66,18 @@ type Deps struct {
 	// instance's, and a connection keeps the keys it was made with. Nil:
 	// every tenant runs on the instance's keys.
 	TenantKeys *tenantkeys.Set
+	// BackfillWindow, when set, is how far back a new connection is pulled,
+	// in place of each provider's own value (connector.SyncPolicy.Backfill,
+	// 30 days by default), up to MaxBackfillWindow. A provider that declares
+	// less than the default keeps its own value. The window is walked in
+	// jobs of the provider's BackfillChunk, the most recent first.
+	BackfillWindow time.Duration
+	// BackfillWindowFunc, when set, wins over BackfillWindow and is read for
+	// every new connection.
+	BackfillWindowFunc func() time.Duration
+	// Vault seals every raw object to its owner's public key. Nil stores
+	// the gzip bytes as they are, as before the vault.
+	Vault *vault.Vault
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }

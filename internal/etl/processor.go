@@ -19,9 +19,11 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/consent"
+	"github.com/soma-intelligence/open-health-sync/internal/labs"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
+	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
 
 // Lookup finds the connector registered under a provider slug.
@@ -37,6 +39,22 @@ type Options struct {
 	// ConsentRequired (OHS_CONSENT_REQUIRED) stores nothing from a source
 	// the user has recorded no consent for.
 	ConsentRequired bool
+	// ConsentRequiredFunc, when set, is read per job and wins over
+	// ConsentRequired.
+	ConsentRequiredFunc func() bool
+	// Vault, when set, gives the job the user's keys before anything is
+	// read. A user being deleted whose keys are already shredded ends like
+	// any job of a user who is not active; an active user with no keys
+	// fails the job, which the queue retries and then parks.
+	Vault *vault.Vault
+}
+
+// consentRequired is the value in force now.
+func (o Options) consentRequired() bool {
+	if o.ConsentRequiredFunc != nil {
+		return o.ConsentRequiredFunc()
+	}
+	return o.ConsentRequired
 }
 
 // Process normalizes the raw object of job into the canonical store and
@@ -56,6 +74,13 @@ type metricDetail struct {
 }
 
 // ProcessWith is Process with explicit options.
+//
+// The object is read once, one record at a time, into the batch the writer
+// takes (objectPlan). An object with more bulk records than one write chunk
+// (WriterConfig.ChunkRecords) is not held: the first read keeps only what the
+// write needs as a whole, and the write transaction reads the object a second
+// time and writes its bulk records chunk by chunk (stream.go), so the memory
+// of a job does not grow with the size of its object.
 func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job queue.ETLJob, opts Options) (Counts, error) {
 	start := time.Now()
 	lookup := opts.Lookup
@@ -70,119 +95,86 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	sc := scope{tenant: job.TenantID, user: job.UserID, provider: job.Provider}
 	log := slog.With("job_id", job.ID, "tenant_id", job.TenantID, "user_id", job.UserID, "provider", job.Provider)
 
-	if active, err := userActive(ctx, pool, sc, false); err != nil {
+	// The keys first: from the shred of a deletion on, the user has none,
+	// and the status check below tells that case from a user never given
+	// keys.
+	var (
+		keys    *vault.UserVault
+		keysErr error
+	)
+	if opts.Vault != nil {
+		if keys, keysErr = opts.Vault.ForUser(ctx, job.TenantID, job.UserID); keysErr != nil && !errors.Is(keysErr, vault.ErrNoKeys) {
+			return nil, fmt.Errorf("user keys: %w", keysErr)
+		}
+	}
+	active, zone, err := userState(ctx, pool, sc, false)
+	if err != nil {
 		return nil, err
-	} else if !active {
+	}
+	if !active {
 		log.InfoContext(ctx, "etl job skipped, user not active")
 		return Counts{}, nil
 	}
+	if keysErr != nil {
+		return nil, fmt.Errorf("user keys: %w", keysErr)
+	}
+	// The same keys open the raw object and seal every row the job writes.
+	sc.uv = keys
+	// The user's zone, as it is when the job starts, is the zone of the local
+	// day of every record that names none.
+	sc.zone = zone
 
 	// Consent choke point: categories the user has not granted for this
 	// source are dropped before validation, so nothing of them is stored.
-	policy, err := consent.Load(ctx, pool, job.TenantID, job.UserID, job.Provider, opts.ConsentRequired)
+	policy, err := consent.Load(ctx, pool, job.TenantID, job.UserID, job.Provider, opts.consentRequired())
 	if err != nil {
 		return nil, err
 	}
-	withheld := 0
 
-	dataType, err := rawDataType(ctx, pool, sc, job.Key)
+	// The object's capture time orders the copies of a replaceable row, so a
+	// retried or replayed job for an older object cannot overwrite what a
+	// newer object stored (see latestWins).
+	dataType, captured, err := rawObjectInfo(ctx, pool, sc, job.Key)
 	if err != nil {
 		return nil, err
 	}
+	sc.captured = captured
 	conn, ok := lookup(job.Provider)
 	if !ok {
 		return nil, fmt.Errorf("unknown provider %q", job.Provider)
 	}
 
 	// Stream the object, mapping and validating one record at a time. The raw
-	// map is released as soon as its MapResult is folded into acc.
-	acc := &model.MapResult{SourceKey: job.Key}
+	// map is released as soon as its MapResult is folded into the plan.
+	lines := &lineMapper{conn: conn, job: job, sc: sc, dataType: dataType, policy: policy, validatedAt: validatedAt}
+	writer := NewWriter(opts.Writer)
+	plan := newObjectPlan(sc, job.Key, writer.cfg.ChunkRecords)
+	st := newPassState()
 	cov := newCoverageBuilder(validatedAt)
-	details := map[string]*metricDetail{}
-	suspects := 0
-	// Record failures are kept apart from parse errors so the final slice puts
-	// parse errors first, then the records that parsed but did not survive.
-	var recordFailures []FailedRecord
-	fail := func(i int, record map[string]any, reason, msg string) {
-		recordFailures = append(recordFailures, FailedRecord{LineNum: i + 1, RawPayload: record, Error: msg, ReasonCode: reason})
-		detail(details, metricTypeFromRecord(record)).failed++
-	}
+	cov.zone = sc.zone
+	// A device upload that carries a zone teaches the user's zone.
+	var learnt zoneSeen
+	_, device := conn.(connector.DeviceConnector)
 
 	reader := NewReader(rs)
+	if keys != nil {
+		// The job's keys open its sealed raw object.
+		reader = reader.WithKeys(keys.Keys)
+	}
 	rr, err := reader.StreamNDJSON(ctx, job.Key, func(i int, record map[string]any) error {
-		mr, mapErr := mapRecord(conn, connector.RawRecord{
-			TenantID: job.TenantID.String(), UserID: job.UserID.String(), Provider: job.Provider,
-			DataType: dataType, SourceKey: job.Key, Fields: record,
-		})
-		if mapErr != nil {
-			fail(i, record, "mapping", fmt.Sprintf("mapping error: %v", mapErr))
+		mr := lines.mapLine(st, i, record)
+		if mr == nil {
 			return nil
 		}
-		if mr.IsEmpty() {
-			// The connector skipped the record on purpose (an unknown type, a
-			// line without a value): nothing to store, and not a failure. The
-			// connector counts and logs what it skips.
-			return nil
-		}
-		// Text choke point: a NUL from the source fails the whole write.
-		model.ScrubText(mr)
-		stampOwner(mr, sc)
-		if policy.Recorded || policy.Required {
-			withheld += consent.Filter(mr, policy.Allows)
-			if mr.IsEmpty() {
-				return nil
-			}
-		}
-
-		// Attribution choke point: which upstream produced each sample, not only
-		// which integration delivered it.
-		model.CanonicalizeSourceAttribution(mr, record, job.Provider)
-
-		// Unit choke point, before validation, so the range checks can assume
-		// the storage unit. An unconvertible unit is a recoverable failure of
-		// its own sample: the record is kept for a replay, and the rest of
-		// what it mapped to is written.
-		if unitErrs := model.CanonicalizeUnits(mr); len(unitErrs) > 0 {
-			fail(i, record, "unit", fmt.Sprintf("unit errors: %v", unitErrs))
-			pruneUnitErrors(mr, unitErrs)
-			if mr.IsEmpty() {
-				return nil
-			}
-		}
-
-		// A reject is a value the metric cannot physically take: parked, never
-		// written. A suspect is implausible but possible: written and flagged.
-		valErrors := ValidateMapResultAt(mr, validatedAt)
-		if rejects := Rejections(valErrors); len(rejects) > 0 {
-			// Scope the rejection to the offending entries: one record can map to
-			// a whole day's series, and dropping all of it over one out-of-band
-			// sample would erase the day.
-			structural := pruneRejected(mr, rejects)
-			fail(i, record, "validation", fmt.Sprintf("validation errors: %v", rejects))
-			if len(structural) > 0 || mr.IsEmpty() {
-				return nil
-			}
-			// The indices in valErrors point at the pre-prune slices.
-			valErrors = ValidateMapResultAt(mr, validatedAt)
-		}
-		if s := Suspicions(valErrors); len(s) > 0 {
-			FlagSuspects(mr, s)
-			suspects += len(s)
-			detail(details, metricTypeFromRecord(record)).suspect += len(s)
-		}
-
-		// Heartbeat series identity: the raw object's data type, unless the
-		// connector named the series itself.
-		if dataType != "" {
-			for j := range mr.HeartbeatSamples {
-				if mr.HeartbeatSamples[j].SeriesID == "" {
-					mr.HeartbeatSamples[j].SeriesID = dataType
-				}
-			}
-		}
-
 		cov.add(mr)
-		Accumulate(acc, mr)
+		if device {
+			learnt.add(mr, validatedAt)
+		}
+		if plan.add(mr) {
+			// The object is larger than one chunk: its record failures are
+			// written as the second read meets them, not held.
+			st.release()
+		}
 		return nil
 	})
 	if err != nil {
@@ -199,32 +191,33 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		log.WarnContext(ctx, "reader cap hit, processing partial",
 			"truncation", string(rr.Truncation), "parsed_records", rr.RecordCount)
 	}
-	if suspects > 0 {
-		log.WarnContext(ctx, "implausible values flagged", "count", suspects)
+	if st.suspects > 0 {
+		log.WarnContext(ctx, "implausible values flagged", "count", st.suspects)
 	}
-	if withheld > 0 {
-		log.InfoContext(ctx, "records withheld, no consent for their category", "count", withheld)
+	if st.withheld > 0 {
+		log.InfoContext(ctx, "records withheld, no consent for their category", "count", st.withheld)
 	}
+	plan.seal()
 	recordsIn := rr.RecordCount + len(rr.ParseErrors) + rr.ParseErrorsDropped
 
-	failed := make([]FailedRecord, 0, len(rr.ParseErrors)+len(recordFailures))
+	// Parse errors first, then the records that parsed but did not survive.
+	parseFailed := make([]FailedRecord, 0, len(rr.ParseErrors))
 	for _, pe := range rr.ParseErrors {
-		failed = append(failed, FailedRecord{
+		parseFailed = append(parseFailed, FailedRecord{
 			LineNum:    pe.LineNum,
 			RawPayload: map[string]any{"raw_line": pe.RawLine},
 			Error:      fmt.Sprintf("parse error: %v", pe.Err),
 			ReasonCode: "parse",
 		})
 	}
-	failed = append(failed, recordFailures...)
-	recordsFailed := len(failed) + rr.ParseErrorsDropped
+	recordsFailed := len(parseFailed) + st.failed + rr.ParseErrorsDropped
 
 	// One write transaction per object. Late data for an old period can land
 	// in a chunk TimescaleDB's compression job is compressing at that moment,
 	// and the two may deadlock: retry the transaction a few times before
 	// leaving it to the job queue's own retries.
 	writeObject := func() (Counts, string, bool, error) {
-		dt := cloneDetails(details)
+		dt := cloneDetails(st.details)
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return nil, "", false, fmt.Errorf("begin transaction: %w", err)
@@ -233,7 +226,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 
 		// Re-check under a share lock: a deletion that flips the user to deleting
 		// waits for this transaction, and one that already did stops the write.
-		if active, err := userActive(ctx, tx, sc, true); err != nil {
+		if active, _, err := userState(ctx, tx, sc, true); err != nil {
 			return nil, "", false, err
 		} else if !active {
 			return Counts{}, "", true, nil
@@ -248,13 +241,27 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		}
 
 		counts := Counts{}
-		if !acc.IsEmpty() {
-			c, err := NewWriter(opts.Writer).WriteAccumulated(ctx, tx, sc, acc)
+		// The failures written at the end of the transaction: all of them,
+		// unless the object is streamed, which writes them as it goes.
+		failed := parseFailed
+		if plan.spilled || !plan.acc.IsEmpty() {
+			bw, err := writer.begin(ctx, tx, sc, plan.acc, plan.spilled && plan.n.quantity > 0)
+			if err != nil {
+				return nil, "", false, fmt.Errorf("write records: %w", err)
+			}
+			rest := plan.acc
+			if plan.spilled {
+				if rest, err = streamChunks(ctx, tx, bw, reader, lines, plan, rr, st, parseFailed); err != nil {
+					return nil, "", false, err
+				}
+				failed = nil
+			}
+			c, err := bw.finish(ctx, tx, rest)
 			if err != nil {
 				return nil, "", false, fmt.Errorf("write records: %w", err)
 			}
 			counts = c
-			if days := touchedDays(sc, acc); len(days) > 0 {
+			if days := bw.touched(rest); len(days) > 0 {
 				n, k, err := deriveDailySummaries(ctx, tx, sc, days)
 				if err != nil {
 					return nil, "", false, fmt.Errorf("derive daily summaries: %w", err)
@@ -271,6 +278,9 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		}
 		written := counts.TotalWritten()
 
+		if !plan.spilled {
+			failed = append(failed[:len(failed):len(failed)], st.failures...)
+		}
 		if len(failed) > 0 {
 			if err := writeFailedRecords(ctx, tx, sc, job.Key, failed); err != nil {
 				return nil, "", false, err
@@ -282,7 +292,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		// failed parse or validation would fail the same way again, and a job
 		// row made the drainer replay it, and write its line failures again,
 		// at every process start.
-		if written+counts.TotalSkipped() == 0 && recordsFailed > 0 && anyRecoverable(failed) {
+		if written+counts.TotalSkipped() == 0 && recordsFailed > 0 && st.recoverable {
 			if err := writeJobFailure(ctx, tx, sc, job.Key,
 				fmt.Sprintf("all %d record(s) failed (0 written)", recordsFailed)); err != nil {
 				return nil, "", false, err
@@ -337,9 +347,18 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	}
 	written := counts.TotalWritten()
 
+	// Best effort, after the commit: the zone is a hint for later records, and
+	// failing to note it must not fail a job whose data is stored.
+	if learnt.name != "" {
+		if err := learnUserZone(ctx, pool, sc, learnt); err != nil {
+			log.WarnContext(ctx, "user time zone not recorded", "error", err)
+		}
+	}
+
 	log.InfoContext(ctx, "raw object processed",
 		"status", status, "records_in", recordsIn, "records_out", written,
 		"duplicates", counts.TotalSkipped(), "failed", recordsFailed,
+		"chunked", plan.spilled,
 		"duration_ms", time.Since(start).Milliseconds())
 	return counts, nil
 }
@@ -364,37 +383,47 @@ type queryRower interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// userActive reports whether the job's user exists in its tenant and is
-// active. forShare locks the row until the transaction ends.
-func userActive(ctx context.Context, db queryRower, sc scope, forShare bool) (bool, error) {
-	q := `SELECT status FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2`
+// userState reports whether the job's user exists in its tenant and is
+// active, and the user's time zone (nil when the user has none, or one this
+// host cannot load). forShare locks the row until the transaction ends.
+func userState(ctx context.Context, db queryRower, sc scope, forShare bool) (bool, *time.Location, error) {
+	q := `SELECT status, coalesce(timezone, '') FROM ohs_core.end_users WHERE tenant_id = $1 AND id = $2`
 	if forShare {
 		q += ` FOR SHARE`
 	}
-	var status string
-	err := db.QueryRow(ctx, q, sc.tenant, sc.user).Scan(&status)
+	var status, zone string
+	err := db.QueryRow(ctx, q, sc.tenant, sc.user).Scan(&status, &zone)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+		return false, nil, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("look up user: %w", err)
+		return false, nil, fmt.Errorf("look up user: %w", err)
 	}
-	return status == "active", nil
+	loc, _ := loadZone(zone)
+	return status == "active", loc, nil
 }
 
-// rawDataType loads the data type registered for the raw object. One raw
-// object holds one data type.
-func rawDataType(ctx context.Context, db queryRower, sc scope, key string) (string, error) {
-	var dt string
-	err := db.QueryRow(ctx, `SELECT data_type FROM ohs_sync.raw_objects
-		WHERE tenant_id = $1 AND user_id = $2 AND key = $3`, sc.tenant, sc.user, key).Scan(&dt)
+// userActive reports whether the job's user exists in its tenant and is
+// active. forShare locks the row until the transaction ends.
+func userActive(ctx context.Context, db queryRower, sc scope, forShare bool) (bool, error) {
+	active, _, err := userState(ctx, db, sc, forShare)
+	return active, err
+}
+
+// rawObjectInfo loads the data type registered for the raw object and when
+// the object was captured: when the pull that stored it started fetching, or,
+// for an upload or a notification body, when it was received. One raw object
+// holds one data type.
+func rawObjectInfo(ctx context.Context, db queryRower, sc scope, key string) (dataType string, captured time.Time, err error) {
+	err = db.QueryRow(ctx, `SELECT data_type, coalesce(captured_at, created_at) FROM ohs_sync.raw_objects
+		WHERE tenant_id = $1 AND user_id = $2 AND key = $3`, sc.tenant, sc.user, key).Scan(&dataType, &captured)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("raw object %s is not registered", key)
+		return "", time.Time{}, fmt.Errorf("raw object %s is not registered", key)
 	}
 	if err != nil {
-		return "", fmt.Errorf("look up raw object: %w", err)
+		return "", time.Time{}, fmt.Errorf("look up raw object: %w", err)
 	}
-	return dt, nil
+	return dataType, captured, nil
 }
 
 // rawRegistered reports whether the raw object is still registered.
@@ -494,15 +523,21 @@ const (
 	coverageKeyECG       = "ecg"
 	coverageKeyHeartbeat = "heartbeat"
 	coverageKeyDaily     = "daily_summary"
+	// coverageKeyLab counts every lab result under one key: the test codes
+	// stay out of the coverage table.
+	coverageKeyLab = "lab_result"
 )
 
 // coverageBuilder counts mapped records per (canonical metric, local data
 // day) as they stream past. It counts mapped records, not written rows: a
 // replayed object whose rows already exist still proves the data is present.
-// The day is the record's own day in its "timezone" metadata, or UTC.
+// The day is the record's own day in its "timezone" metadata, else in the
+// user's zone, else in UTC (scope.location).
 type coverageBuilder struct {
 	today  time.Time
 	counts map[string]map[time.Time]int
+	// zone is the user's zone, nil when the user has none.
+	zone *time.Location
 }
 
 func newCoverageBuilder(now time.Time) *coverageBuilder {
@@ -518,7 +553,7 @@ func (b *coverageBuilder) addAt(metric string, ts time.Time, md map[string]any) 
 	}
 	day := b.today // undated record: the processing day
 	if !ts.IsZero() {
-		day = localDate(ts, md)
+		day = dateOnly(ts.In(scope{zone: b.zone}.location(md)))
 	}
 	byDay, ok := b.counts[metric]
 	if !ok {
@@ -555,6 +590,10 @@ func (b *coverageBuilder) add(mr *model.MapResult) {
 		b.addAt(coverageKeyDaily, dateOnly(d.SummaryDate), nil)
 	}
 	for _, o := range mr.Observations {
+		if labs.IsLab(o.CanonicalCode) {
+			b.addAt(coverageKeyLab, o.TS, o.Metadata)
+			continue
+		}
 		b.addAt(o.CanonicalCode, o.TS, o.Metadata)
 	}
 }

@@ -107,7 +107,7 @@ func TestToolsList(t *testing.T) {
 		}
 		assert.Contains(t, cs.InitializeResult().Instructions, "get_daily")
 		slices.Sort(names)
-		assert.Equal(t, []string{"get_category_samples", "get_coverage", "get_daily", "get_ecg_recordings", "get_hrv", "get_menstrual_cycles",
+		assert.Equal(t, []string{"get_category_samples", "get_coverage", "get_daily", "get_ecg_recordings", "get_hrv", "get_lab_results", "get_menstrual_cycles",
 			"get_nutrition", "get_rr_intervals", "get_sample_stats", "get_samples", "get_sleep", "get_tags", "get_workout_route", "get_workouts", "list_connections",
 			"list_quantity_types", "list_users"}, names)
 	}
@@ -220,6 +220,7 @@ func TestInputSchemas(t *testing.T) {
 	assert.ElementsMatch(t, []string{"user_id", "session_id", "start", "end", "view", "cursor", "limit"}, keys(got["get_sleep"].Properties))
 	assert.ElementsMatch(t, []string{"user_id", "start", "end", "view", "cursor", "limit"}, keys(got["get_daily"].Properties))
 	assert.ElementsMatch(t, []string{"user_id", "start", "end", "cursor", "limit"}, keys(got["get_nutrition"].Properties))
+	assert.ElementsMatch(t, []string{"user_id", "code", "report", "start", "end", "cursor", "limit"}, keys(got["get_lab_results"].Properties))
 	assert.ElementsMatch(t, []string{"cursor", "limit"}, keys(got["list_users"].Properties))
 	assert.Empty(t, got["list_quantity_types"].Properties)
 	assert.ElementsMatch(t, []string{"user_id"}, keys(got["list_connections"].Properties))

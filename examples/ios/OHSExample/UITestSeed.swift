@@ -25,9 +25,11 @@ enum UITestSeed {
 
     /// Asks for write access to heart rate together with read access to `read`, in one sheet,
     /// then saves the readings. Throws when HealthKit refuses the save (access declined).
-    static func authorizeAndWrite(_ heartRates: [Double], store: HKHealthStore, read: Set<HKSampleType>) async throws {
+    /// `read` is the set the SDK asks for (HealthKitSync.authorizationTypes), parents of the
+    /// series types included.
+    static func authorizeAndWrite(_ heartRates: [Double], store: HKHealthStore, read: Set<HKObjectType>) async throws {
         let heartRate = HKQuantityType(.heartRate)
-        try await store.requestAuthorization(toShare: [heartRate], read: Set<HKObjectType>(read.map { $0 as HKObjectType }))
+        try await store.requestAuthorization(toShare: [heartRate], read: read)
         let unit = HKUnit.count().unitDivided(by: .minute())
         let now = Date()
         let samples = heartRates.enumerated().map { index, value in

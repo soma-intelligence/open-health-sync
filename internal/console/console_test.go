@@ -3,25 +3,31 @@
 package console
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func serveConsole(t *testing.T, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
-	return serveMode(t, false, method, path)
-}
-
-func serveMode(t *testing.T, readOnly bool, method, path string) *httptest.ResponseRecorder {
-	t.Helper()
 	mux := http.NewServeMux()
-	Mount(mux, readOnly)
+	Mount(mux)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec
+}
+
+func distFile(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := fs.ReadFile(dist, "dist/"+name)
+	if err != nil {
+		t.Fatalf("dist/%s: %v (run make console)", name, err)
+	}
+	return b
 }
 
 func assertSecurityHeaders(t *testing.T, rec *httptest.ResponseRecorder) {
@@ -46,8 +52,12 @@ func assertSecurityHeaders(t *testing.T, rec *httptest.ResponseRecorder) {
 	}
 }
 
-func TestPageServedWithHeaders(t *testing.T) {
-	for _, p := range []string{"/console", "/console/"} {
+func TestIndexServedForConsoleRoutes(t *testing.T) {
+	index := string(distFile(t, "index.html"))
+	for _, p := range []string{
+		"/console", "/console/", "/console/overview", "/console/users/0b6c/connections",
+		"/console/settings/webhooks/OHS_WEBHOOK_PAUSE_AFTER",
+	} {
 		rec := serveConsole(t, "GET", p)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: %d", p, rec.Code)
@@ -56,14 +66,116 @@ func TestPageServedWithHeaders(t *testing.T) {
 		if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 			t.Errorf("%s: Content-Type %q", p, got)
 		}
+		if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("%s: Cache-Control %q", p, got)
+		}
+		if rec.Body.String() != index {
+			t.Errorf("%s: body is not dist/index.html", p)
+		}
+	}
+}
+
+var hashedAsset = regexp.MustCompile(`^assets/[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8}\.(js|css|woff2)$`)
+
+func TestHashedAssetsImmutable(t *testing.T) {
+	types := map[string]string{
+		".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".woff2": "font/woff2",
+	}
+	entries, err := fs.ReadDir(dist, "dist/assets")
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("dist/assets: %v, %d files", err, len(entries))
+	}
+	for _, e := range entries {
+		name := "assets/" + e.Name()
+		if !hashedAsset.MatchString(name) {
+			t.Errorf("%s is not a content hashed asset name", name)
+			continue
+		}
+		rec := serveConsole(t, "GET", "/console/"+name)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: %d", name, rec.Code)
+			continue
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+			t.Errorf("%s: Cache-Control %q", name, got)
+		}
+		ext := name[strings.LastIndex(name, "."):]
+		if got := rec.Header().Get("Content-Type"); got != types[ext] {
+			t.Errorf("%s: Content-Type %q, want %q", name, got, types[ext])
+		}
+		assertSecurityHeaders(t, rec)
+	}
+}
+
+// A stale page asking for a hashed file that is gone must not get HTML back:
+// the browser would run it as script.
+func TestMissingAssetIs404(t *testing.T) {
+	for _, p := range []string{"/console/assets/nope-12345678.js", "/console/assets/"} {
+		rec := serveConsole(t, "GET", p)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: %d, want 404", p, rec.Code)
+		}
 		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
 			t.Errorf("%s: Cache-Control %q", p, got)
 		}
-		body := rec.Body.String()
-		for _, want := range []string{`src="/console/app.mjs"`, `href="/console/console.css"`} {
-			if !strings.Contains(body, want) {
-				t.Errorf("%s: page lacks %s", p, want)
+		if strings.Contains(rec.Body.String(), "<html") {
+			t.Errorf("%s: answered the index", p)
+		}
+		assertSecurityHeaders(t, rec)
+	}
+}
+
+func TestTraversalNeverLeavesDist(t *testing.T) {
+	for _, p := range []string{"/console/%2e%2e/console.go", "/console/../console.go", "/console/dist/index.html"} {
+		rec := serveConsole(t, "GET", p)
+		if rec.Code >= 500 {
+			t.Errorf("%s: %d", p, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "package console") {
+			t.Errorf("%s: answered a Go file", p)
+		}
+	}
+}
+
+// The page carries no inline script, style or event handler (the CSP would
+// block them anyway), loads its scripts as modules from /console/assets/ and
+// nothing from another origin.
+func TestDistHasNoInlineCode(t *testing.T) {
+	for _, name := range []string{"index.html"} {
+		html := string(distFile(t, name))
+		if regexp.MustCompile(`<script(?:\s[^>]*)?>\s*[^<\s]`).MatchString(html) {
+			t.Errorf("%s has an inline script", name)
+		}
+		if regexp.MustCompile(`(?i)<style|\sstyle=|\son[a-z]+=`).MatchString(html) {
+			t.Errorf("%s has inline style or an event handler attribute", name)
+		}
+		if regexp.MustCompile(`(?i)(src|href)="(https?:)?//`).MatchString(html) {
+			t.Errorf("%s loads from another origin", name)
+		}
+		tags := regexp.MustCompile(`<script\b[^>]*>`).FindAllString(html, -1)
+		if len(tags) == 0 {
+			t.Errorf("%s has no script", name)
+		}
+		for _, tag := range tags {
+			if !strings.Contains(tag, `type="module"`) || !regexp.MustCompile(`\ssrc="/console/assets/`).MatchString(tag) {
+				t.Errorf("%s: script %s is not a module under /console/assets/", name, tag)
 			}
+		}
+	}
+}
+
+func TestDistLoadsNothingFromElsewhere(t *testing.T) {
+	remote := regexp.MustCompile(`(?:https?:)?//[A-Za-z0-9]`)
+	files := []string{"index.html"}
+	entries, _ := fs.ReadDir(dist, "dist/assets")
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".css") {
+			files = append(files, "assets/"+e.Name())
+		}
+	}
+	for _, f := range files {
+		if loc := remote.FindString(string(distFile(t, f))); loc != "" {
+			t.Errorf("%s references another origin: %q", f, loc)
 		}
 	}
 }
@@ -72,40 +184,6 @@ func TestHeadFollowsGet(t *testing.T) {
 	rec := serveConsole(t, "HEAD", "/console")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("HEAD: %d", rec.Code)
-	}
-}
-
-func TestAssetsServed(t *testing.T) {
-	for path, ct := range map[string]string{
-		"/console/app.mjs":     "text/javascript; charset=utf-8",
-		"/console/lib.mjs":     "text/javascript; charset=utf-8",
-		"/console/console.css": "text/css; charset=utf-8",
-	} {
-		rec := serveConsole(t, "GET", path)
-		if rec.Code != http.StatusOK || rec.Body.Len() == 0 {
-			t.Fatalf("%s: %d, %d bytes", path, rec.Code, rec.Body.Len())
-		}
-		if got := rec.Header().Get("Content-Type"); got != ct {
-			t.Errorf("%s: Content-Type %q, want %q", path, got, ct)
-		}
-		assertSecurityHeaders(t, rec)
-	}
-}
-
-func TestUnknownAssetIs404(t *testing.T) {
-	for _, p := range []string{"/console/nope.js", "/console/static/app.mjs", "/console/console.go", "/console/app.mjs/x", "/console/%2e%2e/console.go", "/consolex"} {
-		rec := serveConsole(t, "GET", p)
-		if p == "/consolex" {
-			// Not a console route at all: the mux has no match.
-			if rec.Code != http.StatusNotFound {
-				t.Errorf("%s: %d", p, rec.Code)
-			}
-			continue
-		}
-		if rec.Code != http.StatusNotFound {
-			t.Errorf("%s: %d, want 404", p, rec.Code)
-		}
-		assertSecurityHeaders(t, rec)
 	}
 }
 
@@ -118,80 +196,8 @@ func TestOnlyGetIsServed(t *testing.T) {
 	}
 }
 
-// The page carries no inline script, style or event handler (the CSP would
-// block them anyway) and loads nothing from another origin.
-func TestPageHasNoInlineCode(t *testing.T) {
-	for _, name := range []string{"index.html", "setup.html"} {
-		page, err := static.ReadFile("static/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		html := string(page)
-		if regexp.MustCompile(`<script(?:\s[^>]*)?>\s*[^<\s]`).MatchString(html) {
-			t.Errorf("%s has an inline script", name)
-		}
-		if regexp.MustCompile(`(?i)<style|\sstyle=|\son[a-z]+=`).MatchString(html) {
-			t.Errorf("%s has inline style or an event handler attribute", name)
-		}
-		if regexp.MustCompile(`(?i)(src|href)="(https?:)?//`).MatchString(html) {
-			t.Errorf("%s loads from another origin", name)
-		}
-	}
-}
-
-// The scripts build the page from API data with textContent and created
-// elements only, and every request goes through the one wrapper of lib.mjs,
-// whose read-only mode refuses any method but GET.
-func TestScriptAvoidsUnsafeSinks(t *testing.T) {
-	for _, name := range []string{"app.mjs", "lib.mjs"} {
-		js, err := static.ReadFile("static/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		src := string(js)
-		for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "XMLHttpRequest", "console.log"} {
-			if strings.Contains(src, bad) {
-				t.Errorf("%s uses %s", name, bad)
-			}
-		}
-	}
-	app, _ := static.ReadFile("static/app.mjs")
-	lib, _ := static.ReadFile("static/lib.mjs")
-	if n := strings.Count(string(app), "fetch("); n != 1 {
-		t.Errorf("app.mjs calls fetch %d times; every request goes through makeApi", n)
-	}
-	if strings.Contains(string(lib), "fetch(") {
-		t.Error("lib.mjs calls fetch itself; it takes the fetch to use")
-	}
-	if !strings.Contains(string(app), "makeApi((u, o) => window.fetch(u, o), getKey, { readOnly })") {
-		t.Error("app.mjs does not build its one request wrapper in the page's mode")
-	}
-	for _, want := range []string{`credentials: "omit"`, `redirect: "error"`, `referrerPolicy: "no-referrer"`} {
-		if !strings.Contains(string(lib), want) {
-			t.Errorf("lib.mjs requests lack %s", want)
-		}
-	}
-}
-
-func TestModeInPage(t *testing.T) {
-	for readOnly, want := range map[bool]string{false: ModeManage, true: ModeReadOnly} {
-		rec := serveMode(t, readOnly, "GET", "/console")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("readOnly %v: %d", readOnly, rec.Code)
-		}
-		tag := `<meta name="ohs-console-mode" content="` + want + `">`
-		if !strings.Contains(rec.Body.String(), tag) {
-			t.Errorf("readOnly %v: the page lacks %s", readOnly, tag)
-		}
-	}
-	// The script treats a page without the manage tag as read only.
-	app, _ := static.ReadFile("static/app.mjs")
-	if !strings.Contains(string(app), `readOnly = !meta || meta.getAttribute("content") !== "manage"`) {
-		t.Error("app.mjs does not default to read only")
-	}
-}
-
-func TestSetupPageServed(t *testing.T) {
+// /console/setup is the React app's index; the old script path is gone.
+func TestSetupRouteServesTheApp(t *testing.T) {
 	rec := serveConsole(t, "GET", "/console/setup")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/console/setup: %d", rec.Code)
@@ -200,44 +206,32 @@ func TestSetupPageServed(t *testing.T) {
 	if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 		t.Errorf("Content-Type %q", got)
 	}
-	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Errorf("Cache-Control %q", got)
 	}
-	if !strings.Contains(rec.Body.String(), `src="/console/setup.mjs"`) {
-		t.Error("setup page lacks its script")
+	if rec.Body.String() != string(distFile(t, "index.html")) {
+		t.Error("/console/setup is not dist/index.html")
 	}
 	rec = serveConsole(t, "GET", "/console/setup.mjs")
-	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/javascript; charset=utf-8" {
-		t.Fatalf("/console/setup.mjs: %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("/console/setup.mjs: %d, want 404", rec.Code)
 	}
-	assertSecurityHeaders(t, rec)
+	if strings.Contains(rec.Body.String(), "<html") {
+		t.Error("/console/setup.mjs answered the index")
+	}
 	if rec := serveConsole(t, "POST", "/console/setup"); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /console/setup: %d", rec.Code)
 	}
 }
 
-// The setup script shows the key with textContent only and makes one kind
-// of request: to /v1/setup on this origin, without cookies.
-func TestSetupScriptAvoidsUnsafeSinks(t *testing.T) {
-	js, err := static.ReadFile("static/setup.mjs")
-	if err != nil {
-		t.Fatal(err)
+// A build without index.html answers 500, and that answer is never cached.
+func TestMissingBuildIsNotCached(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeFrom(rec, fstest.MapFS{}, "dist/index.html", "text/html; charset=utf-8", cacheRevalidate)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
 	}
-	src := string(js)
-	for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage", "XMLHttpRequest", "console.log"} {
-		if strings.Contains(src, bad) {
-			t.Errorf("setup.mjs uses %s", bad)
-		}
-	}
-	if n := strings.Count(src, "fetch("); n != 1 {
-		t.Errorf("setup.mjs calls fetch %d times; every request goes through makeSetupClient", n)
-	}
-	if !strings.Contains(src, `SETUP_PATH = "/v1/setup"`) || !strings.Contains(src, `credentials: "omit"`) || !strings.Contains(src, `redirect: "error"`) {
-		t.Error("setup.mjs does not pin its path, cookies and redirects")
-	}
-	for _, m := range []string{`"PUT"`, `"PATCH"`, `"DELETE"`} {
-		if strings.Contains(src, m) {
-			t.Errorf("setup.mjs mentions method %s", m)
-		}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
 	}
 }

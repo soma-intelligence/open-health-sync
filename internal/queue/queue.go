@@ -113,18 +113,30 @@ type poolExec interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-func fail(ctx context.Context, table string, pool poolExec, id int64, claimedAt time.Time, cause error) error {
-	// attempts is read before the increment: the first failure waits 30s, the
-	// second 60s, and so on. The fifth failure parks the job.
+// backoff is a retry schedule: the first delay, doubled with every failed
+// attempt up to max, and the number of failed attempts that parks the job.
+type backoff struct {
+	base, max time.Duration
+	attempts  int
+}
+
+// standardBackoff is the schedule of Fail: 30s doubling, parked at the fifth
+// failure. Its cap is never reached.
+var standardBackoff = backoff{base: BackoffBase, max: BackoffBase << MaxAttempts, attempts: MaxAttempts}
+
+func fail(ctx context.Context, table string, pool poolExec, id int64, claimedAt time.Time, cause error, b backoff) error {
+	// attempts is read before the increment: the first failure waits the
+	// base delay, the second twice that, and so on up to the cap. The
+	// failure that reaches b.attempts parks the job.
 	tag, err := settleExec(ctx, pool, fmt.Sprintf(`
 		UPDATE ohs_sync.%s SET
 			attempts   = attempts + 1,
 			status     = CASE WHEN attempts + 1 >= $4 THEN 'parked' ELSE 'pending' END,
-			not_before = now() + make_interval(secs => $5::double precision * power(2, attempts)),
+			not_before = now() + make_interval(secs => least($5::double precision * power(2, least(attempts, 40)), $6::double precision)),
 			claimed_at = NULL,
 			last_error = $3
 		WHERE id = $1 AND status = 'running' AND claimed_at = $2`, table),
-		id, claimedAt, errText(cause), MaxAttempts, BackoffBase.Seconds())
+		id, claimedAt, errText(cause), b.attempts, b.base.Seconds(), b.max.Seconds())
 	if err != nil {
 		return fmt.Errorf("fail job: %w", err)
 	}
@@ -147,33 +159,30 @@ func complete(ctx context.Context, table string, pool poolExec, id int64, claime
 	return nil
 }
 
-// claimSQL builds the claim statement. One statement picks eligible rows with
-// FOR UPDATE SKIP LOCKED and either marks them running or, when a reclaim
-// would exhaust the attempts, parks them; parked rows are not returned.
-// $1 = limit, $2 = visibility timeout seconds, $3.. = extra filter args.
-// order is the ORDER BY of the pick.
-func claimSQL(table, extraWhere, cols string) string {
-	return claimSQLOrdered(table, extraWhere, cols, "not_before, id")
-}
+// reclaimBatch bounds the expired claims one claim puts back.
+const reclaimBatch = 1000
 
-func claimSQLOrdered(table, extraWhere, cols, order string) string {
+// reclaimSQL builds the statement that puts back the jobs whose claim
+// expired: running past the visibility timeout ($1, in seconds). Each burns
+// an attempt and waits again, or is parked when that was its last one. A
+// reclaimed job keeps its not_before, so it is claimed before the jobs queued
+// after it. The pick reads the reaper index (claimed_at of running jobs), so
+// claims never scan the queue for expired claims. maxAttempts is the number
+// of attempts that parks a job of this queue. extraWhere filters the pick
+// ($2..), extraSet adds columns; in both, exhausted is the SQL condition that
+// the job is out of attempts.
+func reclaimSQL(table string, maxAttempts int, extraWhere, extraSet string) string {
+	exhausted := fmt.Sprintf("t.attempts + 1 >= %d", maxAttempts)
 	return fmt.Sprintf(`
-		WITH picked AS (
-			SELECT id, (status = 'running' AND attempts + 1 >= %[1]d) AS exhausted
-			FROM ohs_sync.%[2]s
-			WHERE %[3]s((status = 'pending' AND not_before <= now())
-				OR (status = 'running' AND claimed_at < now() - make_interval(secs => $2::double precision)))
-			ORDER BY %[5]s
-			LIMIT $1
-			FOR UPDATE SKIP LOCKED
-		), upd AS (
-			UPDATE ohs_sync.%[2]s t SET
-				attempts   = t.attempts + (t.status = 'running')::int,
-				status     = CASE WHEN p.exhausted THEN 'parked' ELSE 'running' END,
-				claimed_at = CASE WHEN p.exhausted THEN NULL ELSE now() END,
-				last_error = CASE WHEN p.exhausted THEN 'visibility timeout expired' ELSE t.last_error END
-			FROM picked p WHERE t.id = p.id
-			RETURNING t.*
-		)
-		SELECT %[4]s FROM upd WHERE status = 'running'`, MaxAttempts, table, extraWhere, cols, order)
+		UPDATE ohs_sync.%[1]s t SET
+			attempts   = t.attempts + 1,
+			status     = CASE WHEN %[2]s THEN 'parked' ELSE 'pending' END,
+			claimed_at = NULL,
+			last_error = CASE WHEN %[2]s THEN 'visibility timeout expired' ELSE t.last_error END%[4]s
+		WHERE t.id IN (
+			SELECT id FROM ohs_sync.%[1]s
+			WHERE %[3]sstatus = 'running' AND claimed_at < now() - make_interval(secs => $1::double precision)
+			ORDER BY claimed_at
+			LIMIT %[5]d
+			FOR UPDATE SKIP LOCKED)`, table, exhausted, extraWhere, strings.ReplaceAll(extraSet, "exhausted", exhausted), reclaimBatch)
 }

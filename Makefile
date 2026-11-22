@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: setup build image test test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test
+.PHONY: setup build image test test-race released-migrations compose-image-check test-js lint integration contract e2e backup-test reliability upgrade-test guard fhir-validate release-check record sdk sdk-test console console-dev console-e2e console-ui-e2e
 
 setup:
 	git config core.hooksPath .githooks
@@ -21,10 +21,31 @@ image:
 test:
 	go test ./...
 
-# The admin console's and the setup page's pure JavaScript helpers (Node 22+, no
-# npm install).
+# The unit tests under the race detector (needs cgo: a C compiler). CI runs it
+# as its own job.
+test-race:
+	go test -race ./...
+
+# Rewrites internal/db/released_migrations.txt from the migrations on disk,
+# keeping its comment header. The release pull request runs it with the tag
+# to come, so the next cycle cannot add a migration below this release's:
+#   make released-migrations RELEASE_TAG=v0.3.0
+released-migrations:
+	@test -n "$(RELEASE_TAG)" || { echo "released-migrations: set RELEASE_TAG=vX.Y.Z" >&2; exit 2; }
+	@f=internal/db/released_migrations.txt; \
+	{ grep '^#' $$f | grep -v '^# release '; echo "# release $(RELEASE_TAG)"; \
+	  ls internal/db/migrations/*.up.sql | sed 's|.*/||; s|_.*||' | sort -u; } > $$f.tmp && mv $$f.tmp $$f
+	go test -count=1 -run 'TestMigrationFiles|TestCheckMigrationFiles' ./internal/db/
+
+# The image deploy/docker-compose.yml runs by default exists in the registry
+# (needs curl and the network). CI runs it every day on main.
+compose-image-check:
+	scripts/check-compose-image.sh
+
+# The share viewer's pure JavaScript helpers (Node 22+, no npm install). The
+# console's own tests run with npm test in web/console.
 test-js:
-	node --test internal/console/app.test.mjs internal/console/setup.test.mjs internal/shl/viewer/view.test.mjs
+	node --test internal/shl/viewer/view.test.mjs
 
 # golangci-lint v2 with .golangci.yml (the integration suites included). CI
 # runs the same version: go install
@@ -98,8 +119,9 @@ fhir-validate:
 	scripts/fhir-validate.sh
 
 # Checks to run before tagging a release, with the tag to come:
-#   make release-check RELEASE_TAG=v0.2.0
-# The tag's release notes and the compose default version, build, vet, unit
+#   make release-check RELEASE_TAG=v0.3.0
+# The tag's release notes, the compose default version and the list of
+# released migrations (make released-migrations), build, vet, unit
 # tests, the forbidden-terms guard (set OHS_TERMS_FILE or
 # OHS_FORBIDDEN_TERMS), a secret scan when gitleaks is installed, and the
 # generated data model doc. Docker suites (integration, e2e, reliability)
@@ -116,3 +138,24 @@ release-check: build
 		echo "release-check: gitleaks not installed, skipping secret scan" >&2; \
 	fi
 	go test -count=1 -run TestCommittedDocIsCurrent ./internal/model/cmd/gendocs/
+
+# The React admin console (web/console): installs the pinned packages, writes
+# src/api/schema.ts from api/openapi.yaml and builds into internal/console/dist,
+# which is committed and embedded. Needs Node.js 22. CI fails when the committed
+# build or schema differ from what this writes.
+console:
+	cd web/console && npm ci && npm run schema && npm run build
+
+# The console's dev server on port 5173, proxying the API to OHS_DEV_TARGET
+# (default http://localhost:8080).
+console-dev:
+	cd web/console && npm run dev
+
+# The console's browser tests (Playwright). Needs OHS_E2E_DATABASE_URL.
+console-e2e:
+	cd web/console && npx playwright test
+
+# The console against the compose stack, Playwright in its own container.
+# Needs docker, curl and jq only. Screenshots in test/e2e/console-ui/out.
+console-ui-e2e:
+	test/e2e/console_ui.sh

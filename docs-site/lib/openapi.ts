@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createOpenAPI } from "fumadocs-openapi/server";
 import { parse } from "yaml";
+import { addExamples } from "./examples";
 
 type Security = Record<string, string[]>[];
 
@@ -15,9 +16,11 @@ const bearer: Record<string, string> = {
 // The repository's api/openapi.yaml is the source of truth. Two changes for the reference only:
 // its server is "/", the instance that serves it, so a local instance is shown instead; and each
 // secured operation gets an Authorization header example, so the request samples carry the
-// credential the route takes.
+// credential the route takes. Then every field and parameter without an example gets a realistic
+// one (lib/examples.ts), so the samples read like data, not like a template.
 function load() {
   const doc = parse(readFileSync(join(process.cwd(), "..", "api", "openapi.yaml"), "utf8"));
+  addExamples(doc);
   doc.servers = [{ url: "http://localhost:8080", description: "A local instance (quickstart)" }];
   for (const item of Object.values<Record<string, { security?: Security; parameters?: unknown[] }>>(doc.paths ?? {})) {
     for (const method of methods) {

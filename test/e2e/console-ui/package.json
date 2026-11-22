@@ -1,0 +1,6 @@
+{
+  "name": "ohs-console-ui-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Console UI end to end against the compose stack; run by test/e2e/console_ui.sh inside the Playwright image"
+}
