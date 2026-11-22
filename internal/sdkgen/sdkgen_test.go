@@ -130,7 +130,7 @@ func TestPagedOperationsHaveIterators(t *testing.T) {
 		}
 	}
 	for id, item := range map[string]string{
-		"listUsers": "User", "listSamples": "Sample", "listDaily": "DailySummary",
+		"listUsers": "UserListItem", "listSamples": "Sample", "listDaily": "DailySummary",
 		"getWorkoutRoute": "RoutePoint", "listWebhookDeliveries": "WebhookDelivery",
 		"listOMHDataPoints": "OMHDataPoint",
 	} {
