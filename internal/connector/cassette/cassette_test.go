@@ -103,6 +103,19 @@ func TestDatesShiftByWholeDays(t *testing.T) {
 	assert.Equal(t, "2026-10-05", c.RecordedAt, "the recording day is real")
 }
 
+func TestDayIDsShiftLikeDates(t *testing.T) {
+	// intervals.icu keys a wellness day by its date; on the recording day it
+	// equals recorded_at, which is kept, so a stand-in would trip the leak check.
+	ex := exchange("https://api.example.com/v1/wellness?oldest=2026-10-04&newest=2026-10-05",
+		`{"id":"2026-10-05","athlete_id":"i1234567"}`)
+	c, raw := anonymize(t, []RawExchange{ex}, Options{ShiftDays: -14})
+	b := body(t, c, 0)
+	assert.Equal(t, "2026-09-21", b["id"])
+	assert.NotEqual(t, "i1234567", b["athlete_id"])
+	assert.NotContains(t, raw, "i1234567")
+	assert.Contains(t, c.Interactions[0].Request.URL, "newest=2026-09-21")
+}
+
 func TestValuesAreScaledCodesKept(t *testing.T) {
 	ex := exchange("https://api.example.com/v1/m", `{"heart_rate":62,"hrv":48.25,"efficiency":0.97,"score":99,"stage":3,"type":11,"unit":-3,"value":72350,"hypnogram":"4433221","zero":0,"lat":48.85,"polyline":"abc","birthday":"1990-04-02","zone":"Europe/Paris"}`)
 	c, _ := anonymize(t, []RawExchange{ex}, Options{})
