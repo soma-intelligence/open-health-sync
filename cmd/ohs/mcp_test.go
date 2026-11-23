@@ -156,6 +156,27 @@ func TestMCPStdioProxy(t *testing.T) {
 		t.Fatalf("call result = %v", res)
 	}
 
+	// Prompts are forwarded too: listed, filled, and a missing argument
+	// comes back as the instance's invalid params error.
+	s.send(`{"jsonrpc":"2.0","id":4,"method":"prompts/list"}`)
+	var prompts []string
+	for _, p := range s.reply(4)["result"].(map[string]any)["prompts"].([]any) {
+		prompts = append(prompts, p.(map[string]any)["name"].(string))
+	}
+	if !slices.Contains(prompts, "morning_check") || !slices.Contains(prompts, "taper_check") {
+		t.Fatalf("prompts = %v", prompts)
+	}
+	s.send(`{"jsonrpc":"2.0","id":5,"method":"prompts/get","params":{"name":"morning_check","arguments":{}}}`)
+	msgs := s.reply(5)["result"].(map[string]any)["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("morning_check messages = %v", msgs)
+	}
+	s.send(`{"jsonrpc":"2.0","id":6,"method":"prompts/get","params":{"name":"taper_check","arguments":{}}}`)
+	e, _ := s.reply(6)["error"].(map[string]any)
+	if e == nil || e["code"] != float64(-32602) || !strings.Contains(e["message"].(string), "event_date") {
+		t.Fatalf("taper_check without event_date = %v", e)
+	}
+
 	// A user token, through OHS_PUBLIC_URL (OHS_MCP_URL unset; the path /mcp is added).
 	s = startMCP(t, bin, "OHS_MCP_URL=", "OHS_PUBLIC_URL="+url+"/", "OHS_MCP_KEY="+readToken)
 	s.initialize()

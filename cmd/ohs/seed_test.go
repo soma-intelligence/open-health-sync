@@ -94,7 +94,18 @@ func TestSeedSummary(t *testing.T) {
 		t.Errorf("summary:\n%s", out)
 	}
 
+	// Inside compose OHS_URL is unset: the public URL says where to call.
 	t.Setenv("OHS_URL", "")
+	t.Setenv("OHS_PUBLIC_URL", "http://localhost:18180")
+	buf.Reset()
+	if err := printSeedSummary(&buf, tenantID, userID, "ohs_sk_secret"); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "OHS_URL=http://localhost:18180 ") {
+		t.Errorf("summary without OHS_URL ignores OHS_PUBLIC_URL:\n%s", out)
+	}
+
+	t.Setenv("OHS_PUBLIC_URL", "")
 	buf.Reset()
 	if err := printSeedSummary(&buf, tenantID, userID, ""); err != nil {
 		t.Fatal(err)

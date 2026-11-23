@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/soma-intelligence/open-health-sync/internal/prompts"
@@ -30,7 +31,9 @@ func addPrompts(s *sdk.Server) {
 			func(_ context.Context, req *sdk.GetPromptRequest) (*sdk.GetPromptResult, error) {
 				text, err := PromptText(p, req.Params.Arguments)
 				if err != nil {
-					return nil, err
+					// A missing or malformed argument: invalid params, not
+					// the generic code 0 a plain error gets.
+					return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 				}
 				return &sdk.GetPromptResult{Description: p.When, Messages: []*sdk.PromptMessage{
 					{Role: "user", Content: &sdk.TextContent{Text: text}},
