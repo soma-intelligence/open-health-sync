@@ -200,6 +200,10 @@ release may change the API, the configuration or the database schema.
 - A `deploy-render` CI job (`scripts/check-deploy-render.sh`) lints and renders the Helm chart
   against Kubernetes schemas, validates the Caddyfile and checks the compose files.
 - [What the hosted beta does with data](docs/hosted-beta.md).
+- `OHS_WITHINGS_SKIP_IMPORTED` (live, default `false`) leaves out of Withings pulls what the Withings app
+  imported from Apple Health, Google Fit, Health Connect, Samsung Health or Huawei: activity days with `brand`
+  18 and records whose model id Withings files under HealthKit
+  ([withings.md](docs/connectors/withings.md#data-imported-from-other-apps)).
 
 ### Changed
 

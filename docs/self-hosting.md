@@ -198,8 +198,8 @@ environment variable (or `_FILE` twin), the value saved in the console, the defa
 
 A setting applies in one of three ways. **Live** settings reach every process within 30 seconds, without a restart:
 `OHS_LOG_LEVEL`, `OHS_RETENTION_DAYS`, `OHS_AUDIT_RETENTION_DAYS`, `OHS_TRACKING_RETENTION_DAYS`,
-`OHS_CONSENT_REQUIRED`, `OHS_BACKFILL_DAYS`, `OHS_WEBHOOK_PAUSE_AFTER`, `OHS_WEBHOOK_ROTATION_GRACE_HOURS`,
-`OHS_RATE_LIMIT_API`, `OHS_RATE_LIMIT_AUTH_FAILURES`, `OHS_RATE_LIMIT_INBOUND`,
+`OHS_CONSENT_REQUIRED`, `OHS_BACKFILL_DAYS`, `OHS_WITHINGS_SKIP_IMPORTED`, `OHS_WEBHOOK_PAUSE_AFTER`,
+`OHS_WEBHOOK_ROTATION_GRACE_HOURS`, `OHS_RATE_LIMIT_API`, `OHS_RATE_LIMIT_AUTH_FAILURES`, `OHS_RATE_LIMIT_INBOUND`,
 `OHS_RATE_LIMIT_INBOUND_PROVIDER` and `OHS_RATE_LIMIT_OAUTH`. **Restart** settings (all the others) are stored at once
 and apply when each process next starts. **Bootstrap** settings are only read from the environment, never stored:
 `OHS_DATABASE_URL`, `OHS_ENCRYPTION_KEY`, `OHS_ENCRYPTION_KEY_FILE`, `OHS_PREVIOUS_ENCRYPTION_KEYS`, every
@@ -245,6 +245,7 @@ and apply when each process next starts. **Bootstrap** settings are only read fr
 | `OHS_PULL_CONCURRENCY` | `4` | Pulls one `collect` process runs at once, all providers together (1 to 256). Each holds a database connection while it writes: see [pool size](#database-pool-size). 0.3.0 and later |
 | `OHS_SCHEDULE_BATCH` | `1000` | Pulls one scheduling pass queues, once a minute (1 to 100000); the rest wait for the next pass. See [scheduling at scale](background-sync.md#scheduling-at-scale). 0.3.0 and later |
 | `OHS_BACKFILL_DAYS` | none | How far back a new connection is pulled, in days, for every provider (1 to 1825, five years). Unset, each provider keeps its own window, 30 days for most; a provider that declares less keeps its own value. See [backfill](background-sync.md#backfill). 0.3.0 and later |
+| `OHS_WITHINGS_SKIP_IMPORTED` | `false` | Leave out of every Withings pull what the Withings app imported from Apple Health, Google Fit, Health Connect, Samsung Health or Huawei, keeping what Withings devices, the app and manual entries recorded. Records already stored stay. See [Withings](connectors/withings.md#data-imported-from-other-apps) |
 | `OHS_ETL_CONCURRENCY` | `4` | Processing jobs each tier of one `etl` process runs at once (1 to 64). There are two tiers, so the default is 8 jobs: size the [pool](#database-pool-size) with it. 0.3.0 and later |
 | `OHS_ETL_JOBS_PER_USER` | `1` | Of the running jobs of one tier, how many may belong to one user, across every `etl` process (0 to 64, `0` for no cap). The writes of one user take turns anyway, so more than one mostly holds slots the other users wait for. 0.3.0 and later |
 | `OHS_TRACKING_RETENTION_DAYS` | `90` | Delete sync log rows and finished processing jobs older than this many days, once a day. `0` means the default (90), 1 to 13 count as 14 and a negative value such as `-1` keeps them for ever. It never touches health data. 0.3.0 and later |

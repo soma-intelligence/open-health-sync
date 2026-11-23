@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
@@ -69,6 +70,10 @@ type Options struct {
 	// Sleep waits between transport retries; tests replace it so retries do
 	// not sleep for real.
 	Sleep func(ctx context.Context, d time.Duration) error
+	// SkipImported, when it returns true, leaves out of a pull what the
+	// Withings app imported from other apps (see imported.go). It is read as
+	// a pull starts; nil keeps everything. SetSkipImported replaces it.
+	SkipImported func() bool
 }
 
 // Connector implements connector.OAuthConnector and connector.PushConnector
@@ -84,6 +89,9 @@ type Connector struct {
 	chunkDelay, pageDelay time.Duration
 	now                   func() time.Time
 	sleep                 func(ctx context.Context, d time.Duration) error
+	// skip is the OHS_WITHINGS_SKIP_IMPORTED switch, shared with the
+	// instances of tenant keys.
+	skip *atomic.Pointer[func() bool]
 
 	mapper *mapper
 }
@@ -110,6 +118,10 @@ func New(o Options) *Connector {
 		now:         o.Now,
 		sleep:       o.Sleep,
 		mapper:      newMapper(),
+		skip:        new(atomic.Pointer[func() bool]),
+	}
+	if o.SkipImported != nil {
+		c.skip.Store(&o.SkipImported)
 	}
 	if c.accountBase == "" {
 		c.accountBase = DefaultAccountBase
@@ -197,6 +209,17 @@ func (c *Connector) Configure(cfg connector.Config) error {
 	return nil
 }
 
+// SetSkipImported sets the switch read as each pull starts
+// (OHS_WITHINGS_SKIP_IMPORTED). Every instance made by NewInstance shares it,
+// before or after the call.
+func (c *Connector) SetSkipImported(f func() bool) { c.skip.Store(&f) }
+
+// skipImported reports whether a pull leaves imported records out.
+func (c *Connector) skipImported() bool {
+	f := c.skip.Load()
+	return f != nil && *f != nil && (*f)()
+}
+
 // NewInstance returns a connector like c without keys, sharing its HTTP
 // client, for a tenant's own keys (connector.Instancer).
 func (c *Connector) NewInstance() connector.Connector {
@@ -204,6 +227,7 @@ func (c *Connector) NewInstance() connector.Connector {
 	o.HTTPClient = c.httpc
 	n := New(o)
 	n.keys = nil
+	n.skip = c.skip
 	return n
 }
 

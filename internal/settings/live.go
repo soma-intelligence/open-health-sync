@@ -30,6 +30,7 @@ type Snapshot struct {
 	RetentionDays, AuditRetentionDays, TrackingRetentionDays int
 	ConsentRequired                                          bool
 	BackfillDays                                             int
+	WithingsSkipImported                                     bool
 	WebhookPauseAfter                                        int
 	WebhookRotationGrace                                     time.Duration
 	RateLimits                                               RateLimits
@@ -43,6 +44,7 @@ var liveFields = map[string]func(Snapshot) any{
 	"OHS_TRACKING_RETENTION_DAYS":      func(s Snapshot) any { return s.TrackingRetentionDays },
 	"OHS_CONSENT_REQUIRED":             func(s Snapshot) any { return s.ConsentRequired },
 	"OHS_BACKFILL_DAYS":                func(s Snapshot) any { return s.BackfillDays },
+	"OHS_WITHINGS_SKIP_IMPORTED":       func(s Snapshot) any { return s.WithingsSkipImported },
 	"OHS_WEBHOOK_PAUSE_AFTER":          func(s Snapshot) any { return s.WebhookPauseAfter },
 	"OHS_WEBHOOK_ROTATION_GRACE_HOURS": func(s Snapshot) any { return s.WebhookRotationGrace },
 	"OHS_RATE_LIMIT_API":               func(s Snapshot) any { return s.RateLimits.API },
@@ -66,6 +68,7 @@ func SnapshotOf(cfg config.Config, revision int64) Snapshot {
 		TrackingRetentionDays: cfg.TrackingRetentionDays,
 		ConsentRequired:       cfg.ConsentRequired,
 		BackfillDays:          cfg.BackfillDays,
+		WithingsSkipImported:  cfg.WithingsSkipImported,
 		WebhookPauseAfter:     cfg.WebhookPauseAfter,
 		WebhookRotationGrace:  cfg.WebhookRotationGrace,
 		RateLimits: RateLimits{
@@ -279,6 +282,9 @@ func (l *Live) ConsentRequired() bool { return l.cur.Load().ConsentRequired }
 
 // BackfillDays is OHS_BACKFILL_DAYS.
 func (l *Live) BackfillDays() int { return l.cur.Load().BackfillDays }
+
+// WithingsSkipImported is OHS_WITHINGS_SKIP_IMPORTED.
+func (l *Live) WithingsSkipImported() bool { return l.cur.Load().WithingsSkipImported }
 
 // WebhookPauseAfter is OHS_WEBHOOK_PAUSE_AFTER.
 func (l *Live) WebhookPauseAfter() int { return l.cur.Load().WebhookPauseAfter }
