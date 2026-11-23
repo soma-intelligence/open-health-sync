@@ -17,6 +17,47 @@
 
 </div>
 
+## Quick start
+
+<a id="quickstart"></a>You need Docker. The first run pulls the images, which takes a few minutes.
+
+1. **Install.** Clone the repository and make a `.env` with fresh secrets:
+
+   ```sh
+   git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-health-sync
+   cp .env.example .env
+   sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+   sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
+   ```
+
+2. **Run.** Start Postgres and `ohs`, then load 90 days of demo data from six sources:
+
+   ```sh
+   docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
+   docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs seed --demo
+   ```
+
+   The seed prints an API key (shown once), a user ID and an `export` line for `OHS_URL` and `OHS_API_KEY`.
+
+3. **First result.** Paste that `export` line, then read one day back with your user ID:
+
+   ```sh
+   curl -s -H "Authorization: Bearer $OHS_API_KEY" "$OHS_URL/v1/users/<user-id>/daily?limit=1"
+   ```
+
+   You get one merged day back, with the source it picked for each figure:
+
+   ```text
+   {"data":[{"date":"2026-08-25","step_count":5884,"resting_hr":52, ...
+     "sources":{"step_count":"apple_health","resting_hr":"oura", ...}}],"next_cursor":"..."}
+   ```
+
+   And `curl http://localhost:8080/healthz` answers `{"status":"ok"}`.
+
+For production setup, TLS, backups and upgrades, read [self-hosting](docs/self-hosting.md).
+
+## At a glance
+
 Open Health Sync is an open source, self-hosted health data aggregator for developers and
 individuals that collects data from wearables and health apps (Apple Health, Health Connect,
 Garmin, Oura, WHOOP, Fitbit, Withings, Polar, Strava, Dexcom and more) and serves it back in one
@@ -25,8 +66,6 @@ a read-only MCP server. It is one Go binary plus Postgres, licensed AGPL-3.0, an
 and macOS, in Docker, on Kubernetes or on a Raspberry Pi 5. It is a free alternative to hosted
 wearable APIs such as Terra. The project is pre-1.0 (version 0.3.0): any release may change the
 API, the configuration or the database schema. It is not a medical device.
-
-## At a glance
 
 | | |
 |---|---|
@@ -110,37 +149,23 @@ gives it back in one clean format, through one API.
   <img src="docs/assets/readme/mcp-light.png" width="100%" alt="A terminal session: ohs mcp lists its read-only tools (get_daily, get_sleep, get_samples and others) and answers a get_daily call with one day's step count from Apple Health.">
 </picture>
 
-## Try it
+## Other ways to run it
 
-<a id="quickstart"></a>You need Docker.
-
-```sh
-git clone https://github.com/soma-intelligence/open-health-sync.git && cd open-health-sync
-cp .env.example .env
-sed -i.bak "s|^OHS_ENCRYPTION_KEY=.*|OHS_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
-sed -i.bak "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
-docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait
-docker compose --env-file .env -f deploy/docker-compose.yml exec ohs /ohs seed --demo
-```
-
-The last command loads 90 days of sample data and prints an API key and calls to try.
-
-Or run it on a hosting platform, no server of your own:
+Run it on a hosting platform, no server of your own:
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/soma-intelligence/open-health-sync)
 
 Fly.io and Railway steps are in [Deploy on a platform](docs/deploy-platforms.md).
 
-<a id="install-the-ohs-binary"></a>Next steps: [API guide](docs/api.md),
-[self-hosting](docs/self-hosting.md), [releases](https://github.com/soma-intelligence/open-health-sync/releases).
-
-Other ways to run it:
+<a id="install-the-ohs-binary"></a>Or skip Docker:
 
 - Release binaries for Linux and macOS, with `checksums.txt` signed with cosign
   ([images and architectures](docs/self-hosting.md#images-and-architectures)).
 - Kubernetes with the Helm chart in `deploy/helm/ohs` ([Helm guide](docs/helm.md)).
 - A Raspberry Pi 5 with `deploy/docker-compose.pi.yml` ([guide](docs/how-to/raspberry-pi.md)).
 - From source: `make build` writes `bin/ohs` (Go 1.26).
+
+Next steps: [API guide](docs/api.md), [releases](https://github.com/soma-intelligence/open-health-sync/releases).
 
 ## Build an app
 
