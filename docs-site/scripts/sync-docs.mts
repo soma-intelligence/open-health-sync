@@ -440,6 +440,12 @@ sources["docs/how-to/oura-fhir.md"] = [
       "Turn Oura ring data into FHIR R4 Observations with LOINC codes and UCUM units: sleep sessions, heart rate, SpO2 and daily readiness scores, checked with the HL7 validator.",
   },
 ];
+sources["docs/how-to/oura-export.md"] = [
+  {
+    page: "(guides)/how-to/oura-export",
+    description: "Export Oura readiness, sleep and other ring data as CSV or Parquet from a self-hosted instance.",
+  },
+];
 sources["docs/how-to/whoop-export.md"] = [
   {
     page: "(guides)/how-to/whoop-export",
