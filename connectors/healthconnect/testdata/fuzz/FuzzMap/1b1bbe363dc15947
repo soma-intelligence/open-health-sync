@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"recordTYpe\":\"HeartRate\",\"metAdAtA\":{\"id\":\"0\"},\"sAmples\":[{\"\x83\":0},{\"time\":\"0001-01-01T0:00:00Z\",\"BeAtsPerMinute\":0},{}]}")

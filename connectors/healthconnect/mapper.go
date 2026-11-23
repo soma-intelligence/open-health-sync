@@ -666,13 +666,19 @@ func (b *builder) span() (time.Time, time.Time, error) {
 	return start, end, nil
 }
 
-// parseTime reads an RFC 3339 instant (Instant.toString() on Android).
+// parseTime reads an RFC 3339 instant (Instant.toString() on Android). The
+// zero instant (0001-01-01T00:00:00Z, at any offset) parses without error but
+// is time.Time{}, which every record treats as "no time": it is refused like
+// an unreadable time.
 func parseTime(s string) (time.Time, error) {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("unreadable time %q", s)
 	}
-	return t.UTC(), nil
+	if t = t.UTC(); t.IsZero() {
+		return time.Time{}, fmt.Errorf("zero time %q", s)
+	}
+	return t, nil
 }
 
 // parseOffset reads a ZoneOffset ("+02:00", "Z", "-05:30") in minutes.
