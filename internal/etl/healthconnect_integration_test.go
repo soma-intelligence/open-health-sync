@@ -132,3 +132,56 @@ func TestDerivedTotalKcal(t *testing.T) {
 		e.tenant, e.user).Scan(&total))
 	assert.Equal(t, 2050.0, total, "basal plus active")
 }
+
+// A body composition weigh-in reaches quantity_samples under the Withings
+// connector's names: the Withings app's LeanBodyMass (muscle, no bone) as
+// muscle_mass, bone and water as bone_mass and water_mass. An edit replaces a
+// figure and a Deletion removes it.
+func TestHealthConnectBodyComposition(t *testing.T) {
+	e := newEnv(t)
+	e.register(healthconnect.Slug, healthConnectMap)
+	mass := func(typ, id string, kg float64) string {
+		f := map[string]any{"recordType": typ, "metadata": map[string]any{"id": id, "dataOrigin": "com.withings.wiscale2",
+			"recordingMethod": "automatic", "device": map[string]any{"type": "scale", "manufacturer": "Withings"}},
+			"time": "2026-09-02T05:40:00Z", "zoneOffset": "+02:00"}
+		switch typ {
+		case "Weight":
+			f["weightKilograms"] = kg
+		case "BodyFat":
+			f["percentage"] = kg
+		default:
+			f["massKilograms"] = kg
+		}
+		return line(f)
+	}
+	stored := func() map[string]float64 {
+		rows, err := e.pool.Query(context.Background(), `SELECT quantity_type, value FROM ohs_data.quantity_samples
+			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND source_slug = 'withings'`, e.tenant, e.user, healthconnect.Slug)
+		require.NoError(t, err)
+		defer rows.Close()
+		out := map[string]float64{}
+		for rows.Next() {
+			var qt string
+			var v float64
+			require.NoError(t, rows.Scan(&qt, &v))
+			out[qt] = v
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+
+	e.process(e.upload(e.tenant, e.user, healthconnect.Slug, "LeanBodyMass",
+		mass("Weight", "w-7", 70), mass("BodyFat", "f-7", 20), mass("LeanBodyMass", "l-7", 53), mass("BoneMass", "b-7", 3), mass("BodyWaterMass", "h-7", 40)))
+	assert.Equal(t, map[string]float64{"body_mass": 70, "body_fat_percentage": 20, "muscle_mass": 53, "bone_mass": 3, "water_mass": 40}, stored())
+	assert.EqualValues(t, 0, e.scalar(`SELECT count(*)::int FROM ohs_data.quantity_samples
+		WHERE tenant_id = $1 AND user_id = $2 AND quantity_type = 'lean_body_mass'`, e.tenant, e.user), "Withings muscle is not lean mass")
+
+	e.process(e.upload(e.tenant, e.user, healthconnect.Slug, "BoneMass", mass("BoneMass", "b-7", 3.1)))
+	assert.InDelta(t, 3.1, stored()["bone_mass"], 1e-9, "an edit replaces the figure")
+	assert.EqualValues(t, 1, e.scalar(`SELECT count(*)::int FROM ohs_data.quantity_samples
+		WHERE tenant_id = $1 AND user_id = $2 AND quantity_type = 'bone_mass'`, e.tenant, e.user))
+
+	e.process(e.upload(e.tenant, e.user, healthconnect.Slug, "Deletion", line(map[string]any{"recordType": "Deletion", "recordId": "h-7"})))
+	assert.NotContains(t, stored(), "water_mass", "the deleted figure is gone")
+	assert.Contains(t, stored(), "muscle_mass")
+}
