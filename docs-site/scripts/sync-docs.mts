@@ -468,6 +468,13 @@ sources["docs/how-to/eight-sleep-export.md"] = [
       "Export Eight Sleep Pod data (sleep stages, sleep score, heart rate, HRV, bed and room temperature) as CSV or Parquet and query it in PostgreSQL, from a self-hosted instance.",
   },
 ];
+sources["docs/how-to/intervals-icu-export.md"] = [
+  {
+    page: "(guides)/how-to/intervals-icu-export",
+    description:
+      "Export intervals.icu activities and daily wellness (HRV, resting heart rate, weight, sleep score) as CSV or Parquet and query them in PostgreSQL, from a self-hosted instance.",
+  },
+];
 for (const file of readdirSync(join(repo, "docs", "how-to")).sort()) {
   if (!file.endsWith(".md") || file === "README.md" || sources[`docs/how-to/${file}`]) continue;
   sources[`docs/how-to/${file}`] = [{ page: `(guides)/how-to/${file.replace(/\.md$/, "")}` }];

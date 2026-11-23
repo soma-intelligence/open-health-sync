@@ -28,6 +28,7 @@ answer, then the commands, run against an Open Health Sync instance you start wi
 | [Export Strava activities to PostgreSQL or CSV](strava-export.md) | one workout row per Strava activity, and full streams from the Strava archive |
 | [Export Eight Sleep data to CSV or SQL](eight-sleep-export.md) | your nights, sleep score, HRV and bed temperature in a database and in files |
 | [Get Dexcom CGM glucose readings through an API](dexcom-glucose-api.md) | CGM readings with trend arrows, as JSON, CSV, Parquet or FHIR R4 |
+| [Export intervals.icu activities and wellness to CSV or PostgreSQL](intervals-icu-export.md) | activities from every upstream, daily HRV, resting heart rate and weight, in tables and files |
 | [Export Xiaomi Mi Fitness data to CSV or PostgreSQL](mi-fitness-export.md) | your Mi Fitness history from the Xiaomi data copy, in tables and files |
 | [Repair Fitbit rows of relayed Apple Health and Health Connect data](fitbit-relayed-points.md) | Fitbit rows stored before relayed points were told apart, fixed in place |
 
