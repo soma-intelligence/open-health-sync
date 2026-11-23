@@ -9,6 +9,8 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- A [guide to exporting Oura data as CSV or Parquet](docs/how-to/oura-export.md).
+
 - `GET /v1/pipeline` answers `data`: the records the tenant has stored, the users and the providers with
   records, and when the last one landed, whatever the way in (a connection, an app upload, a demo seed). Each
   source has `records`, and a provider with records but no connection is listed for them.

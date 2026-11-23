@@ -19,6 +19,7 @@ answer, then the commands, run against an Open Health Sync instance you start wi
 
 | Guide | What you get |
 |---|---|
+| [Export Oura data to CSV or Parquet](oura-export.md) | your ring's readiness, sleep and other readings in files for a spreadsheet or notebook |
 | [Get Oura data as FHIR R4](oura-fhir.md) | your ring's sleep, heart rate and daily scores as FHIR Observations |
 | [Export WHOOP data to CSV or Parquet](whoop-export.md) | recovery, strain, sleep and workouts in files you can open anywhere |
 | [Export Withings weight and blood pressure to CSV or SQL](withings-export.md) | every weigh-in and blood pressure reading in a database you query, and in files |
