@@ -28,7 +28,7 @@ var bootstrapNames = []string{
 
 var liveNames = []string{
 	"OHS_LOG_LEVEL", "OHS_RETENTION_DAYS", "OHS_AUDIT_RETENTION_DAYS", "OHS_TRACKING_RETENTION_DAYS",
-	"OHS_CONSENT_REQUIRED", "OHS_BACKFILL_DAYS", "OHS_WEBHOOK_PAUSE_AFTER", "OHS_WEBHOOK_ROTATION_GRACE_HOURS",
+	"OHS_CONSENT_REQUIRED", "OHS_BACKFILL_DAYS", "OHS_WITHINGS_SKIP_IMPORTED", "OHS_WEBHOOK_PAUSE_AFTER", "OHS_WEBHOOK_ROTATION_GRACE_HOURS",
 	"OHS_RATE_LIMIT_API", "OHS_RATE_LIMIT_AUTH_FAILURES", "OHS_RATE_LIMIT_INBOUND",
 	"OHS_RATE_LIMIT_INBOUND_PROVIDER", "OHS_RATE_LIMIT_OAUTH",
 }
@@ -140,7 +140,7 @@ func TestRegistryShape(t *testing.T) {
 			t.Errorf("%s is not in the registry", n)
 		}
 	}
-	if len(bootstrapNames) != 25 || len(liveNames) != 13 {
+	if len(bootstrapNames) != 25 || len(liveNames) != 14 {
 		t.Fatalf("lists: %d bootstrap, %d live", len(bootstrapNames), len(liveNames))
 	}
 	// Entries follow the order of Sections, each section in one run.

@@ -247,9 +247,9 @@ A setting applies in one of three ways:
 
 - **live**: every process applies it within 30 seconds, without a restart. These are `OHS_LOG_LEVEL`,
   `OHS_RETENTION_DAYS`, `OHS_AUDIT_RETENTION_DAYS`, `OHS_TRACKING_RETENTION_DAYS`, `OHS_CONSENT_REQUIRED`,
-  `OHS_BACKFILL_DAYS`, `OHS_WEBHOOK_PAUSE_AFTER`, `OHS_WEBHOOK_ROTATION_GRACE_HOURS`, `OHS_RATE_LIMIT_API`,
-  `OHS_RATE_LIMIT_AUTH_FAILURES`, `OHS_RATE_LIMIT_INBOUND`, `OHS_RATE_LIMIT_INBOUND_PROVIDER` and
-  `OHS_RATE_LIMIT_OAUTH`. A rate limit that changes starts again with full counters.
+  `OHS_BACKFILL_DAYS`, `OHS_WITHINGS_SKIP_IMPORTED`, `OHS_WEBHOOK_PAUSE_AFTER`, `OHS_WEBHOOK_ROTATION_GRACE_HOURS`,
+  `OHS_RATE_LIMIT_API`, `OHS_RATE_LIMIT_AUTH_FAILURES`, `OHS_RATE_LIMIT_INBOUND`, `OHS_RATE_LIMIT_INBOUND_PROVIDER`
+  and `OHS_RATE_LIMIT_OAUTH`. A rate limit that changes starts again with full counters.
 - **restart**: every other setting. It is stored at once and applies when each process next starts.
 - **bootstrap**: read from the environment before the database opens, or too risky to change from a page the
   process serves. Never stored, never editable here; the console shows the value (a secret as `set`). These are

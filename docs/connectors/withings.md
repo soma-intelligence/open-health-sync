@@ -120,6 +120,31 @@ new subscriptions carry on.
 | Workouts | workouts |
 | ECG | ECG recordings with the waveform when Withings returns one |
 
+### Data imported from other apps
+
+The Withings app can import from Apple Health, Google Fit, Health Connect, Samsung Health and
+Huawei, and the API returns those records next to what Withings devices recorded. A user who also
+brings that data through the Apple Health or Health Connect connector then has it twice: for
+example the heart rate of a Fitbit, every few seconds, once from Health Connect and once from
+Withings.
+
+Set `OHS_WITHINGS_SKIP_IMPORTED=true` (live, also on the console's settings page) to leave those
+records out of every Withings pull. What Withings devices, the Withings app and manual entries
+recorded is kept. The connector reads the fields the Withings API documents for this:
+
+| Data | Left out when |
+|---|---|
+| Activity | `brand` is 18, "an external way" (1 is Withings, a device or the app's own tracker) |
+| Measures | `modelid` is an import (below) |
+| Intraday activity, sleep summaries and sleep segments | `model_id` is an import |
+| Workouts | `model` is an import |
+| ECG | never |
+
+The imports are the model ids Withings files under HealthKit Apple, HealthKit Google and HealthKit
+Huawei: 1051 to 1060 and 1062 (iOS and Android step trackers, Apple Health, Google Fit, Samsung
+Health, Google Health Connect, Huawei). Partner devices sold through Withings (iGlucose, iPulse OX,
+Lingo, WPA02) are kept. The setting applies to pulls from then on: records already stored stay.
+
 Withings measure codes the connector does not know are skipped with a warning in the log.
 Rate limits (HTTP 429) defer the connection's job until `Retry-After`.
 If Withings refuses the refresh token the connection becomes `needs_reauth` and the user must

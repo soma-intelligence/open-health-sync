@@ -195,6 +195,7 @@ var registry = []Setting{
 	intSetting("OHS_SCHEDULE_BATCH", "Schedule batch", "Sync", "Pulls one scheduling pass queues, each minute.", strconv.Itoa(DefaultScheduleBatch), 1, MaxScheduleBatch, ApplyRestart),
 	withNote(intSetting("OHS_BACKFILL_DAYS", "Backfill window (days)", "Sync", "How far back a new connection is pulled, for every provider. Unset, each provider keeps its own window.", "", 1, MaxBackfillDays, ApplyLive),
 		"each provider keeps its own window, 30 days for most"),
+	boolSetting("OHS_WITHINGS_SKIP_IMPORTED", "Withings: skip imported data", "Sync", "Withings also returns what its app imported from Apple Health, Google Fit, Health Connect, Samsung Health or Huawei. When true, Withings pulls keep only what Withings devices, the Withings app and manual entries recorded. Applies to pulls from then on: stored data stays.", "false", ApplyLive),
 
 	// Processing
 	intSetting("OHS_ETL_CONCURRENCY", "Processing concurrency", "Processing", "Processing jobs each tier of one etl process runs at once. There are two tiers.", strconv.Itoa(DefaultETLConcurrency), 1, MaxETLConcurrency, ApplyRestart),

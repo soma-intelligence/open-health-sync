@@ -261,7 +261,14 @@ type SleepPhaseSegment struct {
 }
 
 type sleepDetailBody struct {
-	Series []SleepPhaseSegment `json:"series"`
+	Series []sleepDetailSegment `json:"series"`
+}
+
+// sleepDetailSegment is one sleep action=get segment with the id of the model
+// that recorded it, which the stored phases do not keep.
+type sleepDetailSegment struct {
+	SleepPhaseSegment
+	ModelID json.RawMessage `json:"model_id"`
 }
 
 // sleepDataFields is the getsummary data_fields list.

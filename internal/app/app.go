@@ -33,6 +33,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/connectors/healthconnect"
 	"github.com/soma-intelligence/open-health-sync/connectors/labs"
 	"github.com/soma-intelligence/open-health-sync/connectors/selfreport"
+	"github.com/soma-intelligence/open-health-sync/connectors/withings"
 	"github.com/soma-intelligence/open-health-sync/connectors/xiaomi"
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
@@ -255,6 +256,12 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		Store: settings.NewPG(pool, box), Env: opts.lookup, Environ: opts.environ, Config: cfg, Start: opts.start,
 	})
 	live.Subscribe(func(s settings.Snapshot) { levelVar.Set(s.LogLevel) })
+	// Withings pulls read OHS_WITHINGS_SKIP_IMPORTED as they start.
+	if c, ok := connector.Get(withings.Slug); ok {
+		if w, ok := c.(interface{ SetSkipImported(func() bool) }); ok {
+			w.SetSkipImported(live.WithingsSkipImported)
+		}
+	}
 	collectDeps := collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: store,
 		Lookup:     providers.Lookup,

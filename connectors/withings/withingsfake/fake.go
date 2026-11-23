@@ -56,6 +56,9 @@ type Server struct {
 	NoSleepSummary bool
 	// SleepSummaryBody, when set, is the whole getsummary answer.
 	SleepSummaryBody string
+	// Bodies, keyed by path and action ("/v2/measure getactivity", "/v2/sleep
+	// get"), replace the recorded answer of that request with a whole body.
+	Bodies map[string]string
 	// NotifyStatus is the inner status of the notify endpoint.
 	NotifyStatus int
 	// RateLimit, when it returns true for a path and action, answers that
@@ -156,6 +159,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.DataStatus != 0 {
 		write([]byte(`{"status":` + strconv.Itoa(s.DataStatus) + `,"body":{}}`))
+		return
+	}
+
+	if b, ok := s.Bodies[r.URL.Path+" "+action]; ok {
+		write([]byte(b))
 		return
 	}
 

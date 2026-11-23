@@ -94,6 +94,11 @@ type Config struct {
 	// consent for (OHS_CONSENT_REQUIRED, default false: such a source
 	// stores everything).
 	ConsentRequired bool
+	// WithingsSkipImported leaves out of every Withings pull what the
+	// Withings app imported from other apps (Apple Health, Google Fit,
+	// Health Connect, Samsung Health, Huawei): OHS_WITHINGS_SKIP_IMPORTED,
+	// default false.
+	WithingsSkipImported bool
 	// RateLimitInbound bounds the notification routes per client address,
 	// RateLimitInboundProvider per provider whatever the address, and
 	// RateLimitOAuth the OAuth callback per client address
@@ -652,6 +657,13 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 			return Config{}, err
 		}
 		c.ConsentRequired = b
+	}
+	if v := get("OHS_WITHINGS_SKIP_IMPORTED", ""); v != "" {
+		b, err := boolValue("OHS_WITHINGS_SKIP_IMPORTED")(v)
+		if err != nil {
+			return Config{}, err
+		}
+		c.WithingsSkipImported = b
 	}
 
 	for _, l := range []struct {

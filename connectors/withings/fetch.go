@@ -66,6 +66,8 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 	if token == "" {
 		return fmt.Errorf("withings: connection has no access token: %w", connector.ErrNeedsReauth)
 	}
+	skip := c.skipImported()
+	dropped := map[string]int{}
 	for _, dt := range types {
 		var (
 			lines []dayLine
@@ -93,9 +95,18 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 		if err != nil {
 			return fmt.Errorf("withings: fetch %s: %w", dt, err)
 		}
+		if skip {
+			var n int
+			if lines, n = dropImported(dt, lines); n > 0 {
+				dropped[dt] = n
+			}
+		}
 		if err := emitByDay(ctx, emit, dt, lines); err != nil {
 			return err
 		}
+	}
+	if len(dropped) > 0 {
+		slog.Info("withings: left out records imported from other apps", "provider", Slug, "dropped", dropped)
 	}
 	return nil
 }
@@ -507,9 +518,13 @@ func (c *Connector) fetchSleep(ctx context.Context, token string, from, to time.
 
 // fetchSleepDetail asks sleep action=get for [start, end) in steps of at most
 // 24 hours. A non fatal failure is logged and gives the segments found so
-// far.
+// far. With OHS_WITHINGS_SKIP_IMPORTED, segments an import recorded are left
+// out.
 func (c *Connector) fetchSleepDetail(ctx context.Context, token string, start, end time.Time) ([]SleepPhaseSegment, error) {
 	var out []SleepPhaseSegment
+	// Imported segments are left out here, before they become phases or
+	// synthetic nights.
+	skip := c.skipImported()
 	for _, step := range getChunksBetween(start, end, sleepDetailSpan) {
 		params := url.Values{}
 		params.Set("action", "get")
@@ -523,7 +538,12 @@ func (c *Connector) fetchSleepDetail(ctx context.Context, token string, start, e
 			slog.Warn("withings: sleep detail failed, keeping the summary without phases", "provider", Slug, "error", err)
 			return out, nil
 		}
-		out = append(out, body.Series...)
+		for _, seg := range body.Series {
+			if skip && importedModel(seg.ModelID) {
+				continue
+			}
+			out = append(out, seg.SleepPhaseSegment)
+		}
 		if err := pause(ctx, c.pageDelay); err != nil {
 			return nil, err
 		}
