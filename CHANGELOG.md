@@ -9,6 +9,11 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- SMART on FHIR connector (`smart_fhir`, preview): a patient connects their health system's
+  patient portal (Epic MyChart and any certified US EHR) with a standalone SMART launch and PKCE,
+  and the server pulls their record from its FHIR R4 API. Every resource is kept raw; vital signs
+  become quantity samples and the other Observations (labs) generic observations of type
+  `ehr`. See [docs/connectors/smart-fhir.md](docs/connectors/smart-fhir.md).
 - `GET /v1/pipeline` answers `data`: the records the tenant has stored, the users and the providers with
   records, and when the last one landed, whatever the way in (a connection, an app upload, a demo seed). Each
   source has `records`, and a provider with records but no connection is listed for them.
