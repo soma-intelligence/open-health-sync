@@ -1,6 +1,7 @@
 package httplog
 
 import (
+	"fmt"
 	"net/http"
 	"runtime/debug"
 
@@ -9,6 +10,9 @@ import (
 
 // recoverMiddleware turns a panic into one structured error line and a clean
 // 500.
+//
+// The panic value is never logged, only its type: a value can carry a
+// request body, a token or health data. The stack says where it happened.
 //
 // Without it, net/http recovers the panic itself and prints an unstructured,
 // uncorrelated stack through log.Default(), which says nothing about which
@@ -31,7 +35,7 @@ func recoverMiddleware(next http.Handler) http.Handler {
 				panic(rec)
 			}
 			zerolog.Ctx(r.Context()).Error().
-				Interface("panic", rec).
+				Str("panic_type", fmt.Sprintf("%T", rec)).
 				Bytes("stack", debug.Stack()).
 				Msg("http_panic")
 			w.WriteHeader(http.StatusInternalServerError)

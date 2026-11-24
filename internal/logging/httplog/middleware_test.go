@@ -204,9 +204,12 @@ func TestPanicBecomes500AndOneErrorLineWithAStack(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte("boom")) ||
+	if !bytes.Contains(buf.Bytes(), []byte(`"panic_type":"string"`)) ||
 		!bytes.Contains(buf.Bytes(), []byte(`"stack"`)) {
-		t.Fatalf("no panic line with a stack: %s", buf.String())
+		t.Fatalf("no panic line with a type and a stack: %s", buf.String())
+	}
+	if bytes.Contains(buf.Bytes(), []byte("boom")) {
+		t.Fatalf("the panic value leaked: %s", buf.String())
 	}
 	if got := lastLine(t, buf)["level"]; got != "error" {
 		t.Fatalf("access line for a panic logged at %v, want error", got)
