@@ -5,19 +5,20 @@
 package settings_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"log/slog"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 	"github.com/soma-intelligence/open-health-sync/internal/settings"
 )
 
@@ -67,10 +68,7 @@ func TestBootSkipsInvalidAndUnknown(t *testing.T) {
 		"OHS_WEBHOOK_PAUSE_AFTER": "abc", "OHS_METRICS_TOKEN": "tooshortsecret", "OHS_GONE": "1"})
 	envCfg, env, environ := bootEnv(t, url)
 
-	var buf bytes.Buffer
-	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(old) })
+	buf := logtest.Capture(t, zerolog.DebugLevel)
 
 	cfg, start, err := settings.Boot(context.Background(), envCfg, env, environ)
 	require.NoError(t, err)
@@ -79,7 +77,7 @@ func TestBootSkipsInvalidAndUnknown(t *testing.T) {
 	require.Equal(t, []string{"OHS_GONE"}, start.Unknown)
 
 	logs := buf.String()
-	require.Equal(t, 3, bytes.Count(buf.Bytes(), []byte(`"level":"WARN"`)), logs)
+	require.Equal(t, 3, strings.Count(logs, `"level":"warn"`), logs)
 	for _, n := range []string{"OHS_WEBHOOK_PAUSE_AFTER", "OHS_METRICS_TOKEN", "OHS_GONE"} {
 		require.Contains(t, logs, n)
 	}

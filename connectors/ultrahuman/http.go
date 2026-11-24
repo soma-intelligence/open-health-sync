@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -102,7 +101,7 @@ func (c *Connector) do(ctx context.Context, build func() (*http.Request, error))
 			if attempt == maxAttempts {
 				return nil, nil, fmt.Errorf("ultrahuman http: %w", err)
 			}
-			slog.Warn("ultrahuman: transport error, retrying", "provider", Slug, "attempt", attempt)
+			modlog().Warn().Int("attempt", attempt).Msg("transport_error_retrying")
 			if err := c.sleep(ctx, jitter(backoff)); err != nil {
 				return nil, nil, err
 			}

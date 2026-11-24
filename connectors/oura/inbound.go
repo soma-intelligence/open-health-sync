@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -210,7 +209,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	switch n.EventType {
 	case EventCreate, EventUpdate:
 		if !pulledTypes[n.DataType] {
-			slog.Info("oura: webhook for a data type not stored, ignored", "provider", Slug, "data_type", clip(n.DataType, 64))
+			modlog().Info().Str("data_type", clip(n.DataType, 64)).Msg("webhook_data_type_not_stored_ignored")
 			return nil, nil
 		}
 		return []connector.InboundEvent{{
@@ -218,7 +217,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 		}}, nil
 	case EventDelete:
 		if !deletableTypes[n.DataType] {
-			slog.Info("oura: delete not applied for this data type", "provider", Slug, "data_type", clip(n.DataType, 64))
+			modlog().Info().Str("data_type", clip(n.DataType, 64)).Msg("delete_not_applied_data_type")
 			return nil, nil
 		}
 		if n.ObjectID == "" {
@@ -228,7 +227,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 			ProviderUserID: n.UserID, DataType: DataTypeWebhook, Lines: [][]byte{bytes.TrimSpace(body)},
 		}}, nil
 	}
-	slog.Info("oura: webhook of an unknown event type ignored", "provider", Slug, "event_type", clip(n.EventType, 64))
+	modlog().Info().Str("event_type", clip(n.EventType, 64)).Msg("webhook_unknown_event_type_ignored")
 	return nil, nil
 }
 

@@ -6,11 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
@@ -365,8 +365,7 @@ func (w *Writer) writeOrphanSleepPhases(ctx context.Context, tx TxLike, sc scope
 		c.add(tPhases, n, k)
 	}
 	if unresolved > 0 {
-		slog.DebugContext(ctx, "sleep phases skipped, no covering session",
-			"count", unresolved, "sessions_in_batch", len(windows))
+		logging.Ctx(ctx).Debug().Int("count", unresolved).Int("sessions_in_batch", len(windows)).Msg("sleep_phases_skipped_no_covering_session")
 		c.add(tPhases, 0, unresolved)
 	}
 	return nil
@@ -623,7 +622,7 @@ func (w *Writer) writeOrphanRoutePoints(ctx context.Context, tx TxLike, sc scope
 		sc.tenant, sc.user, lo, hi,
 	).Scan(&workoutID, &provider)
 	if errors.Is(err, pgx.ErrNoRows) {
-		slog.DebugContext(ctx, "route points skipped, no parent workout", "count", len(pts))
+		logging.Ctx(ctx).Debug().Int("count", len(pts)).Msg("route_points_skipped_no_parent_workout")
 		c.add(tRoutes, 0, len(pts))
 		return nil
 	}
@@ -750,12 +749,12 @@ func (w *Writer) writeOrphanECGVoltageSamples(ctx context.Context, tx TxLike, sc
 				ORDER BY start_date DESC LIMIT 1`,
 				sc.tenant, sc.user, sourceKey).Scan(&ecgID, &recHash, &recStart, &provider)
 		default:
-			slog.DebugContext(ctx, "ecg voltage skipped, no parent hash or source key", "count", len(group))
+			logging.Ctx(ctx).Debug().Int("count", len(group)).Msg("ecg_voltage_skipped_no_parent_hash_or_key")
 			c.add(tECGSamples, 0, len(group))
 			continue
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
-			slog.DebugContext(ctx, "ecg voltage skipped, no parent recording", "by", lookupKey, "count", len(group))
+			logging.Ctx(ctx).Debug().Str("by", lookupKey).Int("count", len(group)).Msg("ecg_voltage_skipped_no_parent_recording")
 			c.add(tECGSamples, 0, len(group))
 			continue
 		}

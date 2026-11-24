@@ -4,13 +4,13 @@ package api
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
@@ -71,7 +71,7 @@ func (s *server) limitedLookup(lookup auth.Lookup, live *liveLimiter) auth.Looku
 		}
 		if ok, wait, _ := l.allow(limitKey(p), ""); !ok {
 			s.metrics.rateLimited[groupAPI].Add(1)
-			slog.DebugContext(ctx, "api: rate limited", "route_group", groupAPI)
+			logging.Ctx(ctx).Debug().Str("route_group", groupAPI).Msg("rate_limited")
 			return auth.Principal{}, &auth.LimitedError{RetryAfter: wait}
 		}
 		return p, nil
@@ -243,7 +243,7 @@ func (s *server) refused(r *http.Request) (wait time.Duration, limited bool) {
 	s.metrics.authFailures.Add(1)
 	if wait, limited = s.authFail.fail(clientAddress(r, s.d.TrustedProxies)); limited {
 		s.metrics.rateLimited[groupAuthFailure].Add(1)
-		slog.DebugContext(r.Context(), "api: rate limited", "route_group", groupAuthFailure)
+		logging.Ctx(r.Context()).Debug().Str("route_group", groupAuthFailure).Msg("rate_limited")
 	}
 	return wait, limited
 }
@@ -263,7 +263,7 @@ func (s *server) authFailed(r *http.Request, f auth.Failure) {
 		w, err := s.whyRefused(ctx, f.Hash)
 		cancel()
 		if err != nil {
-			slog.DebugContext(r.Context(), "api: refused credential not resolved", "error", err)
+			logging.Ctx(r.Context()).Debug().Err(err).Msg("refused_credential_unresolved")
 		} else {
 			why = w
 		}

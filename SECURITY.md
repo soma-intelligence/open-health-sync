@@ -53,8 +53,9 @@ configuration, or an instance running without the settings in
   vault, under keys wrapped by a root key (derived from `OHS_ENCRYPTION_KEY` unless
   `OHS_VAULT_ROOT_KEY` or a KMS provider is set). Ids, types, times and units stay in clear.
   Losing the root key loses the health data.
-- Logs never contain tokens or health values. The only key ever logged is the one
-  `OHS_BOOTSTRAP_TENANT` creates, once, at first start.
+- Logs never contain tokens or health values. The first key `OHS_BOOTSTRAP_TENANT` creates is
+  written once to a file with mode 0600 (`OHS_BOOTSTRAP_KEY_FILE`); the log shows only a
+  redacted form of it and the path of the file.
 - Every query on user data filters on `tenant_id` and `user_id`.
 
 Known limits that operators should plan around are listed in

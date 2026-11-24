@@ -5,10 +5,14 @@ package automation
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"math/rand/v2"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 type task struct {
@@ -57,7 +61,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 }
 
 func (s *Scheduler) loop(ctx context.Context, t task) {
-	slog.InfoContext(ctx, "automation task starting", "task", t.name, "interval", t.interval)
+	logging.Ctx(ctx).Info().Str("task", t.name).Int64("interval_ms", (t.interval).Milliseconds()).Msg("automation_task_starting")
 	wait := time.Duration(rand.Float64() * s.jitter * float64(t.interval))
 	for {
 		if s.onTick != nil {
@@ -67,7 +71,7 @@ func (s *Scheduler) loop(ctx context.Context, t task) {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			slog.InfoContext(ctx, "automation task stopping", "task", t.name)
+			logging.Ctx(ctx).Info().Str("task", t.name).Msg("automation_task_stopping")
 			return
 		case <-timer.C:
 		}
@@ -82,11 +86,11 @@ func runOnce(ctx context.Context, t task) {
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil {
-			slog.ErrorContext(ctx, "automation task panicked", "task", t.name, "panic", fmt.Sprint(r))
+			logging.Ctx(ctx).Error().Str("task", t.name).Str("panic_type", fmt.Sprintf("%T", r)).Msg("automation_task_panicked")
 		}
 	}()
 	if err := t.fn(runCtx); err != nil && ctx.Err() == nil {
-		slog.ErrorContext(ctx, "automation task failed", "task", t.name, "err", err)
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("task", t.name).Msg("automation_task_failed")
 	}
 }
 

@@ -5,7 +5,6 @@ package intervalsicu
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
@@ -53,7 +52,7 @@ func trackUnknown(dataType string) {
 	}
 	unknownTypes[dataType]++
 	if unknownTypes[dataType] == 1 {
-		slog.Warn("intervals_icu: unknown data type skipped", "provider", Slug, "data_type", dataType)
+		modlog().Warn().Str("data_type", dataType).Msg("unknown_data_type_skipped")
 	}
 }
 

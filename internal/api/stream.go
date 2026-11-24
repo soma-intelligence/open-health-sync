@@ -8,14 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -286,7 +288,7 @@ func (h *StreamHub) Run(ctx context.Context) error {
 		if listened {
 			backoff = time.Second
 		}
-		slog.WarnContext(ctx, "event stream: listening failed; retrying", "error", err, "retry_in", backoff)
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.WarnLevel).Int64("retry_in_ms", (backoff).Milliseconds()).Msg("event_stream_listening_failed_retrying")
 		select {
 		case <-ctx.Done():
 			return nil
@@ -328,7 +330,7 @@ func (h *StreamHub) listenOnce(ctx context.Context) (bool, error) {
 				return true, ctx.Err()
 			}
 			// The tenant's streams would miss it: they end and resume.
-			slog.WarnContext(ctx, "event stream: loading an event failed", "error", err)
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.WarnLevel).Msg("event_stream_loading_event_failed")
 			h.endTenant(tenant, "event not loaded")
 		default:
 			h.publish(tenant, ev)

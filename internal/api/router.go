@@ -7,9 +7,10 @@ package api
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"net/http"
 	"net/netip"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/consolesession"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
 	"github.com/soma-intelligence/open-health-sync/internal/fusion"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/mcp"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
@@ -346,8 +348,9 @@ func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerF
 }
 
 // instrument gives every request an id (X-Request-Id, kept from the caller
-// when well formed), counts it by its matched pattern, logs it at debug level
-// (route pattern, never the query string or a header), records an
+// when well formed), counts it by its matched pattern, writes its access line (matched
+// route pattern, never the query string or a header; the level follows the
+// status: 2xx and 3xx debug, 4xx info, 5xx error), records an
 // authenticated one in the audit log, and a refused credential within
 // bounds (authFailed), and turns a panic into a 500. It tells the auth
 // middleware which key scope each route needs (routeScope): a credential
@@ -367,6 +370,7 @@ func (s *server) instrument(next http.Handler) http.Handler {
 		ctx, span := tracing.Tracer().Start(tracing.Extract(r.Context(), r.Header), tracing.SpanName(method, ""),
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(semconv.HTTPRequestMethodKey.String(method), attribute.String(tracing.AttrRequestID, id)))
+		ctx = tracing.LogContext(logging.WithRequestID(ctx, id))
 		ctx, slot := auth.WithSlot(reqid.With(ctx, id))
 		r = r.WithContext(s.sealedReads(withAuditNotes(ctx)))
 		slot.OnFailure(func(auth.Failure) (time.Duration, bool) { return s.refused(r) })
@@ -383,7 +387,8 @@ func (s *server) instrument(next http.Handler) http.Handler {
 				panic(v)
 			}
 			if v != nil {
-				slog.ErrorContext(r.Context(), "api: panic", "panic", v, "route", r.Pattern)
+				logging.Ctx(r.Context()).Error().Str("route", r.Pattern).Str("panic_type", fmt.Sprintf("%T", v)).
+					Bytes("stack", debug.Stack()).Msg("http_panic")
 				if sw.code == 0 {
 					problem(sw, http.StatusInternalServerError, "an internal error occurred")
 				}
@@ -399,8 +404,7 @@ func (s *server) instrument(next http.Handler) http.Handler {
 				// A throttled failure (429) leaves no event: it is counted.
 				s.authFailed(r, f)
 			}
-			slog.DebugContext(r.Context(), "http request", "route", r.Pattern, "status", code,
-				"duration_ms", time.Since(start).Milliseconds())
+			accessLine(r, code, sw.bytes, time.Since(start))
 			if span.IsRecording() {
 				route := tracing.Route(r.Pattern)
 				span.SetName(tracing.SpanName(method, route))

@@ -5,15 +5,17 @@ package auth
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/db"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 const (
@@ -359,7 +361,7 @@ func resolve(w http.ResponseWriter, r *http.Request, call func(context.Context) 
 	timedOut := err != nil && errors.Is(lctx.Err(), context.DeadlineExceeded) && r.Context().Err() == nil
 	cancel()
 	if timedOut {
-		slog.ErrorContext(r.Context(), "auth: lookup timed out", "timeout", LookupTimeout.String())
+		logging.Ctx(r.Context()).Error().Int64("timeout_ms", LookupTimeout.Milliseconds()).Msg("auth_lookup_timed_out")
 		WriteUnavailable(w, "the database did not answer in time; retry in a few seconds")
 		return Principal{}, true
 	}
@@ -382,7 +384,7 @@ func resolve(w http.ResponseWriter, r *http.Request, call func(context.Context) 
 	}
 	if err != nil {
 		// The cause may name infrastructure; it is logged, never sent. No token or hash.
-		slog.ErrorContext(r.Context(), "auth: lookup failed", "error", err)
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("auth_lookup_failed")
 		if db.Unavailable(err) {
 			WriteUnavailable(w, "the database is unavailable; retry in a few seconds")
 			return Principal{}, true

@@ -25,7 +25,8 @@ sleep session of another tenant reads as 404, never 403, so ids do not leak acro
 ## Tenant API keys
 
 The first key comes from `ohs admin tenant create --name <name>`, or from `OHS_BOOTSTRAP_TENANT`,
-which creates a tenant at first start and logs its key once. Keys are stored as SHA-256 hashes:
+which creates a tenant at first start and writes its key once to a file
+(`OHS_BOOTSTRAP_KEY_FILE`, mode 0600). Keys are stored as SHA-256 hashes:
 a lost key cannot be shown again, only replaced.
 
 ```sh

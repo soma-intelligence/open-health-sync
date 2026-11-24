@@ -5,7 +5,6 @@ package garmin
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -13,11 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/connectors/garmin/garminfake"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 )
 
 // inbound posts body to target, with the fake connector's token unless
@@ -184,13 +185,9 @@ func TestHandleInbound_EventsAreDeterministic(t *testing.T) {
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 // warnLog captures the WARN lines logged while a test runs.
-func warnLog(t *testing.T) *strings.Builder {
+func warnLog(t *testing.T) *logtest.Buffer {
 	t.Helper()
-	var buf strings.Builder
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return &buf
+	return logtest.Capture(t, zerolog.WarnLevel)
 }
 
 // Keys without the inbound token are a working connector whose notifications
@@ -200,7 +197,7 @@ func TestConfigureWarnsWithoutInboundToken(t *testing.T) {
 	c := New(Options{})
 	require.NoError(t, c.Configure(connector.Config{KeyClientID: "id", KeyClientSecret: "secret"}))
 	assert.Contains(t, buf.String(), "OHS_GARMIN_INBOUND_TOKEN")
-	assert.Contains(t, buf.String(), "level=WARN")
+	assert.Contains(t, buf.String(), `"level":"warn"`)
 
 	buf.Reset()
 	require.NoError(t, c.Configure(connector.Config{KeyClientID: "id", KeyClientSecret: "secret", KeyInboundToken: "t"}))
@@ -216,5 +213,5 @@ func TestRefusalWithoutTokenIsWarnedRateLimited(t *testing.T) {
 		_, err := inbound(t, c, "/inbound/garmin?token=", `{"dailies":[{"userId":"u","callbackURL":"https://x"}]}`)
 		require.ErrorIs(t, err, ErrNoInboundToken)
 	}
-	assert.Equal(t, 1, strings.Count(buf.String(), "notification refused"), buf.String())
+	assert.Equal(t, 1, strings.Count(buf.String(), `"message":"notification_refused_token_not_set"`), buf.String())
 }

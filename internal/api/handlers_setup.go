@@ -82,7 +82,7 @@ func (h *setupHandler) needed(r *http.Request) (bool, error) {
 func (h *setupHandler) status(w http.ResponseWriter, r *http.Request) {
 	needed, err := h.needed(r)
 	if err != nil {
-		internalError(w, r, "api: setup status", err)
+		internalError(w, r, "setup_status_failed", err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -101,7 +101,7 @@ func (h *setupHandler) create(w http.ResponseWriter, r *http.Request) {
 	// call after a restart.
 	needed, err := h.needed(r)
 	if err != nil {
-		internalError(w, r, "api: setup status", err)
+		internalError(w, r, "setup_status_failed", err)
 		return
 	}
 	if !needed {
@@ -132,7 +132,7 @@ func (h *setupHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		internalError(w, r, "api: setup create tenant", err)
+		internalError(w, r, "setup_create_tenant_failed", err)
 		return
 	}
 	h.done.Store(true)

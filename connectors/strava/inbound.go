@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -147,7 +146,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 			return []connector.InboundEvent{{ProviderUserID: owner, DataType: DataTypeActivity, From: now.Add(-InboundLookback), To: now}}, nil
 		case "delete":
 			if subscription == "" {
-				slog.Info("strava: activity delete ignored, OHS_STRAVA_SUBSCRIPTION_ID is not set", "provider", Slug)
+				modlog().Info().Str("setting", "OHS_STRAVA_SUBSCRIPTION_ID").Msg("activity_delete_ignored_no_subscription_id")
 				return nil, nil
 			}
 			if _, err := ev.ObjectID.Int64(); err != nil {
@@ -161,7 +160,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 		}
 		return nil, nil
 	}
-	slog.Info("strava: event not acted on, ignored", "provider", Slug, "object_type", ev.ObjectType, "aspect_type", ev.AspectType)
+	modlog().Info().Str("object_type", ev.ObjectType).Str("aspect_type", ev.AspectType).Msg("event_ignored")
 	return nil, nil
 }
 

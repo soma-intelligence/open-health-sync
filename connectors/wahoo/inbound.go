@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -81,7 +80,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 		return nil, fmt.Errorf("wahoo: webhook body: %w", err)
 	}
 	if !strings.EqualFold(strings.TrimSpace(b.EventType), "workout_summary") {
-		slog.Info("wahoo: webhook event not acted on, ignored", "provider", Slug, "event_type", b.EventType)
+		modlog().Info().Str("event_type", b.EventType).Msg("webhook_event_ignored")
 		return nil, nil
 	}
 	if b.User == nil || b.User.ID.String() == "" {

@@ -3,7 +3,6 @@
 package api
 
 import (
-	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -13,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 )
 
 // RateLimit is a token bucket: Rate requests per second sustained, Burst at
@@ -240,7 +241,7 @@ func (s *server) rateLimit(group string, live *liveLimiter, key func(*http.Reque
 		ok, wait, scope := l.allow(clientAddress(r, s.d.TrustedProxies), k)
 		if !ok {
 			s.metrics.rateLimited[group].Add(1)
-			slog.DebugContext(r.Context(), "api: rate limited", "route_group", group, "route", r.Pattern, "scope", scope)
+			logging.Ctx(r.Context()).Debug().Str("route_group", group).Str("route", r.Pattern).Str("scope", scope).Msg("rate_limited")
 			w.Header().Set("Retry-After", retryAfter(wait))
 			problem(w, http.StatusTooManyRequests, "too many requests, retry later")
 			return

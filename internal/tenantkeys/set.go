@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -26,10 +25,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 )
 
@@ -140,8 +141,8 @@ func New(ctx context.Context, o Options) *Set {
 	s.cur.Store(&snapshot{byKey: map[Key]State{}, byID: map[uuid.UUID]State{}, bySlug: map[string][]Candidate{}})
 	if s.store != nil {
 		if err := s.Reload(ctx); err != nil {
-			slog.Error("tenant keys: the tenants' provider keys cannot be read, every tenant runs on the instance's keys until the next reload",
-				"error", err)
+			logutil.Err(*modlog(), err, zerolog.ErrorLevel).
+				Str("effect", "every tenant runs on the instance's keys until the next reload").Msg("tenant_keys_unreadable")
 		}
 	}
 	return s
@@ -414,7 +415,7 @@ func (s *Set) reloadAfter(ctx context.Context, change func(map[Key]Keys)) {
 		s.apply(rows)
 		return
 	}
-	slog.Warn("tenant keys: reload after a change failed, applying the change alone", "error", err)
+	logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("tenant_keys_reload_after_change_failed")
 	cur := map[Key]Keys{}
 	for k, st := range s.cur.Load().byKey {
 		cur[k] = st.Keys
@@ -445,7 +446,7 @@ func (s *Set) Run(ctx context.Context, every time.Duration) error {
 			return nil
 		case <-t.C:
 			if err := s.Reload(ctx); err != nil && ctx.Err() == nil {
-				slog.Warn("tenant keys: reload failed, keeping the current keys", "error", err)
+				logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("tenant_keys_reload_failed")
 			}
 		}
 	}
@@ -473,8 +474,7 @@ func (s *Set) apply(rows []Keys) {
 			c, err := s.connector(tmpl, k)
 			if err != nil {
 				st.Error = err.Error()
-				slog.Warn("tenant keys: refused by the connector", "tenant_id", k.Tenant, "provider", k.Provider,
-					"error", err)
+				logutil.Err(*modlog(), err, zerolog.WarnLevel).Stringer("tenant_id", k.Tenant).Str("provider", k.Provider).Msg("tenant_keys_refused")
 				break
 			}
 			next[k.ID] = running{c: c, keys: maps.Clone(k.Keys)}

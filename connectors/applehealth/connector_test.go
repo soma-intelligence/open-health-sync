@@ -4,20 +4,20 @@ package applehealth
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 )
 
 func TestRegisteredAsDeviceConnector(t *testing.T) {
@@ -170,10 +170,7 @@ func TestParseUploadReturnsTheReadError(t *testing.T) {
 }
 
 func TestUnknownTypesAreBounded(t *testing.T) {
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	buf := logtest.Capture(t, zerolog.DebugLevel)
 
 	m := newMapper()
 	for i := 0; i < maxUnknownTypes+50; i++ {
@@ -184,8 +181,8 @@ func TestUnknownTypesAreBounded(t *testing.T) {
 	assert.Len(t, counts, maxUnknownTypes)
 	assert.Equal(t, 2, counts["HKQuantityTypeIdentifierFuture0"], "a tracked type keeps counting past the cap")
 	assert.Equal(t, 50, m.unknownOverflow)
-	assert.Equal(t, 1, strings.Count(buf.String(), "tracking full"), "one warning when the cap is first hit")
-	assert.Equal(t, maxUnknownTypes, strings.Count(buf.String(), "unknown type skipped"), "one log per tracked type")
+	assert.Equal(t, 1, strings.Count(buf.String(), `"message":"unknown_type_tracking_full"`), "one warning when the cap is first hit")
+	assert.Equal(t, maxUnknownTypes, strings.Count(buf.String(), `"message":"unknown_type_skipped"`), "one log per tracked type")
 }
 
 // A line with no field the mapper recognizes is skipped and counted like an

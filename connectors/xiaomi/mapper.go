@@ -5,7 +5,6 @@ package xiaomi
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"maps"
 	"math"
 	"strconv"
@@ -544,5 +543,5 @@ func noteUnknown(k string) {
 		return
 	}
 	unknownKeys[k] = true
-	slog.Info("xiaomi: key not stored", "provider", Slug, "key", k)
+	modlog().Info().Str("key", k).Msg("key_not_stored")
 }

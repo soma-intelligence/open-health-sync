@@ -61,6 +61,9 @@ cd docs-site && npm ci && npm run lint && npm run build && npm run check:links
   package comment.
 - Every query on `ohs_sync` and `ohs_data` filters on `tenant_id` and `user_id`.
 - No secrets and no health values in logs, error messages or fixtures.
+- Logs are zerolog through `internal/logging` (a synced copy, never edited by hand): no `log/slog`,
+  no `log`. Event names are snake_case English with no variable inside, fields are typed snake_case
+  keys with the unit in the key. Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 - Standard library first (`http.ServeMux`); a new dependency needs a reason.
 - Conventional commit messages (`feat(withings): ...`, `fix(etl): ...`, `docs: ...`); user-facing
   changes get a line in `CHANGELOG.md` under Unreleased.

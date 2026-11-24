@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -74,7 +73,7 @@ func (c *Connector) get(ctx context.Context, token, path string, params url.Valu
 		if attempt >= limit {
 			return errors.New(what)
 		}
-		slog.Warn("oura: "+what+", retrying", "provider", Slug, "attempt", attempt)
+		modlog().Warn().Str("cause", what).Int("attempt", attempt).Msg("request_failed_retrying")
 		if err := c.sleep(ctx, jitter(backoff)); err != nil {
 			return err
 		}

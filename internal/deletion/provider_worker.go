@@ -6,11 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/shl"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
@@ -170,7 +170,8 @@ func (w *Worker) pullRunning(ctx context.Context, j job, provider string) (bool,
 // stores nothing new of that provider for the user, so no file lands behind
 // the sweep.
 func (w *Worker) runProvider(ctx context.Context, j job, provider string) (bool, error) {
-	log := slog.With("job_id", j.id, "tenant_id", j.tenant, "user_id", j.user, "provider", provider)
+	log := logging.Ctx(ctx).With().Stringer("job_id", j.id).Stringer("tenant_id", j.tenant).Stringer("user_id", j.user).
+		Str("provider", provider).Logger()
 	if !ValidProvider(provider) {
 		return false, fmt.Errorf("job names an invalid provider slug")
 	}
@@ -179,7 +180,7 @@ func (w *Worker) runProvider(ctx context.Context, j job, provider string) (bool,
 		return false, err
 	}
 	if busy {
-		log.DebugContext(ctx, "deletion: a pull of the provider is running, the erasure waits for it")
+		log.Debug().Msg("pull_provider_running_erasure_waits")
 		return false, nil
 	}
 	if err := w.raw.DeletePrefix(ctx, fmt.Sprintf("raw/%s/%s/%s/", j.tenant, j.user, provider)); err != nil {
@@ -263,6 +264,6 @@ func (w *Worker) runProvider(ctx context.Context, j job, provider string) (bool,
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit: %w", err)
 	}
-	log.InfoContext(ctx, "deletion: provider data deleted", "rows", rows, "user_gone", userGone)
+	log.Info().Int64("rows", rows).Bool("user_gone", userGone).Msg("provider_data_deleted")
 	return true, nil
 }

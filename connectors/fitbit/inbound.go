@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -170,7 +169,7 @@ func parseNotifications(body []byte) ([]notification, error) {
 			Data *notification `json:"data"`
 		}
 		if err := json.Unmarshal(it, &w); err != nil {
-			slog.Info("fitbit: unreadable webhook message skipped", "provider", Slug)
+			modlog().Info().Msg("unreadable_webhook_message_skipped")
 			continue
 		}
 		if w.Data == nil {
@@ -198,11 +197,11 @@ func (c *Connector) events(msgs []notification) []connector.InboundEvent {
 			continue
 		}
 		if _, ok := lookupDataType(dt); !ok {
-			slog.Info("fitbit: webhook for a data type not pulled, ignored", "provider", Slug, "data_type", clip(dt, 64))
+			modlog().Info().Str("data_type", clip(dt, 64)).Msg("webhook_data_type_not_pulled_ignored")
 			continue
 		}
 		if strings.EqualFold(n.Operation, "DELETE") {
-			slog.Info("fitbit: delete notification queues a pull; deletions are not propagated", "provider", Slug, "data_type", dt)
+			modlog().Info().Str("data_type", dt).Msg("delete_notification_pull_queued")
 		}
 		from, to := notifiedWindow(n.Intervals, now)
 		k := key{n.HealthUserID, dt}

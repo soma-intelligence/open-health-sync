@@ -121,7 +121,7 @@ func (s *server) pathTenant(w http.ResponseWriter, r *http.Request) (tenant.Tena
 		notFound(w, "tenant")
 		return tenant.TenantSummary{}, false
 	case err != nil:
-		internalError(w, r, "api: get tenant", err)
+		internalError(w, r, "get_tenant_failed", err)
 		return tenant.TenantSummary{}, false
 	}
 	return t, true
@@ -167,7 +167,7 @@ func (s *server) listAdminTenants(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "the cursor is not valid")
 		return
 	case err != nil:
-		internalError(w, r, "api: list tenants", err)
+		internalError(w, r, "list_tenants_failed", err)
 		return
 	}
 	out := make([]adminTenantJSON, 0, len(ts))
@@ -194,7 +194,7 @@ func (s *server) createAdminTenant(w http.ResponseWriter, r *http.Request) {
 	t, full, k, err := s.d.Store.CreateTenantAudited(r.Context(), name,
 		adminEvent(r, p, audit.TenantCreate, http.StatusCreated, nil))
 	if err != nil {
-		internalError(w, r, "api: create tenant", err)
+		internalError(w, r, "create_tenant_failed", err)
 		return
 	}
 	// The secret is in this answer only: nothing on the way may keep it.
@@ -221,7 +221,7 @@ func (s *server) getAdminTenantPipeline(w http.ResponseWriter, r *http.Request) 
 	}
 	out, err := s.pipeline(r.Context(), t.ID)
 	if err != nil {
-		internalError(w, r, "api: pipeline", err)
+		internalError(w, r, "pipeline_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -239,7 +239,7 @@ func (s *server) listAdminTenantKeys(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "tenant")
 		return
 	case err != nil:
-		internalError(w, r, "api: list keys", err)
+		internalError(w, r, "list_keys_failed", err)
 		return
 	}
 	out := make([]apiKeyJSON, 0, len(keys))
@@ -279,7 +279,7 @@ func (s *server) createAdminTenantKey(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "tenant")
 		return
 	case err != nil:
-		internalError(w, r, "api: create key", err)
+		internalError(w, r, "create_key_failed", err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -307,7 +307,7 @@ func (s *server) revokeAdminTenantKey(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "API key")
 		return
 	case err != nil:
-		internalError(w, r, "api: revoke key", err)
+		internalError(w, r, "revoke_key_failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -359,7 +359,7 @@ func (s *server) createDemoUser(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusConflict, "the user with this external_ref is being deleted: pass another external_ref")
 		return
 	case err != nil:
-		internalError(w, r, "api: demo user", err)
+		internalError(w, r, "demo_user_failed", err)
 		return
 	}
 	status := http.StatusOK
@@ -372,7 +372,7 @@ func (s *server) createDemoUser(w http.ResponseWriter, r *http.Request) {
 	actx, cancel := context.WithTimeout(ctx, auditTimeout)
 	defer cancel()
 	if err := audit.Record(actx, s.d.Pool, ev); err != nil {
-		internalError(w, r, "api: demo user", err)
+		internalError(w, r, "demo_user_failed", err)
 		return
 	}
 	writeJSON(w, status, demoUserJSON{User: toUserJSON(res.User), Days: days, RowsWritten: res.Written, Persona: persona.Name})

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,10 +21,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 )
 
@@ -147,7 +149,7 @@ func (h *Handlers) StartConnection() http.Handler {
 			return
 		}
 		if erasing, err := deletion.Pending(r.Context(), h.d.Pool, tenantID, userID, provider); err != nil {
-			slog.ErrorContext(r.Context(), "collect: look up provider deletion", "tenant_id", tenantID, "user_id", userID, "error", err)
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("look_up_provider_deletion_failed")
 			writeInternal(w)
 			return
 		} else if erasing {
@@ -176,7 +178,7 @@ func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, pr
 	keys *uuid.UUID, redirect string) (string, error) {
 	state, err := newState()
 	if err != nil {
-		slog.ErrorContext(ctx, "collect: oauth state", "error", err)
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("oauth_state_failed")
 		return "", err
 	}
 	var authorize string
@@ -187,7 +189,7 @@ func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, pr
 		authorize, err = oc.AuthorizeURL(state, h.d.CallbackURL(provider))
 	}
 	if err != nil {
-		slog.ErrorContext(ctx, "collect: authorize url", "provider", provider, "error", safeErr(err))
+		logging.Ctx(ctx).WithLevel(logutil.LevelCtx(ctx, err, zerolog.ErrorLevel)).Str("provider", provider).Str("error", safeErr(err)).Msg("authorize_url_failed")
 		return "", err
 	}
 	var redirectCol *string
@@ -198,7 +200,7 @@ func (h *Handlers) authorize(ctx context.Context, tenantID, userID uuid.UUID, pr
 		INSERT INTO ohs_sync.oauth_states (state, tenant_id, user_id, provider, redirect_uri, expires_at, tenant_keys_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		hashState(state), tenantID, userID, provider, redirectCol, h.d.now().Add(StateTTL), keys); err != nil {
-		slog.ErrorContext(ctx, "collect: store oauth state", "tenant_id", tenantID, "user_id", userID, "error", err)
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("store_oauth_state_failed")
 		return "", err
 	}
 	return authorize, nil
@@ -248,7 +250,7 @@ func (h *Handlers) OAuthCallback() http.Handler {
 		}
 		st, found, err := h.takeState(ctx, provider, state)
 		if err != nil {
-			slog.ErrorContext(ctx, "collect: oauth callback", "provider", provider, "error", err)
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("oauth_callback_failed")
 			renderResult(w, http.StatusInternalServerError, provider, false)
 			return
 		}
@@ -258,9 +260,9 @@ func (h *Handlers) OAuthCallback() http.Handler {
 			renderResult(w, http.StatusBadRequest, provider, false)
 			return
 		}
-		log := slog.With("tenant_id", st.tenant, "user_id", st.user, "provider", provider)
+		log := logging.Ctx(ctx).With().Stringer("tenant_id", st.tenant).Stringer("user_id", st.user).Str("provider", provider).Logger()
 		if err := h.complete(ctx, provider, st, q); err != nil {
-			log.WarnContext(ctx, "collect: connection failed", "error", safeErr(err))
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("connection_failed")
 			code := http.StatusBadRequest
 			if errors.Is(err, ErrProviderOff) {
 				code = http.StatusForbidden
@@ -268,7 +270,7 @@ func (h *Handlers) OAuthCallback() http.Handler {
 			h.finish(w, r, st, provider, false, code)
 			return
 		}
-		log.InfoContext(ctx, "collect: connection established")
+		log.Info().Msg("connection_established")
 		h.finish(w, r, st, provider, true, http.StatusOK)
 	})
 }
@@ -338,11 +340,9 @@ func (h *Handlers) store(ctx context.Context, provider string, st oauthState, oc
 		if rv, ok := oc.(connector.Revoker); ok {
 			rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revokeTimeout)
 			if rerr := rv.Revoke(rctx, tokens); rerr != nil {
-				slog.WarnContext(ctx, "collect: revoking the grant of a user being deleted failed",
-					"tenant_id", st.tenant, "user_id", st.user, "provider", provider, "error", safeErr(rerr))
+				logging.Ctx(ctx).WithLevel(logutil.LevelCtx(ctx, rerr, zerolog.WarnLevel)).Stringer("tenant_id", st.tenant).Stringer("user_id", st.user).Str("provider", provider).Str("error", safeErr(rerr)).Msg("deleted_user_grant_revoke_failed")
 			} else {
-				slog.InfoContext(ctx, "collect: grant of a user being deleted revoked",
-					"tenant_id", st.tenant, "user_id", st.user, "provider", provider)
+				logging.Ctx(ctx).Info().Stringer("tenant_id", st.tenant).Stringer("user_id", st.user).Str("provider", provider).Msg("deleted_user_grant_revoked")
 			}
 			cancel()
 		}

@@ -20,7 +20,7 @@ Every call carries `Authorization: Bearer <secret>`.
 | User token | `ohs_ut_` + 43 characters | one end user's app | user routes: uploads and self reports (`upload`), reads over MCP and the user archive (`read`) |
 
 The first key comes from `ohs admin tenant create --name <name>` (or `OHS_BOOTSTRAP_TENANT`,
-which logs a key once on first start, or the browser [first-run setup](setup.md)). Both secrets are stored as SHA-256 hashes: a lost one
+which writes a key once to a 0600 file on first start, or the browser [first-run setup](setup.md)). Both secrets are stored as SHA-256 hashes: a lost one
 cannot be shown again. The connection routes (`/v1/users/{id}/connections...`) take the tenant key. The `connect` scope
 exists but no route uses it yet.
 A tenant key on a user route, or a user token on a tenant route, gets 403.

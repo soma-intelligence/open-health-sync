@@ -7,15 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // The sign-in page of the providers without a consent page for third parties
@@ -85,7 +87,7 @@ func (h *Handlers) signInState(w http.ResponseWriter, r *http.Request, provider,
 	}
 	st, found, err := h.peekState(ctx, provider, state)
 	if err != nil {
-		slog.ErrorContext(ctx, "collect: sign-in page", "provider", provider, "error", err)
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("sign_in_page_failed")
 		renderResult(w, http.StatusInternalServerError, provider, false)
 		return st, nil, false
 	}
@@ -145,10 +147,10 @@ func (h *Handlers) SignIn() http.Handler {
 			renderSignIn(w, http.StatusBadRequest, st, view)
 			return
 		}
-		log := slog.With("tenant_id", st.tenant, "user_id", st.user, "provider", provider)
+		log := logging.Ctx(ctx).With().Stringer("tenant_id", st.tenant).Stringer("user_id", st.user).Str("provider", provider).Logger()
 		oc, err := h.ready(ctx, provider, st)
 		if err != nil {
-			log.WarnContext(ctx, "collect: connection failed", "error", safeErr(err))
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("connection_failed")
 			_, _, _ = h.takeState(ctx, provider, state)
 			code := http.StatusBadRequest
 			if errors.Is(err, ErrProviderOff) {
@@ -165,12 +167,12 @@ func (h *Handlers) SignIn() http.Handler {
 		tokens, err := pc.SignIn(ctx, email, password)
 		switch _, limited := connector.AsRateLimit(err); {
 		case errors.Is(err, connector.ErrBadCredentials):
-			log.InfoContext(ctx, "collect: provider refused the sign-in")
+			log.Info().Msg("sign_in_refused_by_provider")
 			view.Error = view.Provider + " did not accept this email and password. Check them and try again."
 			renderSignIn(w, http.StatusUnauthorized, st, view)
 			return
 		case limited:
-			log.WarnContext(ctx, "collect: provider rate limited the sign-in")
+			log.Warn().Msg("sign_in_rate_limited_by_provider")
 			view.Error = view.Provider + " is not accepting sign-ins right now. Try again in a few minutes."
 			renderSignIn(w, http.StatusTooManyRequests, st, view)
 			return
@@ -179,7 +181,7 @@ func (h *Handlers) SignIn() http.Handler {
 		// the same form finds nothing.
 		_, found, terr := h.takeState(ctx, provider, state)
 		if terr != nil {
-			log.ErrorContext(ctx, "collect: sign-in", "error", terr)
+			logutil.ErrCtx(ctx, log, terr, zerolog.ErrorLevel).Msg("sign_in_failed")
 			renderResult(w, http.StatusInternalServerError, provider, false)
 			return
 		}
@@ -193,7 +195,7 @@ func (h *Handlers) SignIn() http.Handler {
 			err = fmt.Errorf("sign in: %w", err)
 		}
 		if err != nil {
-			log.WarnContext(ctx, "collect: connection failed", "error", safeErr(err))
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("connection_failed")
 			code := http.StatusBadRequest
 			if errors.Is(err, ErrProviderOff) {
 				code = http.StatusForbidden
@@ -201,7 +203,7 @@ func (h *Handlers) SignIn() http.Handler {
 			h.finish(w, r, st, provider, false, code)
 			return
 		}
-		log.InfoContext(ctx, "collect: connection established")
+		log.Info().Msg("connection_established")
 		h.finish(w, r, st, provider, true, http.StatusOK)
 	})
 }
@@ -219,6 +221,6 @@ func renderSignIn(w http.ResponseWriter, code int, st oauthState, v signInView) 
 	setPageHeaders(w, "default-src 'none'; style-src 'unsafe-inline'; form-action "+sources+"; frame-ancestors 'none'; base-uri 'none'")
 	w.WriteHeader(code)
 	if err := signInPage.Execute(w, v); err != nil {
-		slog.Error("collect: render sign-in page", "error", err)
+		logutil.Err(*modlog(), err, zerolog.ErrorLevel).Msg("render_sign_in_page_failed")
 	}
 }

@@ -7,15 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
@@ -274,7 +276,7 @@ func (h *Handlers) ListSyncRuns() http.Handler {
 		}
 		list, err := h.d.SyncRuns(r.Context(), tenantID, userID, q.Get("provider"), before, limit)
 		if err != nil {
-			slog.ErrorContext(r.Context(), "collect: sync runs", "tenant_id", tenantID, "user_id", userID, "error", err)
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("list_sync_runs_failed")
 			writeInternal(w)
 			return
 		}
@@ -301,7 +303,7 @@ func (h *Handlers) GetSyncRun() http.Handler {
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), "collect: sync run", "tenant_id", tenantID, "user_id", userID, "error", err)
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("get_sync_run_failed")
 			writeInternal(w)
 			return
 		}
@@ -348,7 +350,7 @@ func (h *Handlers) SyncNow() http.Handler {
 			auth.WriteProblem(w, pe.status, http.StatusText(pe.status), pe.detail)
 			return
 		case err != nil:
-			slog.ErrorContext(ctx, "collect: sync now", "tenant_id", tenantID, "user_id", userID, "provider", provider, "error", err)
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Msg("sync_now_failed")
 			writeInternal(w)
 			return
 		}
@@ -522,7 +524,7 @@ func (h *Handlers) RetrySyncRun() http.Handler {
 			auth.WriteProblem(w, http.StatusConflict, http.StatusText(http.StatusConflict),
 				"another run already covers this window")
 		case err != nil:
-			slog.ErrorContext(r.Context(), "collect: retry sync run", "tenant_id", tenantID, "user_id", userID, "error", err)
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("retry_sync_run_failed")
 			writeInternal(w)
 		default:
 			w.Header().Set("Location", fmt.Sprintf("/v1/users/%s/sync-runs/%d", userID, run.ID))
@@ -549,7 +551,7 @@ func (h *Handlers) RetryFailedSyncRuns() http.Handler {
 		}
 		n, err := h.d.RetryFailedSyncRuns(r.Context(), tenantID, userID, r.PathValue("provider"))
 		if err != nil {
-			slog.ErrorContext(r.Context(), "collect: retry failed sync runs", "tenant_id", tenantID, "user_id", userID, "error", err)
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("retry_failed_sync_runs_failed")
 			writeInternal(w)
 			return
 		}

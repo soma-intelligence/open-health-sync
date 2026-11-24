@@ -6,14 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"regexp"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // providerSlug is the form of a connector slug. It is also a raw key segment
@@ -119,11 +121,11 @@ func (h *providerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"the user is still connected to this provider: disconnect it with DELETE /v1/users/{id}/connections/{provider}?delete_data=true")
 		return
 	case err != nil:
-		slog.ErrorContext(ctx, "deletion: provider request failed", "tenant_id", p.TenantID, "user_id", userID, "provider", provider, "error", err)
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Stringer("user_id", userID).Str("provider", provider).Msg("provider_request_failed")
 		auth.WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "the deletion could not be started, retry later")
 		return
 	}
-	slog.InfoContext(ctx, "deletion: provider data deletion requested", "tenant_id", p.TenantID, "user_id", userID, "provider", provider, "job_id", jobID)
+	logging.Ctx(ctx).Info().Stringer("tenant_id", p.TenantID).Stringer("user_id", userID).Str("provider", provider).Stringer("job_id", jobID).Msg("provider_data_deletion_requested")
 	WriteAccepted(w, jobID)
 }
 

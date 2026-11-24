@@ -8,14 +8,16 @@ package deletion
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Deps is what the delete handlers need.
@@ -58,7 +60,7 @@ func (h *deleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	jobID, found, err := h.request(ctx, p.TenantID, userID)
 	if err != nil {
-		slog.ErrorContext(ctx, "deletion: request failed", "tenant_id", p.TenantID, "user_id", userID, "error", err)
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Stringer("user_id", userID).Msg("deletion_request_failed")
 		auth.WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "the deletion could not be started, retry later")
 		return
 	}
@@ -66,7 +68,7 @@ func (h *deleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		auth.WriteProblem(w, http.StatusNotFound, "Not Found", "no such user")
 		return
 	}
-	slog.InfoContext(ctx, "deletion: requested", "tenant_id", p.TenantID, "user_id", userID, "job_id", jobID)
+	logging.Ctx(ctx).Info().Stringer("tenant_id", p.TenantID).Stringer("user_id", userID).Stringer("job_id", jobID).Msg("deletion_requested")
 	WriteAccepted(w, jobID)
 }
 

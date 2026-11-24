@@ -6,10 +6,8 @@ package collect_test
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,11 +15,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 )
 
 const fakeInboundURL = "https://ohs.example.test/inbound/" + fakeSlug
@@ -340,16 +340,13 @@ func TestRevokeAllWarnsWhenProviderNotEnabled(t *testing.T) {
 	ctx := context.Background()
 	e.connect(t, e.keyA, e.userA, "pu-off")
 
-	var buf bytes.Buffer
-	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
-	defer slog.SetDefault(old)
+	buf := logtest.Capture(t, zerolog.WarnLevel)
 
 	d := e.deps
 	d.Lookup = func(string) (connector.Connector, bool) { return nil, false }
 	require.NoError(t, d.RevokeAll(ctx, e.tenantA, e.userA))
 	out := buf.String()
-	assert.Contains(t, out, "provider not enabled in this process")
+	assert.Contains(t, out, `"message":"provider_not_enabled_grant_not_revoked"`)
 	assert.NotContains(t, out, "secret")
 	assert.Empty(t, e.fake.revokedTokens())
 	assert.Equal(t, 0, e.scalar(t, `SELECT count(*) FROM ohs_sync.inbound_subscriptions WHERE status <> 'removed'`))

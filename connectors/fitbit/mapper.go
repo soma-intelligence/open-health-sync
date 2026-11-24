@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -67,7 +66,7 @@ func mapRecord(dt string, fields map[string]any, userID string) (*model.MapResul
 		unknownMu.Lock()
 		if !unknownTypes[dt] && len(unknownTypes) < 64 {
 			unknownTypes[dt] = true
-			slog.Warn("fitbit: unknown data type skipped", "provider", Slug, "data_type", clip(dt, 64))
+			modlog().Warn().Str("data_type", clip(dt, 64)).Msg("unknown_data_type_skipped")
 		}
 		unknownMu.Unlock()
 		return nil, nil

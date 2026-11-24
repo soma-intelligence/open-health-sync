@@ -4,7 +4,6 @@ package withings
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
@@ -44,11 +43,11 @@ func mapMeasure(line []byte, userID string) (*model.MapResult, error) {
 	for _, m := range g.Measures {
 		info, known := withingsMeasTypes[m.Type]
 		if !known {
-			slog.Warn("withings: unknown meastype skipped", "provider", Slug, "meastype", m.Type)
+			modlog().Warn().Int("meastype", m.Type).Msg("unknown_meastype_skipped")
 			continue
 		}
 		if m.Unit < -maxMeasureUnit || m.Unit > maxMeasureUnit {
-			slog.Warn("withings: measure with an out of range power of ten skipped", "provider", Slug, "meastype", m.Type, "unit", m.Unit)
+			modlog().Warn().Int("meastype", m.Type).Int("unit", m.Unit).Msg("measure_power_of_ten_out_of_range")
 			continue
 		}
 		value := m.Float64()

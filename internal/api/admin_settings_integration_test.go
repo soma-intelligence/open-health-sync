@@ -5,25 +5,24 @@
 package api_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 	"github.com/soma-intelligence/open-health-sync/internal/settings"
 )
 
@@ -263,23 +262,10 @@ func TestAdminSettingsConflictAndInvalid(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, r.code, string(r.body))
 }
 
-// logBuf is a log sink safe for concurrent writes.
-type logBuf struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (l *logBuf) Write(p []byte) (int, error) { l.mu.Lock(); defer l.mu.Unlock(); return l.b.Write(p) }
-func (l *logBuf) String() string              { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
-
-// captureLogs sends the default logger to a buffer for the test.
-func captureLogs(t *testing.T) *logBuf {
+// captureLogs sends the process logger to a buffer for the test.
+func captureLogs(t *testing.T) *logtest.Buffer {
 	t.Helper()
-	buf := &logBuf{}
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return buf
+	return logtest.Capture(t, zerolog.DebugLevel)
 }
 
 func TestAdminSettingsSecretsNeverServed(t *testing.T) {

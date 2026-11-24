@@ -6,13 +6,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Push subscriptions (ohs_sync.inbound_subscriptions) are durable rows: a
@@ -168,8 +170,7 @@ func (s *Scheduler) subscribePass(ctx, jobCtx context.Context, n int) (int, erro
 		}
 		handled, err := s.subscribeOne(pctx, sub)
 		if err != nil {
-			slog.ErrorContext(ctx, "collect: subscribe", "tenant_id", sub.tenant, "user_id", sub.user,
-				"provider", sub.provider, "error", err)
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", sub.tenant).Stringer("user_id", sub.user).Str("provider", sub.provider).Msg("subscribe_failed")
 			continue
 		}
 		if handled {
@@ -217,10 +218,10 @@ func (s *Scheduler) subscribable(ctx context.Context, status string) ([]string, 
 // reports false when another instance got the row first.
 func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) {
 	d := s.d
-	log := slog.With("tenant_id", sub.tenant, "user_id", sub.user, "provider", sub.provider)
+	log := logging.Ctx(ctx).With().Stringer("tenant_id", sub.tenant).Stringer("user_id", sub.user).Str("provider", sub.provider).Logger()
 	if _, ok := d.capableOAuth(sub.provider); !ok {
 		// Provider disabled on this instance: leave the row for one that has it.
-		log.WarnContext(ctx, "collect: subscription left pending, provider not enabled in this process")
+		log.Warn().Msg("subscription_left_pending_provider_not_enabled")
 		return false, nil
 	}
 
@@ -246,7 +247,7 @@ func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) 
 		if err := tx.Commit(ctx); err != nil {
 			return false, fmt.Errorf("commit: %w", err)
 		}
-		log.InfoContext(ctx, "collect: subscription dropped", "reason", reason)
+		log.Info().Str("reason", reason).Msg("subscription_dropped")
 		return true, nil
 	}
 	if connGone || c.status != StatusActive {
@@ -255,7 +256,7 @@ func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) 
 	// The keys the connection was made with subscribe it.
 	oc, ok := d.oauthOf(c)
 	if !ok {
-		log.WarnContext(ctx, "collect: subscription left pending, the connection's provider keys are not available in this process")
+		log.Warn().Msg("subscription_left_pending_keys_unavailable")
 		return false, nil
 	}
 	sc, isSub := oc.(connector.Subscriber)
@@ -299,9 +300,9 @@ func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) 
 	}
 	if same {
 		if callErr != nil {
-			log.WarnContext(ctx, "collect: subscribe failed, will retry", "attempts", attempts, "error", safeErr(callErr))
+			log.WithLevel(logutil.LevelCtx(ctx, callErr, zerolog.WarnLevel)).Int("attempts", attempts).Str("error", safeErr(callErr)).Msg("subscribe_failed_will_retry")
 		} else {
-			log.InfoContext(ctx, "collect: subscribed to provider notifications")
+			log.Info().Msg("subscribed_provider_notifications")
 		}
 		return true, nil
 	}
@@ -312,7 +313,7 @@ func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) 
 	if callErr == nil {
 		uctx, ucancel := context.WithTimeout(rctx, subscribeTimeout)
 		if err := sc.Unsubscribe(uctx, conn, sub.callback); err != nil {
-			log.WarnContext(ctx, "collect: undo of a subscribe raced by a disconnect failed", "error", safeErr(err))
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("undo_subscribe_raced_disconnect_failed")
 		}
 		ucancel()
 	}
@@ -399,7 +400,7 @@ func lockSub(ctx context.Context, tx pgx.Tx, sub subRef, now time.Time) (c connR
 // did is always recorded. Provider failures are logged, never returned; a
 // database failure is returned.
 func (d Deps) revokeLocked(ctx, pctx context.Context, tx pgx.Tx, c connRow) error {
-	log := slog.With("tenant_id", c.tenant, "user_id", c.user, "provider", c.provider)
+	log := logging.Ctx(ctx).With().Stringer("tenant_id", c.tenant).Stringer("user_id", c.user).Str("provider", c.provider).Logger()
 	rows, err := tx.Query(ctx, `SELECT id, callback_url, status, attempts FROM ohs_sync.inbound_subscriptions
 		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND status <> 'removed'
 		ORDER BY id FOR UPDATE`, c.tenant, c.user, c.provider)
@@ -425,16 +426,16 @@ func (d Deps) revokeLocked(ctx, pctx context.Context, tx pgx.Tx, c connRow) erro
 		// Its keys are not set in this process (or the tenant keys it was
 		// made with are gone): nothing can be called at the provider. The
 		// rows are still marked removed below.
-		log.WarnContext(ctx, "collect: provider not enabled in this process, grant not revoked and subscriptions not unsubscribed at the provider")
+		log.Warn().Msg("provider_not_enabled_grant_not_revoked")
 	}
 	if ok && c.accessEnc != nil {
 		conn, err := d.renewLocked(ctx, pctx, tx, c, "")
 		if err != nil {
-			log.WarnContext(ctx, "collect: token refresh before revoke failed, using stored tokens", "error", safeErr(err))
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("token_refresh_before_revoke_failed")
 			conn, err = d.open(c)
 		}
 		if err != nil {
-			log.WarnContext(ctx, "collect: revoke skipped, tokens unreadable")
+			log.Warn().Msg("revoke_skipped_tokens_unreadable")
 		} else {
 			if sc, ok := oc.(connector.Subscriber); ok {
 				for _, s := range subs {
@@ -444,13 +445,13 @@ func (d Deps) revokeLocked(ctx, pctx context.Context, tx pgx.Tx, c connRow) erro
 						continue
 					}
 					if err := sc.Unsubscribe(pctx, conn, s.callback); err != nil {
-						log.WarnContext(ctx, "collect: provider unsubscribe failed", "error", safeErr(err))
+						log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("provider_unsubscribe_failed")
 					}
 				}
 			}
 			if rv, ok := oc.(connector.Revoker); ok {
 				if err := rv.Revoke(pctx, conn.Tokens); err != nil {
-					log.WarnContext(ctx, "collect: provider revoke failed", "error", safeErr(err))
+					log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("provider_revoke_failed")
 				}
 			}
 		}

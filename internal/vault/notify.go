@@ -5,12 +5,15 @@ package vault
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // notifyChannel carries the evictions. A payload is "user:" tenant ":" user;
@@ -73,7 +76,7 @@ func (v *Vault) Listen(ctx context.Context) error {
 		if listened {
 			backoff = time.Second
 		}
-		slog.WarnContext(ctx, "vault: listening for evictions failed; retrying", "error", err, "retry_in", backoff)
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.WarnLevel).Int64("retry_in_ms", (backoff).Milliseconds()).Msg("vault_listening_failed_retrying")
 		select {
 		case <-ctx.Done():
 			return nil

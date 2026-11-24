@@ -179,5 +179,6 @@ func TestRunBlockedLoopFailsHealthz(t *testing.T) {
 	assert.Contains(t, metrics, `ohs_loop_stalled{loop="etl_high_freq"} 1`)
 	assert.Contains(t, metrics, `ohs_loop_stalled{loop="etl_standard"} 0`)
 	assert.Contains(t, metrics, `ohs_loop_stalled{loop="webhooks"} 0`)
-	assert.Contains(t, logs.String(), "healthz: background loops stalled: etl_high_freq")
+	assert.Contains(t, logs.String(), `"message":"healthz_loops_stalled"`)
+	assert.Contains(t, logs.String(), "background loops stalled: etl_high_freq")
 }

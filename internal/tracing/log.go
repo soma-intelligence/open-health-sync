@@ -4,30 +4,20 @@ package tracing
 
 import (
 	"context"
-	"log/slog"
 
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 )
 
-// LogHandler wraps h so that a record logged with a context inside a span
-// gets trace_id and span_id attributes, which link the log line to its trace.
-// Without a span (tracing off, or no span open) records pass unchanged.
-func LogHandler(h slog.Handler) slog.Handler { return logHandler{h} }
-
-type logHandler struct{ slog.Handler }
-
-func (h logHandler) Handle(ctx context.Context, r slog.Record) error {
-	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
-		r = r.Clone()
-		r.AddAttrs(slog.String("trace_id", sc.TraceID().String()), slog.String("span_id", sc.SpanID().String()))
+// LogContext returns ctx with trace_id and span_id on the logger it carries, so every line
+// written with logging.Ctx inside a span links to its trace. Call it right after starting a span.
+// Without a span (tracing off, or no span open) ctx is returned unchanged.
+func LogContext(ctx context.Context) context.Context {
+	sc := trace.SpanContextFromContext(ctx)
+	if !sc.IsValid() {
+		return ctx
 	}
-	return h.Handler.Handle(ctx, r)
-}
-
-func (h logHandler) WithAttrs(as []slog.Attr) slog.Handler {
-	return logHandler{h.Handler.WithAttrs(as)}
-}
-
-func (h logHandler) WithGroup(name string) slog.Handler {
-	return logHandler{h.Handler.WithGroup(name)}
+	ctx = logging.WithTraceID(ctx, sc.TraceID().String())
+	return logging.With(ctx, "span_id", sc.SpanID().String())
 }

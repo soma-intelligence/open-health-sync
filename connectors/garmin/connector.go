@@ -25,7 +25,6 @@ package garmin
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -207,8 +206,9 @@ func (c *Connector) Configure(cfg connector.Config) error {
 		KeyInboundToken: cfg[KeyInboundToken],
 	}
 	if cfg[KeyInboundToken] == "" {
-		slog.Warn("garmin: OHS_GARMIN_INBOUND_TOKEN is not set: every notification is refused (401), "+
-			"pings included, so only the scheduled pulls bring data", "provider", Slug)
+		modlog().Warn().Str("setting", "OHS_GARMIN_INBOUND_TOKEN").
+			Str("effect", "every notification is refused (401), pings included, so only the scheduled pulls bring data").
+			Msg("garmin_inbound_token_not_set")
 	}
 	return nil
 }

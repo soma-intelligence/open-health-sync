@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -164,7 +163,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	}
 	dt := AppliToDataType(appli)
 	if dt == "" {
-		slog.Info("withings: notification for a category not pulled, ignored", "provider", Slug, "appli", appli)
+		modlog().Info().Int("appli", appli).Msg("notification_category_not_pulled_ignored")
 		return nil, nil
 	}
 

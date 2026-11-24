@@ -12,17 +12,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/fhir"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/omh"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
@@ -135,7 +137,7 @@ func (s *server) userArchive(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "user")
 		return
 	case err != nil:
-		internalError(w, r, "api: archive user", err)
+		internalError(w, r, "archive_user_failed", err)
 		return
 	}
 	// Read before anything is written, so a failure is still a problem response.
@@ -149,7 +151,7 @@ func (s *server) userArchive(w http.ResponseWriter, r *http.Request) {
 	var keys *vault.UserVault
 	if s.d.Vault != nil {
 		if keys, err = s.d.Vault.ForUser(r.Context(), p.TenantID, id); err != nil {
-			internalError(w, r, "api: archive keys", err)
+			internalError(w, r, "archive_keys_failed", err)
 			return
 		}
 	}
@@ -168,7 +170,7 @@ func (s *server) userArchive(w http.ResponseWriter, r *http.Request) {
 		// The status is sent: cut the response so the client sees a broken
 		// transfer, never an archive that looks complete.
 		if r.Context().Err() == nil { // not the client going away
-			slog.ErrorContext(r.Context(), "api: archive", "error", err, "route", r.Pattern)
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("archive_failed")
 		}
 		panic(http.ErrAbortHandler)
 	}

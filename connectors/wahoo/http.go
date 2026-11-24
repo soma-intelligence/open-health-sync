@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -80,7 +79,7 @@ func (c *Connector) get(ctx context.Context, token, path string, query url.Value
 				}
 				return nil, fmt.Errorf("wahoo: %s: HTTP %d", path, status)
 			}
-			slog.Warn("wahoo: request failed, retrying", "provider", Slug, "attempt", attempt, "status", status)
+			modlog().Warn().Int("attempt", attempt).Int("status", status).Msg("request_failed_retrying")
 			if err := c.sleep(ctx, jitter(backoff)); err != nil {
 				return nil, err
 			}

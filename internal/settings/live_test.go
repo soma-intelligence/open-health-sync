@@ -3,17 +3,17 @@
 package settings
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"log/slog"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 )
 
 func TestEveryLiveSettingIsInTheSnapshot(t *testing.T) {
@@ -148,10 +148,7 @@ func TestLiveRunReloads(t *testing.T) {
 }
 
 func TestLiveSkipsBadStoredValues(t *testing.T) {
-	var buf bytes.Buffer
-	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	defer slog.SetDefault(old)
+	buf := logtest.Capture(t, zerolog.DebugLevel)
 
 	st := &fakeStore{rev: 4, rows: map[string]Row{
 		"OHS_WEBHOOK_PAUSE_AFTER": {Value: "abc"},

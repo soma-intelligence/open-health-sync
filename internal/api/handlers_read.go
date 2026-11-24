@@ -135,7 +135,7 @@ func readError(w http.ResponseWriter, r *http.Request, err error, what string) {
 	case errors.Is(err, read.ErrNotFound):
 		notFound(w, what)
 	default:
-		internalError(w, r, "api: read", err)
+		internalError(w, r, "read_failed", err)
 	}
 }
 

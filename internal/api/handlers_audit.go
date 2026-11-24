@@ -4,16 +4,18 @@ package api
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 )
 
@@ -140,7 +142,7 @@ func (s *server) record(r *http.Request, ev audit.Event) {
 	defer cancel()
 	if err := audit.Record(ctx, s.d.Pool, ev); err != nil {
 		s.metrics.auditFailures.Add(1)
-		slog.ErrorContext(r.Context(), "api: audit event not written", "error", err, "route", r.Pattern)
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("audit_event_not_written")
 	}
 }
 
@@ -219,7 +221,7 @@ func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, next, err := audit.List(r.Context(), s.d.Pool, p.TenantID, f)
 	if err != nil {
-		internalError(w, r, "list audit events", err)
+		internalError(w, r, "list_audit_events_failed", err)
 		return
 	}
 	cursor := ""

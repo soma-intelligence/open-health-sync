@@ -115,7 +115,7 @@ func (s *server) fhirUser(w http.ResponseWriter, r *http.Request) (fhir.Patient,
 		return fhir.Patient{}, user, false
 	}
 	if err != nil {
-		internalError(w, r, "api: fhir patient", err)
+		internalError(w, r, "fhir_patient_failed", err)
 		return fhir.Patient{}, user, false
 	}
 	return fhir.FromUser(p.TenantID, user, u.ExternalRef), user, true

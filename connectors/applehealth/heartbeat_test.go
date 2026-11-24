@@ -3,13 +3,14 @@
 package applehealth
 
 import (
-	"bytes"
-	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 )
 
 func beat(at float64, gap bool) map[string]any {
@@ -117,18 +118,8 @@ func TestHeartbeatSingleBeatSeriesIsEmpty(t *testing.T) {
 // Beats that do not come after their predecessor are dropped and counted;
 // the log carries the count, never a beat time.
 func TestHeartbeatNonIncreasingBeatsCounted(t *testing.T) {
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
-		// Drop the timestamp: its digits could contain a beat time by chance.
-		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.TimeKey {
-				return slog.Attr{}
-			}
-			return a
-		},
-	})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	// Capture writes no timestamp, whose digits could contain a beat time by chance.
+	buf := logtest.Capture(t, zerolog.DebugLevel)
 
 	m := New()
 	result, err := m.mapRecord(map[string]any{

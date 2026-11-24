@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // maxPagesPerType bounds the pagination of one data type in one pull. At
@@ -62,7 +64,7 @@ func (c *Connector) FetchNotified(ctx context.Context, conn connector.Connection
 			return c.FetchTypes(ctx, conn, from, to, []string{id}, emit)
 		}
 	}
-	slog.Info("fitbit: notified data type not granted, nothing pulled", "provider", Slug, "data_type", id)
+	modlog().Info().Str("data_type", id).Msg("notified_data_type_not_granted")
 	return nil
 }
 
@@ -108,11 +110,11 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 			return fmt.Errorf("fitbit: fetch %s: %w", d.ID, err)
 		case errors.Is(err, errForbidden):
 			forbidden++
-			slog.Warn("fitbit: data type forbidden, skipped (scope not granted)", "provider", Slug, "data_type", d.ID)
+			modlog().Warn().Str("data_type", d.ID).Msg("data_type_forbidden_skipped")
 		case errors.Is(err, errNotFound):
-			slog.Warn("fitbit: data type not found, skipped", "provider", Slug, "data_type", d.ID)
+			modlog().Warn().Str("data_type", d.ID).Msg("data_type_not_found_skipped")
 		default:
-			slog.Warn("fitbit: data type failed, the others are still pulled", "provider", Slug, "data_type", d.ID, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Str("data_type", d.ID).Msg("data_type_failed")
 			failed = append(failed, fmt.Errorf("fitbit: fetch %s: %w", d.ID, err))
 		}
 	}
@@ -150,7 +152,7 @@ func (c *Connector) fetchType(ctx context.Context, token string, d dataType, fro
 		case nt == "":
 			return nil
 		case followed[nt]:
-			slog.Warn("fitbit: nextPageToken repeated, stopping", "provider", Slug, "data_type", d.ID)
+			modlog().Warn().Str("data_type", d.ID).Msg("next_page_token_repeated")
 			return nil
 		default:
 			followed[nt] = true
@@ -160,7 +162,7 @@ func (c *Connector) fetchType(ctx context.Context, token string, d dataType, fro
 			return err
 		}
 	}
-	slog.Warn("fitbit: pagination truncated at max pages, more data available", "provider", Slug, "data_type", d.ID, "pages", maxPagesPerType)
+	modlog().Warn().Str("data_type", d.ID).Int("pages", maxPagesPerType).Msg("pagination_truncated")
 	return nil
 }
 

@@ -5,11 +5,11 @@ package etl
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
@@ -133,7 +133,7 @@ func applyDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.Delet
 		}
 	}
 	if removed > 0 {
-		slog.InfoContext(ctx, "etl: provider deletions applied", "deletions", len(order), "rows_removed", removed)
+		logging.Ctx(ctx).Info().Int("deletions", len(order)).Int("rows_removed", removed).Msg("provider_deletions_applied")
 	}
 	return days, nil
 }
@@ -294,7 +294,7 @@ const summaryDrop = `DELETE FROM ohs_data.daily_summaries WHERE tenant_id = $1 A
 func clearSummaryFields(ctx context.Context, tx TxLike, sc scope, provider string, names []string, days []time.Time) (int, error) {
 	figures, unknown := summaryClearFigures(names)
 	if unknown > 0 {
-		slog.WarnContext(ctx, "etl: deletion names unknown summary figures, ignored", "provider", provider, "unknown", unknown)
+		logging.Ctx(ctx).Warn().Str("provider", provider).Int("unknown", unknown).Msg("deletion_names_unknown_summary_figures_ignored")
 	}
 	if len(figures) == 0 {
 		return 0, nil

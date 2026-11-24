@@ -5,13 +5,15 @@ package automation
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
@@ -85,17 +87,14 @@ func (d *Drainer) Run(ctx context.Context) (DrainResult, error) {
 	var firstErr error
 	for _, o := range objs {
 		if err := d.drainOne(ctx, o, &res); err != nil {
-			slog.ErrorContext(ctx, "drain raw object", "key", o.key, "err", err)
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("key", o.key).Msg("drain_raw_object_failed")
 			if firstErr == nil {
 				firstErr = err
 			}
 		}
 	}
 	if res.Objects > 0 {
-		slog.InfoContext(ctx, "failed records drain pass complete",
-			"objects", res.Objects, "replayed", res.Replayed,
-			"awaiting_restart", res.AwaitingRestart,
-			"recovered", res.Recovered, "permanent", res.Permanent)
+		logging.Ctx(ctx).Info().Int("objects", res.Objects).Int("replayed", res.Replayed).Int("awaiting_restart", res.AwaitingRestart).Int("recovered", res.Recovered).Int("permanent", res.Permanent).Msg("failed_records_drain_pass_complete")
 	}
 	return res, firstErr
 }

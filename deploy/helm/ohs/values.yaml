@@ -62,7 +62,8 @@ config:
   # Let webhook endpoints use plain http and private addresses (0.1.0 and
   # later).
   webhookAllowPrivate: false
-  # Creates this tenant at first start and logs its API key once.
+  # Creates this tenant at first start and writes its API key once to a file
+  # (OHS_BOOTSTRAP_KEY_FILE, default inside the raw store directory).
   bootstrapTenant: ""
   # Any other non-secret variable, as NAME: value.
   extra: {}

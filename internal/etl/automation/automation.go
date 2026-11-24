@@ -18,13 +18,13 @@ package automation
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/consolesession"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/shl"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
@@ -180,14 +180,14 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 	s.Add("idempotency", or(deps.Intervals.Idempotency, DefaultIdempotencyEvery), timeout, counted(func(ctx context.Context) error {
 		n, err := idem.PurgeIdempotency(ctx)
 		if err == nil && n > 0 {
-			slog.InfoContext(ctx, "idempotency keys purged", "rows", n)
+			logging.Ctx(ctx).Info().Int64("rows", n).Msg("idempotency_keys_purged")
 		}
 		return err
 	}))
 	s.Add("shares", or(deps.Intervals.Shares, DefaultSharesEvery), timeout, counted(func(ctx context.Context) error {
 		n, err := shl.PurgeExpired(ctx, deps.Pool)
 		if n > 0 {
-			slog.InfoContext(ctx, "expired share link files removed", "shares", n)
+			logging.Ctx(ctx).Info().Int64("shares", n).Msg("expired_share_link_files_removed")
 		}
 		return err
 	}))
@@ -196,7 +196,7 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 	s.Add("console_sessions", or(deps.Intervals.ConsoleSessions, DefaultConsoleSessionsEvery), timeout, counted(func(ctx context.Context) error {
 		n, err := cs.PurgeEnded(ctx)
 		if n > 0 {
-			slog.InfoContext(ctx, "console sessions purged", "rows", n)
+			logging.Ctx(ctx).Info().Int64("rows", n).Msg("console_sessions_purged")
 		}
 		return err
 	}))
@@ -224,7 +224,7 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 				n, err = audit.Prune(ctx, deps.Pool, cutoff)
 			}
 			if n > 0 {
-				slog.InfoContext(ctx, "audit events pruned", "rows", n, "retention_days", days)
+				logging.Ctx(ctx).Info().Int64("rows", n).Int("retention_days", days).Msg("audit_events_pruned")
 			}
 			return err
 		}))
@@ -251,7 +251,7 @@ func newScheduler(deps Deps) (*Scheduler, error) {
 		s.Add("heartbeats", or(deps.Intervals.Heartbeats, DefaultHeartbeatsEvery), timeout, counted(func(ctx context.Context) error {
 			n, err := prune(ctx)
 			if n > 0 {
-				slog.InfoContext(ctx, "stale process heartbeats removed", "rows", n)
+				logging.Ctx(ctx).Info().Int64("rows", n).Msg("stale_process_heartbeats_removed")
 			}
 			return err
 		}))

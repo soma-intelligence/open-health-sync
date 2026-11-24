@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"sort"
 	"strconv"
@@ -106,8 +105,7 @@ func (c *Connector) fetchActivities(ctx context.Context, token string, from, to 
 			return out, nil
 		}
 	}
-	slog.Warn("strava: pagination truncated at max pages, more data available",
-		"provider", Slug, "endpoint", activitiesPath, "pages", maxPages)
+	modlog().Warn().Str("endpoint", activitiesPath).Int("pages", maxPages).Msg("pagination_truncated")
 	return out, nil
 }
 

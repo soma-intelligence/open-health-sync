@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -50,7 +49,7 @@ func (c *Connector) get(ctx context.Context, token, path string, q url.Values) (
 			if attempt == maxAttempts {
 				return nil, fmt.Errorf("dexcom http: %w", err)
 			}
-			slog.Warn("dexcom: transport error, retrying", "provider", Slug, "attempt", attempt)
+			modlog().Warn().Int("attempt", attempt).Msg("transport_error_retrying")
 			if err := c.sleep(ctx, jitter(backoff)); err != nil {
 				return nil, err
 			}

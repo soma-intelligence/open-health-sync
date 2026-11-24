@@ -14,10 +14,10 @@ package tracing
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -26,6 +26,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Attribute keys of the spans of this program, beyond the semantic
@@ -106,7 +108,7 @@ func Setup(ctx context.Context, o Options) (shutdown func(context.Context) error
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
-		slog.Warn("tracing: export failed", "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("tracing_export_failed")
 	}))
 	return tp.Shutdown, nil
 }

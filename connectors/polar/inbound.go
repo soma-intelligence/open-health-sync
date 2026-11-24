@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -168,7 +167,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	}
 	dt := EventToDataType(event)
 	if dt == "" {
-		slog.Info("polar: webhook event not pulled, ignored", "provider", Slug, "event", event)
+		modlog().Info().Str("event", event).Msg("webhook_event_ignored")
 		return nil, nil
 	}
 	userID := ev.UserID.String()

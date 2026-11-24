@@ -10,15 +10,17 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -59,15 +61,16 @@ func freeAddr(t *testing.T) string {
 
 func testConfig(t *testing.T, url string) config.Config {
 	return config.Config{
-		DatabaseURL:     url,
-		RawStore:        "file://" + t.TempDir(),
-		Listen:          freeAddr(t),
-		LogLevel:        "info",
-		BootstrapTenant: "dev",
-		Roles:           map[string]bool{"api": true, "etl": true},
-		Metrics:         true,
-		EncryptionKey:   make([]byte, 32),
-		Vault:           testVault(t),
+		DatabaseURL:      url,
+		RawStore:         "file://" + t.TempDir(),
+		Listen:           freeAddr(t),
+		LogLevel:         "info",
+		BootstrapTenant:  "dev",
+		BootstrapKeyFile: filepath.Join(t.TempDir(), "bootstrap-api-key"),
+		Roles:            map[string]bool{"api": true, "etl": true},
+		Metrics:          true,
+		EncryptionKey:    make([]byte, 32),
+		Vault:            testVault(t),
 	}
 }
 
@@ -120,17 +123,29 @@ func start(t *testing.T, cfg config.Config, logs *syncBuffer) (stop func() error
 	return stop
 }
 
-func bootstrapKeys(t *testing.T, logs string) []string {
+// bootstrapKeys returns the bootstrap API key when this start created the tenant (the log says
+// so), read from the 0600 key file: the log itself only carries a redacted form and the path.
+func bootstrapKeys(t *testing.T, cfg config.Config, logs string) []string {
 	t.Helper()
 	var keys []string
 	sc := bufio.NewScanner(strings.NewReader(logs))
 	for sc.Scan() {
 		var line map[string]any
 		require.NoError(t, json.Unmarshal(sc.Bytes(), &line), "every log line is JSON: %q", sc.Text())
-		if k, ok := line["api_key"].(string); ok {
-			assert.Equal(t, "WARN", line["level"])
-			keys = append(keys, k)
+		if line["message"] != "bootstrap_tenant_created" {
+			continue
 		}
+		assert.Equal(t, "info", line["level"])
+		assert.Equal(t, cfg.BootstrapKeyFile, line["api_key_file"])
+		raw, err := os.ReadFile(cfg.BootstrapKeyFile)
+		require.NoError(t, err)
+		key := strings.TrimSpace(string(raw))
+		assert.NotEqual(t, key, line["api_key"], "the log never carries the full key")
+		assert.NotContains(t, logs, key)
+		st, err := os.Stat(cfg.BootstrapKeyFile)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o600), st.Mode().Perm())
+		keys = append(keys, key)
 	}
 	return keys
 }
@@ -141,8 +156,8 @@ func TestRunServesAndBootstraps(t *testing.T) {
 	logs := &syncBuffer{}
 	stop := start(t, cfg, logs)
 
-	keys := bootstrapKeys(t, logs.String())
-	require.Len(t, keys, 1, "the bootstrap key is logged once:\n%s", logs)
+	keys := bootstrapKeys(t, cfg, logs.String())
+	require.Len(t, keys, 1, "the bootstrap key is written once:\n%s", logs)
 	req, _ := http.NewRequest("GET", "http://"+cfg.Listen+"/v1/providers", nil)
 	req.Header.Set("Authorization", "Bearer "+keys[0])
 	res, err := http.DefaultClient.Do(req)
@@ -170,7 +185,7 @@ func TestRunServesAndBootstraps(t *testing.T) {
 	assert.Equal(t, http.StatusOK, get(cfg.MetricsListen, "/metrics"))
 	assert.Equal(t, http.StatusNotFound, get(cfg.Listen, "/metrics"))
 	require.NoError(t, stop2())
-	assert.Empty(t, bootstrapKeys(t, logs2.String()))
+	assert.Empty(t, bootstrapKeys(t, cfg, logs2.String()))
 	assert.NotContains(t, logs2.String(), keys[0])
 
 	pool, err := db.Open(context.Background(), url)
@@ -360,7 +375,7 @@ func TestRunDeletesUserThroughWorker(t *testing.T) {
 	cfg := testConfig(t, url)
 	logs := &syncBuffer{}
 	start(t, cfg, logs)
-	keys := bootstrapKeys(t, logs.String())
+	keys := bootstrapKeys(t, cfg, logs.String())
 	require.Len(t, keys, 1)
 	client := &http.Client{Timeout: 10 * time.Second}
 	call := func(method, path, body string) (int, []byte) {
@@ -412,7 +427,7 @@ func TestRunFlushesAuditAtShutdown(t *testing.T) {
 	cfg := testConfig(t, url)
 	logs := &syncBuffer{}
 	stop := start(t, cfg, logs)
-	keys := bootstrapKeys(t, logs.String())
+	keys := bootstrapKeys(t, cfg, logs.String())
 	require.Len(t, keys, 1)
 	const reads = 5
 	for range reads {
@@ -469,10 +484,10 @@ func TestLiveSettingsApplyWithoutRestart(t *testing.T) {
 			t.Error("run did not stop")
 		}
 	})
-	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "ohs started") },
+	require.Eventually(t, func() bool { return strings.Contains(logs.String(), `"message":"service_started"`) },
 		30*time.Second, 50*time.Millisecond)
 
-	slog.Debug("probe before")
+	log.Debug().Msg("probe before")
 	require.NotContains(t, logs.String(), "probe before", "info level: no debug line")
 
 	pool, err := db.Open(ctx, url)
@@ -487,7 +502,7 @@ func TestLiveSettingsApplyWithoutRestart(t *testing.T) {
 
 	// Within two reload intervals (and the test's own slack for a slow CI).
 	ok := assert.Eventually(t, func() bool {
-		slog.Debug("probe after")
+		log.Debug().Msg("probe after")
 		return strings.Contains(logs.String(), "probe after")
 	}, 5*time.Second, 50*time.Millisecond)
 	if !ok {

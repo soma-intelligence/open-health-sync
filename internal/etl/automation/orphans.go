@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
@@ -106,7 +106,7 @@ func (s *OrphanScanner) Run(ctx context.Context) (OrphanResult, error) {
 		s.lastFull = now
 	}
 	if n > 0 {
-		slog.InfoContext(ctx, "orphan raw objects queued", "jobs", n)
+		logging.Ctx(ctx).Info().Int("jobs", n).Msg("orphan_raw_objects_queued")
 	}
 
 	return res, nil

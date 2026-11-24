@@ -5,7 +5,6 @@ package healthconnect
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"maps"
 	"math"
 	"strconv"
@@ -762,5 +761,5 @@ func noteUnknown(t string) {
 		return
 	}
 	unknownTypes[t] = true
-	slog.Info("health_connect: record type not stored", "provider", Slug, "record_type", t)
+	modlog().Info().Str("record_type", t).Msg("record_type_not_stored")
 }

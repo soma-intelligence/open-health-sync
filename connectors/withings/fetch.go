@@ -8,13 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"sort"
 	"strconv"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // maxResponseBytes caps one Withings answer. Its size is provider controlled,
@@ -189,8 +191,7 @@ func pause(ctx context.Context, d time.Duration) error {
 }
 
 func warnTruncated(endpoint string, start, end string) {
-	slog.Warn("withings: pagination truncated at max pages, more data available",
-		"provider", Slug, "endpoint", endpoint, "window_start", start, "window_end", end, "pages", maxPagesPerChunk)
+	modlog().Warn().Str("endpoint", endpoint).Str("window_start", start).Str("window_end", end).Int("pages", maxPagesPerChunk).Msg("pagination_truncated")
 }
 
 // ymdSpan is one request window of a calendar date endpoint, both dates
@@ -229,7 +230,7 @@ func (c *Connector) pager(ctx context.Context, endpoint, start, end string, page
 			return err
 		}
 		if items == 0 && more {
-			slog.Warn("withings: empty page but more is set, stopping", "provider", Slug, "endpoint", endpoint)
+			modlog().Warn().Str("endpoint", endpoint).Msg("empty_page_with_more_set")
 			return nil
 		}
 		if !more || next == 0 {
@@ -480,8 +481,7 @@ func (c *Connector) fetchSleep(ctx context.Context, token string, from, to time.
 			}
 			start, end := ParseWithingsTimestamp(head.Startdate), ParseWithingsTimestamp(head.Enddate)
 			if end.Sub(start) > maxNightSpan {
-				slog.Warn("withings: sleep summary spans more than 48 h, phases asked for its first 48 h only",
-					"provider", Slug, "hours", int(end.Sub(start).Hours()))
+				modlog().Warn().Int("hours", int(end.Sub(start).Hours())).Msg("sleep_summary_span_capped")
 				end = start.Add(maxNightSpan)
 			}
 			phases, err := c.fetchSleepDetail(ctx, token, start, end)
@@ -520,7 +520,7 @@ func (c *Connector) fetchSleepDetail(ctx context.Context, token string, start, e
 			if fatal(err) {
 				return nil, err
 			}
-			slog.Warn("withings: sleep detail failed, keeping the summary without phases", "provider", Slug, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("sleep_detail_failed")
 			return out, nil
 		}
 		out = append(out, body.Series...)
@@ -681,7 +681,7 @@ func (c *Connector) fetchHeart(ctx context.Context, token string, from, to time.
 					case err != nil && fatal(err):
 						return 0, false, 0, err
 					case err != nil:
-						slog.Warn("withings: ECG waveform download failed, keeping the classification only", "provider", Slug, "error", err)
+						logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("ecg_waveform_download_failed")
 					case sig != nil && len(sig.Signal) > 0:
 						if line, err = withField(line, "signal", sig); err != nil {
 							return 0, false, 0, err

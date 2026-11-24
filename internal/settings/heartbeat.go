@@ -5,12 +5,14 @@ package settings
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Heartbeat timing. A process beats every HeartbeatEvery; the API leaves out
@@ -96,7 +98,7 @@ func (w *HeartbeatWriter) Run(ctx context.Context, every time.Duration) error {
 	})
 	beat := func() {
 		if err := w.Beat(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("settings: heartbeat failed", "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("settings_heartbeat_failed")
 		}
 	}
 	beat()
@@ -120,7 +122,7 @@ func (w *HeartbeatWriter) forget() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if _, err := w.pool.Exec(ctx, `DELETE FROM ohs_core.process_heartbeats WHERE process_id = $1`, w.hb.ID); err != nil {
-		slog.Warn("settings: heartbeat row not removed", "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("settings_heartbeat_row_not_removed")
 	}
 }
 

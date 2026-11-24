@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -65,7 +64,7 @@ func (c *Connector) post(ctx context.Context, token, endpoint string, params url
 			if attempt == maxAttempts {
 				return fmt.Errorf("withings http: %w", err)
 			}
-			slog.Warn("withings: transport error, retrying", "provider", Slug, "attempt", attempt)
+			modlog().Warn().Int("attempt", attempt).Msg("transport_error_retrying")
 			if err := c.sleep(ctx, jitter(backoff)); err != nil {
 				return err
 			}

@@ -5,7 +5,6 @@ package garmin
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"math"
 	"sort"
 	"sync"
@@ -79,7 +78,7 @@ func (m *mapper) trackUnknown(dataType string) {
 	}
 	m.unknownTypes[dataType]++
 	if m.unknownTypes[dataType] == 1 {
-		slog.Warn("garmin: unknown data type skipped", "provider", Slug, "data_type", dataType)
+		modlog().Warn().Str("data_type", dataType).Msg("unknown_data_type_skipped")
 	}
 }
 

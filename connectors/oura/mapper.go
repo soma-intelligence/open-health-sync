@@ -5,7 +5,6 @@ package oura
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -74,7 +73,7 @@ func (m *mapper) trackUnknown(dataType string) {
 	}
 	m.unknownTypes[dataType]++
 	if m.unknownTypes[dataType] == 1 {
-		slog.Warn("oura: unknown data type skipped", "provider", Slug, "data_type", dataType)
+		modlog().Warn().Str("data_type", dataType).Msg("unknown_data_type_skipped")
 	}
 }
 

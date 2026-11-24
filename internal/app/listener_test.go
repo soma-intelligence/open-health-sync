@@ -5,13 +5,13 @@ package app
 import (
 	"bufio"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +19,7 @@ func serveTest(t *testing.T, h http.Handler, max int) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	srv := newHTTPServer("", h, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := newHTTPServer("", h, zerolog.Nop())
 	go func() { _ = srv.Serve(limitConnections(ln, max)) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	return ln.Addr().String()

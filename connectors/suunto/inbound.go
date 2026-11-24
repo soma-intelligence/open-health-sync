@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -165,7 +164,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	case EventActivityCreated:
 		return []connector.InboundEvent{{ProviderUserID: user, DataType: DataTypeDailyActivity, From: now.Add(-window247), To: now}}, nil
 	}
-	slog.Info("suunto: notification not acted on, ignored", "provider", Slug, "type", clip(typ, 64))
+	modlog().Info().Str("type", clip(typ, 64)).Msg("notification_ignored")
 	return nil, nil
 }
 

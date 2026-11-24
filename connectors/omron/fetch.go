@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"sort"
 	"strconv"
@@ -80,7 +79,7 @@ func (c *Connector) fetchType(ctx context.Context, token, dt string, from, to ti
 	)
 	defer func() {
 		if skipped > 0 {
-			slog.Warn("omron: skipped measurements without a readable dateTime", "provider", Slug, "type", dt, "count", skipped)
+			modlog().Warn().Str("type", dt).Int("count", skipped).Msg("skipped_measurements_without_readable_datetime")
 		}
 	}()
 	for page := 0; page < maxPages; page++ {

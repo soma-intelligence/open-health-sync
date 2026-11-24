@@ -8,14 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"slices"
 	"sort"
 	"strconv"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // perPage is the default page size asked of GET /v3/workouts.
@@ -91,7 +93,7 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 		case errors.Is(err, errUnauthorized):
 			return fmt.Errorf("suunto: fetch %s: %w: %w", dt, errUnauthorized, connector.ErrNeedsReauth)
 		case err != nil && dt != DataTypeWorkout && skippable(err):
-			slog.Warn("suunto: raw-only data type skipped", "provider", Slug, "data_type", dt, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Str("data_type", dt).Msg("raw_only_data_type_skipped")
 			continue
 		case err != nil:
 			return fmt.Errorf("suunto: fetch %s: %w", dt, err)
@@ -182,8 +184,7 @@ func (c *Connector) fetchWorkouts(ctx context.Context, token string, from, to ti
 			return out, nil
 		}
 	}
-	slog.Warn("suunto: paging truncated at max pages, more data available",
-		"provider", Slug, "endpoint", workoutsPath, "pages", maxPages)
+	modlog().Warn().Str("endpoint", workoutsPath).Int("pages", maxPages).Msg("pagination_truncated")
 	return out, nil
 }
 

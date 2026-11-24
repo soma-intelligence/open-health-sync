@@ -4,7 +4,6 @@ package polar
 
 import (
 	"fmt"
-	"log/slog"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -245,5 +244,5 @@ func noteDroppedSleepStates(n int) {
 		return
 	}
 	total := droppedSleepStates.Add(int64(n))
-	slog.Warn("polar: hypnogram segments of an unknown stage dropped", "provider", Slug, "dropped", n, "total", total)
+	modlog().Warn().Int("dropped", n).Int64("total", total).Msg("hypnogram_segments_unknown_stage_dropped")
 }

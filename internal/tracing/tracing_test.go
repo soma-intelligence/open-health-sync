@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
@@ -26,6 +26,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 )
 
 // The globals are set to a no-op provider and an empty propagator first:
@@ -161,14 +163,14 @@ func TestPGXTracesOnlyInsideASpanAndNeverArguments(t *testing.T) {
 	}
 }
 
-func TestLogHandlerAddsTheTraceID(t *testing.T) {
+func TestLogContextAddsTheTraceID(t *testing.T) {
 	_, tr := recorder(t)
 	var buf bytes.Buffer
-	log := slog.New(LogHandler(slog.NewJSONHandler(&buf, nil)))
-	ctx, span := tr.Start(context.Background(), "job")
-	log.With("a", 1).InfoContext(ctx, "inside")
+	base := zerolog.New(&buf).WithContext(context.Background())
+	ctx, span := tr.Start(base, "job")
+	logging.Ctx(LogContext(ctx)).Info().Msg("inside")
 	span.End()
-	log.InfoContext(context.Background(), "outside")
+	logging.Ctx(LogContext(base)).Info().Msg("outside")
 
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	require.Len(t, lines, 2)

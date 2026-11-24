@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -70,7 +69,7 @@ func (c *Connector) get(ctx context.Context, token, path string, query url.Value
 				}
 				return nil, fmt.Errorf("intervals_icu: %s: HTTP %d", path, status)
 			}
-			slog.Warn("intervals_icu: request failed, retrying", "provider", Slug, "attempt", attempt, "status", status)
+			modlog().Warn().Int("attempt", attempt).Int("status", status).Msg("request_failed_retrying")
 			if err := c.sleep(ctx, jitter(backoff)); err != nil {
 				return nil, err
 			}

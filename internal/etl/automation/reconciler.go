@@ -5,11 +5,12 @@ package automation
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 )
 
 // ReconcileWindow bounds the unprocessed-object probe. It answers "is the
@@ -128,18 +129,14 @@ func (r *Reconciler) Run(ctx context.Context) (Report, error) {
 		m.LastReconcileUnix.Store(now.Unix())
 	}
 	if rep.PendingFailedRecords > 0 {
-		slog.WarnContext(ctx, "unrecovered failed records", "pending", rep.PendingFailedRecords)
+		logging.Ctx(ctx).Warn().Int64("pending", rep.PendingFailedRecords).Msg("unrecovered_failed_records")
 	}
 	if rep.ParkedJobs > 0 {
-		slog.WarnContext(ctx, "parked etl jobs", "parked", rep.ParkedJobs)
+		logging.Ctx(ctx).Warn().Int64("parked", rep.ParkedJobs).Msg("parked_etl_jobs")
 	}
 	if rep.UnprocessedObjects > 0 {
-		slog.WarnContext(ctx, "raw objects without a finished job",
-			"count", rep.UnprocessedObjects, "window", window, "stale_after", stale)
+		logging.Ctx(ctx).Warn().Int64("count", rep.UnprocessedObjects).Int64("window_ms", (window).Milliseconds()).Int64("stale_after_ms", (stale).Milliseconds()).Msg("raw_objects_without_finished_job")
 	}
-	slog.InfoContext(ctx, "reconciliation complete",
-		"pending_failed_records", rep.PendingFailedRecords,
-		"parked_jobs", rep.ParkedJobs,
-		"unprocessed_objects", rep.UnprocessedObjects)
+	logging.Ctx(ctx).Info().Int64("pending_failed_records", rep.PendingFailedRecords).Int64("parked_jobs", rep.ParkedJobs).Int64("unprocessed_objects", rep.UnprocessedObjects).Msg("reconciliation_complete")
 	return rep, nil
 }

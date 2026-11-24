@@ -56,7 +56,7 @@ cleanup() {
   if [ -n "$SERVER_PID" ]; then kill -TERM "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
   if [ "$E2E_FAILS" -gt 0 ] && [ -n "$SERVER_LOG" ] && [ -f "$SERVER_LOG" ]; then
     echo "--- last server logs ($SERVER_LOG, debug lines left out)"
-    grep -v '"level":"DEBUG"' "$SERVER_LOG" | tail -n 40 || true
+    grep -v '"level":"debug"' "$SERVER_LOG" | tail -n 40 || true
   fi
   if [ "${KEEP:-0}" = "1" ]; then
     say "KEEP=1: container $PG_NAME and $E2E_WORK left in place"

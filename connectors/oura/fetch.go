@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // collectionPath is where every data type lives: <collectionPath>/<data type>.
@@ -105,11 +107,11 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 			return fmt.Errorf("oura: fetch %s: %w", dt, err)
 		case errors.Is(err, errForbidden):
 			forbidden++
-			slog.Warn("oura: data type forbidden, skipped (scope not granted or membership lapsed)", "provider", Slug, "data_type", dt)
+			modlog().Warn().Str("data_type", dt).Msg("data_type_forbidden_skipped")
 		case errors.Is(err, errNotFound):
-			slog.Warn("oura: data type endpoint not found, skipped", "provider", Slug, "data_type", dt)
+			modlog().Warn().Str("data_type", dt).Msg("data_type_endpoint_not_found_skipped")
 		default:
-			slog.Warn("oura: data type failed, the others are still pulled", "provider", Slug, "data_type", dt, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Str("data_type", dt).Msg("data_type_failed")
 			failed = append(failed, fmt.Errorf("oura: fetch %s: %w", dt, err))
 		}
 	}
@@ -229,10 +231,10 @@ func (c *Connector) fetchWindow(ctx context.Context, token, dataType string, par
 		case nt == "":
 			return nil
 		case followed[nt] || nt == next:
-			slog.Warn("oura: next_token repeated, stopping", "provider", Slug, "data_type", dataType)
+			modlog().Warn().Str("data_type", dataType).Msg("next_token_repeated")
 			return nil
 		case empty >= maxEmptyPages:
-			slog.Warn("oura: empty pages but next_token is set, stopping", "provider", Slug, "data_type", dataType)
+			modlog().Warn().Str("data_type", dataType).Msg("empty_pages_with_next_token")
 			return nil
 		}
 		followed[nt] = true
@@ -241,8 +243,7 @@ func (c *Connector) fetchWindow(ctx context.Context, token, dataType string, par
 			return err
 		}
 	}
-	slog.Warn("oura: pagination truncated at max pages, more data available",
-		"provider", Slug, "data_type", dataType, "pages", maxPagesPerWindow)
+	modlog().Warn().Str("data_type", dataType).Int("pages", maxPagesPerWindow).Msg("pagination_truncated")
 	return nil
 }
 

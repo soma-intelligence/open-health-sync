@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"net/netip"
 	"net/url"
@@ -16,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 // ProviderKeys holds the OHS_<SLUG>_<FIELD> values of one provider, keyed by FIELD
@@ -25,7 +26,10 @@ type ProviderKeys map[string]string
 // Config is the full process configuration.
 type Config struct {
 	DatabaseURL, PublicURL, RawStore, Listen, LogLevel, BootstrapTenant string
-	EncryptionKey                                                       []byte // decoded, len 32
+	// BootstrapKeyFile (OHS_BOOTSTRAP_KEY_FILE) is where the first API key of OHS_BOOTSTRAP_TENANT
+	// is written, mode 0600. Empty means inside the raw store directory.
+	BootstrapKeyFile string
+	EncryptionKey    []byte // decoded, len 32
 	// PreviousEncryptionKeys still open values sealed before a rotation but
 	// never seal (OHS_PREVIOUS_ENCRYPTION_KEYS, decoded, each len 32).
 	PreviousEncryptionKeys [][]byte
@@ -474,14 +478,24 @@ func consoleValue(name string) func(string) (on, readOnly bool, err error) {
 	}
 }
 
-// logLevel checks a level slog reads (debug, info, warn, error).
-func logLevel(v string) (slog.Level, error) {
-	var level slog.Level
-	if err := level.UnmarshalText([]byte(v)); err != nil {
-		return 0, fmt.Errorf("%w: %q is not one of debug, info, warn, error", ErrLogLevel, v)
+// ParseLogLevel reads an OHS_LOG_LEVEL value: debug, info, warn or error, in any case. Anything
+// else is an error wrapping ErrLogLevel; the process refuses to start rather than guess.
+func ParseLogLevel(v string) (zerolog.Level, error) {
+	switch strings.ToLower(v) {
+	case "debug":
+		return zerolog.DebugLevel, nil
+	case "info":
+		return zerolog.InfoLevel, nil
+	case "warn":
+		return zerolog.WarnLevel, nil
+	case "error":
+		return zerolog.ErrorLevel, nil
 	}
-	return level, nil
+	return zerolog.NoLevel, fmt.Errorf("%w: %q is not one of debug, info, warn, error", ErrLogLevel, v)
 }
+
+// logLevel checks a level (debug, info, warn, error).
+func logLevel(v string) (zerolog.Level, error) { return ParseLogLevel(v) }
 
 // metricsToken checks the length of a bearer token for /metrics.
 func metricsToken(v string) error {
@@ -501,14 +515,15 @@ func Load(env func(string) (string, bool), environ []string) (Config, error) {
 		return def
 	}
 	c := Config{
-		DatabaseURL:     get("OHS_DATABASE_URL", ""),
-		PublicURL:       get("OHS_PUBLIC_URL", "http://localhost:8080"),
-		RawStore:        get("OHS_RAW_STORE", "file:///var/lib/ohs/raw"),
-		Listen:          get("OHS_LISTEN", ":8080"),
-		LogLevel:        get("OHS_LOG_LEVEL", "info"),
-		BootstrapTenant: get("OHS_BOOTSTRAP_TENANT", ""),
-		Roles:           map[string]bool{},
-		Providers:       map[string]ProviderKeys{},
+		DatabaseURL:      get("OHS_DATABASE_URL", ""),
+		PublicURL:        get("OHS_PUBLIC_URL", "http://localhost:8080"),
+		RawStore:         get("OHS_RAW_STORE", "file:///var/lib/ohs/raw"),
+		Listen:           get("OHS_LISTEN", ":8080"),
+		LogLevel:         get("OHS_LOG_LEVEL", "info"),
+		BootstrapTenant:  get("OHS_BOOTSTRAP_TENANT", ""),
+		BootstrapKeyFile: get("OHS_BOOTSTRAP_KEY_FILE", ""),
+		Roles:            map[string]bool{},
+		Providers:        map[string]ProviderKeys{},
 	}
 	if c.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("OHS_DATABASE_URL is required (postgres://user:password@host:5432/db?sslmode=disable)")

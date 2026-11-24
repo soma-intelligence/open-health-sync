@@ -69,6 +69,17 @@ Read [docs/architecture.md](docs/architecture.md) first. To add a provider, read
   `user_id`. A new table has both columns.
 - **No secrets, no health values in logs.** Tokens, keys and measurements never reach a log
   line, an error message or a test fixture. Fixtures use invented values.
+- **Logging goes through `internal/logging`.** It is zerolog and nothing else: no `log/slog`, no
+  `log` (only `internal/logbridge`, for `http.Server.ErrorLog`). `internal/logging` is a synced
+  copy of a shared package, never edited here (a test checks its checksum). Take a logger with
+  `logging.Module("name")`, or `logging.Ctx(ctx)` where a context is in hand. The message is a
+  stable snake_case event name in English with no variable inside (`pull_failed`); the variable
+  parts are typed fields with snake_case keys and the unit in the key (`duration_ms`,
+  `size_bytes`). An error is logged once, where it is handled: lower layers wrap and return it.
+  Use `logutil.Err` for an error that can come from a shutdown or a client that left, so a
+  cancelled context stays at `debug`. Levels: `debug` for diagnosis, `info` for a normal event
+  that matters, `warn` for an abnormal one nobody must act on now, `error` for a failed operation
+  someone should look at, `fatal` only in `main`.
 - **Migrations.** Add a numbered pair of `.up.sql` and `.down.sql` files under
   `internal/db/migrations`. Use hypertables. No continuous aggregate beyond `quantity_hourly` (migration 0035) without
   discussing it first; compression only as migration 0015 sets it up.

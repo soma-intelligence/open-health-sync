@@ -119,7 +119,7 @@ e2e_up() {
 e2e_down() {
   if [ "$E2E_FAILS" -gt 0 ]; then
     echo "--- last server logs (debug lines left out)"
-    e2e_compose logs --no-color --tail 200 ohs 2>/dev/null | grep -v '"level":"DEBUG"' | tail -n 40 || true
+    e2e_compose logs --no-color --tail 200 ohs 2>/dev/null | grep -v '"level":"debug"' | tail -n 40 || true
   fi
   if [ "${KEEP:-0}" = "1" ]; then
     say "KEEP=1: project $E2E_PROJECT left running on $E2E_URL (env file $OHS_E2E_ENV_FILE)"

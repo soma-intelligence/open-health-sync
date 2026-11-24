@@ -55,7 +55,7 @@ func (s *server) revokeToken(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "token")
 		return
 	case err != nil:
-		internalError(w, r, "api: revoke token", err)
+		internalError(w, r, "revoke_token_failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -73,7 +73,7 @@ func (s *server) revokeTokens(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "user")
 		return
 	case err != nil:
-		internalError(w, r, "api: revoke tokens", err)
+		internalError(w, r, "revoke_tokens_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"revoked": n})
@@ -128,7 +128,7 @@ func (s *server) mintToken(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "user")
 		return
 	case err != nil:
-		internalError(w, r, "api: mint token", err)
+		internalError(w, r, "mint_token_failed", err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

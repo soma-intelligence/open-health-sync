@@ -11,10 +11,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	// Every connector registers itself.
 	_ "github.com/soma-intelligence/open-health-sync/connectors/all"
@@ -45,12 +47,13 @@ import (
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
 	"github.com/soma-intelligence/open-health-sync/internal/etl"
 	"github.com/soma-intelligence/open-health-sync/internal/etl/automation"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/memlimit"
 	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/providerset"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
-	"github.com/soma-intelligence/open-health-sync/internal/reqid"
 	"github.com/soma-intelligence/open-health-sync/internal/settings"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
@@ -97,19 +100,34 @@ func Run(ctx context.Context, cfg config.Config, start settings.Start) error {
 // Version is logged at start (set by ohs serve).
 var Version = "dev"
 
-// newLogger is the process logger: JSON lines, durations as text ("10m0s")
-// rather than nanoseconds, and the request id and trace id of the context on
-// each line.
-func newLogger(w io.Writer, level slog.Leveler) *slog.Logger {
-	return slog.New(tracing.LogHandler(reqid.Handler(slog.NewJSONHandler(w, &slog.HandlerOptions{
-		Level: level,
-		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
-			if a.Value.Kind() == slog.KindDuration {
-				a.Value = slog.StringValue(a.Value.Duration().String())
-			}
-			return a
-		},
-	}))))
+// startLogging sets up the process logger from the configuration and logs service_starting.
+// OHS_LOG_LEVEL stays the level knob (debug, info, warn or error, live in the console); LOG_FORMAT
+// picks json or console (auto when empty: console on a terminal, json otherwise).
+func startLogging(out io.Writer, cfg config.Config) (zerolog.Logger, error) {
+	// An unknown OHS_LOG_LEVEL is refused on purpose: OHS moves health data, and a typo that
+	// silently falls back to info (what logging.Init does) would hide a mistake in a setting the
+	// operator thinks they made.
+	if _, err := config.ParseLogLevel(cfg.LogLevel); err != nil {
+		return zerolog.Logger{}, fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", cfg.LogLevel)
+	}
+	logging.Init(logging.Options{
+		Service: logutil.Service,
+		Version: Version,
+		Env:     os.Getenv("ENV"),
+		Level:   strings.ToLower(cfg.LogLevel),
+		Out:     out,
+	})
+	logger := logging.Module("ohs")
+	roles := make([]string, 0, len(cfg.Roles))
+	for r, on := range cfg.Roles {
+		if on {
+			roles = append(roles, r)
+		}
+	}
+	sort.Strings(roles)
+	logger.Info().Str("roles", strings.Join(roles, ",")).Str("listen", cfg.Listen).
+		Str("log_level", strings.ToLower(cfg.LogLevel)).Msg("service_starting")
+	return logger, nil
 }
 
 // options are the knobs tests turn.
@@ -142,22 +160,16 @@ func run(ctx context.Context, cfg config.Config, logOut io.Writer) error {
 
 func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts options) error {
 	startedAt := time.Now().UTC()
-	var level slog.Level
-	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
-		return fmt.Errorf("OHS_LOG_LEVEL: %q is not one of debug, info, warn, error", cfg.LogLevel)
+	logger, err := startLogging(logOut, cfg)
+	if err != nil {
+		return err
 	}
-	// The level follows the live settings (OHS_LOG_LEVEL saved in the console).
-	levelVar := new(slog.LevelVar)
-	levelVar.Set(level)
-	logger := newLogger(logOut, levelVar)
-	slog.SetDefault(logger)
 	if opts.memLimit {
 		switch n, src := memlimit.Apply(os.LookupEnv, memlimit.DefaultCgroupRoot); src {
 		case memlimit.Cgroup:
-			logger.Info("memory limit set from the container's", "gomemlimit_bytes", n,
-				"fraction", memlimit.Fraction)
+			logger.Info().Int64("gomemlimit_bytes", n).Float64("fraction", memlimit.Fraction).Msg("memory_limit_set_from_cgroup")
 		case memlimit.Env:
-			logger.Info("memory limit set by GOMEMLIMIT", "gomemlimit_bytes", n)
+			logger.Info().Int64("gomemlimit_bytes", n).Msg("memory_limit_set_from_env")
 		}
 	}
 
@@ -195,13 +207,13 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		sctx, scancel := context.WithTimeout(context.WithoutCancel(ctx), tracingFlush)
 		defer scancel()
 		if err := shutdownTracing(sctx); err != nil {
-			slog.Warn("tracing: flush at shutdown", "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("tracing_flush_failed")
 		}
 	}()
 	var dbOpts []db.Option
 	if cfg.Tracing {
 		dbOpts = append(dbOpts, db.WithTracer(tracing.PGX{}))
-		slog.Info("tracing on: exporting OpenTelemetry traces over OTLP")
+		modlog().Info().Msg("tracing_enabled")
 	}
 
 	pool, err := db.Open(ctx, cfg.DatabaseURL, dbOpts...)
@@ -254,7 +266,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	live := settings.NewLive(settings.LiveOptions{
 		Store: settings.NewPG(pool, box), Env: opts.lookup, Environ: opts.environ, Config: cfg, Start: opts.start,
 	})
-	live.Subscribe(func(s settings.Snapshot) { levelVar.Set(s.LogLevel) })
+	live.Subscribe(func(s settings.Snapshot) { zerolog.SetGlobalLevel(s.LogLevel) })
 	collectDeps := collect.Deps{
 		Pool: pool, Raw: raw, Box: box, Tenants: store,
 		Lookup:     providers.Lookup,
@@ -268,7 +280,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 	}
 
 	if cfg.BootstrapTenant != "" {
-		if err := bootstrap(ctx, store, cfg.BootstrapTenant); err != nil {
+		if err := bootstrap(ctx, cfg, store); err != nil {
 			return err
 		}
 	}
@@ -420,13 +432,13 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		// before the pool (deferred earlier) closes: that writes what is
 		// still queued.
 		auditWriter := audit.NewWriter(pool, audit.WriterOptions{OnError: func(err error, lost int) {
-			slog.Warn("audit: batch not written", "error", err, "lost_events", lost)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Int("lost_events", lost).Msg("audit_batch_not_written")
 		}})
 		defer func() {
 			actx, acancel := context.WithTimeout(context.WithoutCancel(ctx), auditFlush)
 			defer acancel()
 			if err := auditWriter.Close(actx); err != nil {
-				slog.Warn("audit: flush at shutdown", "error", err)
+				logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("audit_flush_failed")
 			}
 		}()
 		deps := api.Deps{
@@ -494,10 +506,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		}
 		deps.MetricsToken = cfg.MetricsToken
 		if cfg.Metrics && cfg.MetricsListen == "" && cfg.MetricsToken == "" {
-			slog.Info("metrics: /metrics refuses scrapes until OHS_METRICS_TOKEN or OHS_METRICS_LISTEN is set")
+			modlog().Info().Str("setting", "OHS_METRICS_TOKEN or OHS_METRICS_LISTEN").Msg("metrics_scrapes_refused_no_token")
 		}
 		if warn := untrustedProxyWarning(cfg.Listen, cfg.TrustedProxies); warn != "" {
-			slog.Warn("api: " + warn)
+			modlog().Warn().Str("detail", warn).Msg("trusted_proxies_not_set")
 		}
 		if cfg.StreamMax >= 0 {
 			// The event stream: one LISTEN connection, the streams of this
@@ -524,7 +536,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 			return fmt.Errorf("api: %w%s", err, listenHint(err, cfg.Listen))
 		}
 		ln = limitConnections(ln, cfg.MaxConnections)
-		slog.Info("api listening", "addr", ln.Addr().String(), "max_connections", cfg.MaxConnections)
+		modlog().Info().Str("addr", ln.Addr().String()).Int("max_connections", cfg.MaxConnections).Msg("api_listening")
 		goRole("api", func() error {
 			if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 				return err
@@ -543,7 +555,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		})
 	}
 
-	slog.Info("ohs started", "version", Version, "roles", roleList(cfg.Roles))
+	modlog().Info().Str("roles", roleList(cfg.Roles)).Msg("service_started")
 	stopped := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -560,10 +572,10 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		case <-stopped:
 		case <-t.C:
 			abandoned = true
-			slog.Error("shutdown grace exceeded, exiting with work still running", "grace", opts.grace)
+			modlog().Error().Int64("grace_ms", opts.grace.Milliseconds()).Msg("shutdown_grace_exceeded")
 		}
 	}
-	slog.Info("ohs stopped")
+	modlog().Info().Msg("service_stopped")
 	errOnce.Do(func() {}) // firstErr is final from here on
 	return firstErr
 }
@@ -603,7 +615,7 @@ func ensureVaultKeys(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault) (i
 		}
 		total += len(users)
 		after.tenant, after.user = users[len(users)-1][0], users[len(users)-1][1]
-		slog.Info("vault: keys given to users that had none", "users", len(users), "done", total)
+		modlog().Info().Int("users", len(users)).Int("done", total).Msg("vault_keys_given")
 	}
 }
 
@@ -666,13 +678,13 @@ func ensureUserKeysBatch(ctx context.Context, pool *pgxpool.Pool, v *vault.Vault
 // serveMetrics serves /metrics on an address of its own (OHS_METRICS_LISTEN),
 // stopped with the process.
 func serveMetrics(ctx context.Context, addr string, mux *http.ServeMux, grace time.Duration,
-	logger *slog.Logger, goRole func(string, func() error)) error {
+	logger zerolog.Logger, goRole func(string, func() error)) error {
 	srv := newHTTPServer(addr, mux, logger)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("metrics: %w (OHS_METRICS_LISTEN)", err)
 	}
-	slog.Info("metrics listening", "addr", ln.Addr().String())
+	modlog().Info().Str("addr", ln.Addr().String()).Msg("metrics_listening")
 	goRole("metrics", func() error {
 		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 			return err
@@ -691,27 +703,117 @@ func serveMetrics(ctx context.Context, addr string, mux *http.ServeMux, grace ti
 	return nil
 }
 
-// bootstrap creates the OHS_BOOTSTRAP_TENANT tenant on first start and logs
-// its key once, and makes it an instance admin at every start. This is the
-// only place an API key is ever logged.
-func bootstrap(ctx context.Context, store *tenant.Store, name string) error {
-	t, key, err := store.EnsureTenant(ctx, name)
+// bootstrapStore is what bootstrap needs of the tenant store.
+type bootstrapStore interface {
+	TenantNamed(ctx context.Context, name string) (bool, error)
+	EnsureTenant(ctx context.Context, name string) (tenant.Tenant, string, error)
+	SetAdmin(ctx context.Context, id uuid.UUID, admin bool) error
+}
+
+// bootstrap creates the OHS_BOOTSTRAP_TENANT tenant on first start and makes it an instance admin
+// at every start. The first API key goes to a file (mode 0600) and only a redacted form reaches
+// the log, with the file path. The file is opened before the tenant is created, so a path that
+// cannot be written, or a file that already exists, stops the start with no tenant created. A
+// tenant that already exists never touches the file.
+func bootstrap(ctx context.Context, cfg config.Config, store bootstrapStore) error {
+	exists, err := store.TenantNamed(ctx, cfg.BootstrapTenant)
 	if err != nil {
 		return fmt.Errorf("bootstrap tenant: %w", err)
+	}
+	var f *os.File
+	var path string
+	if !exists {
+		if f, path, err = openKeyFile(cfg); err != nil {
+			return fmt.Errorf("bootstrap tenant %s not created, its API key file cannot be opened: %w", cfg.BootstrapTenant, err)
+		}
+	}
+	discard := func() {
+		if f != nil {
+			_ = f.Close()
+			_ = os.Remove(path)
+		}
+	}
+	t, key, err := store.EnsureTenant(ctx, cfg.BootstrapTenant)
+	if err != nil {
+		discard()
+		return fmt.Errorf("bootstrap tenant: %w", err)
+	}
+	if key == "" {
+		// Already there (or created by another process meanwhile): no key to keep.
+		discard()
+	} else {
+		// The tenant is committed and the key exists nowhere else: from here the file is never
+		// removed. Write and sync it before anything else can fail.
+		if f == nil {
+			return fmt.Errorf("bootstrap tenant %s was created with no key file open", t.Name)
+		}
+		werr := func() error {
+			if _, err := f.WriteString(key + "\n"); err != nil {
+				return err
+			}
+			return f.Sync()
+		}()
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			return fmt.Errorf("bootstrap tenant %s created but its API key could not be written to %s: %w", t.Name, path, werr)
+		}
 	}
 	// The operator named it: it manages the instance from the console.
 	if !t.Admin {
 		if err := store.SetAdmin(ctx, t.ID, true); err != nil {
+			if key != "" {
+				return fmt.Errorf("bootstrap tenant %s: %w (its API key is in %s)", t.Name, err, path)
+			}
 			return fmt.Errorf("bootstrap tenant: %w", err)
 		}
 	}
 	if key == "" {
-		slog.Info("bootstrap tenant present", "tenant_id", t.ID, "name", t.Name)
+		modlog().Info().Stringer("tenant_id", t.ID).Str("name", t.Name).Msg("bootstrap_tenant_present")
 		return nil
 	}
-	slog.Warn("bootstrap tenant created: store this API key now, it is shown only this once",
-		"tenant_id", t.ID, "name", t.Name, "api_key", key)
+	modlog().Info().Stringer("tenant_id", t.ID).Str("name", t.Name).Str("api_key", logging.Redact(key)).
+		Str("api_key_file", path).Msg("bootstrap_tenant_created")
 	return nil
+}
+
+// keyFilePath is where the first API key goes: OHS_BOOTSTRAP_KEY_FILE, else bootstrap-api-key in
+// the raw store directory (the directory the image chowns and the chart mounts), else, for a raw
+// store with no local directory, empty (a unique temporary file).
+func keyFilePath(cfg config.Config) string {
+	if cfg.BootstrapKeyFile != "" {
+		return cfg.BootstrapKeyFile
+	}
+	if p, ok := strings.CutPrefix(cfg.RawStore, "file://"); ok && p != "" {
+		return filepath.Join(filepath.Clean(p), "bootstrap-api-key")
+	}
+	return ""
+}
+
+// openKeyFile creates the key file with mode 0600. A configured or derived path is created with
+// O_EXCL: an existing file, or a symlink planted there, is never overwritten or followed. Without
+// any path the key goes to a unique file in the temp directory.
+func openKeyFile(cfg config.Config) (*os.File, string, error) {
+	path := keyFilePath(cfg)
+	if path == "" {
+		f, err := os.CreateTemp("", "ohs-bootstrap-api-key-*")
+		if err != nil {
+			return nil, "", err
+		}
+		return f, f.Name(), nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, path, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return nil, path, fmt.Errorf("%s already exists and is not overwritten: remove it, or set OHS_BOOTSTRAP_KEY_FILE to another path", path)
+	}
+	if err != nil {
+		return nil, path, err
+	}
+	return f, path, nil
 }
 
 // listenHint says what to change when the listen address is taken.

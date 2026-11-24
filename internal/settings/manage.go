@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"slices"
 	"sort"
@@ -14,8 +13,10 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Source says where the effective value of a setting comes from.
@@ -308,7 +309,7 @@ func (l *Live) Patch(ctx context.Context, ifRevision int64, changes map[string]*
 	res.Revision = rev
 	if err := l.Reload(ctx); err != nil {
 		// The save went through; the failure is in Status and the loop retries.
-		slog.Warn("settings: reload after a save failed", "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("settings_reload_after_save_failed")
 	}
 	return res, nil
 }

@@ -69,7 +69,7 @@ func (s *server) streamUserEvents(w http.ResponseWriter, r *http.Request) {
 			notFound(w, "user")
 			return
 		}
-		internalError(w, r, "api: stream user", err)
+		internalError(w, r, "stream_user_failed", err)
 		return
 	}
 	s.serveStream(w, r, p, &id)
@@ -153,7 +153,7 @@ func (s *server) serveStream(w http.ResponseWriter, r *http.Request, p auth.Prin
 		case perr != nil || errors.Is(err, pgx.ErrNoRows):
 			after, reset = 0, "last_event_id_unknown"
 		case err != nil:
-			internalError(w, r, "api: stream resume", err)
+			internalError(w, r, "stream_resume_failed", err)
 			return
 		}
 	}
