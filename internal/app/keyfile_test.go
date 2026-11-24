@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,9 +84,10 @@ func TestOpenKeyFileTempFallbackIsUnique(t *testing.T) {
 
 // fakeTenants records whether a tenant was created.
 type fakeTenants struct {
-	exists  bool
-	created int
-	key     string
+	exists   bool
+	created  int
+	key      string
+	adminErr error
 }
 
 func (f *fakeTenants) TenantNamed(context.Context, string) (bool, error) { return f.exists, nil }
@@ -95,9 +97,9 @@ func (f *fakeTenants) EnsureTenant(_ context.Context, name string) (tenant.Tenan
 	}
 	f.created++
 	f.exists = true
-	return tenant.Tenant{ID: uuid.New(), Name: name, Admin: true}, f.key, nil
+	return tenant.Tenant{ID: uuid.New(), Name: name, Admin: f.adminErr == nil}, f.key, nil
 }
-func (f *fakeTenants) SetAdmin(context.Context, uuid.UUID, bool) error { return nil }
+func (f *fakeTenants) SetAdmin(context.Context, uuid.UUID, bool) error { return f.adminErr }
 
 // A key file that cannot be opened stops the start with no tenant created, so the key is never
 // lost with a tenant that already exists.
@@ -134,4 +136,17 @@ func TestBootstrapWritesKeyOnceAndLeavesFileAloneAfterwards(t *testing.T) {
 	b, _ = os.ReadFile(path)
 	assert.Equal(t, "ohs_sk_x\n", string(b))
 	assert.Equal(t, 1, st.created)
+}
+
+// Once the tenant is created the key exists nowhere else: a SetAdmin failure keeps the file and
+// the error names it.
+func TestBootstrapSetAdminFailureKeepsTheKeyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	st := &fakeTenants{key: "ohs_sk_x", adminErr: errors.New("db gone")}
+	err := bootstrap(context.Background(), config.Config{BootstrapTenant: "dev", BootstrapKeyFile: path}, st)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, path)
+	b, rerr := os.ReadFile(path)
+	require.NoError(t, rerr)
+	assert.Equal(t, "ohs_sk_x\n", string(b))
 }

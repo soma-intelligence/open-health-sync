@@ -738,28 +738,40 @@ func bootstrap(ctx context.Context, cfg config.Config, store bootstrapStore) err
 		discard()
 		return fmt.Errorf("bootstrap tenant: %w", err)
 	}
+	if key == "" {
+		// Already there (or created by another process meanwhile): no key to keep.
+		discard()
+	} else {
+		// The tenant is committed and the key exists nowhere else: from here the file is never
+		// removed. Write and sync it before anything else can fail.
+		if f == nil {
+			return fmt.Errorf("bootstrap tenant %s was created with no key file open", t.Name)
+		}
+		werr := func() error {
+			if _, err := f.WriteString(key + "\n"); err != nil {
+				return err
+			}
+			return f.Sync()
+		}()
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			return fmt.Errorf("bootstrap tenant %s created but its API key could not be written to %s: %w", t.Name, path, werr)
+		}
+	}
 	// The operator named it: it manages the instance from the console.
 	if !t.Admin {
 		if err := store.SetAdmin(ctx, t.ID, true); err != nil {
-			discard()
+			if key != "" {
+				return fmt.Errorf("bootstrap tenant %s: %w (its API key is in %s)", t.Name, err, path)
+			}
 			return fmt.Errorf("bootstrap tenant: %w", err)
 		}
 	}
 	if key == "" {
-		// Already there (or created by another process meanwhile): no key to keep.
-		discard()
 		modlog().Info().Stringer("tenant_id", t.ID).Str("name", t.Name).Msg("bootstrap_tenant_present")
 		return nil
-	}
-	if f == nil {
-		return fmt.Errorf("bootstrap tenant %s was created with no key file open", t.Name)
-	}
-	if _, err := f.WriteString(key + "\n"); err != nil {
-		_ = f.Close()
-		return fmt.Errorf("bootstrap tenant %s created but its API key could not be written to %s: %w", t.Name, path, err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("bootstrap tenant %s created but its API key could not be written to %s: %w", t.Name, path, err)
 	}
 	modlog().Info().Stringer("tenant_id", t.ID).Str("name", t.Name).Str("api_key", logging.Redact(key)).
 		Str("api_key_file", path).Msg("bootstrap_tenant_created")
