@@ -5,7 +5,6 @@ package applehealth
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"time"
 
@@ -84,7 +83,7 @@ func (m *mapper) mapHeartbeat(record map[string]any, userID string) (*model.MapR
 	}
 	if dropped > 0 {
 		// Counts only: beat times are health values and never logged.
-		slog.Warn("apple_health: heartbeat beats not after their predecessor dropped", "count", dropped)
+		modlog().Warn().Int("count", dropped).Msg("heartbeat_beats_not_after_predecessor_dropped")
 	}
 	if len(res.HeartbeatSamples) == 0 {
 		return nil, nil

@@ -5,7 +5,6 @@ package wahoo
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -55,7 +54,7 @@ func trackUnknown(dataType string) {
 	}
 	unknownTypes[dataType]++
 	if unknownTypes[dataType] == 1 {
-		slog.Warn("wahoo: unknown data type skipped", "provider", Slug, "data_type", dataType)
+		modlog().Warn().Str("data_type", dataType).Msg("unknown_data_type_skipped")
 	}
 }
 

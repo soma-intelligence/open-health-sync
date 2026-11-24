@@ -5,11 +5,11 @@ package etl
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 )
 
@@ -178,7 +178,7 @@ func applyAliasDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.
 	byTable := map[string][]aliasRow{}
 	for _, a := range gone {
 		if _, ok := aliasTables[a.table]; !ok {
-			slog.WarnContext(ctx, "etl: record alias names an unknown table, ignored", "table", a.table)
+			logging.Ctx(ctx).Warn().Str("table", a.table).Msg("record_alias_names_unknown_table_ignored")
 			continue
 		}
 		byTable[a.table] = append(byTable[a.table], a)
@@ -251,8 +251,7 @@ func applyAliasDeletions(ctx context.Context, tx TxLike, sc scope, dels []model.
 		}
 	}
 	if removed > 0 || len(gone) > 0 {
-		slog.InfoContext(ctx, "etl: aliased deletions applied", "deletions", len(ids),
-			"aliases_removed", len(gone), "rows_removed", removed)
+		logging.Ctx(ctx).Info().Int("deletions", len(ids)).Int("aliases_removed", len(gone)).Int("rows_removed", removed).Msg("aliased_deletions_applied")
 	}
 	return days, nil
 }

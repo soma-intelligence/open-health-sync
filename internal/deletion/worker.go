@@ -6,15 +6,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
@@ -125,7 +127,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		w.loop.Tick()
 		n, err := w.pass(ctx, jobCtx)
 		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "deletion: pass failed", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("deletion_pass_failed")
 		}
 		if n > 0 && err == nil {
 			continue // more may be waiting
@@ -153,7 +155,7 @@ func (w *Worker) pass(ctx, jobCtx context.Context) (int, error) {
 		j, ok, err := w.pick(ctx, skip)
 		if err != nil {
 			if ctx.Err() == nil {
-				slog.ErrorContext(ctx, "deletion: pick job failed", "error", err)
+				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("deletion_pick_job_failed")
 			}
 			errs = append(errs, err)
 			break
@@ -169,11 +171,11 @@ func (w *Worker) pass(ctx, jobCtx context.Context) (int, error) {
 			if ctx.Err() != nil || jobCtx.Err() != nil {
 				// Shutdown cut the job short: not a failure, it stays
 				// pending for the next start.
-				slog.InfoContext(ctx, "deletion: job interrupted by shutdown", "job_id", j.id)
+				logging.Ctx(ctx).Info().Stringer("job_id", j.id).Msg("deletion_job_interrupted")
 				errs = append(errs, fmt.Errorf("job %s: %w", j.id, err))
 				break
 			}
-			slog.ErrorContext(ctx, "deletion: job failed", "job_id", j.id, "tenant_id", j.tenant, "user_id", j.user, "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("job_id", j.id).Stringer("tenant_id", j.tenant).Stringer("user_id", j.user).Msg("deletion_job_failed")
 			w.noteFailure(j.id)
 			errs = append(errs, fmt.Errorf("job %s: %w", j.id, err))
 			continue
@@ -249,7 +251,7 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 	if j.provider != nil {
 		return w.runProvider(ctx, j, *j.provider)
 	}
-	log := slog.With("job_id", j.id, "tenant_id", j.tenant, "user_id", j.user)
+	log := logging.Ctx(ctx).With().Stringer("job_id", j.id).Stringer("tenant_id", j.tenant).Stringer("user_id", j.user).Logger()
 
 	if w.vault != nil {
 		if err := w.shred(ctx, j); err != nil {
@@ -264,7 +266,7 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 		}
 		rctx, cancel := context.WithTimeout(ctx, revokeBudget(n))
 		if err := w.revoker.RevokeAll(rctx, j.tenant, j.user); err != nil {
-			log.WarnContext(ctx, "deletion: revoking provider connections failed, continuing", "error", err)
+			logutil.Err(log, err, zerolog.WarnLevel).Msg("provider_connections_revoke_failed")
 		}
 		cancel()
 	}
@@ -346,7 +348,7 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit: %w", err)
 	}
-	log.InfoContext(ctx, "deletion: user deleted", "tables", len(tables))
+	log.Info().Int("tables", len(tables)).Msg("user_deleted")
 	return true, nil
 }
 
@@ -384,7 +386,7 @@ func (w *Worker) shred(ctx context.Context, j job) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("shred: commit: %w", err)
 	}
-	slog.InfoContext(ctx, "deletion: user keys shredded", "job_id", j.id, "tenant_id", j.tenant, "user_id", j.user)
+	logging.Ctx(ctx).Info().Stringer("job_id", j.id).Stringer("tenant_id", j.tenant).Stringer("user_id", j.user).Msg("user_keys_shredded")
 	return nil
 }
 

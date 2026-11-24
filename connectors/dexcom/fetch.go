@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"sort"
 	"time"
@@ -98,7 +97,7 @@ func (c *Connector) Fetch(ctx context.Context, conn connector.Connection, from, 
 		}
 	}
 	if skipped > 0 {
-		slog.Warn("dexcom: skipped records without a readable systemTime", "provider", Slug, "count", skipped)
+		modlog().Warn().Int("count", skipped).Msg("records_without_system_time_skipped")
 	}
 	days := make([]time.Time, 0, len(byDay))
 	for d := range byDay {

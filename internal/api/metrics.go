@@ -64,7 +64,8 @@ func (m *httpMetrics) count(route string, code int) {
 // working for the handlers behind it.
 type statusWriter struct {
 	http.ResponseWriter
-	code int
+	code  int
+	bytes int64
 }
 
 func (s *statusWriter) WriteHeader(code int) {
@@ -78,7 +79,9 @@ func (s *statusWriter) Write(b []byte) (int, error) {
 	if s.code == 0 {
 		s.code = http.StatusOK
 	}
-	return s.ResponseWriter.Write(b)
+	n, err := s.ResponseWriter.Write(b)
+	s.bytes += int64(n)
+	return n, err
 }
 
 func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }

@@ -156,7 +156,7 @@ func (s *server) getAdminTenantKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	st, set, err := s.d.TenantKeys.Lookup(r.Context(), t.ID, slug)
 	if err != nil {
-		internalError(w, r, "api: tenant keys", err)
+		internalError(w, r, "tenant_keys_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.toAdminTenantKeys(slug, st, set))
@@ -201,7 +201,7 @@ func (s *server) putAdminTenantKeys(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "tenant")
 		return
 	case err != nil:
-		internalError(w, r, "api: tenant keys", err)
+		internalError(w, r, "tenant_keys_failed", err)
 		return
 	}
 	out := s.toAdminTenantKeys(slug, st, true)
@@ -225,7 +225,7 @@ func (s *server) deleteAdminTenantKeys(w http.ResponseWriter, r *http.Request) {
 	ev := adminEvent(r, p, audit.TenantProviderKeys, http.StatusOK, map[string]any{"provider": slug, "set": false})
 	_, retired, found, err := s.d.TenantKeys.Delete(r.Context(), t.ID, slug, &ev)
 	if err != nil {
-		internalError(w, r, "api: tenant keys", err)
+		internalError(w, r, "tenant_keys_failed", err)
 		return
 	}
 	if !found {

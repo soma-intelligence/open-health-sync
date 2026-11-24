@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -14,7 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
 	"github.com/soma-intelligence/open-health-sync/internal/vault/series"
 )
@@ -50,7 +52,7 @@ func (p *Purger) Run(ctx context.Context) error {
 	for {
 		did, err := p.Once(ctx)
 		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "consent: purge failed", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("purge_failed")
 		}
 		if did && err == nil {
 			continue
@@ -118,8 +120,7 @@ func (p *Purger) Once(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("consent: purge: commit: %w", err)
 	}
 	if n > 0 {
-		slog.InfoContext(ctx, "consent: revoked category purged", "tenant_id", tenant, "user_id", user,
-			"provider", provider, "category", cat, "rows", n)
+		logging.Ctx(ctx).Info().Stringer("tenant_id", tenant).Stringer("user_id", user).Str("provider", provider).Str("category", cat).Int64("rows", n).Msg("revoked_category_purged")
 	}
 	return true, nil
 }

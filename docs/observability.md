@@ -6,12 +6,23 @@ OpenTelemetry traces sent over OTLP. None of them carries a token, a key or a he
 
 ## Logs
 
-One JSON object per line on stderr, at the level of `OHS_LOG_LEVEL` (`info` by default). A line
-written while handling an API call carries the call's `request_id`, the value the client got
-back in `X-Request-Id`. With tracing on, a line written inside a span also carries `trace_id`
+One JSON object per line on stderr, at the level of `OHS_LOG_LEVEL` (`info` by default). On a
+terminal the output is a readable console form instead; `LOG_FORMAT=json` or `console` forces
+one. Every line carries `time`, `level`, `message`, `service` (`ohs`), `env` (from `ENV`),
+`version` and, for most, `module`. `message` is a stable snake_case event name such as
+`pull_failed`, with the variable parts in fields, so a count by `message` means something.
+Durations are numbers with the unit in the key (`duration_ms`).
+
+A line written while handling an API call carries the call's `request_id`, the value the client
+got back in `X-Request-Id`. With tracing on, a line written inside a span also carries `trace_id`
 and `span_id`, so you can go from a log line to its trace and back. Lines about pull jobs carry
 `tenant_id`, `user_id`, `provider` and `job_id`; lines about ETL jobs and webhook deliveries
 carry the job, delivery and endpoint ids.
+
+Every API request writes one `http_request` line with `method`, `route` (the matched pattern,
+never the raw path), `status`, `duration_ms`, `bytes` and `remote_ip`. Its level follows the
+status: 2xx and 3xx at `debug`, 4xx at `info`, 5xx at `error`. A cancelled context, such as a
+client that left or a shutdown, is never logged above `debug`.
 
 ## Health
 

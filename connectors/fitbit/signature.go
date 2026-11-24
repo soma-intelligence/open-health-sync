@@ -12,11 +12,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Webhook signatures.
@@ -134,7 +137,7 @@ func parseKeyset(b []byte) ([]publicKey, error) {
 		}
 		pub, err := parseEcdsaPublicKey(raw)
 		if err != nil {
-			slog.Warn("fitbit: keyset key skipped", "provider", Slug, "key_id", k.KeyID, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Uint("key_id", uint(k.KeyID)).Msg("keyset_key_skipped")
 			continue
 		}
 		prefix := strings.ToUpper(k.OutputPrefixType)
@@ -345,7 +348,7 @@ func (k *keysetCache) get(ctx context.Context, refresh bool) ([]publicKey, error
 		if err == nil {
 			k.keys, k.fetchedAt = keys, now
 		} else {
-			slog.Warn("fitbit: fetching the webhook keyset failed", "provider", Slug, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("fetching_webhook_keyset_failed")
 		}
 	}
 	if k.keys == nil {

@@ -24,6 +24,7 @@ var bootstrapNames = []string{
 	"OHS_VAULT_CACHE_USERS", "OHS_VAULT_CACHE_TTL",
 	"OHS_RAW_STORE", "OHS_LISTEN", "OHS_OPS_LISTEN", "OHS_METRICS_LISTEN", "OHS_ROLES", "OHS_CONSOLE",
 	"OHS_SETUP_TOKEN", "OHS_SETUP_TOKEN_FILE", "OHS_BOOTSTRAP_TENANT",
+	"OHS_BOOTSTRAP_KEY_FILE",
 }
 
 var liveNames = []string{
@@ -140,7 +141,7 @@ func TestRegistryShape(t *testing.T) {
 			t.Errorf("%s is not in the registry", n)
 		}
 	}
-	if len(bootstrapNames) != 25 || len(liveNames) != 13 {
+	if len(bootstrapNames) != 26 || len(liveNames) != 13 {
 		t.Fatalf("lists: %d bootstrap, %d live", len(bootstrapNames), len(liveNames))
 	}
 	// Entries follow the order of Sections, each section in one run.

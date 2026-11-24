@@ -7,13 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Scopes requested at consent. offline is what makes WHOOP hand out a
@@ -64,7 +66,7 @@ func (c *Connector) Exchange(ctx context.Context, code, redirect string) (connec
 	}
 	if t.Refresh == "" {
 		if rerr := c.revokeAccess(ctx, t.Access); rerr != nil {
-			slog.Warn("whoop: could not revoke a grant without refresh token", "provider", Slug, "error", rerr)
+			logutil.Err(*modlog(), rerr, zerolog.WarnLevel).Msg("revoke_without_refresh_token_failed")
 		}
 		return connector.Tokens{}, fmt.Errorf("whoop: exchange: %w", errNoRefreshToken)
 	}
@@ -144,8 +146,7 @@ func (c *Connector) Refresh(ctx context.Context, t connector.Tokens) (connector.
 func (c *Connector) fillUserID(ctx context.Context, t *connector.Tokens) {
 	var p profile
 	if err := c.get(ctx, t.Access, pathProfile, nil, &p); err != nil {
-		slog.Warn("whoop: could not read the WHOOP user id, webhooks will not match this connection yet",
-			"provider", Slug, "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("user_id_unreadable")
 		return
 	}
 	t.ProviderUserID = string(p.UserID)

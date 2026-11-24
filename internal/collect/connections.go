@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -18,12 +17,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
 	"github.com/soma-intelligence/open-health-sync/internal/deletion"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/tenantkeys"
@@ -385,7 +387,7 @@ func (h *Handlers) caller(w http.ResponseWriter, r *http.Request) (uuid.UUID, uu
 		return uuid.Nil, uuid.Nil, false
 	}
 	if err != nil {
-		slog.ErrorContext(r.Context(), "collect: look up user", "tenant_id", p.TenantID, "error", err)
+		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Msg("look_up_user_failed")
 		writeInternal(w)
 		return uuid.Nil, uuid.Nil, false
 	}
@@ -439,7 +441,7 @@ func (h *Handlers) ListConnections() http.Handler {
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), "collect: list connections", "tenant_id", tenantID, "user_id", userID, "error", err)
+			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("list_connections_failed")
 			writeInternal(w)
 			return
 		}
@@ -493,7 +495,7 @@ func (h *Handlers) DeleteConnection() http.Handler {
 		// so a refresh or a reconnect cannot interleave.
 		tx, err := h.d.Pool.Begin(ctx)
 		if err != nil {
-			slog.ErrorContext(ctx, "collect: begin", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_begin_failed")
 			writeInternal(w)
 			return
 		}
@@ -506,7 +508,7 @@ func (h *Handlers) DeleteConnection() http.Handler {
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(ctx, "collect: load connection", "tenant_id", tenantID, "user_id", userID, "provider", provider, "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Msg("load_connection_failed")
 			writeInternal(w)
 			return
 		}
@@ -520,7 +522,7 @@ func (h *Handlers) DeleteConnection() http.Handler {
 			err := h.d.revokeLocked(dctx, rctx, tx, c)
 			rcancel()
 			if err != nil {
-				slog.ErrorContext(ctx, "collect: disconnect", "tenant_id", tenantID, "user_id", userID, "provider", provider, "error", err)
+				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Msg("disconnect_failed")
 				writeInternal(w)
 				return
 			}
@@ -532,12 +534,12 @@ func (h *Handlers) DeleteConnection() http.Handler {
 				rate_limited_until = NULL, updated_at = now()
 			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 			tenantID, userID, provider); err != nil {
-			slog.ErrorContext(ctx, "collect: disconnect", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
 			writeInternal(w)
 			return
 		}
 		if err := parkPending(dctx, tx, tenantID, userID, provider, reasonDisconnected); err != nil {
-			slog.ErrorContext(ctx, "collect: disconnect", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
 			writeInternal(w)
 			return
 		}
@@ -547,25 +549,24 @@ func (h *Handlers) DeleteConnection() http.Handler {
 			// provider while (or after) its data is erased.
 			if _, err := tx.Exec(dctx, `DELETE FROM ohs_sync.oauth_states
 				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`, tenantID, userID, provider); err != nil {
-				slog.ErrorContext(ctx, "collect: disconnect", "error", err)
+				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
 				writeInternal(w)
 				return
 			}
 			if jobID, err = deletion.QueueProvider(dctx, tx, tenantID, userID, provider); err != nil {
-				slog.ErrorContext(ctx, "collect: queue provider data deletion", "error", err)
+				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("queue_provider_data_deletion_failed")
 				writeInternal(w)
 				return
 			}
 		}
 		if err := tx.Commit(dctx); err != nil {
-			slog.ErrorContext(ctx, "collect: disconnect commit", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_commit_failed")
 			writeInternal(w)
 			return
 		}
-		slog.InfoContext(ctx, "collect: connection disconnected", "tenant_id", tenantID, "user_id", userID, "provider", provider)
+		logging.Ctx(ctx).Info().Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Msg("connection_disconnected")
 		if deleteData {
-			slog.InfoContext(ctx, "collect: provider data deletion requested", "tenant_id", tenantID, "user_id", userID,
-				"provider", provider, "job_id", jobID)
+			logging.Ctx(ctx).Info().Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Stringer("job_id", jobID).Msg("provider_data_deletion_requested")
 			deletion.WriteAccepted(w, jobID)
 			return
 		}

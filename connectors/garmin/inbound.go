@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -115,8 +114,8 @@ func (c *Connector) warnRefused() {
 	if !c.refusedWarnAt.CompareAndSwap(last, now) {
 		return
 	}
-	slog.Warn("garmin: notification refused, OHS_GARMIN_INBOUND_TOKEN is not set", "provider", Slug,
-		"every", refusalWarnEvery.String())
+	modlog().Warn().Str("setting", "OHS_GARMIN_INBOUND_TOKEN").Int64("every_ms", refusalWarnEvery.Milliseconds()).
+		Msg("notification_refused_token_not_set")
 }
 
 // pingKey groups ping items by user and data type.
@@ -161,12 +160,12 @@ func parseNotification(body []byte, now time.Time) ([]connector.InboundEvent, er
 					return nil, fmt.Errorf("garmin: %s: %w", key, err)
 				}
 			}
-			slog.Info("garmin: notification acknowledged, nothing to do", "provider", Slug, "kind", key, "items", len(items))
+			modlog().Info().Str("kind", key).Int("items", len(items)).Msg("notification_acknowledged")
 			continue
 		}
 		dt, known := notificationKeys[key]
 		if !known {
-			slog.Debug("garmin: notification of an unhandled summary type ignored", "provider", Slug, "kind", key)
+			modlog().Debug().Str("kind", key).Msg("notification_unhandled_summary_type_ignored")
 			continue
 		}
 		for _, it := range items {

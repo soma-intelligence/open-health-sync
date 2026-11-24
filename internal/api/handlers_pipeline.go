@@ -141,7 +141,7 @@ func (s *server) getPipeline(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.From(r.Context())
 	out, err := s.pipeline(r.Context(), p.TenantID)
 	if err != nil {
-		internalError(w, r, "api: pipeline", err)
+		internalError(w, r, "pipeline_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -359,7 +359,7 @@ func (s *server) listTenantSyncRuns(w http.ResponseWriter, r *http.Request) {
 	list, err := collect.Deps{Pool: s.d.Pool}.TenantSyncRuns(r.Context(), p.TenantID, status,
 		r.URL.Query().Get("provider"), before, limit)
 	if err != nil {
-		internalError(w, r, "api: tenant sync runs", err)
+		internalError(w, r, "tenant_sync_runs_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
@@ -382,7 +382,7 @@ func (s *server) listETLJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	jobs, err := queue.ListETL(r.Context(), s.d.Pool, p.TenantID, status, r.URL.Query().Get("provider"), before, limit)
 	if err != nil {
-		internalError(w, r, "api: list etl jobs", err)
+		internalError(w, r, "list_etl_jobs_failed", err)
 		return
 	}
 	next := ""
@@ -413,7 +413,7 @@ func (s *server) retryETLJob(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusConflict, "only a parked job can be retried; this one is pending, running or done")
 		return
 	case err != nil:
-		internalError(w, r, "api: retry etl job", err)
+		internalError(w, r, "retry_etl_job_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toETLJobJSON(j))
@@ -429,7 +429,7 @@ func (s *server) retryParkedETLJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := queue.RetryParkedETL(r.Context(), s.d.Pool, p.TenantID, req.Provider)
 	if err != nil {
-		internalError(w, r, "api: retry parked etl jobs", err)
+		internalError(w, r, "retry_parked_etl_jobs_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"retried": n})

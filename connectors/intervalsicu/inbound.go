@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -99,7 +98,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 		}
 		dataType, from, to, ok := eventWindow(ev, now)
 		if !ok {
-			slog.Info("intervals_icu: webhook event not acted on, ignored", "provider", Slug, "type", ev.Type)
+			modlog().Info().Str("type", ev.Type).Msg("webhook_event_ignored")
 			continue
 		}
 		k := key{athlete, dataType}

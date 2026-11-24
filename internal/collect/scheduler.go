@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand/v2"
 	"net"
 	"regexp"
@@ -16,11 +15,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
@@ -197,7 +199,7 @@ func (s *Scheduler) scheduleLoop(ctx context.Context) {
 		s.cfg.Hooks.Schedule.Tick()
 		done := s.cfg.Hooks.Schedule.Busy(schedulePassLimit)
 		if _, err := s.Schedule(ctx); err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "collect: schedule pulls", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("schedule_pulls_failed")
 		}
 		done()
 		select {
@@ -234,12 +236,12 @@ func (s *Scheduler) subscribeLoop(ctx context.Context) {
 		s.cfg.Hooks.Subscribe.Tick()
 		done := s.cfg.Hooks.Subscribe.Busy(schedulePassLimit)
 		if n, err := s.RenewSilent(ctx, s.cfg.Batch); err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "collect: renew silent subscriptions", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("renew_silent_subscriptions_failed")
 		} else if n > 0 {
-			slog.InfoContext(ctx, "collect: renewing subscriptions that went silent", "count", n)
+			logging.Ctx(ctx).Info().Int("count", n).Msg("silent_subscriptions_renewing")
 		}
 		if _, err := s.subscribePass(ctx, jobCtx, defaultSubscribeBatch); err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "collect: subscribe pending", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("subscribe_pending_failed")
 		}
 		done()
 		select {
@@ -275,7 +277,7 @@ func (s *Scheduler) workLoop(ctx context.Context) {
 		}
 		jobs, err := s.q.Claim(ctx, n)
 		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "collect: claim pull jobs", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("claim_pull_jobs_failed")
 		}
 		for range n - len(jobs) {
 			<-slots
@@ -773,8 +775,6 @@ func (s *Scheduler) policyRows(slugs []string, now time.Time) policyRows {
 // With tracing on, the job is a span carrying the ids and counters its log
 // lines carry, and its outcome.
 func (s *Scheduler) handle(ctx context.Context, job queue.PullJob) {
-	log := slog.With("job_id", job.ID, "tenant_id", job.TenantID, "user_id", job.UserID,
-		"provider", job.Provider, "attempts", job.Attempts)
 	kind := "scheduled"
 	if job.Inbound {
 		kind = "notification"
@@ -787,12 +787,15 @@ func (s *Scheduler) handle(ctx context.Context, job queue.PullJob) {
 			attribute.String(tracing.AttrTenantID, job.TenantID.String()),
 			attribute.String(tracing.AttrUserID, job.UserID.String()),
 			attribute.Int(tracing.AttrAttempts, job.Attempts)))
+	ctx = tracing.LogContext(ctx)
+	log := logging.Ctx(ctx).With().Int64("job_id", job.ID).Stringer("tenant_id", job.TenantID).
+		Stringer("user_id", job.UserID).Str("provider", job.Provider).Int("attempts", job.Attempts).Logger()
 	outcome := ""
 	start := time.Now()
 	done := s.cfg.Hooks.Work.Busy(s.cfg.JobTimeout + settleLimit)
 	defer func() {
 		if r := recover(); r != nil {
-			log.ErrorContext(ctx, "collect: pull job panicked", "panic", r)
+			log.Error().Str("panic", fmt.Sprint(r)).Msg("pull_job_panicked")
 			outcome = s.settle(ctx, log, job, errors.New("pull job panicked"))
 		}
 		endJobSpan(span, outcome)
@@ -923,7 +926,7 @@ func (d Deps) markNeedsReauthIf(ctx context.Context, tenantID, userID uuid.UUID,
 
 // settle records the outcome on the job, and on the connection's freshness
 // and health, and returns it (an outcome* value).
-func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.PullJob, cause error) string {
+func (s *Scheduler) settle(ctx context.Context, log zerolog.Logger, job queue.PullJob, cause error) string {
 	var err error
 	var outcome string
 	switch rl, limited := connector.AsRateLimit(cause); {
@@ -932,32 +935,32 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 		err = s.q.Complete(ctx, job)
 		if err == nil {
 			if uerr := s.recordSuccess(ctx, job); uerr != nil {
-				log.ErrorContext(ctx, "collect: record last sync", "error", uerr)
+				logutil.Err(log, uerr, zerolog.ErrorLevel).Msg("record_last_sync_failed")
 			}
 			if uerr := s.q.ProviderOK(ctx, job.Provider); uerr != nil {
-				log.ErrorContext(ctx, "collect: reset provider backoff", "error", uerr)
+				logutil.Err(log, uerr, zerolog.ErrorLevel).Msg("reset_provider_backoff_failed")
 			}
 		}
 	case limited:
 		outcome = outcomeDeferred
 		until := s.d.now().Add(rl.RetryAfter)
-		log.InfoContext(ctx, "collect: provider rate limit, pull deferred", "retry_after", rl.RetryAfter)
+		log.Info().Int64("retry_after_ms", (rl.RetryAfter).Milliseconds()).Msg("pull_deferred_rate_limited")
 		err = s.q.Defer(ctx, job, until)
 		// The limit is the provider's for the whole application, usually:
 		// every pull of it waits, instead of each drawing its own refusal.
 		if paused, perr := s.q.PauseProvider(ctx, job.Provider, rl.RetryAfter); perr != nil {
-			log.ErrorContext(ctx, "collect: pause provider", "error", perr)
+			logutil.Err(log, perr, zerolog.ErrorLevel).Msg("pause_provider_failed")
 		} else {
-			log.InfoContext(ctx, "collect: provider paused after a rate limit", "until", paused)
+			log.Info().Time("until", paused).Msg("provider_paused_after_rate_limit")
 		}
 		if err == nil && rl.RetryAfter >= RateLimitBrokenAfter {
 			if uerr := s.recordRateLimit(ctx, job, until); uerr != nil {
-				log.ErrorContext(ctx, "collect: record rate limit", "error", uerr)
+				logutil.Err(log, uerr, zerolog.ErrorLevel).Msg("record_rate_limit_failed")
 			}
 		}
 	case errors.Is(cause, connector.ErrNeedsReauth):
 		outcome = outcomeNeedsReauth
-		log.WarnContext(ctx, "collect: provider rejected the grant, connection needs reauthorization")
+		log.Warn().Msg("provider_grant_rejected_needs_reauth")
 		parked := queue.OutcomeNeedsReauth
 		if errors.Is(cause, connector.ErrMissingScope) {
 			parked = queue.OutcomeMissingScope
@@ -970,32 +973,37 @@ func (s *Scheduler) settle(ctx context.Context, log *slog.Logger, job queue.Pull
 		// Cancelled like the job of a stopped connection: not a failure,
 		// never retried. The regular pulls catch up once it is back on.
 		outcome = outcomeInactive
-		log.InfoContext(ctx, "collect: provider turned off for the tenant, pull cancelled")
+		log.Info().Msg("provider_turned_off_tenant_pull_cancelled")
 		err = parkJob(ctx, s.d.Pool, job, reasonProviderOff, queue.OutcomeInactive)
 	default:
 		outcome = outcomeFailed
 		msg := safeErr(cause)
+		// A pull cut short by the shutdown is not worth a warning.
+		lvl := zerolog.WarnLevel
+		if ctx.Err() != nil {
+			lvl = logutil.Level(cause, lvl)
+		}
 		// The provider being down or unreachable is retried for days, not
 		// minutes: an outage must not leave a hole in a user's history.
 		if retryTransient(job, cause) {
-			log.WarnContext(ctx, "collect: pull failed, the provider is unavailable", "error", msg)
+			log.WithLevel(lvl).Str("error", msg).Msg("pull_failed_provider_unavailable")
 			err = s.q.FailTransient(ctx, job, errors.New(msg))
 		} else {
-			log.WarnContext(ctx, "collect: pull failed", "error", msg)
+			log.WithLevel(lvl).Str("error", msg).Msg("pull_failed")
 			err = s.q.Fail(ctx, job, errors.New(msg))
 		}
 		if err == nil {
 			if uerr := s.recordFailure(ctx, job, msg); uerr != nil {
-				log.ErrorContext(ctx, "collect: record pull failure", "error", uerr)
+				logutil.Err(log, uerr, zerolog.ErrorLevel).Msg("pull_failure_record_failed")
 			}
 		}
 	}
 	switch {
 	case errors.Is(err, queue.ErrNotRunning):
-		log.InfoContext(ctx, "collect: pull job claim lost, result dropped")
+		log.Info().Msg("pull_job_claim_lost")
 		return outcomeClaimLost
 	case err != nil:
-		log.ErrorContext(ctx, "collect: settle pull job", "error", err)
+		logutil.Err(log, err, zerolog.ErrorLevel).Msg("settle_pull_job_failed")
 		return outcomeSettleError
 	}
 	return outcome
@@ -1177,7 +1185,7 @@ func parkJob(ctx context.Context, q execer, job queue.PullJob, reason, outcome s
 // logSync writes the pull's sync_log row. Rate limits, stopped connections
 // and providers turned off for the tenant are not errors of the pull and are
 // not logged there.
-func (s *Scheduler) logSync(ctx context.Context, log *slog.Logger, job queue.PullJob, stored int, took time.Duration, cause error) {
+func (s *Scheduler) logSync(ctx context.Context, log zerolog.Logger, job queue.PullJob, stored int, took time.Duration, cause error) {
 	status, msg := "completed", (*string)(nil)
 	if cause != nil {
 		if _, limited := connector.AsRateLimit(cause); limited || errors.Is(cause, errInactive) ||
@@ -1189,7 +1197,7 @@ func (s *Scheduler) logSync(ctx context.Context, log *slog.Logger, job queue.Pul
 		msg = &m
 	}
 	if err := s.insertSyncLog(ctx, job, status, stored, took, msg); err != nil && !errors.Is(err, errInactive) {
-		log.ErrorContext(ctx, "collect: write sync log", "error", err)
+		logutil.Err(log, err, zerolog.ErrorLevel).Msg("write_sync_log_failed")
 	}
 }
 

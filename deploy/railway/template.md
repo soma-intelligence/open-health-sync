@@ -53,7 +53,7 @@ In the Railway dashboard: **Templates, New Template** (the template composer). A
 
   - `OHS_ENCRYPTION_KEY`: "Seals OAuth tokens and keys. Copy it to your password manager
     after the first deploy: without it, stored tokens cannot be read."
-  - `OHS_BOOTSTRAP_TENANT`: "First tenant. Its API key is printed once in the deploy logs."
+  - `OHS_BOOTSTRAP_TENANT`: "First tenant. Its API key is written once to the file named by OHS_BOOTSTRAP_KEY_FILE."
 
 Why these values:
 
@@ -68,7 +68,7 @@ Why these values:
 ## Publish and add the button
 
 1. Deploy the template once into a scratch project, from the composer. Check that both
-   services go green, that the `ohs` logs show `bootstrap tenant created`, and that
+   services go green, that the `ohs` logs show `bootstrap_tenant_created_api_key_in_file`, and that
    `https://<domain>/readyz` answers 200. Delete the scratch project.
 2. Publish the template. Name: `Open Health Sync`. Category: Other. Description: "One API for
    all your health data. Self-hosted, with TimescaleDB."

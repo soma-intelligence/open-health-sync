@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"sort"
 	"strconv"
@@ -195,8 +194,7 @@ func (c *Connector) fetchWorkouts(ctx context.Context, token string, from, to ti
 			return out, nil
 		}
 	}
-	slog.Warn("wahoo: pagination truncated at max pages, more data available",
-		"provider", Slug, "endpoint", workoutsPath, "pages", maxPages)
+	modlog().Warn().Str("endpoint", workoutsPath).Int("pages", maxPages).Msg("pagination_truncated")
 	return out, nil
 }
 

@@ -7,16 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
@@ -270,7 +272,7 @@ func (h *Handlers) Freshness() http.Handler {
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), "collect: freshness", "tenant_id", tenantID, "user_id", userID, "error", err)
+			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("freshness_failed")
 			writeInternal(w)
 			return
 		}

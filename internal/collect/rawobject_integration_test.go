@@ -7,11 +7,11 @@ package collect
 import (
 	"context"
 	"io"
-	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -145,7 +145,7 @@ func TestLogSyncSkipsUserBeingDeleted(t *testing.T) {
 	s := &Scheduler{d: Deps{Pool: pool}}
 	now := time.Now()
 	for _, u := range []uuid.UUID{active.ID, gone.ID} {
-		s.logSync(ctx, slog.Default(), queue.PullJob{TenantID: ten.ID, UserID: u, Provider: "p", From: now.Add(-time.Hour), To: now}, 3, time.Second, nil)
+		s.logSync(ctx, zerolog.Nop(), queue.PullJob{TenantID: ten.ID, UserID: u, Provider: "p", From: now.Add(-time.Hour), To: now}, 3, time.Second, nil)
 	}
 	var a, g int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE user_id = $1), count(*) FILTER (WHERE user_id = $2) FROM ohs_sync.sync_log`,

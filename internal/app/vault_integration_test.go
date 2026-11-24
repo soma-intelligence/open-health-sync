@@ -67,7 +67,7 @@ func TestCreatedUserHasKeys(t *testing.T) {
 	cfg := testConfig(t, url)
 	logs := &syncBuffer{}
 	start(t, cfg, logs)
-	keys := bootstrapKeys(t, logs.String())
+	keys := bootstrapKeys(t, cfg, logs.String())
 	require.Len(t, keys, 1)
 
 	req, err := http.NewRequest(http.MethodPost, "http://"+cfg.Listen+"/v1/users", strings.NewReader(`{"external_ref":"a"}`))

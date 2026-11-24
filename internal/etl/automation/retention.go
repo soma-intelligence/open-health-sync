@@ -6,14 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
 
@@ -134,7 +136,7 @@ func (r *Retention) Run(ctx context.Context) (RetentionResult, error) {
 	// batches, so without the list no record is pruned in this run.
 	hyper, err := hypertables(ctx, r.Pool)
 	if err != nil {
-		slog.ErrorContext(ctx, "retention: hypertables not listed, records left for the next run", "err", err)
+		logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("retention_hypertables_not_listed")
 		return res, errors.Join(append(errs, fmt.Errorf("list hypertables: %w", err))...)
 	}
 	cutoffDate := time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.UTC)
@@ -150,30 +152,28 @@ func (r *Retention) Run(ctx context.Context) (RetentionResult, error) {
 			chunks, rows, err := dropChunks(ctx, r.Pool, t.table, t.col, t.date, bound)
 			if err != nil {
 				// The rows are still deleted below, only more slowly.
-				slog.WarnContext(ctx, "retention: chunks not dropped", "table", t.table, "err", err)
+				logutil.Err(*logging.Ctx(ctx), err, zerolog.WarnLevel).Str("table", t.table).Msg("retention_chunks_not_dropped")
 			}
 			res.Chunks += chunks
 			res.Rows += rows
-			slog.DebugContext(ctx, "retention: chunks dropped", "table", t.table, "chunks", chunks, "rows", rows)
+			logging.Ctx(ctx).Debug().Str("table", t.table).Int("chunks", chunks).Int64("rows", rows).Msg("retention_chunks_dropped")
 		}
 		// The batches that committed before a failure are counted too.
 		n, err := pruneTable(ctx, r.Pool, t.table, t.col, t.date, bound, hyper[t.table])
 		res.Rows += n
 		if err != nil {
-			slog.ErrorContext(ctx, "retention for table failed", "table", t.table, "rows_deleted", n, "err", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("table", t.table).Int64("rows_deleted", n).Msg("retention_table_failed")
 			errs = append(errs, fmt.Errorf("prune %s: %w", t.table, err))
 			continue
 		}
-		slog.DebugContext(ctx, "retention: rows deleted", "table", t.table, "rows", n)
+		logging.Ctx(ctx).Debug().Str("table", t.table).Int64("rows", n).Msg("retention_rows_deleted")
 	}
 	if m := r.Metrics; m != nil {
 		m.RetentionRows.Add(res.Rows)
 		m.RetentionObjects.Add(int64(res.Prefixes))
 		m.RetentionChunks.Add(int64(res.Chunks))
 	}
-	slog.InfoContext(ctx, "retention complete", "days", r.Days,
-		"rows_deleted", res.Rows, "chunks_dropped", res.Chunks,
-		"raw_prefixes_deleted", res.Prefixes, "raw_users", res.Users)
+	logging.Ctx(ctx).Info().Int("days", r.Days).Int64("rows_deleted", res.Rows).Int("chunks_dropped", res.Chunks).Int("raw_prefixes_deleted", res.Prefixes).Int("raw_users", res.Users).Msg("retention_complete")
 	return res, errors.Join(errs...)
 }
 
@@ -236,7 +236,7 @@ func (r *Retention) pruneRaw(ctx context.Context, cutoff time.Time, res *Retenti
 			if !deleted[prefix] && !failed[prefix] {
 				if err := r.Store.DeletePrefix(ctx, prefix); err != nil {
 					failed[prefix] = true
-					slog.ErrorContext(ctx, "retention: raw prefix not deleted", "prefix", prefix, "err", err)
+					logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("prefix", prefix).Msg("retention_raw_prefix_not_deleted")
 					errs = append(errs, fmt.Errorf("delete %s: %w", prefix, err))
 				} else {
 					deleted[prefix] = true

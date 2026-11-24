@@ -116,28 +116,28 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 	// holds the user and their consent: an erasure or a consent change waits
 	// for it, then revokes it.
 	tx, err := shl.Begin(ctx, s.d.Pool, p.TenantID, user)
-	if !shareErr(w, r, err, "api: create share") {
+	if !shareErr(w, r, err, "create_share_failed") {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	types, err := shl.QuantityTypes(ctx, tx, p.TenantID, user, start, end)
 	if err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	refused, err := shl.Refused(ctx, tx, p.TenantID, user)
 	if err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	erasing, err := shl.Erasing(ctx, tx, p.TenantID, user)
 	if err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	key, err := shl.NewKey()
 	if err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	defer clear(key)
@@ -150,7 +150,7 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 			return erasing[provider] || refused[shl.Source(provider, category)]
 		}})
 	if err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	f := shl.Filter(cats, types)
@@ -166,7 +166,7 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 					" records: narrow the time window or the categories")
 				return
 			} else if err != nil {
-				internalError(w, r, "api: create share", err)
+				internalError(w, r, "create_share_failed", err)
 				return
 			}
 		}
@@ -176,33 +176,33 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 		q.Cursor = pg.NextCursor
 	}
 	if err := snap.Close(); err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	if err := d.Close(); err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	jwe, err := shl.EncryptDeflated(key, file.Bytes(), shl.ContentFHIR)
 	if err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	manifestID, err := shl.NewSecret()
 	if err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	n := shl.NewShare{Label: req.Label, Categories: cats, Start: start, End: end, ExpiresAt: exp,
 		ManifestHash: shl.HashSecret(manifestID), JWE: jwe, Observations: snap.Observations(), Sources: snap.Sources()}
 	if req.Passcode != nil {
 		if n.PasscodeHash, err = shl.HashPasscode(*req.Passcode); err != nil {
-			internalError(w, r, "api: create share", err)
+			internalError(w, r, "create_share_failed", err)
 			return
 		}
 	}
 	sh, err := shl.Create(ctx, tx, p.TenantID, user, n)
-	if !shareErr(w, r, err, "api: create share") {
+	if !shareErr(w, r, err, "create_share_failed") {
 		return
 	}
 	base := s.publicBase(r)
@@ -212,7 +212,7 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 	}
 	uri, err := payload.URI()
 	if err != nil {
-		internalError(w, r, "api: create share", err)
+		internalError(w, r, "create_share_failed", err)
 		return
 	}
 	w.Header().Set("Location", "/v1/users/"+user.String()+"/shares/"+sh.ID.String())
@@ -231,7 +231,7 @@ func (s *server) listShares(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pg, err := shl.List(r.Context(), s.d.Pool, p.TenantID, user, shl.Query{Cursor: r.URL.Query().Get("cursor"), Limit: limit})
-	if !shareErr(w, r, err, "api: list shares") {
+	if !shareErr(w, r, err, "list_shares_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, newPage(pg.Records, pg.NextCursor))
@@ -258,7 +258,7 @@ func (s *server) getShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := shl.Get(r.Context(), s.d.Pool, p.TenantID, user, id)
-	if !shareErr(w, r, err, "api: get share") {
+	if !shareErr(w, r, err, "get_share_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
@@ -270,7 +270,7 @@ func (s *server) revokeShare(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !shareErr(w, r, shl.Revoke(r.Context(), s.d.Pool, p.TenantID, user, id), "api: revoke share") {
+	if !shareErr(w, r, shl.Revoke(r.Context(), s.d.Pool, p.TenantID, user, id), "revoke_share_failed") {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -278,7 +278,7 @@ func (s *server) revokeShare(w http.ResponseWriter, r *http.Request) {
 
 // shareErr writes the problem for err and returns false; it returns true
 // when err is nil.
-func shareErr(w http.ResponseWriter, r *http.Request, err error, msg string) bool {
+func shareErr(w http.ResponseWriter, r *http.Request, err error, event string) bool {
 	switch {
 	case err == nil:
 		return true
@@ -289,7 +289,7 @@ func shareErr(w http.ResponseWriter, r *http.Request, err error, msg string) boo
 	case errors.Is(err, shl.ErrInvalidCursor):
 		badRequest(w, "the cursor is not valid")
 	default:
-		internalError(w, r, msg, err)
+		internalError(w, r, event, err)
 	}
 	return false
 }
@@ -424,7 +424,7 @@ func (s *server) shareManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		internalError(w, r, "api: share manifest", err)
+		internalError(w, r, "share_manifest_failed", err)
 		return
 	}
 	switch {
@@ -467,7 +467,7 @@ func (s *server) shareFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		internalError(w, r, "api: share file", err)
+		internalError(w, r, "share_file_failed", err)
 		return
 	}
 	if !res.Known || res.Outcome != shl.OutcomeFile {

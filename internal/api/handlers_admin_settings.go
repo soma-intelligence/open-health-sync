@@ -136,7 +136,7 @@ func parseIfMatch(h string) (revision int64, ok bool) {
 func (s *server) listAdminSettings(w http.ResponseWriter, r *http.Request) {
 	v, err := s.d.Settings.View(r.Context())
 	if err != nil {
-		internalError(w, r, "api: view settings", err)
+		internalError(w, r, "view_settings_failed", err)
 		return
 	}
 	out := adminSettingsJSON{Revision: v.Revision, Data: make([]adminSettingJSON, 0, len(v.Entries))}
@@ -199,20 +199,20 @@ func patchError(w http.ResponseWriter, r *http.Request, err error, current func(
 	case errors.Is(err, settings.ErrRevisionMoved):
 		rev, cerr := current()
 		if cerr != nil {
-			internalError(w, r, "api: settings revision after a conflict", cerr)
+			internalError(w, r, "settings_revision_after_conflict_failed", cerr)
 			return
 		}
 		w.Header().Set("ETag", etagOf(rev))
 		problem(w, http.StatusPreconditionFailed, "the settings changed since you read them: read them again, then retry")
 	default:
-		internalError(w, r, "api: patch settings", err)
+		internalError(w, r, "patch_settings_failed", err)
 	}
 }
 
 func (s *server) exportAdminSettings(w http.ResponseWriter, r *http.Request) {
 	b, err := s.d.Settings.Export(r.Context())
 	if err != nil {
-		internalError(w, r, "api: export settings", err)
+		internalError(w, r, "export_settings_failed", err)
 		return
 	}
 	writeSettingsExport(w, b)
@@ -230,7 +230,7 @@ func (s *server) listAdminProcesses(w http.ResponseWriter, r *http.Request) {
 	// The pool, not Live.Processes: that one needs the Postgres store.
 	ps, rev, err := settings.ListProcesses(r.Context(), s.d.Pool)
 	if err != nil {
-		internalError(w, r, "api: list processes", err)
+		internalError(w, r, "list_processes_failed", err)
 		return
 	}
 	out := adminProcessesJSON{Revision: rev, Data: make([]adminProcessJSON, 0, len(ps))}

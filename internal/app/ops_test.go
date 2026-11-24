@@ -5,14 +5,16 @@ package app
 import (
 	"bytes"
 	"context"
-	"log/slog"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
@@ -26,27 +28,24 @@ func TestServeOpsAddressTaken(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer taken.Close()
-	var logs bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	defer slog.SetDefault(prev)
+	logs := logtest.Capture(t, zerolog.DebugLevel)
 	started := 0
 	goRole := func(string, func() error) { started++ }
 
 	cfg := config.Config{OpsListen: taken.Addr().String()}
-	err = serveOps(context.Background(), cfg, api.OpsDeps{}, time.Second, slog.Default(), goRole)
+	err = serveOps(context.Background(), cfg, api.OpsDeps{}, time.Second, zerolog.Nop(), goRole)
 	if err == nil || !strings.Contains(err.Error(), "OHS_OPS_LISTEN") {
 		t.Fatalf("an address the operator set: %v", err)
 	}
 
 	cfg.OpsListenDefault = true
-	if err := serveOps(context.Background(), cfg, api.OpsDeps{}, time.Second, slog.Default(), goRole); err != nil {
+	if err := serveOps(context.Background(), cfg, api.OpsDeps{}, time.Second, zerolog.Nop(), goRole); err != nil {
 		t.Fatalf("the default address: %v", err)
 	}
 	if started != 0 {
 		t.Fatalf("%d goroutines started without a listener", started)
 	}
-	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "OHS_OPS_LISTEN") {
+	if !strings.Contains(logs.String(), `"level":"warn"`) || !strings.Contains(logs.String(), "OHS_OPS_LISTEN") {
 		t.Fatalf("no warning naming the setting: %s", logs.String())
 	}
 }

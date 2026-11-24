@@ -10,16 +10,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/consent"
 	"github.com/soma-intelligence/open-health-sync/internal/labs"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/model"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
@@ -93,7 +95,8 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	}
 	validatedAt := now()
 	sc := scope{tenant: job.TenantID, user: job.UserID, provider: job.Provider}
-	log := slog.With("job_id", job.ID, "tenant_id", job.TenantID, "user_id", job.UserID, "provider", job.Provider)
+	log := logging.Ctx(ctx).With().Int64("job_id", job.ID).Stringer("tenant_id", job.TenantID).Stringer("user_id", job.UserID).
+		Str("provider", job.Provider).Logger()
 
 	// The keys first: from the shred of a deletion on, the user has none,
 	// and the status check below tells that case from a user never given
@@ -112,7 +115,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		return nil, err
 	}
 	if !active {
-		log.InfoContext(ctx, "etl job skipped, user not active")
+		log.Info().Msg("etl_job_skipped_user_not_active")
 		return Counts{}, nil
 	}
 	if keysErr != nil {
@@ -188,14 +191,13 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	// A cap this reader imposes is deterministic: the head is written and the
 	// tail is recorded as a parse failure.
 	if rr.ScanTruncated {
-		log.WarnContext(ctx, "reader cap hit, processing partial",
-			"truncation", string(rr.Truncation), "parsed_records", rr.RecordCount)
+		log.Warn().Str("truncation", string(rr.Truncation)).Int("parsed_records", rr.RecordCount).Msg("reader_cap_hit")
 	}
 	if st.suspects > 0 {
-		log.WarnContext(ctx, "implausible values flagged", "count", st.suspects)
+		log.Warn().Int("count", st.suspects).Msg("implausible_values_flagged")
 	}
 	if st.withheld > 0 {
-		log.InfoContext(ctx, "records withheld, no consent for their category", "count", st.withheld)
+		log.Info().Int("count", st.withheld).Msg("records_withheld_no_consent")
 	}
 	plan.seal()
 	recordsIn := rr.RecordCount + len(rr.ParseErrors) + rr.ParseErrorsDropped
@@ -333,7 +335,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		if err == nil || attempt == maxWriteAttempts || !retryableWrite(err) {
 			break
 		}
-		log.WarnContext(ctx, "write transaction retried", "attempt", attempt, "error", err)
+		logutil.Err(log, err, zerolog.WarnLevel).Int("attempt", attempt).Msg("write_transaction_retried")
 		if err := sleepCtx(ctx, time.Duration(attempt)*100*time.Millisecond); err != nil {
 			return nil, err
 		}
@@ -342,7 +344,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		return nil, err
 	}
 	if userSkipped {
-		log.InfoContext(ctx, "etl job skipped, user not active or raw object erased")
+		log.Info().Msg("etl_job_skipped_user_not_active")
 		return Counts{}, nil
 	}
 	written := counts.TotalWritten()
@@ -351,15 +353,11 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	// failing to note it must not fail a job whose data is stored.
 	if learnt.name != "" {
 		if err := learnUserZone(ctx, pool, sc, learnt); err != nil {
-			log.WarnContext(ctx, "user time zone not recorded", "error", err)
+			logutil.Err(log, err, zerolog.WarnLevel).Msg("user_time_zone_not_recorded")
 		}
 	}
 
-	log.InfoContext(ctx, "raw object processed",
-		"status", status, "records_in", recordsIn, "records_out", written,
-		"duplicates", counts.TotalSkipped(), "failed", recordsFailed,
-		"chunked", plan.spilled,
-		"duration_ms", time.Since(start).Milliseconds())
+	log.Info().Str("status", status).Int("records_in", recordsIn).Int("records_out", written).Int("duplicates", counts.TotalSkipped()).Int("failed", recordsFailed).Bool("chunked", plan.spilled).Int64("duration_ms", time.Since(start).Milliseconds()).Msg("raw_object_processed")
 	return counts, nil
 }
 

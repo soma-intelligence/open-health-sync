@@ -5,7 +5,6 @@ package withings
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
@@ -68,7 +67,7 @@ func (m *mapper) trackUnknown(dataType string) {
 	}
 	m.unknownTypes[dataType]++
 	if m.unknownTypes[dataType] == 1 {
-		slog.Warn("withings: unknown data type skipped", "provider", Slug, "data_type", dataType)
+		modlog().Warn().Str("data_type", dataType).Msg("unknown_data_type_skipped")
 	}
 }
 

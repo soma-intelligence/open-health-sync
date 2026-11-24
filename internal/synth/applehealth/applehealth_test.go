@@ -8,8 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +15,7 @@ import (
 	ahc "github.com/soma-intelligence/open-health-sync/connectors/applehealth"
 	"github.com/soma-intelligence/open-health-sync/connectors/applehealth/export"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 	"github.com/soma-intelligence/open-health-sync/internal/synth"
 	"github.com/soma-intelligence/open-health-sync/internal/synth/applehealth"
 	"github.com/soma-intelligence/open-health-sync/internal/synth/synthtest"
@@ -223,6 +222,6 @@ func TestDeterministic(t *testing.T) {
 // TestMain silences the connector's skip warnings: the unknown types are
 // counted in the outcomes instead.
 func TestMain(m *testing.M) {
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logtest.Discard()
 	os.Exit(m.Run())
 }

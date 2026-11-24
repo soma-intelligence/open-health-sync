@@ -6,11 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
@@ -199,14 +199,14 @@ func TestPatchUnknownRowRemoval(t *testing.T) {
 
 func TestPatchRestartRequired(t *testing.T) {
 	l, st := manageLive(t, nil, nil)
-	require.Equal(t, slog.LevelInfo, l.LogLevel())
+	require.Equal(t, zerolog.InfoLevel, l.LogLevel())
 	res, err := l.Patch(context.Background(), 0, map[string]*string{
 		"OHS_LOG_LEVEL": sp("debug"), "OHS_INGEST_CONCURRENCY": sp("4")}, uuid.New())
 	require.NoError(t, err)
 	require.Equal(t, []string{"OHS_INGEST_CONCURRENCY", "OHS_LOG_LEVEL"}, res.Changed)
 	require.Equal(t, []string{"OHS_INGEST_CONCURRENCY"}, res.RestartRequired)
 	require.True(t, st.applies[0].Restart)
-	require.Equal(t, slog.LevelDebug, l.LogLevel())
+	require.Equal(t, zerolog.DebugLevel, l.LogLevel())
 	require.EqualValues(t, 1, res.Revision)
 }
 

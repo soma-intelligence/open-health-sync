@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -56,7 +55,7 @@ func (c *Connector) get(ctx context.Context, token, path string, query url.Value
 			if attempt == maxAttempts {
 				return nil, fmt.Errorf("strava http: %w", err)
 			}
-			slog.Warn("strava: transport error, retrying", "provider", Slug, "attempt", attempt)
+			modlog().Warn().Int("attempt", attempt).Msg("transport_error_retrying")
 			if err := c.sleep(ctx, jitter(backoff)); err != nil {
 				return nil, err
 			}

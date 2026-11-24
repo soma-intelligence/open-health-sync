@@ -9,6 +9,7 @@ release may change the API, the configuration or the database schema.
 
 ### Added
 
+- `OHS_BOOTSTRAP_KEY_FILE` names the file that receives the first API key of `OHS_BOOTSTRAP_TENANT`.
 - `GET /v1/pipeline` answers `data`: the records the tenant has stored, the users and the providers with
   records, and when the last one landed, whatever the way in (a connection, an app upload, a demo seed). Each
   source has `records`, and a provider with records but no connection is listed for them.
@@ -203,6 +204,20 @@ release may change the API, the configuration or the database schema.
 
 ### Changed
 
+- Logs are written with zerolog through a shared logging package (`internal/logging`) instead of `log/slog`.
+  Each line carries `time`, `level`, `message`, `service` (`ohs`), `env` (from `ENV`), `version` and `module`.
+  `message` is now a stable snake_case event name (`pull_failed`) with the variable parts in fields, levels are
+  lowercase (`"level":"debug"`), durations are numbers with the unit in the key (`duration_ms`), and the error
+  of a failure is the `error` field. A cancelled context or a closed pool during shutdown is logged at `debug`
+  at most. On a terminal the output is a readable console form; `LOG_FORMAT=json` or `console` forces one.
+  `OHS_LOG_LEVEL` still takes `debug`, `info`, `warn` or `error` and still applies live.
+- Every API request writes one `http_request` line (`method`, `route`, `status`, `duration_ms`, `bytes`,
+  `remote_ip`) at a level that follows the status: 2xx and 3xx `debug`, 4xx `info`, 5xx `error`. A handler that
+  panics logs `http_panic` with the stack.
+- `OHS_BOOTSTRAP_TENANT` no longer logs the API key it creates. The key is written once to a file with mode 0600
+  (`OHS_BOOTSTRAP_KEY_FILE`, by default `bootstrap-api-key` next to the raw store directory, else a new file in
+  the temporary directory) and the log shows a redacted form and the path. A file that already exists is never
+  overwritten and stops the start.
 - The console signs in with a server session instead of keeping the key in the browser tab and sending it as a
   bearer header. The key is sent once and never stored; the cookie is `HttpOnly` and requests need the CSRF
   token. Plain http works only on `localhost`, `127.0.0.1` and `[::1]`; elsewhere sign in is refused until

@@ -227,9 +227,10 @@ and apply when each process next starts. **Bootstrap** settings are only read fr
 | `OHS_PUBLIC_URL` | `http://localhost:8080` | Public base URL, used for OAuth callbacks, notification URLs and [share links](share-links.md). Use your https address |
 | `OHS_RAW_STORE` | `file:///var/lib/ohs/raw` | `file:///path` or `s3://bucket?endpoint=&region=&path_style=true&sse=` |
 | `OHS_ROLES` | `api,collect,etl` | Roles this process runs |
-| `OHS_BOOTSTRAP_TENANT` | none | Creates this tenant at first start and logs its API key once. It is an [instance admin](console.md#the-instance-admin) |
+| `OHS_BOOTSTRAP_TENANT` | none | Creates this tenant at first start and writes its API key once to `OHS_BOOTSTRAP_KEY_FILE` (the log shows only a redacted form and the path). It is an [instance admin](console.md#the-instance-admin) |
+| `OHS_BOOTSTRAP_KEY_FILE` | `bootstrap-api-key` next to the raw store directory | Where that key is written, mode 0600. A file that exists is never overwritten |
 | `OHS_LISTEN` | `:8080` | Listen address |
-| `OHS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON on stderr |
+| `OHS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON on stderr, one line per event, or a readable form on a terminal (`LOG_FORMAT=json` or `console` forces one) |
 | `OHS_CONSOLE` | `false` | `true` serves the [admin console](console.md) on `/console`, where you run the pipeline and turn providers on; `read-only` serves it without any action. It asks for a tenant API key and calls the API with it; off, the route is not mounted (404). The actions and `read-only` are 0.2.0 and later: 0.1.0 serves the read-only console |
 | `OHS_SETUP_TOKEN` | none | 16 characters or more (`openssl rand -hex 32`). Turns on the browser [first-run setup](setup.md): with `OHS_CONSOLE` on, `/console/setup` creates the first tenant and shows its API key once, for whoever types this token, while the instance has no tenant. Unset, `/v1/setup` is not mounted. 0.2.0 and later |
 | `OHS_SETUP_TOKEN_FILE` | none | Path of a file holding the setup token, used instead of `OHS_SETUP_TOKEN` (not both). Created with a random token (64 hex characters, mode 0600) when it does not exist. 0.2.0 and later |

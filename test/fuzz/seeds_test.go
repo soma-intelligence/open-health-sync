@@ -3,8 +3,6 @@
 package fuzz
 
 import (
-	"io"
-	"log/slog"
 	"os"
 	"sort"
 	"sync"
@@ -13,6 +11,7 @@ import (
 
 	_ "github.com/soma-intelligence/open-health-sync/connectors/all"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 	"github.com/soma-intelligence/open-health-sync/internal/synth"
 	sactivity "github.com/soma-intelligence/open-health-sync/internal/synth/activityfiles"
 	sapple "github.com/soma-intelligence/open-health-sync/internal/synth/applehealth"
@@ -33,7 +32,7 @@ import (
 
 func TestMain(m *testing.M) {
 	// Mappers log refused lines; a fuzz run would print millions of them.
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logtest.Discard()
 	os.Exit(m.Run())
 }
 

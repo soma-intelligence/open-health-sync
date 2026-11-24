@@ -90,12 +90,12 @@ func (s *server) createLabs(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "user")
 		return
 	} else if err != nil {
-		internalError(w, r, "api: labs: user", err)
+		internalError(w, r, "labs_user_failed", err)
 		return
 	}
 	part, err := labPart(p.TenantID, user, body, reports)
 	if err != nil {
-		internalError(w, r, "api: labs: part", err)
+		internalError(w, r, "labs_part_failed", err)
 		return
 	}
 	resp, err := collect.StorePart(r.Context(), collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: s.d.Labs,
@@ -112,7 +112,7 @@ func (s *server) createLabs(w http.ResponseWriter, r *http.Request) {
 			"this user's lab results are being deleted; nothing was kept, send them again once the deletion job is done")
 		return
 	case err != nil:
-		internalError(w, r, "api: labs: store", err)
+		internalError(w, r, "labs_store_failed", err)
 		return
 	}
 	tenant.SetIdempotencyUser(r.Context(), user)

@@ -55,10 +55,12 @@ The image has no shell, so a platform's interactive shell (Render Shell, `railwa
 nothing to open. Two ways in:
 
 - **`OHS_BOOTSTRAP_TENANT`.** Set it to a tenant name before the first start. ohs creates the
-  tenant and writes its API key once to the logs, as a `WARN` line
-  `bootstrap tenant created: store this API key now` with the key in `api_key`. Copy it from
-  the platform's log view. The key stays in the platform's log history: if that matters to you,
-  create a second key and revoke the first once you have admin access (below).
+  tenant and writes its API key once to a file with mode 0600: `OHS_BOOTSTRAP_KEY_FILE`, or
+  `bootstrap-api-key` next to the raw store directory. A `WARN` line,
+  `bootstrap_tenant_created_api_key_in_file`, gives the path and a redacted form of the key, never
+  the key itself. On a platform with no shell, set `OHS_BOOTSTRAP_KEY_FILE` to a path on a
+  volume you can read, or use `ohs admin` below. A file that already exists is never
+  overwritten: the start fails and names it.
 - **`ohs admin` commands.** On Fly.io, `fly ssh console -C` runs the binary directly:
 
   ```sh

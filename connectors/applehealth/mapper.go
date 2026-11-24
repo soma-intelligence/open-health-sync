@@ -3,7 +3,6 @@
 package applehealth
 
 import (
-	"log/slog"
 	"sync"
 
 	"github.com/soma-intelligence/open-health-sync/internal/model"
@@ -179,14 +178,13 @@ func (m *mapper) trackUnknown(typeID string) {
 		// must not grow it. Past the cap, unknown lines are only counted.
 		m.unknownOverflow++
 		if m.unknownOverflow == 1 {
-			slog.Warn("apple_health: unknown type tracking full, further new types are only counted",
-				"tracked", maxUnknownTypes)
+			modlog().Warn().Int("tracked", maxUnknownTypes).Msg("unknown_type_tracking_full")
 		}
 		return
 	}
 	m.unknownTypes[typeID]++
 	if m.unknownTypes[typeID] == 1 {
-		slog.Warn("apple_health: unknown type skipped", "type_id", typeID)
+		modlog().Warn().Str("type_id", typeID).Msg("unknown_type_skipped")
 	}
 }
 

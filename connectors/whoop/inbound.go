@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -182,7 +181,7 @@ func (c *Connector) HandleInbound(_ context.Context, r *http.Request) ([]connect
 	}
 	dt := EventToDataType(wh.Type)
 	if dt == "" {
-		slog.Info("whoop: webhook of an unknown type ignored", "provider", Slug, "event", truncate(wh.Type, 64))
+		modlog().Info().Str("event", truncate(wh.Type, 64)).Msg("webhook_unknown_type_ignored")
 		return nil, nil
 	}
 	return []connector.InboundEvent{{

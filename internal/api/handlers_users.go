@@ -103,7 +103,7 @@ func (s *server) createUser(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusConflict, "a user with this external_ref already exists")
 		return
 	case err != nil:
-		internalError(w, r, "api: create user", err)
+		internalError(w, r, "create_user_failed", err)
 		return
 	}
 	// A stored replay of this response names the user: it is deleted with them.
@@ -125,7 +125,7 @@ func (s *server) listUsers(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "the cursor is not valid")
 		return
 	case err != nil:
-		internalError(w, r, "api: list users", err)
+		internalError(w, r, "list_users_failed", err)
 		return
 	}
 	ids := make([]uuid.UUID, 0, len(users))
@@ -134,7 +134,7 @@ func (s *server) listUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	stored, err := s.storedByUser(r.Context(), p.TenantID, ids)
 	if err != nil {
-		internalError(w, r, "api: list users", err)
+		internalError(w, r, "list_users_failed", err)
 		return
 	}
 	out := make([]userListItemJSON, 0, len(users))
@@ -202,7 +202,7 @@ func (s *server) getUser(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "user")
 		return
 	case err != nil:
-		internalError(w, r, "api: get user", err)
+		internalError(w, r, "get_user_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toUserJSON(u))
@@ -245,7 +245,7 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "user")
 		return
 	case err != nil:
-		internalError(w, r, "api: update user", err)
+		internalError(w, r, "update_user_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toUserJSON(u))

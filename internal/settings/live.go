@@ -4,7 +4,6 @@ package settings
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"slices"
 	"sort"
@@ -13,7 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/config"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // ReloadEvery is how often Run reads the settings revision.
@@ -26,7 +28,7 @@ type RateLimits struct{ API, AuthFailures, Inbound, InboundProvider, OAuth confi
 // Snapshot and sees one consistent set.
 type Snapshot struct {
 	Revision                                                 int64
-	LogLevel                                                 slog.Level
+	LogLevel                                                 zerolog.Level
 	RetentionDays, AuditRetentionDays, TrackingRetentionDays int
 	ConsentRequired                                          bool
 	BackfillDays                                             int
@@ -54,9 +56,9 @@ var liveFields = map[string]func(Snapshot) any{
 
 // SnapshotOf takes the live settings of cfg, at revision.
 func SnapshotOf(cfg config.Config, revision int64) Snapshot {
-	level := slog.LevelInfo
-	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
-		level = slog.LevelInfo
+	level, err := config.ParseLogLevel(cfg.LogLevel)
+	if err != nil {
+		level = zerolog.InfoLevel
 	}
 	return Snapshot{
 		Revision:              revision,
@@ -183,7 +185,7 @@ func (l *Live) Reload(ctx context.Context) error {
 	subs := slices.Clone(l.subs)
 	l.mu.Unlock()
 	if changed := changedNames(old, snap); len(changed) > 0 {
-		slog.Info("settings: live settings changed", "revision", snap.Revision, "settings", strings.Join(changed, ","))
+		modlog().Info().Int64("revision", snap.Revision).Str("settings", strings.Join(changed, ",")).Msg("live_settings_changed")
 	}
 	for _, fn := range subs {
 		fn(snap)
@@ -208,7 +210,7 @@ func (l *Live) load(ctx context.Context) (snap Snapshot, skipped []string, moved
 		if r.OpenErr != nil {
 			if s, ok := config.LookupSetting(name); ok && s.Apply != config.ApplyBootstrap && !config.EnvSet(l.env, name) {
 				skipped = append(skipped, name)
-				slog.Warn("stored setting skipped", "setting", name, "error", openErrMessage)
+				modlog().Warn().Str("setting", name).Str("error", openErrMessage).Msg("stored_setting_skipped")
 			}
 			continue
 		}
@@ -220,11 +222,11 @@ func (l *Live) load(ctx context.Context) (snap Snapshot, skipped []string, moved
 	}
 	for _, inv := range invalid {
 		skipped = append(skipped, inv.Name)
-		slog.Warn("stored setting skipped", "setting", inv.Name, "error", inv.Message)
+		modlog().Warn().Str("setting", inv.Name).Str("error", inv.Message).Msg("stored_setting_skipped")
 	}
 	for _, n := range unknown {
 		skipped = append(skipped, n)
-		slog.Warn("stored setting unknown, ignored", "setting", n)
+		modlog().Warn().Str("setting", n).Msg("stored_setting_unknown_ignored")
 	}
 	sort.Strings(skipped)
 	return SnapshotOf(cfg, st.Revision), skipped, true, nil
@@ -256,14 +258,14 @@ func (l *Live) Run(ctx context.Context, every time.Duration) error {
 			return nil
 		case <-t.C:
 			if err := l.Reload(ctx); err != nil && ctx.Err() == nil {
-				slog.Warn("settings: reload failed, keeping the current settings", "error", err)
+				logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("settings_reload_failed")
 			}
 		}
 	}
 }
 
 // LogLevel is OHS_LOG_LEVEL.
-func (l *Live) LogLevel() slog.Level { return l.cur.Load().LogLevel }
+func (l *Live) LogLevel() zerolog.Level { return l.cur.Load().LogLevel }
 
 // RetentionDays is OHS_RETENTION_DAYS.
 func (l *Live) RetentionDays() int { return l.cur.Load().RetentionDays }

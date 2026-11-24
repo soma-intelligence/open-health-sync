@@ -47,7 +47,7 @@ func (s *server) listConsents(w http.ResponseWriter, r *http.Request) {
 	}
 	srcs, err := consent.List(r.Context(), s.d.Pool, p.TenantID, user)
 	if err != nil {
-		internalError(w, r, "api: list consents", err)
+		internalError(w, r, "list_consents_failed", err)
 		return
 	}
 	if srcs == nil {
@@ -75,7 +75,7 @@ func (s *server) consentHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	events, next, err := consent.History(r.Context(), s.d.Pool, p.TenantID, user, before, limit)
 	if err != nil {
-		internalError(w, r, "api: consent history", err)
+		internalError(w, r, "consent_history_failed", err)
 		return
 	}
 	cursor := ""
@@ -132,7 +132,7 @@ func (s *server) setConsent(w http.ResponseWriter, r *http.Request, req putConse
 	ctx := r.Context()
 	tx, err := s.d.Pool.Begin(ctx)
 	if err != nil {
-		internalError(w, r, "api: set consent", err)
+		internalError(w, r, "set_consent_failed", err)
 		return
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
@@ -145,12 +145,12 @@ func (s *server) setConsent(w http.ResponseWriter, r *http.Request, req putConse
 		return
 	}
 	if err != nil {
-		internalError(w, r, "api: set consent", err)
+		internalError(w, r, "set_consent_failed", err)
 		return
 	}
 	changes, err := consent.Set(ctx, tx, p.TenantID, user, provider, req.Granted, p.KeyID, req.Evidence)
 	if err != nil {
-		internalError(w, r, "api: set consent", err)
+		internalError(w, r, "set_consent_failed", err)
 		return
 	}
 	// A share link that holds records of a category the source no longer
@@ -162,7 +162,7 @@ func (s *server) setConsent(w http.ResponseWriter, r *http.Request, req putConse
 		}
 	}
 	if _, err := shl.RevokeSources(ctx, tx, p.TenantID, user, provider, refused); err != nil {
-		internalError(w, r, "api: set consent", err)
+		internalError(w, r, "set_consent_failed", err)
 		return
 	}
 	var granted, revoked []string
@@ -179,17 +179,17 @@ func (s *server) setConsent(w http.ResponseWriter, r *http.Request, req putConse
 		}
 		if _, err := webhook.Enqueue(ctx, tx, webhook.Event{Tenant: p.TenantID, User: &user, Type: typ,
 			Data: map[string]any{"provider": provider, "categories": cats}}); err != nil {
-			internalError(w, r, "api: set consent", err)
+			internalError(w, r, "set_consent_failed", err)
 			return
 		}
 	}
 	srcs, err := consent.List(ctx, tx, p.TenantID, user)
 	if err != nil {
-		internalError(w, r, "api: set consent", err)
+		internalError(w, r, "set_consent_failed", err)
 		return
 	}
 	if err := tx.Commit(ctx); err != nil {
-		internalError(w, r, "api: set consent", err)
+		internalError(w, r, "set_consent_failed", err)
 		return
 	}
 	i := slices.IndexFunc(srcs, func(src consent.Source) bool { return src.Provider == provider })
@@ -207,7 +207,7 @@ func (s *server) activeUser(w http.ResponseWriter, r *http.Request) (auth.Princi
 		if errors.Is(err, tenant.ErrNotFound) {
 			notFound(w, "user")
 		} else {
-			internalError(w, r, "api: look up user", err)
+			internalError(w, r, "look_up_user_failed", err)
 		}
 		return p, user, false
 	}

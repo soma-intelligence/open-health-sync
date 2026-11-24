@@ -66,7 +66,7 @@ func (s *server) getDeletion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		internalError(w, r, "api: get deletion job", err)
+		internalError(w, r, "get_deletion_job_failed", err)
 		return
 	}
 	j.CreatedAt = j.CreatedAt.UTC()

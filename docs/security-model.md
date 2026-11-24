@@ -413,8 +413,10 @@ A share link is a way out of the instance for one user's data, readable by whoev
   readers of a share link and anything a tenant already read keep what they hold.
 - **A share link's reader is not identified.** The name sent with a manifest request is what the
   reader typed. The link, and the passcode if any, are the only proof of anything.
-- **The bootstrap key is logged.** `OHS_BOOTSTRAP_TENANT` logs the new tenant's API key once, at
-  first start. Treat that log line as a secret, or create tenants with `ohs admin tenant create`.
+- **The bootstrap key is written to a file.** `OHS_BOOTSTRAP_TENANT` writes the new tenant's API
+  key once, at first start, to a file with mode 0600 (`OHS_BOOTSTRAP_KEY_FILE`, by default next to
+  the raw store). The log shows a redacted form and the path. Treat the file as a secret, or
+  create tenants with `ohs admin tenant create`.
 - **Transport security is external.** `ohs` serves plain HTTP; TLS terminates at a reverse
   proxy. The bundled compose file connects to Postgres with `sslmode=disable` on the compose
   network.

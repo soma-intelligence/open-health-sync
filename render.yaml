@@ -76,7 +76,7 @@ services:
       # your own domain. OAuth callbacks are built from it.
       - key: OHS_PUBLIC_URL
         sync: false
-      # Creates this tenant at first start and logs its API key once
+      # Creates this tenant at first start and writes its API key once to a file
       # (docs/deploy-platforms.md). Leave empty to create tenants later.
       - key: OHS_BOOTSTRAP_TENANT
         sync: false

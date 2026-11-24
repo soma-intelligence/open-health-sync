@@ -7,13 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Scopes requested at consent, as Oura's OpenAPI document names them
@@ -69,7 +71,7 @@ func (c *Connector) Exchange(ctx context.Context, code, redirect string) (connec
 		if ctx.Err() != nil {
 			return connector.Tokens{}, ctx.Err()
 		}
-		slog.Warn("oura: personal_info lookup failed, connecting without the Oura user id", "provider", Slug, "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("personal_info_lookup_failed")
 	}
 	t.ProviderUserID = info.ID
 	return t, nil

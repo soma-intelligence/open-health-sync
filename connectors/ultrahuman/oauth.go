@@ -8,13 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // Scopes requested at consent, as the Partnership API documents them:
@@ -72,7 +74,7 @@ func (c *Connector) Exchange(ctx context.Context, code, redirect string) (connec
 		if ctx.Err() != nil {
 			return connector.Tokens{}, ctx.Err()
 		}
-		slog.Warn("ultrahuman: user_info lookup failed, connecting without the Ultrahuman user id", "provider", Slug, "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("user_info_lookup_failed")
 	}
 	t.ProviderUserID = id
 	return t, nil

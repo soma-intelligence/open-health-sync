@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -18,9 +17,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
@@ -657,7 +659,7 @@ func (s *Store) LookupKey(ctx context.Context, hash string) (auth.Principal, err
 		if stale {
 			// Best effort, and at most once a minute per key.
 			if _, terr := s.pool.Exec(ctx, `UPDATE ohs_core.api_keys SET last_used_at = now() WHERE key_hash = $1`, hash); terr != nil {
-				slog.DebugContext(ctx, "tenant: touch api key", "error", terr)
+				logging.Ctx(ctx).Debug().Err(terr).Msg("api_key_touch_failed")
 			}
 		}
 		return auth.Principal{TenantID: tenantID, KeyID: keyID.String(), Admin: admin, KeyScopes: granted}, nil
@@ -869,7 +871,7 @@ func (s *Store) Idempotent(ctx context.Context, tenantID uuid.UUID, key, request
 		if _, derr := s.pool.Exec(settle,
 			`DELETE FROM ohs_core.idempotency_keys WHERE tenant_id = $1 AND key = $2 AND status_code = 0 AND request_hash = $3`,
 			tenantID, key, requestHash); derr != nil {
-			slog.ErrorContext(ctx, "tenant: release idempotency claim", "error", derr)
+			logutil.Err(*logging.Ctx(ctx), derr, zerolog.ErrorLevel).Msg("release_idempotency_claim_failed")
 		}
 	}
 

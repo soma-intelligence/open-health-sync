@@ -61,8 +61,9 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
   [self-hosting.md](self-hosting.md#rotating-secrets).
 - **Restrict who can read `.env`**: `chmod 600 .env`. Anyone who can run `docker inspect` on
   the container can read the key too.
-- **Prefer `ohs admin tenant create`** over `OHS_BOOTSTRAP_TENANT`, which logs the new API key
-  once. If you used it, treat that log line as a secret.
+- **Prefer `ohs admin tenant create`** over `OHS_BOOTSTRAP_TENANT`, which writes the new API key
+  once to a file (`OHS_BOOTSTRAP_KEY_FILE`, mode 0600). If you used it, treat that file as a
+  secret and delete it once the key is stored elsewhere.
 - **Revoke keys you no longer use**: `$DC exec ohs /ohs admin key list --tenant <id>`, then
   `$DC exec ohs /ohs admin key revoke --tenant <id> --key <prefix>`. A leaked user token is
   revoked the same way with `--key ohs_ut_...`.
@@ -129,9 +130,8 @@ DC="docker compose --env-file .env -f deploy/docker-compose.yml"
 ## Logs
 
 - **Keep `OHS_LOG_LEVEL=info`** (the default) in production. Logs are JSON on stderr.
-- **Ship logs to a store with access control and a retention limit.** They never hold tokens or
-  health values, and hold one key only: the `OHS_BOOTSTRAP_TENANT` key, logged once when that
-  tenant is created. They hold tenant and user ids.
+- **Ship logs to a store with access control and a retention limit.** They never hold tokens,
+  keys or health values. They hold tenant and user ids.
 - **Use the request id** to investigate: every response carries `X-Request-Id`, and the
   matching log lines carry `request_id`.
 

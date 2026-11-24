@@ -5,10 +5,11 @@ package automation
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 )
 
 const (
@@ -75,7 +76,7 @@ func (p *TrackingPruner) Run(ctx context.Context) (TrackingPruneResult, error) {
 		m.TrackingRowsPruned.Add(res.SyncLog + res.Jobs)
 	}
 	if res.SyncLog+res.Jobs > 0 {
-		slog.InfoContext(ctx, "tracking rows pruned", "sync_log", res.SyncLog, "etl_jobs", res.Jobs, "older_than", cutoff)
+		logging.Ctx(ctx).Info().Int64("sync_log", res.SyncLog).Int64("etl_jobs", res.Jobs).Time("older_than", cutoff).Msg("tracking_rows_pruned")
 	}
 	return res, nil
 }

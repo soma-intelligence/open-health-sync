@@ -2,7 +2,8 @@
 
 // Package reqid carries the request id of an API call: the X-Request-Id
 // header of the response, the request_id member of a problem body and the
-// request_id attribute of every log line written with the request context.
+// request_id field of every log line written with the request context (the API puts it on the
+// logger of the context, see logging.WithRequestID).
 // An operator finds the logs of a failed call from the id its client saw.
 package reqid
 
@@ -10,7 +11,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"log/slog"
 )
 
 // Header is the request and response header.
@@ -57,20 +57,3 @@ func Sanitize(in string) string {
 func idByte(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.'
 }
-
-// Handler wraps h so that a record logged with a context carrying an id gets
-// a request_id attribute.
-func Handler(h slog.Handler) slog.Handler { return handler{h} }
-
-type handler struct{ slog.Handler }
-
-func (h handler) Handle(ctx context.Context, r slog.Record) error {
-	if id := From(ctx); id != "" {
-		r = r.Clone()
-		r.AddAttrs(slog.String("request_id", id))
-	}
-	return h.Handler.Handle(ctx, r)
-}
-
-func (h handler) WithAttrs(as []slog.Attr) slog.Handler { return handler{h.Handler.WithAttrs(as)} }
-func (h handler) WithGroup(name string) slog.Handler    { return handler{h.Handler.WithGroup(name)} }

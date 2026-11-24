@@ -8,15 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 )
 
@@ -99,7 +101,7 @@ func (h *Handlers) InboundProbe() http.Handler {
 		}
 		if refused != nil {
 			// Anyone can probe here: DEBUG, like a refused notification.
-			slog.DebugContext(r.Context(), "collect: inbound challenge refused", "provider", r.PathValue("provider"), "error", safeErr(refused))
+			logging.Ctx(r.Context()).Debug().Str("provider", r.PathValue("provider")).Str("error", safeErr(refused)).Msg("inbound_challenge_refused")
 			auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "the challenge could not be verified")
 			return
 		}
@@ -172,19 +174,19 @@ func (h *Handlers) Inbound() http.Handler {
 				}
 			}
 			if err := h.storeInbound(ctx, provider, t, stores); err != nil {
-				slog.ErrorContext(ctx, "collect: inbound store", "provider", provider, "error", err)
+				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("inbound_store_failed")
 				writeInternal(w)
 				return
 			}
 			if err := h.enqueueInbound(ctx, provider, t, pulls); err != nil {
-				slog.ErrorContext(ctx, "collect: inbound enqueue", "provider", provider, "error", err)
+				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("inbound_enqueue_failed")
 				writeInternal(w)
 				return
 			}
 		}
 		if !verified {
 			// Anyone can post here: DEBUG, so junk traffic cannot flood the log.
-			slog.DebugContext(ctx, "collect: inbound refused", "provider", provider, "error", safeErr(lastErr))
+			logging.Ctx(ctx).Debug().Str("provider", provider).Str("error", safeErr(lastErr)).Msg("inbound_refused")
 			auth.WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "the notification could not be verified")
 			return
 		}

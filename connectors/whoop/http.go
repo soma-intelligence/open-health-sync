@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -16,7 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // maxResponseBytes caps one WHOOP answer. Its size is provider controlled,
@@ -145,7 +147,7 @@ func (c *Connector) send(ctx context.Context, method, token, path string, q url.
 		if attempt == maxAttempts {
 			return nil, retry
 		}
-		slog.Warn("whoop: request failed, retrying", "provider", Slug, "attempt", attempt, "error", retry)
+		logutil.Err(*modlog(), retry, zerolog.WarnLevel).Int("attempt", attempt).Msg("request_failed_retrying")
 		if err := c.sleep(ctx, jitter(backoff)); err != nil {
 			return nil, err
 		}

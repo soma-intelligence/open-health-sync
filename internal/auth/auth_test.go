@@ -3,12 +3,10 @@
 package auth
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -17,7 +15,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 )
 
 func TestNewSecretFormat(t *testing.T) {
@@ -161,10 +162,7 @@ func TestWriteProblem(t *testing.T) {
 }
 
 func TestMiddlewareLogsLookupErrorWithoutSecrets(t *testing.T) {
-	var buf bytes.Buffer
-	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	defer slog.SetDefault(old)
+	buf := logtest.Capture(t, zerolog.DebugLevel)
 
 	key, _, _ := NewSecret("ohs_sk_")
 	boom := func(context.Context, string) (Principal, error) { return Principal{}, errors.New("db down") }

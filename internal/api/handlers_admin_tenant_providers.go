@@ -85,7 +85,7 @@ func (s *server) listAdminTenantProviders(w http.ResponseWriter, r *http.Request
 	}
 	saved, err := s.d.TenantProviders.Tenant(r.Context(), t.ID)
 	if err != nil {
-		internalError(w, r, "api: tenant providers", err)
+		internalError(w, r, "tenant_providers_failed", err)
 		return
 	}
 	own := s.d.TenantKeys.Tenant(t.ID)
@@ -130,7 +130,7 @@ func (s *server) updateAdminTenantProvider(w http.ResponseWriter, r *http.Reques
 		notFound(w, "tenant")
 		return
 	case err != nil:
-		internalError(w, r, "api: tenant provider", err)
+		internalError(w, r, "tenant_provider_failed", err)
 		return
 	}
 	keys, hasOwn := s.d.TenantKeys.Tenant(t.ID)[slug]

@@ -5,7 +5,6 @@ package api
 import (
 	"crypto/subtle"
 	"errors"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/consolesession"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 )
 
 // sessionExempt are the patterns a read only session may call with a write
@@ -61,7 +61,7 @@ func (s *server) sessionAuth(r *http.Request, token string) (auth.Principal, err
 	if l := s.apiLimit.current(); l.perAddr.on() {
 		if ok, wait, _ := l.allow(limitKey(p), ""); !ok {
 			s.metrics.rateLimited[groupAPI].Add(1)
-			slog.DebugContext(r.Context(), "api: rate limited", "route_group", groupAPI)
+			logging.Ctx(r.Context()).Debug().Str("route_group", groupAPI).Msg("rate_limited")
 			return auth.Principal{}, &auth.LimitedError{RetryAfter: wait}
 		}
 	}

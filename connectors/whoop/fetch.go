@@ -8,13 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // bodyFreshness is how close to now a window must end for Fetch to read the
@@ -79,7 +81,7 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 	var failed []error
 	for _, dt := range types {
 		if !granted(conn.Tokens.Scopes, scopeOf[dt]) {
-			slog.Warn("whoop: data type skipped, its scope was not granted", "provider", Slug, "data_type", dt, "scope", scopeOf[dt])
+			modlog().Warn().Str("data_type", dt).Str("scope", scopeOf[dt]).Msg("data_type_skipped_scope_not_granted")
 			continue
 		}
 		var err error
@@ -102,9 +104,9 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 		case fatal(err):
 			return fmt.Errorf("whoop: fetch %s: %w", dt, err)
 		case errors.Is(err, errForbidden):
-			slog.Warn("whoop: data type skipped, WHOOP refused access (HTTP 403)", "provider", Slug, "data_type", dt, "scope", scopeOf[dt])
+			modlog().Warn().Str("data_type", dt).Str("scope", scopeOf[dt]).Msg("data_type_refused_http_403")
 		default:
-			slog.Warn("whoop: data type failed, pulling the others", "provider", Slug, "data_type", dt, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Str("data_type", dt).Msg("data_type_failed")
 			failed = append(failed, fmt.Errorf("whoop: fetch %s: %w", dt, err))
 		}
 	}
@@ -177,7 +179,7 @@ func (f *fetch) collection(ctx context.Context, dataType, path string, from, to 
 				return err
 			}
 			if len(line) == 0 || line[0] != '{' {
-				slog.Warn("whoop: record that is not a JSON object skipped", "provider", Slug, "endpoint", path)
+				modlog().Warn().Str("endpoint", path).Msg("record_not_object_skipped")
 				continue
 			}
 			if id := recordKey(line); id != "" {
@@ -203,18 +205,17 @@ func (f *fetch) collection(ctx context.Context, dataType, path string, from, to 
 			return nil
 		}
 		if len(page.Records) == 0 {
-			slog.Warn("whoop: empty page with a next token, stopping", "provider", Slug, "endpoint", path)
+			modlog().Warn().Str("endpoint", path).Msg("empty_page_with_next_token")
 			return nil
 		}
 		if followed[page.NextToken] {
-			slog.Warn("whoop: next token repeats, stopping", "provider", Slug, "endpoint", path)
+			modlog().Warn().Str("endpoint", path).Msg("next_token_repeated")
 			return nil
 		}
 		followed[page.NextToken] = true
 		next = page.NextToken
 	}
-	slog.Warn("whoop: pagination truncated at max pages, more data available",
-		"provider", Slug, "endpoint", path, "pages", maxPagesPerFetch)
+	modlog().Warn().Str("endpoint", path).Int("pages", maxPagesPerFetch).Msg("pagination_truncated")
 	return nil
 }
 
@@ -272,7 +273,7 @@ func (f *fetch) addCycle(ctx context.Context, line []byte) ([]byte, error) {
 		case err != nil && fatal(err):
 			return nil, err
 		case err != nil:
-			slog.Warn("whoop: cycle of a recovery could not be read, keeping the recovery without it", "provider", Slug, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("recovery_cycle_unreadable")
 			return line, nil
 		case cy.Start == "":
 			return line, nil

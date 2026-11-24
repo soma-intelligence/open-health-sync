@@ -7,15 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/pgtext"
 	"github.com/soma-intelligence/open-health-sync/internal/tenant"
 	"github.com/soma-intelligence/open-health-sync/internal/timetag"
@@ -281,14 +283,14 @@ func add[In any](s *sdk.Server, name, desc string, fn func(context.Context, In) 
 			if err != nil {
 				var te toolError
 				if !errors.As(err, &te) {
-					slog.ErrorContext(ctx, "mcp: tool failed", "tool", name, "error", err)
+					logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tool", name).Msg("tool_failed")
 					err = toolError("internal error, try again later")
 				}
 				return nil, nil, err
 			}
 			raw, err := json.Marshal(out)
 			if err != nil {
-				slog.ErrorContext(ctx, "mcp: encode result", "tool", name, "error", err)
+				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tool", name).Msg("encode_result_failed")
 				return nil, nil, toolError("internal error, try again later")
 			}
 			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: string(raw)}}}, nil, nil

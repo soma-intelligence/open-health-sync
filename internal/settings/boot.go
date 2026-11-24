@@ -5,7 +5,6 @@ package settings
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
@@ -61,10 +60,10 @@ func Boot(ctx context.Context, envCfg config.Config, env func(string) (string, b
 	}
 	invalid = append(invalid, sealedInvalid...)
 	for _, inv := range invalid {
-		slog.Warn("stored setting skipped", "setting", inv.Name, "error", inv.Message)
+		modlog().Warn().Str("setting", inv.Name).Str("error", inv.Message).Msg("stored_setting_skipped")
 	}
 	for _, n := range unknown {
-		slog.Warn("stored setting unknown, ignored", "setting", n)
+		modlog().Warn().Str("setting", n).Msg("stored_setting_unknown_ignored")
 	}
 	return cfg, Start{Revision: st.Revision, Invalid: invalid, Unknown: unknown}, nil
 }

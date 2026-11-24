@@ -7,17 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/consent"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
@@ -107,7 +109,7 @@ func runConsentPurge(ctx context.Context, p *consent.Purger, loop *ops.Loop) err
 		did, err := p.Once(ctx)
 		done()
 		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "consent: purge failed", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("purge_failed")
 		}
 		if did && err == nil {
 			continue
@@ -135,7 +137,7 @@ func sampleQueues(ctx context.Context, pool *pgxpool.Pool, roles map[string]bool
 		err := sampleQueuesOnce(sctx, pool, roles, m)
 		cancel()
 		if err != nil && ctx.Err() == nil {
-			slog.WarnContext(ctx, "ops: queue backlog not sampled", "error", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.WarnLevel).Msg("queue_backlog_not_sampled")
 		}
 		select {
 		case <-ctx.Done():
@@ -186,18 +188,18 @@ func stalledLoops(loops *ops.Registry) func() []string {
 // without the api role, the process starts without the listener and says so:
 // two workers on one host must not stop each other at an upgrade.
 func serveOps(ctx context.Context, cfg config.Config, d api.OpsDeps, grace time.Duration,
-	logger *slog.Logger, goRole func(string, func() error)) error {
+	logger zerolog.Logger, goRole func(string, func() error)) error {
 	ln, err := net.Listen("tcp", cfg.OpsListen)
 	if err != nil {
 		if cfg.OpsListenDefault {
-			slog.Warn("ops: the default address is taken, this process serves no /healthz, /readyz or /metrics: "+
-				"set OHS_OPS_LISTEN to an address of its own, or to off", "addr", cfg.OpsListen, "error", err)
+			logutil.Err(*modlog(), err, zerolog.WarnLevel).Str("addr", cfg.OpsListen).Str("setting", "OHS_OPS_LISTEN").
+				Str("effect", "this process serves no /healthz, /readyz or /metrics").Msg("ops_default_address_taken")
 			return nil
 		}
 		return fmt.Errorf("ops: %w (OHS_OPS_LISTEN)", err)
 	}
 	srv := newHTTPServer(cfg.OpsListen, api.NewOpsHandler(d), logger)
-	slog.Info("ops listening", "addr", ln.Addr().String())
+	modlog().Info().Str("addr", ln.Addr().String()).Msg("ops_listening")
 	goRole("ops", func() error {
 		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 			return err

@@ -7,13 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // identityPath is users.getIdentity for the token's user.
@@ -102,7 +104,7 @@ func (c *Connector) Exchange(ctx context.Context, code, redirect string) (connec
 	case ctx.Err() != nil:
 		return connector.Tokens{}, ctx.Err()
 	default:
-		slog.Warn("fitbit: identity lookup failed, connecting without the Google Health user id", "provider", Slug, "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("identity_lookup_failed")
 	}
 	return t, nil
 }
@@ -254,7 +256,7 @@ func (c *Connector) revokeQuietly(ctx context.Context, t connector.Tokens) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	if err := c.Revoke(rctx, t); err != nil {
-		slog.Warn("fitbit: revoking a refused grant failed", "provider", Slug, "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("revoking_refused_grant_failed")
 	}
 }
 

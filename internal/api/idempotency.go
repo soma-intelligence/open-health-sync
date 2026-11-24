@@ -169,7 +169,7 @@ func (s *server) idempotent(next http.Handler) http.Handler {
 		case errors.Is(err, tenant.ErrIdempotencyInProgress):
 			problem(w, http.StatusConflict, "a request with this Idempotency-Key is still in progress")
 		case err != nil:
-			internalError(w, r, "api: idempotency", err)
+			internalError(w, r, "idempotency_failed", err)
 		case ran != nil:
 			ran.sendTo(w)
 		default:

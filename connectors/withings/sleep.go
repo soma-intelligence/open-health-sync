@@ -4,7 +4,6 @@ package withings
 
 import (
 	"fmt"
-	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -132,5 +131,5 @@ func noteDroppedSleepStates(n int) {
 		return
 	}
 	total := droppedSleepStates.Add(int64(n))
-	slog.Warn("withings: sleep segments of an unknown state dropped", "provider", Slug, "dropped", n, "total", total)
+	modlog().Warn().Int("dropped", n).Int64("total", total).Msg("sleep_segments_unknown_state_dropped")
 }

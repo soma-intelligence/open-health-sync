@@ -225,7 +225,7 @@ func providerErr(w http.ResponseWriter, r *http.Request, err error) bool {
 	case errors.As(err, &refused):
 		problem(w, http.StatusUnprocessableEntity, refused.Msg)
 	default:
-		internalError(w, r, "api: provider settings", err)
+		internalError(w, r, "provider_settings_failed", err)
 	}
 	return false
 }

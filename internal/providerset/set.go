@@ -12,7 +12,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -22,8 +21,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/rs/zerolog"
+
 	"github.com/soma-intelligence/open-health-sync/internal/config"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // ReloadEvery is how often Run reads the settings again.
@@ -155,13 +157,13 @@ func New(ctx context.Context, o Options) (*Set, error) {
 	if s.store != nil {
 		rows, err := s.load(ctx)
 		if err != nil {
-			slog.Error("providers: the settings saved in the console cannot be read, running on the environment only",
-				"error", err)
+			logutil.Err(*modlog(), err, zerolog.ErrorLevel).
+				Str("effect", "running on the environment only").Msg("provider_settings_unreadable")
 		} else {
 			s.apply(rows)
 		}
 	}
-	slog.Info("providers enabled", "providers", strings.Join(s.cur.Load().slugs, ","))
+	modlog().Info().Str("providers", strings.Join(s.cur.Load().slugs, ",")).Msg("providers_enabled")
 	return s, nil
 }
 
@@ -178,8 +180,7 @@ func warnPartial(all []connector.Connector, env map[string]config.ProviderKeys) 
 			for i, f := range missing {
 				missing[i] = EnvName(c.Slug(), f)
 			}
-			slog.Warn("provider partially configured, left disabled", "provider", c.Slug(),
-				"missing", strings.Join(missing, ","))
+			modlog().Warn().Str("provider", c.Slug()).Str("missing", strings.Join(missing, ",")).Msg("provider_partially_configured")
 		}
 	}
 }
@@ -245,7 +246,7 @@ func (s *Set) Run(ctx context.Context, every time.Duration) error {
 			return nil
 		case <-t.C:
 			if err := s.Reload(ctx); err != nil && ctx.Err() == nil {
-				slog.Warn("providers: reload failed, keeping the current set", "error", err)
+				logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("provider_reload_failed")
 			}
 		}
 	}
@@ -415,7 +416,7 @@ func (s *Set) apply(rows map[string]row) {
 		snap.states = append(snap.states, st)
 	}
 	if old := s.cur.Load(); old != nil && !slices.Equal(old.slugs, snap.slugs) {
-		slog.Info("providers enabled", "providers", strings.Join(snap.slugs, ","))
+		modlog().Info().Str("providers", strings.Join(snap.slugs, ",")).Msg("providers_enabled")
 	}
 	s.cur.Store(snap)
 }

@@ -123,7 +123,7 @@ func (s *server) createTag(w http.ResponseWriter, r *http.Request) {
 		f.EndAt = &end
 	}
 	t, err := timetag.Create(r.Context(), s.d.Pool, p.TenantID, user, f)
-	if !tagErr(w, r, err, "api: create tag") {
+	if !tagErr(w, r, err, "create_tag_failed") {
 		return
 	}
 	tenant.SetIdempotencyUser(r.Context(), user)
@@ -152,7 +152,7 @@ func (s *server) listTags(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	pg, err := timetag.List(r.Context(), s.d.Pool, p.TenantID, user, q)
-	if !tagErr(w, r, err, "api: list tags") {
+	if !tagErr(w, r, err, "list_tags_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, newPage(pg.Records, pg.NextCursor))
@@ -164,7 +164,7 @@ func (s *server) getTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := timetag.Get(r.Context(), s.d.Pool, p.TenantID, user, id)
-	if !tagErr(w, r, err, "api: get tag") {
+	if !tagErr(w, r, err, "get_tag_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -191,7 +191,7 @@ func (s *server) updateTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := timetag.Update(r.Context(), s.d.Pool, p.TenantID, user, id, patch)
-	if !tagErr(w, r, err, "api: update tag") {
+	if !tagErr(w, r, err, "update_tag_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -202,7 +202,7 @@ func (s *server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !tagErr(w, r, timetag.Delete(r.Context(), s.d.Pool, p.TenantID, user, id), "api: delete tag") {
+	if !tagErr(w, r, timetag.Delete(r.Context(), s.d.Pool, p.TenantID, user, id), "delete_tag_failed") {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -210,7 +210,7 @@ func (s *server) deleteTag(w http.ResponseWriter, r *http.Request) {
 
 // tagErr writes the problem for err and returns false; it returns true when
 // err is nil. A refusal names the field, never the value sent.
-func tagErr(w http.ResponseWriter, r *http.Request, err error, msg string) bool {
+func tagErr(w http.ResponseWriter, r *http.Request, err error, event string) bool {
 	var ie *timetag.InvalidError
 	switch {
 	case err == nil:
@@ -224,7 +224,7 @@ func tagErr(w http.ResponseWriter, r *http.Request, err error, msg string) bool 
 	case errors.Is(err, timetag.ErrNotFound):
 		notFound(w, "tag")
 	default:
-		internalError(w, r, msg, err)
+		internalError(w, r, event, err)
 	}
 	return false
 }

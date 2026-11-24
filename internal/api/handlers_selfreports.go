@@ -88,13 +88,13 @@ func (s *server) createSelfReports(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "user")
 		return
 	} else if err != nil {
-		internalError(w, r, "api: self reports: user", err)
+		internalError(w, r, "self_reports_user_failed", err)
 		return
 	}
 
 	part, err := selfReportPart(p.TenantID, user, reports)
 	if err != nil {
-		internalError(w, r, "api: self reports: part", err)
+		internalError(w, r, "self_reports_part_failed", err)
 		return
 	}
 	resp, err := collect.StorePart(r.Context(), collect.UploadDeps{Pool: s.d.Pool, Raw: s.d.Raw, Device: s.d.SelfReport,
@@ -111,7 +111,7 @@ func (s *server) createSelfReports(w http.ResponseWriter, r *http.Request) {
 			"this user's self reports are being deleted; nothing was kept, send them again once the deletion job is done")
 		return
 	case err != nil:
-		internalError(w, r, "api: self reports: store", err)
+		internalError(w, r, "self_reports_store_failed", err)
 		return
 	}
 	tenant.SetIdempotencyUser(r.Context(), user)

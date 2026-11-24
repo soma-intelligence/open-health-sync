@@ -3,12 +3,15 @@
 package app
 
 import (
-	"log/slog"
 	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/rs/zerolog"
+
+	"github.com/soma-intelligence/open-health-sync/internal/logbridge"
 )
 
 // requestReadTimeout bounds reading one request, its body included, on the
@@ -23,14 +26,14 @@ var requestReadTimeout = 2 * time.Minute
 
 // newHTTPServer is the API's and the metrics' server: header and request
 // read timeouts, an idle timeout, and errors in the process log.
-func newHTTPServer(addr string, h http.Handler, logger *slog.Logger) *http.Server {
+func newHTTPServer(addr string, h http.Handler, logger zerolog.Logger) *http.Server {
 	return &http.Server{
 		Addr:              addr,
 		Handler:           h,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       requestReadTimeout,
 		IdleTimeout:       idleTimeout,
-		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+		ErrorLog:          logbridge.New(logger, zerolog.WarnLevel, "http_server_error"),
 	}
 }
 
@@ -72,8 +75,7 @@ func (l *capListener) Accept() (net.Conn, error) {
 		n := l.refused.Add(1)
 		now := time.Now().Unix()
 		if last := l.lastLog.Load(); now-last >= 60 && l.lastLog.CompareAndSwap(last, now) {
-			slog.Warn("api: connection refused, OHS_MAX_CONNECTIONS reached",
-				"max_connections", cap(l.slots), "refused_total", n)
+			modlog().Warn().Str("setting", "OHS_MAX_CONNECTIONS").Int("max_connections", cap(l.slots)).Int64("refused_total", n).Msg("connection_refused_max_connections")
 		}
 	}
 }

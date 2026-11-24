@@ -122,7 +122,7 @@ func (s *server) signInConsole(w http.ResponseWriter, r *http.Request) {
 		auth.WriteTooManyRequests(w, limited.RetryAfter)
 		return
 	case err != nil:
-		internalError(w, r, "api: console sign in lookup", err)
+		internalError(w, r, "console_sign_lookup_failed", err)
 		return
 	}
 	if !p.Can(auth.ScopeTenantRead) {
@@ -131,7 +131,7 @@ func (s *server) signInConsole(w http.ResponseWriter, r *http.Request) {
 	}
 	keyID, err := uuid.Parse(p.KeyID)
 	if err != nil {
-		internalError(w, r, "api: console sign in key id", err)
+		internalError(w, r, "console_sign_key_id_failed", err)
 		return
 	}
 	token, csrf, sess, err := s.sessions.Create(r.Context(), p.TenantID, keyID, s.d.ConsoleReadOnly)
@@ -141,7 +141,7 @@ func (s *server) signInConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		internalError(w, r, "api: create console session", err)
+		internalError(w, r, "create_console_session_failed", err)
 		return
 	}
 	setSessionCookie(w, token, cookieSecure(r, s.d.PublicURL, s.d.TrustedProxies))
@@ -178,7 +178,7 @@ func (s *server) getConsoleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		internalError(w, r, "api: rotate console csrf", err)
+		internalError(w, r, "rotate_console_csrf_failed", err)
 		return
 	}
 	sess, ok := s.cookieSession(w, r)
@@ -201,7 +201,7 @@ func (s *server) cookieSession(w http.ResponseWriter, r *http.Request) (consoles
 		return consolesession.Session{}, false
 	}
 	if err != nil {
-		internalError(w, r, "api: read console session", err)
+		internalError(w, r, "read_console_session_failed", err)
 		return consolesession.Session{}, false
 	}
 	return sess, true
@@ -214,7 +214,7 @@ func (s *server) signOutConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.sessions.Delete(r.Context(), p.SessionID); err != nil {
-		internalError(w, r, "api: delete console session", err)
+		internalError(w, r, "delete_console_session_failed", err)
 		return
 	}
 	setSessionCookie(w, "", cookieSecure(r, s.d.PublicURL, s.d.TrustedProxies))
@@ -239,7 +239,7 @@ func (s *server) switchConsoleTenant(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "tenant")
 		return
 	} else if err != nil {
-		internalError(w, r, "api: switch console tenant", err)
+		internalError(w, r, "switch_console_tenant_failed", err)
 		return
 	}
 	from := p.TenantID
@@ -252,7 +252,7 @@ func (s *server) switchConsoleTenant(w http.ResponseWriter, r *http.Request) {
 		auth.WriteProblem(w, http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized), errNeedsSession)
 		return
 	case err != nil:
-		internalError(w, r, "api: switch console tenant", err)
+		internalError(w, r, "switch_console_tenant_failed", err)
 		return
 	}
 	at := p.Actor()

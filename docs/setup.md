@@ -1,8 +1,8 @@
 # First-run setup in the browser
 
 A fresh instance has no tenant, so no API key exists yet. The usual way to get the first one is a
-terminal: `ohs admin tenant create`, or `OHS_BOOTSTRAP_TENANT`, which prints the key once in the
-logs. Where there is no terminal and no log viewer, as with Umbrel, CasaOS and similar app
+terminal: `ohs admin tenant create`, or `OHS_BOOTSTRAP_TENANT`, which writes the key once to a
+file. Where there is no terminal and no log viewer, as with Umbrel, CasaOS and similar app
 stores, the first-run setup does it from a browser instead: open `/console/setup`, type the
 setup token, and the page creates the first tenant and shows its API key once.
 

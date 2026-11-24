@@ -8,13 +8,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
@@ -144,8 +146,7 @@ func storeRaw(ctx context.Context, d Deps, t rawTarget, lines [][]byte) (bool, e
 		// removed again, or it could outlive the deletion's own raw sweep.
 		// Either way nothing more is pulled.
 		if derr := d.Raw.DeletePrefix(context.WithoutCancel(ctx), key); derr != nil {
-			slog.WarnContext(ctx, "collect: could not remove the file of a refused write",
-				"tenant_id", t.tenant, "user_id", t.user, "provider", t.provider, "error", derr)
+			logutil.Err(*logging.Ctx(ctx), derr, zerolog.WarnLevel).Stringer("tenant_id", t.tenant).Stringer("user_id", t.user).Str("provider", t.provider).Msg("refused_write_file_not_removed")
 		}
 		return false, errInactive
 	}

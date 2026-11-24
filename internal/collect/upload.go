@@ -12,17 +12,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
@@ -203,8 +205,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		slog.ErrorContext(r.Context(), "collect: upload failed",
-			"tenant_id", req.tenant, "user_id", req.user, "provider", h.provider, "error", err)
+		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", req.tenant).Stringer("user_id", req.user).Str("provider", h.provider).Msg("upload_failed")
 		if db.Unavailable(err) {
 			// The raw store's network or the database's: say neither.
 			auth.WriteUnavailable(w, "storage is unavailable; retry in a few seconds")
@@ -435,8 +436,7 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 		// between the check and the registration: the file just written is
 		// removed again.
 		if derr := h.d.Raw.DeletePrefix(context.WithoutCancel(ctx), key); derr != nil {
-			slog.WarnContext(ctx, "collect: could not remove the file of a refused part",
-				"tenant_id", q.tenant, "user_id", q.user, "error", derr)
+			logutil.Err(*logging.Ctx(ctx), derr, zerolog.WarnLevel).Stringer("tenant_id", q.tenant).Stringer("user_id", q.user).Msg("refused_part_file_not_removed")
 		}
 		return UploadResponse{}, 0, err
 	}
@@ -456,8 +456,7 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 		}
 		return resp, status, nil
 	}
-	slog.InfoContext(ctx, "collect: part stored",
-		"tenant_id", q.tenant, "user_id", q.user, "provider", h.provider, "key", key, "bytes", len(body))
+	logging.Ctx(ctx).Info().Stringer("tenant_id", q.tenant).Stringer("user_id", q.user).Str("provider", h.provider).Str("key", key).Int("bytes", len(body)).Msg("part_stored")
 	return UploadResponse{Key: key}, http.StatusOK, nil
 }
 

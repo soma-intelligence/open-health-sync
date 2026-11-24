@@ -4,7 +4,6 @@ package oura
 
 import (
 	"fmt"
-	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -250,5 +249,5 @@ func noteDroppedHypnogramSteps(n int) {
 		return
 	}
 	total := droppedHypnogramSteps.Add(int64(n))
-	slog.Warn("oura: hypnogram steps of an unknown stage dropped", "provider", Slug, "dropped", n, "total", total)
+	modlog().Warn().Int("dropped", n).Int64("total", total).Msg("hypnogram_steps_unknown_stage_dropped")
 }

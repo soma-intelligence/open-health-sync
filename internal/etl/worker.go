@@ -5,16 +5,19 @@ package etl
 import (
 	"context"
 	"errors"
-	"log/slog"
+	"fmt"
 	"math/rand/v2"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/queue"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
@@ -141,7 +144,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 		jobs, err := w.q.Claim(ctx, w.tier, n)
 		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "claim etl jobs", "tier", w.tier, "err", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tier", w.tier).Msg("claim_etl_jobs_failed")
 		}
 		for range n - len(jobs) {
 			<-slots
@@ -189,7 +192,7 @@ func (w *Worker) drain(wg *sync.WaitGroup, cancelJobs context.CancelFunc) {
 		return
 	case <-t.C:
 	}
-	slog.Warn("etl shutdown grace over, cancelling jobs in flight", "tier", w.tier, "grace", w.grace)
+	modlog().Warn().Str("tier", w.tier).Int64("grace_ms", (w.grace).Milliseconds()).Msg("etl_shutdown_grace_over")
 	cancelJobs()
 	<-done
 }
@@ -217,17 +220,19 @@ func (w *Worker) idle(ctx context.Context) bool {
 // another worker owns the job now: the result is dropped. With tracing on,
 // the job is a span carrying what its log lines carry, and its outcome.
 func (w *Worker) handle(ctx context.Context, job queue.ETLJob) {
-	log := slog.With("job_id", job.ID, "tier", job.Tier, "provider", job.Provider, "attempts", job.Attempts)
 	ctx, span := tracing.Tracer().Start(ctx, "etl job", trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
 			attribute.Int64(tracing.AttrJobID, job.ID),
 			attribute.String(tracing.AttrTier, job.Tier),
 			attribute.String(tracing.AttrProvider, job.Provider),
 			attribute.Int(tracing.AttrAttempts, job.Attempts)))
+	ctx = tracing.LogContext(ctx)
+	log := logging.Ctx(ctx).With().Int64("job_id", job.ID).Str("tier", job.Tier).Str("provider", job.Provider).
+		Int("attempts", job.Attempts).Logger()
 	outcome := ""
 	defer func() {
 		if r := recover(); r != nil {
-			log.ErrorContext(ctx, "etl job panicked", "panic", r)
+			log.Error().Str("panic", fmt.Sprint(r)).Msg("etl_job_panicked")
 			outcome = w.settle(ctx, log, job, errors.New("etl job panicked"))
 		}
 		span.SetAttributes(attribute.String(tracing.AttrOutcome, outcome))
@@ -250,22 +255,22 @@ func (w *Worker) handle(ctx context.Context, job queue.ETLJob) {
 
 // settle records the outcome on the job and returns it: completed, failed,
 // claim_lost or settle_error.
-func (w *Worker) settle(ctx context.Context, log *slog.Logger, job queue.ETLJob, cause error) string {
+func (w *Worker) settle(ctx context.Context, log zerolog.Logger, job queue.ETLJob, cause error) string {
 	var err error
 	outcome := "completed"
 	if cause == nil {
 		err = w.q.Complete(ctx, job)
 	} else {
 		outcome = "failed"
-		log.WarnContext(ctx, "etl job failed", "err", cause)
+		logutil.Err(log, cause, zerolog.WarnLevel).Msg("etl_job_failed")
 		err = w.q.Fail(ctx, job, cause)
 	}
 	switch {
 	case errors.Is(err, queue.ErrNotRunning):
-		log.InfoContext(ctx, "etl job claim lost, result dropped")
+		log.Info().Msg("etl_job_claim_lost_result_dropped")
 		return "claim_lost"
 	case err != nil:
-		log.ErrorContext(ctx, "settle etl job", "err", err)
+		logutil.Err(log, err, zerolog.ErrorLevel).Msg("settle_etl_job_failed")
 		return "settle_error"
 	}
 	return outcome

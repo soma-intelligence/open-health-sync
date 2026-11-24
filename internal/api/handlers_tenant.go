@@ -118,12 +118,12 @@ func (s *server) getTenant(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.From(r.Context())
 	t, err := s.d.Store.GetTenant(r.Context(), p.TenantID)
 	if err != nil {
-		internalError(w, r, "api: get tenant", err)
+		internalError(w, r, "get_tenant_failed", err)
 		return
 	}
 	keys, err := s.d.Store.ListKeys(r.Context(), p.TenantID)
 	if err != nil {
-		internalError(w, r, "api: get tenant", err)
+		internalError(w, r, "get_tenant_failed", err)
 		return
 	}
 	out := tenantJSON{ID: t.ID, Name: t.Name, Admin: t.Admin, CreatedAt: t.CreatedAt.UTC()}
@@ -139,7 +139,7 @@ func (s *server) listKeys(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.From(r.Context())
 	keys, err := s.d.Store.ListKeys(r.Context(), p.TenantID)
 	if err != nil {
-		internalError(w, r, "api: list keys", err)
+		internalError(w, r, "list_keys_failed", err)
 		return
 	}
 	out := make([]apiKeyJSON, 0, len(keys))
@@ -183,7 +183,7 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errKeyName)
 		return
 	case err != nil:
-		internalError(w, r, "api: create key", err)
+		internalError(w, r, "create_key_failed", err)
 		return
 	}
 	// The secret is in this answer only: nothing on the way may keep it.
@@ -208,7 +208,7 @@ func (s *server) revokeKey(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "API key")
 		return
 	case err != nil:
-		internalError(w, r, "api: revoke key", err)
+		internalError(w, r, "revoke_key_failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

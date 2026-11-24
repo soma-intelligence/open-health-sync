@@ -4,15 +4,17 @@ package api
 
 import (
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/webhook"
 )
 
@@ -152,7 +154,7 @@ func (s *server) createWebhook(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusConflict, "this tenant already has 20 webhooks: delete one first")
 		return
 	case err != nil:
-		internalError(w, r, "api: create webhook", err)
+		internalError(w, r, "create_webhook_failed", err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -164,7 +166,7 @@ func (s *server) listWebhooks(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.From(r.Context())
 	list, err := s.d.Webhooks.List(r.Context(), p.TenantID)
 	if err != nil {
-		internalError(w, r, "api: list webhooks", err)
+		internalError(w, r, "list_webhooks_failed", err)
 		return
 	}
 	out := make([]webhookJSON, len(list))
@@ -180,7 +182,7 @@ func (s *server) getWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e, err := s.d.Webhooks.Get(r.Context(), p.TenantID, id)
-	if !webhookErr(w, r, err, "api: get webhook") {
+	if !webhookErr(w, r, err, "get_webhook_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, toWebhookJSON(e))
@@ -201,7 +203,7 @@ func (s *server) updateWebhook(w http.ResponseWriter, r *http.Request) {
 	e, err := s.d.Webhooks.Update(r.Context(), p.TenantID, id, webhook.Patch{
 		URL: req.URL, Description: req.Description, EventTypes: req.EventTypes, Enabled: req.Enabled,
 	})
-	if !webhookErr(w, r, err, "api: update webhook") {
+	if !webhookErr(w, r, err, "update_webhook_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, toWebhookJSON(e))
@@ -212,7 +214,7 @@ func (s *server) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !webhookErr(w, r, s.d.Webhooks.Delete(r.Context(), p.TenantID, id), "api: delete webhook") {
+	if !webhookErr(w, r, s.d.Webhooks.Delete(r.Context(), p.TenantID, id), "delete_webhook_failed") {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -238,7 +240,7 @@ func (s *server) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 		// The store's grace period (OHS_WEBHOOK_ROTATION_GRACE_HOURS).
 		secret, err = s.d.Webhooks.RotateSecret(r.Context(), p.TenantID, id)
 	}
-	if !webhookErr(w, r, err, "api: rotate webhook secret") {
+	if !webhookErr(w, r, err, "rotate_webhook_secret_failed") {
 		return
 	}
 	if !req.ExpirePrevious {
@@ -247,7 +249,7 @@ func (s *server) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 		if e, gerr := s.d.Webhooks.Get(r.Context(), p.TenantID, id); gerr == nil {
 			until = e.PreviousSecretExpiresAt
 		} else {
-			slog.WarnContext(r.Context(), "api: rotate webhook secret: read the grace period", "error", gerr)
+			logutil.Err(*logging.Ctx(r.Context()), gerr, zerolog.WarnLevel).Msg("rotate_webhook_secret_grace_failed")
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -268,7 +270,7 @@ func (s *server) testWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := s.d.Webhooks.SendSample(r.Context(), p.TenantID, id, req.EventType)
-	if !webhookErr(w, r, err, "api: test webhook") {
+	if !webhookErr(w, r, err, "test_webhook_failed") {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, d)
@@ -300,7 +302,7 @@ func (s *server) listWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "the cursor is not valid")
 		return
 	}
-	if !webhookErr(w, r, err, "api: list webhook deliveries") {
+	if !webhookErr(w, r, err, "list_webhook_deliveries_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, newPage(list, next))
@@ -327,7 +329,7 @@ func (s *server) getWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := s.d.Webhooks.GetDelivery(r.Context(), p.TenantID, id, delivery)
-	if !deliveryErr(w, r, err, "api: get webhook delivery") {
+	if !deliveryErr(w, r, err, "get_webhook_delivery_failed") {
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
@@ -339,7 +341,7 @@ func (s *server) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := s.d.Webhooks.Retry(r.Context(), p.TenantID, id, delivery)
-	if !deliveryErr(w, r, err, "api: retry webhook delivery") {
+	if !deliveryErr(w, r, err, "retry_webhook_delivery_failed") {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, d)
@@ -351,7 +353,7 @@ func (s *server) replayWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := s.d.Webhooks.Replay(r.Context(), p.TenantID, id, delivery)
-	if !deliveryErr(w, r, err, "api: replay webhook delivery") {
+	if !deliveryErr(w, r, err, "replay_webhook_delivery_failed") {
 		return
 	}
 	w.Header().Set("Location", "/v1/webhooks/"+id.String()+"/deliveries/"+strconv.FormatInt(d.ID, 10))
@@ -360,7 +362,7 @@ func (s *server) replayWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 
 // deliveryErr answers the errors of the delivery routes. It returns true
 // when err is nil.
-func deliveryErr(w http.ResponseWriter, r *http.Request, err error, msg string) bool {
+func deliveryErr(w http.ResponseWriter, r *http.Request, err error, event string) bool {
 	switch {
 	case err == nil:
 		return true
@@ -372,21 +374,21 @@ func deliveryErr(w http.ResponseWriter, r *http.Request, err error, msg string) 
 	case errors.Is(err, webhook.ErrNotFound):
 		notFound(w, "delivery")
 	default:
-		internalError(w, r, msg, err)
+		internalError(w, r, event, err)
 	}
 	return false
 }
 
 // webhookErr answers 404 for ErrNotFound and 500 for any other error. It
 // returns true when err is nil.
-func webhookErr(w http.ResponseWriter, r *http.Request, err error, msg string) bool {
+func webhookErr(w http.ResponseWriter, r *http.Request, err error, event string) bool {
 	switch {
 	case err == nil:
 		return true
 	case errors.Is(err, webhook.ErrNotFound):
 		notFound(w, "webhook")
 	default:
-		internalError(w, r, msg, err)
+		internalError(w, r, event, err)
 	}
 	return false
 }

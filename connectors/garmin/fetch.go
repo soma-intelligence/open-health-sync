@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"sort"
 	"strconv"
@@ -90,7 +89,7 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 			first = false
 			got, err := c.fetchWindow(ctx, token, dt, ws, we)
 			if errors.Is(err, errNotGranted) {
-				slog.Info("garmin: summary type not granted, skipped", "provider", Slug, "data_type", dt)
+				modlog().Info().Str("data_type", dt).Msg("summary_type_not_granted_skipped")
 				lines = nil
 				break
 			}

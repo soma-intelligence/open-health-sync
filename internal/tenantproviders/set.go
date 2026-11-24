@@ -11,15 +11,16 @@ package tenantproviders
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/audit"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // ReloadEvery is how often Run reads the switches again.
@@ -72,8 +73,8 @@ func New(ctx context.Context, store Store) *Set {
 	s := &Set{store: store}
 	s.off.Store(&map[Key]struct{}{})
 	if err := s.Reload(ctx); err != nil {
-		slog.Error("tenant providers: the switches cannot be read, every provider is on until the next reload",
-			"error", err)
+		logutil.Err(*modlog(), err, zerolog.ErrorLevel).
+			Str("effect", "every provider is on until the next reload").Msg("tenant_providers_unreadable")
 	}
 	return s
 }
@@ -123,7 +124,7 @@ func (s *Set) Run(ctx context.Context, every time.Duration) error {
 			return nil
 		case <-t.C:
 			if err := s.Reload(ctx); err != nil && ctx.Err() == nil {
-				slog.Warn("tenant providers: reload failed, keeping the current switches", "error", err)
+				logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("tenant_providers_reload_failed")
 			}
 		}
 	}
@@ -156,7 +157,7 @@ func (s *Set) Update(ctx context.Context, tenant uuid.UUID, slug string, enabled
 	if err := s.load(ctx); err != nil {
 		// The change is stored: apply it here even though the others could
 		// not be read again; the next reload brings them.
-		slog.Warn("tenant providers: reload after a change failed, applying the change alone", "error", err)
+		logutil.Err(*modlog(), err, zerolog.WarnLevel).Msg("tenant_providers_reload_after_change_failed")
 		next := maps.Clone(*s.off.Load())
 		k := Key{Tenant: tenant, Provider: slug}
 		if enabled {

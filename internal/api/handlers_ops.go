@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -18,10 +17,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 
 	apispec "github.com/soma-intelligence/open-health-sync/api"
 	"github.com/soma-intelligence/open-health-sync/internal/collect"
 	"github.com/soma-intelligence/open-health-sync/internal/db"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 	"github.com/soma-intelligence/open-health-sync/internal/vault"
 )
@@ -58,7 +60,7 @@ func NewOpsHandler(d OpsDeps) http.Handler {
 		if d.Stalled != nil {
 			if stalled := d.Stalled(); len(stalled) > 0 {
 				detail := "background loops stalled: " + strings.Join(stalled, "; ")
-				slog.WarnContext(r.Context(), "healthz: "+detail)
+				logging.Ctx(r.Context()).Warn().Str("detail", detail).Msg("healthz_loops_stalled")
 				problem(w, http.StatusServiceUnavailable, detail)
 				return
 			}
@@ -129,7 +131,7 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	if err := s.d.Pool.Ping(ctx); err != nil {
-		slog.WarnContext(r.Context(), "readyz: database", "error", err)
+		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_database_failed")
 		problem(w, http.StatusServiceUnavailable, "the database is not reachable")
 		return
 	}
@@ -138,9 +140,9 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 	detail, changed := s.schema.check(ctx, time.Now(), db.LatestVersion, s.schemaVersion)
 	switch {
 	case changed && detail != "":
-		slog.WarnContext(r.Context(), "readyz: schema", "detail", detail)
+		logging.Ctx(r.Context()).Warn().Str("detail", detail).Msg("readyz_schema_behind")
 	case changed:
-		slog.InfoContext(r.Context(), "readyz: schema is at the version this binary needs again")
+		logging.Ctx(r.Context()).Info().Msg("readyz_schema_current")
 	}
 	if detail != "" {
 		problem(w, http.StatusServiceUnavailable, schemaNotReady)
@@ -148,14 +150,14 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.d.Raw != nil {
 		if err := rawstore.Ping(ctx, s.d.Raw); err != nil {
-			slog.WarnContext(r.Context(), "readyz: raw store", "error", err)
+			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_raw_store_failed")
 			problem(w, http.StatusServiceUnavailable, "the raw store is not reachable")
 			return
 		}
 	}
 	if s.d.Vault != nil {
 		if err := s.d.Vault.Ready(ctx); err != nil {
-			slog.WarnContext(r.Context(), "readyz: vault", "error", err)
+			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_vault_failed")
 			problem(w, http.StatusServiceUnavailable, "the key provider does not open keys")
 			return
 		}
@@ -257,7 +259,7 @@ func (s *server) metricsHandler(w http.ResponseWriter, r *http.Request) {
 		sync, err = s.d.Collect.SyncMetrics(ctx)
 		cancel()
 		if err != nil {
-			slog.WarnContext(r.Context(), "metrics: sync state", "error", err)
+			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("metrics_sync_state_failed")
 			sync = nil
 		}
 	}

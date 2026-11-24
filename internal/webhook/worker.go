@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -19,12 +18,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/soma-intelligence/open-health-sync/internal/crypto"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 	"github.com/soma-intelligence/open-health-sync/internal/ops"
 	"github.com/soma-intelligence/open-health-sync/internal/tracing"
 )
@@ -272,7 +274,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		done := w.loop.Busy(pruneLimit)
 		if err := w.Prune(ctx); err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "webhook: prune deliveries", "err", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("prune_deliveries_failed")
 		}
 		done()
 		lastPrune = time.Now()
@@ -316,7 +318,7 @@ func (w *Worker) pump(ctx context.Context, each func()) error {
 
 		jobs, err := w.claimFn(ctx, n)
 		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "webhook: claim deliveries", "err", err)
+			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("claim_deliveries_failed")
 		}
 		for range n - len(jobs) {
 			<-slots
@@ -330,7 +332,7 @@ func (w *Worker) pump(ctx context.Context, each func()) error {
 				defer wg.Done()
 				defer done()
 				if err := w.deliverFn(jobCtx, j); err != nil {
-					slog.ErrorContext(jobCtx, "webhook: settle delivery", "delivery_id", j.id, "err", err)
+					logutil.Err(*logging.Ctx(jobCtx), err, zerolog.ErrorLevel).Int64("delivery_id", j.id).Msg("settle_delivery_failed")
 				}
 				<-slots
 				select {
@@ -592,8 +594,7 @@ func (w *Worker) deliver(ctx context.Context, j job) (err error) {
 	if sendErr == nil {
 		return w.succeed(ctx, j, o)
 	}
-	slog.InfoContext(ctx, "webhook: delivery attempt failed", "delivery_id", j.id, "endpoint_id", j.endpoint,
-		"attempt", j.attempts+1, "status_code", o.code, "err", sendErr)
+	logutil.Err(*logging.Ctx(ctx), sendErr, zerolog.InfoLevel).Int64("delivery_id", j.id).Stringer("endpoint_id", j.endpoint).Int("attempt", j.attempts+1).Int("status_code", o.code).Msg("delivery_attempt_failed")
 	return w.fail(ctx, j, o, sendErr)
 }
 
@@ -611,8 +612,7 @@ func (w *Worker) send(ctx context.Context, j job, o *outcome) error {
 		if prev, err := w.box.OpenFor(j.sealedPrev, SecretAAD(j.endpoint)); err == nil {
 			secrets = append(secrets, string(prev))
 		} else {
-			slog.WarnContext(ctx, "webhook: previous signing secret cannot be opened, signing with the current one only",
-				"endpoint_id", j.endpoint)
+			logging.Ctx(ctx).Warn().Stringer("endpoint_id", j.endpoint).Msg("previous_signing_secret_unreadable")
 		}
 	}
 	now := time.Now()
@@ -725,8 +725,7 @@ func (w *Worker) fail(ctx context.Context, j job, o outcome, cause error) error 
 	}
 	tripped := pauseAfter > 0 && failures >= pauseAfter
 	if tripped && failures == pauseAfter {
-		slog.WarnContext(ctx, "webhook: endpoint paused after consecutive failures", "endpoint_id", j.endpoint,
-			"failures", failures, "paused_until", pausedUntil)
+		logging.Ctx(ctx).Warn().Stringer("endpoint_id", j.endpoint).Int("failures", failures).Stringer("paused_until", pausedUntil).Msg("endpoint_paused_after_consecutive_failures")
 	}
 	if parked || tripped {
 		// Disable an endpoint that has not accepted anything for DisableAfter.
@@ -743,7 +742,7 @@ func (w *Worker) fail(ctx context.Context, j job, o outcome, cause error) error 
 			return fmt.Errorf("disable endpoint: %w", err)
 		}
 		if disabled {
-			slog.WarnContext(ctx, "webhook: endpoint disabled after repeated failures", "endpoint_id", j.endpoint)
+			logging.Ctx(ctx).Warn().Stringer("endpoint_id", j.endpoint).Msg("endpoint_disabled_after_repeated_failures")
 			if err := parkPending(ctx, tx, j.endpoint, "endpoint disabled after repeated failures"); err != nil {
 				return err
 			}

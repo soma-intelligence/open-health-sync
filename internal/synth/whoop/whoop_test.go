@@ -3,19 +3,18 @@
 package whoop_test
 
 import (
-	"io"
-	"log/slog"
 	"os"
 	"testing"
 
 	conn "github.com/soma-intelligence/open-health-sync/connectors/whoop"
 	"github.com/soma-intelligence/open-health-sync/internal/connector"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil/logtest"
 	"github.com/soma-intelligence/open-health-sync/internal/synth/synthtest"
 	"github.com/soma-intelligence/open-health-sync/internal/synth/whoop"
 )
 
 func TestMain(m *testing.M) {
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logtest.Discard()
 	os.Exit(m.Run())
 }
 

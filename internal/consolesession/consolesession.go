@@ -11,7 +11,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soma-intelligence/open-health-sync/internal/auth"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 )
 
 const (
@@ -154,7 +154,7 @@ func (s *Store) Lookup(ctx context.Context, tokenHash string) (Session, error) {
 		// Best effort, and at most once a minute per session.
 		if _, terr := s.pool.Exec(ctx,
 			`UPDATE ohs_core.console_sessions SET last_seen_at = now() WHERE id = $1`, sess.ID); terr != nil {
-			slog.DebugContext(ctx, "consolesession: touch", "error", terr)
+			logging.Ctx(ctx).Debug().Err(terr).Msg("session_touch_failed")
 		}
 	}
 	return sess, nil

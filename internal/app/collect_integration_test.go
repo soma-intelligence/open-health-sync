@@ -157,9 +157,9 @@ func TestRunConnectsPullsAndServesSamples(t *testing.T) {
 	cfg.LogLevel = "debug"
 	logs := &syncBuffer{}
 	start(t, cfg, logs)
-	keys := bootstrapKeys(t, logs.String())
+	keys := bootstrapKeys(t, cfg, logs.String())
 	require.Len(t, keys, 1)
-	assert.Contains(t, logs.String(), `"providers enabled"`)
+	assert.Contains(t, logs.String(), `"providers_enabled"`)
 	api := apiClient{t: t, base: "http://" + cfg.Listen, key: keys[0], c: &http.Client{Timeout: 10 * time.Second}}
 
 	got, _ := appFake.configured.Load().(connector.Config)
@@ -229,7 +229,7 @@ func TestRunProviderFacingRoutes(t *testing.T) {
 	cfg.Providers["withings"] = config.ProviderKeys{"CLIENT_ID": "partial-id-value"}
 	logs := &syncBuffer{}
 	start(t, cfg, logs)
-	assert.Contains(t, logs.String(), "provider partially configured")
+	assert.Contains(t, logs.String(), "provider_partially_configured")
 	assert.Contains(t, logs.String(), "OHS_WITHINGS_CLIENT_SECRET")
 	assert.NotContains(t, logs.String(), "partial-id-value", "key values are never logged")
 	noFollow := &http.Client{

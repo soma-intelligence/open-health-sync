@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -145,7 +144,7 @@ func (c *Connector) get(ctx context.Context, token, path string, params url.Valu
 			if attempt >= maxAttempts {
 				return fmt.Errorf("fitbit http: %w", err)
 			}
-			slog.Warn("fitbit: transport error, retrying", "provider", Slug, "attempt", attempt)
+			modlog().Warn().Int("attempt", attempt).Msg("transport_error_retrying")
 			if err := wait(); err != nil {
 				return err
 			}
@@ -178,7 +177,7 @@ func (c *Connector) get(ctx context.Context, token, path string, params url.Valu
 				}
 				return fmt.Errorf("%w: %s: HTTP %d", errServer, path, code)
 			}
-			slog.Warn("fitbit: server error, retrying", "provider", Slug, "status", code, "attempt", attempt)
+			modlog().Warn().Int("status", code).Int("attempt", attempt).Msg("server_error_retrying")
 			if err := wait(); err != nil {
 				return err
 			}

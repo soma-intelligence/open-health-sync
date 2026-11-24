@@ -5,10 +5,10 @@ package automation
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
 	"github.com/soma-intelligence/open-health-sync/internal/rawstore"
 )
 
@@ -36,7 +36,7 @@ func (s *FileScanner) Run(ctx context.Context) (int, error) {
 		}
 		for _, k := range unreg {
 			if missing < maxUnregisteredLogged {
-				slog.WarnContext(ctx, "raw file without a raw_objects row, left alone", "key", k)
+				logging.Ctx(ctx).Warn().Str("key", k).Msg("raw_file_without_raw_objects_row")
 			}
 			missing++
 		}
@@ -46,7 +46,7 @@ func (s *FileScanner) Run(ctx context.Context) (int, error) {
 		return missing, fmt.Errorf("walk raw store: %w", err)
 	}
 	if missing > maxUnregisteredLogged {
-		slog.WarnContext(ctx, "more raw files without a raw_objects row", "total", missing)
+		logging.Ctx(ctx).Warn().Int("total", missing).Msg("more_raw_files_without_raw_objects")
 	}
 	if s.Metrics != nil {
 		s.Metrics.UnregisteredFiles.Store(int64(missing))

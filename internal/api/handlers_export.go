@@ -4,15 +4,17 @@ package api
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/export"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 // exportDatasets are the lists an export can hold, by the name in its route.
@@ -139,7 +141,7 @@ func exportRoute[T any](each eachFunc[T]) func(s *server, w http.ResponseWriter,
 			// The status is sent: cut the response so the client sees a
 			// broken transfer, never a file that looks complete.
 			if r.Context().Err() == nil { // not the client going away
-				slog.ErrorContext(r.Context(), "api: export", "error", err, "route", r.Pattern)
+				logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("export_failed")
 			}
 			panic(http.ErrAbortHandler)
 		}

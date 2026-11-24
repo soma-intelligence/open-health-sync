@@ -4,13 +4,15 @@ package api
 
 import (
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/soma-intelligence/open-health-sync/internal/api/read"
 	"github.com/soma-intelligence/open-health-sync/internal/fusion"
+	"github.com/soma-intelligence/open-health-sync/internal/logging"
+	"github.com/soma-intelligence/open-health-sync/internal/logutil"
 )
 
 func (s *server) mountSourcePriorities(mux *http.ServeMux) {
@@ -66,7 +68,7 @@ func (s *server) putSourcePriorities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := fusion.SavePriorities(r.Context(), s.d.Pool, p.TenantID, user, pr); err != nil {
-		internalError(w, r, "api: save source priorities", err)
+		internalError(w, r, "save_source_priorities_failed", err)
 		return
 	}
 	s.writeSourcePriorities(w, r, p.TenantID, user)
@@ -75,7 +77,7 @@ func (s *server) putSourcePriorities(w http.ResponseWriter, r *http.Request) {
 func (s *server) writeSourcePriorities(w http.ResponseWriter, r *http.Request, tenantID, user uuid.UUID) {
 	pr, err := fusion.LoadPriorities(r.Context(), s.d.Pool, tenantID, user)
 	if err != nil {
-		internalError(w, r, "api: load source priorities", err)
+		internalError(w, r, "load_source_priorities_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, sourcePriorities{Priorities: pr, Defaults: fusion.Defaults()})
@@ -91,7 +93,7 @@ func (s *server) mergePolicy(r *http.Request, tenantID, user uuid.UUID, q *read.
 	pol, err := fusion.Load(r.Context(), s.d.Pool, tenantID, user, s.d.Scorer)
 	switch {
 	case errors.Is(err, fusion.ErrScores):
-		slog.WarnContext(r.Context(), "api: source scores unavailable", "error", err)
+		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("source_scores_unavailable")
 	case err != nil:
 		return // the read layer loads the orders again and reports it
 	}

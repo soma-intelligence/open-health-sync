@@ -77,7 +77,7 @@ func TestCollectOnlyProcessCannotOpenStoredData(t *testing.T) {
 	apiCfg.Roles = map[string]bool{"api": true}
 	logs := &syncBuffer{}
 	stopAPI := start(t, apiCfg, logs)
-	keys := bootstrapKeys(t, logs.String())
+	keys := bootstrapKeys(t, apiCfg, logs.String())
 	require.Len(t, keys, 1)
 	api := apiClient{t: t, base: "http://" + apiCfg.Listen, key: keys[0], c: &http.Client{Timeout: 10 * time.Second}}
 	code, b := api.call("POST", "/v1/users", `{"external_ref":"split"}`)
