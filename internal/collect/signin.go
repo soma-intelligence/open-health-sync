@@ -87,7 +87,7 @@ func (h *Handlers) signInState(w http.ResponseWriter, r *http.Request, provider,
 	}
 	st, found, err := h.peekState(ctx, provider, state)
 	if err != nil {
-		logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("sign_in_page_failed")
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("sign_in_page_failed")
 		renderResult(w, http.StatusInternalServerError, provider, false)
 		return st, nil, false
 	}
@@ -150,7 +150,7 @@ func (h *Handlers) SignIn() http.Handler {
 		log := logging.Ctx(ctx).With().Stringer("tenant_id", st.tenant).Stringer("user_id", st.user).Str("provider", provider).Logger()
 		oc, err := h.ready(ctx, provider, st)
 		if err != nil {
-			log.WithLevel(logutil.Level(err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("connection_failed")
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("connection_failed")
 			_, _, _ = h.takeState(ctx, provider, state)
 			code := http.StatusBadRequest
 			if errors.Is(err, ErrProviderOff) {
@@ -181,7 +181,7 @@ func (h *Handlers) SignIn() http.Handler {
 		// the same form finds nothing.
 		_, found, terr := h.takeState(ctx, provider, state)
 		if terr != nil {
-			logutil.Err(log, terr, zerolog.ErrorLevel).Msg("sign_in_failed")
+			logutil.ErrCtx(ctx, log, terr, zerolog.ErrorLevel).Msg("sign_in_failed")
 			renderResult(w, http.StatusInternalServerError, provider, false)
 			return
 		}
@@ -195,7 +195,7 @@ func (h *Handlers) SignIn() http.Handler {
 			err = fmt.Errorf("sign in: %w", err)
 		}
 		if err != nil {
-			log.WithLevel(logutil.Level(err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("connection_failed")
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("connection_failed")
 			code := http.StatusBadRequest
 			if errors.Is(err, ErrProviderOff) {
 				code = http.StatusForbidden

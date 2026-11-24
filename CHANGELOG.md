@@ -215,9 +215,11 @@ release may change the API, the configuration or the database schema.
   `remote_ip`) at a level that follows the status: 2xx and 3xx `debug`, 4xx `info`, 5xx `error`. A handler that
   panics logs `http_panic` with the stack.
 - `OHS_BOOTSTRAP_TENANT` no longer logs the API key it creates. The key is written once to a file with mode 0600
-  (`OHS_BOOTSTRAP_KEY_FILE`, by default `bootstrap-api-key` next to the raw store directory, else a new file in
-  the temporary directory) and the log shows a redacted form and the path. A file that already exists is never
-  overwritten and stops the start.
+  (`OHS_BOOTSTRAP_KEY_FILE`, by default `bootstrap-api-key` inside the raw store directory, `/var/lib/ohs/raw` in
+  the image, else a new file in the temporary directory) and the log shows a redacted form and the path. The
+  file is opened before the tenant is created: a path that cannot be written, or a file that already exists
+  (never overwritten), stops the start with no tenant created. A tenant that already exists never touches the
+  file. This is an operator-facing change: read the key from that file, not from the logs.
 - The console signs in with a server session instead of keeping the key in the browser tab and sending it as a
   bearer header. The key is sent once and never stored; the cookie is `HttpOnly` and requests need the CSRF
   token. Plain http works only on `localhost`, `127.0.0.1` and `[::1]`; elsewhere sign in is refused until

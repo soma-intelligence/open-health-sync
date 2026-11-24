@@ -136,7 +136,7 @@ func (r *Retention) Run(ctx context.Context) (RetentionResult, error) {
 	// batches, so without the list no record is pruned in this run.
 	hyper, err := hypertables(ctx, r.Pool)
 	if err != nil {
-		logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("retention_hypertables_not_listed")
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("retention_hypertables_not_listed")
 		return res, errors.Join(append(errs, fmt.Errorf("list hypertables: %w", err))...)
 	}
 	cutoffDate := time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.UTC)
@@ -152,7 +152,7 @@ func (r *Retention) Run(ctx context.Context) (RetentionResult, error) {
 			chunks, rows, err := dropChunks(ctx, r.Pool, t.table, t.col, t.date, bound)
 			if err != nil {
 				// The rows are still deleted below, only more slowly.
-				logutil.Err(*logging.Ctx(ctx), err, zerolog.WarnLevel).Str("table", t.table).Msg("retention_chunks_not_dropped")
+				logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.WarnLevel).Str("table", t.table).Msg("retention_chunks_not_dropped")
 			}
 			res.Chunks += chunks
 			res.Rows += rows
@@ -162,7 +162,7 @@ func (r *Retention) Run(ctx context.Context) (RetentionResult, error) {
 		n, err := pruneTable(ctx, r.Pool, t.table, t.col, t.date, bound, hyper[t.table])
 		res.Rows += n
 		if err != nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("table", t.table).Int64("rows_deleted", n).Msg("retention_table_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("table", t.table).Int64("rows_deleted", n).Msg("retention_table_failed")
 			errs = append(errs, fmt.Errorf("prune %s: %w", t.table, err))
 			continue
 		}
@@ -236,7 +236,7 @@ func (r *Retention) pruneRaw(ctx context.Context, cutoff time.Time, res *Retenti
 			if !deleted[prefix] && !failed[prefix] {
 				if err := r.Store.DeletePrefix(ctx, prefix); err != nil {
 					failed[prefix] = true
-					logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("prefix", prefix).Msg("retention_raw_prefix_not_deleted")
+					logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("prefix", prefix).Msg("retention_raw_prefix_not_deleted")
 					errs = append(errs, fmt.Errorf("delete %s: %w", prefix, err))
 				} else {
 					deleted[prefix] = true

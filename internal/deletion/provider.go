@@ -121,7 +121,7 @@ func (h *providerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"the user is still connected to this provider: disconnect it with DELETE /v1/users/{id}/connections/{provider}?delete_data=true")
 		return
 	case err != nil:
-		logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Stringer("user_id", userID).Str("provider", provider).Msg("provider_request_failed")
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Stringer("user_id", userID).Str("provider", provider).Msg("provider_request_failed")
 		auth.WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "the deletion could not be started, retry later")
 		return
 	}

@@ -40,7 +40,7 @@ func notFound(w http.ResponseWriter, what string) {
 // Retry-After when the database or the vault's key provider could not be
 // reached: that request can be retried as is.
 func internalError(w http.ResponseWriter, r *http.Request, event string, err error) {
-	logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg(event)
+	logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg(event)
 	if db.Unavailable(err) {
 		// The cause may be the raw store's network as well as the database's.
 		auth.WriteUnavailable(w, "storage is unavailable; retry in a few seconds")

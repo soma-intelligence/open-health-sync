@@ -335,7 +335,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 		if err == nil || attempt == maxWriteAttempts || !retryableWrite(err) {
 			break
 		}
-		logutil.Err(log, err, zerolog.WarnLevel).Int("attempt", attempt).Msg("write_transaction_retried")
+		logutil.ErrCtx(ctx, log, err, zerolog.WarnLevel).Int("attempt", attempt).Msg("write_transaction_retried")
 		if err := sleepCtx(ctx, time.Duration(attempt)*100*time.Millisecond); err != nil {
 			return nil, err
 		}
@@ -353,7 +353,7 @@ func ProcessWith(ctx context.Context, pool *pgxpool.Pool, rs rawstore.Store, job
 	// failing to note it must not fail a job whose data is stored.
 	if learnt.name != "" {
 		if err := learnUserZone(ctx, pool, sc, learnt); err != nil {
-			logutil.Err(log, err, zerolog.WarnLevel).Msg("user_time_zone_not_recorded")
+			logutil.ErrCtx(ctx, log, err, zerolog.WarnLevel).Msg("user_time_zone_not_recorded")
 		}
 	}
 

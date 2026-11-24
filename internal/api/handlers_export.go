@@ -141,7 +141,7 @@ func exportRoute[T any](each eachFunc[T]) func(s *server, w http.ResponseWriter,
 			// The status is sent: cut the response so the client sees a
 			// broken transfer, never a file that looks complete.
 			if r.Context().Err() == nil { // not the client going away
-				logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("export_failed")
+				logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("export_failed")
 			}
 			panic(http.ErrAbortHandler)
 		}

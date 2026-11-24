@@ -146,7 +146,7 @@ func storeRaw(ctx context.Context, d Deps, t rawTarget, lines [][]byte) (bool, e
 		// removed again, or it could outlive the deletion's own raw sweep.
 		// Either way nothing more is pulled.
 		if derr := d.Raw.DeletePrefix(context.WithoutCancel(ctx), key); derr != nil {
-			logutil.Err(*logging.Ctx(ctx), derr, zerolog.WarnLevel).Stringer("tenant_id", t.tenant).Stringer("user_id", t.user).Str("provider", t.provider).Msg("refused_write_file_not_removed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), derr, zerolog.WarnLevel).Stringer("tenant_id", t.tenant).Stringer("user_id", t.user).Str("provider", t.provider).Msg("refused_write_file_not_removed")
 		}
 		return false, errInactive
 	}

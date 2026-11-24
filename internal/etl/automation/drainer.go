@@ -87,7 +87,7 @@ func (d *Drainer) Run(ctx context.Context) (DrainResult, error) {
 	var firstErr error
 	for _, o := range objs {
 		if err := d.drainOne(ctx, o, &res); err != nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("key", o.key).Msg("drain_raw_object_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("key", o.key).Msg("drain_raw_object_failed")
 			if firstErr == nil {
 				firstErr = err
 			}

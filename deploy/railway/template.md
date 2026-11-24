@@ -68,7 +68,7 @@ Why these values:
 ## Publish and add the button
 
 1. Deploy the template once into a scratch project, from the composer. Check that both
-   services go green, that the `ohs` logs show `bootstrap_tenant_created_api_key_in_file`, and that
+   services go green, that the `ohs` logs show `bootstrap_tenant_created`, and that
    `https://<domain>/readyz` answers 200. Delete the scratch project.
 2. Publish the template. Name: `Open Health Sync`. Category: Other. Description: "One API for
    all your health data. Self-hosted, with TimescaleDB."

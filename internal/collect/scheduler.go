@@ -199,7 +199,7 @@ func (s *Scheduler) scheduleLoop(ctx context.Context) {
 		s.cfg.Hooks.Schedule.Tick()
 		done := s.cfg.Hooks.Schedule.Busy(schedulePassLimit)
 		if _, err := s.Schedule(ctx); err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("schedule_pulls_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("schedule_pulls_failed")
 		}
 		done()
 		select {
@@ -236,12 +236,12 @@ func (s *Scheduler) subscribeLoop(ctx context.Context) {
 		s.cfg.Hooks.Subscribe.Tick()
 		done := s.cfg.Hooks.Subscribe.Busy(schedulePassLimit)
 		if n, err := s.RenewSilent(ctx, s.cfg.Batch); err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("renew_silent_subscriptions_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("renew_silent_subscriptions_failed")
 		} else if n > 0 {
 			logging.Ctx(ctx).Info().Int("count", n).Msg("silent_subscriptions_renewing")
 		}
 		if _, err := s.subscribePass(ctx, jobCtx, defaultSubscribeBatch); err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("subscribe_pending_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("subscribe_pending_failed")
 		}
 		done()
 		select {
@@ -277,7 +277,7 @@ func (s *Scheduler) workLoop(ctx context.Context) {
 		}
 		jobs, err := s.q.Claim(ctx, n)
 		if err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("claim_pull_jobs_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("claim_pull_jobs_failed")
 		}
 		for range n - len(jobs) {
 			<-slots
@@ -795,7 +795,7 @@ func (s *Scheduler) handle(ctx context.Context, job queue.PullJob) {
 	done := s.cfg.Hooks.Work.Busy(s.cfg.JobTimeout + settleLimit)
 	defer func() {
 		if r := recover(); r != nil {
-			log.Error().Str("panic", fmt.Sprint(r)).Msg("pull_job_panicked")
+			log.Error().Str("panic_type", fmt.Sprintf("%T", r)).Msg("pull_job_panicked")
 			outcome = s.settle(ctx, log, job, errors.New("pull job panicked"))
 		}
 		endJobSpan(span, outcome)
@@ -935,10 +935,10 @@ func (s *Scheduler) settle(ctx context.Context, log zerolog.Logger, job queue.Pu
 		err = s.q.Complete(ctx, job)
 		if err == nil {
 			if uerr := s.recordSuccess(ctx, job); uerr != nil {
-				logutil.Err(log, uerr, zerolog.ErrorLevel).Msg("record_last_sync_failed")
+				logutil.ErrCtx(ctx, log, uerr, zerolog.ErrorLevel).Msg("record_last_sync_failed")
 			}
 			if uerr := s.q.ProviderOK(ctx, job.Provider); uerr != nil {
-				logutil.Err(log, uerr, zerolog.ErrorLevel).Msg("reset_provider_backoff_failed")
+				logutil.ErrCtx(ctx, log, uerr, zerolog.ErrorLevel).Msg("reset_provider_backoff_failed")
 			}
 		}
 	case limited:
@@ -949,13 +949,13 @@ func (s *Scheduler) settle(ctx context.Context, log zerolog.Logger, job queue.Pu
 		// The limit is the provider's for the whole application, usually:
 		// every pull of it waits, instead of each drawing its own refusal.
 		if paused, perr := s.q.PauseProvider(ctx, job.Provider, rl.RetryAfter); perr != nil {
-			logutil.Err(log, perr, zerolog.ErrorLevel).Msg("pause_provider_failed")
+			logutil.ErrCtx(ctx, log, perr, zerolog.ErrorLevel).Msg("pause_provider_failed")
 		} else {
 			log.Info().Time("until", paused).Msg("provider_paused_after_rate_limit")
 		}
 		if err == nil && rl.RetryAfter >= RateLimitBrokenAfter {
 			if uerr := s.recordRateLimit(ctx, job, until); uerr != nil {
-				logutil.Err(log, uerr, zerolog.ErrorLevel).Msg("record_rate_limit_failed")
+				logutil.ErrCtx(ctx, log, uerr, zerolog.ErrorLevel).Msg("record_rate_limit_failed")
 			}
 		}
 	case errors.Is(cause, connector.ErrNeedsReauth):
@@ -981,7 +981,7 @@ func (s *Scheduler) settle(ctx context.Context, log zerolog.Logger, job queue.Pu
 		// A pull cut short by the shutdown is not worth a warning.
 		lvl := zerolog.WarnLevel
 		if ctx.Err() != nil {
-			lvl = logutil.Level(cause, lvl)
+			lvl = logutil.LevelCtx(ctx, cause, lvl)
 		}
 		// The provider being down or unreachable is retried for days, not
 		// minutes: an outage must not leave a hole in a user's history.
@@ -994,7 +994,7 @@ func (s *Scheduler) settle(ctx context.Context, log zerolog.Logger, job queue.Pu
 		}
 		if err == nil {
 			if uerr := s.recordFailure(ctx, job, msg); uerr != nil {
-				logutil.Err(log, uerr, zerolog.ErrorLevel).Msg("pull_failure_record_failed")
+				logutil.ErrCtx(ctx, log, uerr, zerolog.ErrorLevel).Msg("pull_failure_record_failed")
 			}
 		}
 	}
@@ -1003,7 +1003,7 @@ func (s *Scheduler) settle(ctx context.Context, log zerolog.Logger, job queue.Pu
 		log.Info().Msg("pull_job_claim_lost")
 		return outcomeClaimLost
 	case err != nil:
-		logutil.Err(log, err, zerolog.ErrorLevel).Msg("settle_pull_job_failed")
+		logutil.ErrCtx(ctx, log, err, zerolog.ErrorLevel).Msg("settle_pull_job_failed")
 		return outcomeSettleError
 	}
 	return outcome
@@ -1197,7 +1197,7 @@ func (s *Scheduler) logSync(ctx context.Context, log zerolog.Logger, job queue.P
 		msg = &m
 	}
 	if err := s.insertSyncLog(ctx, job, status, stored, took, msg); err != nil && !errors.Is(err, errInactive) {
-		logutil.Err(log, err, zerolog.ErrorLevel).Msg("write_sync_log_failed")
+		logutil.ErrCtx(ctx, log, err, zerolog.ErrorLevel).Msg("write_sync_log_failed")
 	}
 }
 

@@ -109,7 +109,7 @@ func runConsentPurge(ctx context.Context, p *consent.Purger, loop *ops.Loop) err
 		did, err := p.Once(ctx)
 		done()
 		if err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("purge_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("purge_failed")
 		}
 		if did && err == nil {
 			continue
@@ -137,7 +137,7 @@ func sampleQueues(ctx context.Context, pool *pgxpool.Pool, roles map[string]bool
 		err := sampleQueuesOnce(sctx, pool, roles, m)
 		cancel()
 		if err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.WarnLevel).Msg("queue_backlog_not_sampled")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.WarnLevel).Msg("queue_backlog_not_sampled")
 		}
 		select {
 		case <-ctx.Done():

@@ -249,7 +249,7 @@ func (s *server) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 		if e, gerr := s.d.Webhooks.Get(r.Context(), p.TenantID, id); gerr == nil {
 			until = e.PreviousSecretExpiresAt
 		} else {
-			logutil.Err(*logging.Ctx(r.Context()), gerr, zerolog.WarnLevel).Msg("rotate_webhook_secret_grace_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), gerr, zerolog.WarnLevel).Msg("rotate_webhook_secret_grace_failed")
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")

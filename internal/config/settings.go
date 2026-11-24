@@ -144,7 +144,7 @@ var registry = []Setting{
 	boolSetting("OHS_COMPRESSION", "Compress responses", "Server", "Gzip JSON, NDJSON, FHIR, CSV and YAML responses for clients that accept it. Turn it off behind a proxy that compresses.", "true", ApplyRestart),
 	intSetting("OHS_MAX_CONNECTIONS", "Maximum connections", "Server", "HTTP connections the api role holds open at once. One over it is closed at once.", "4096", 1, math.MaxInt, ApplyRestart),
 	plain("OHS_BOOTSTRAP_TENANT", "Bootstrap tenant", "Server", "Name of a tenant created at first start so an API key can be issued right away. Empty creates none.", "", false),
-	plain("OHS_BOOTSTRAP_KEY_FILE", "Bootstrap key file", "Server", "File that receives the first API key of the bootstrap tenant, mode 0600, never overwritten. Empty means bootstrap-api-key next to the raw store directory.", "", false),
+	plain("OHS_BOOTSTRAP_KEY_FILE", "Bootstrap key file", "Server", "File that receives the first API key of the bootstrap tenant, mode 0600, never overwritten. Empty means bootstrap-api-key inside the raw store directory (OHS_RAW_STORE).", "", false),
 
 	// Storage
 	plain("OHS_DATABASE_URL", "Database URL", "Storage", "Postgres connection URL.", "", true),

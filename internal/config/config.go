@@ -27,7 +27,7 @@ type ProviderKeys map[string]string
 type Config struct {
 	DatabaseURL, PublicURL, RawStore, Listen, LogLevel, BootstrapTenant string
 	// BootstrapKeyFile (OHS_BOOTSTRAP_KEY_FILE) is where the first API key of OHS_BOOTSTRAP_TENANT
-	// is written, mode 0600. Empty means next to the raw store directory.
+	// is written, mode 0600. Empty means inside the raw store directory.
 	BootstrapKeyFile string
 	EncryptionKey    []byte // decoded, len 32
 	// PreviousEncryptionKeys still open values sealed before a rotation but

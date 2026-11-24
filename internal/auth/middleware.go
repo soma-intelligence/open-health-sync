@@ -384,7 +384,7 @@ func resolve(w http.ResponseWriter, r *http.Request, call func(context.Context) 
 	}
 	if err != nil {
 		// The cause may name infrastructure; it is logged, never sent. No token or hash.
-		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("auth_lookup_failed")
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("auth_lookup_failed")
 		if db.Unavailable(err) {
 			WriteUnavailable(w, "the database is unavailable; retry in a few seconds")
 			return Principal{}, true

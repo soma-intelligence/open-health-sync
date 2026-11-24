@@ -572,7 +572,7 @@ func runWith(ctx context.Context, cfg config.Config, logOut io.Writer, opts opti
 		case <-stopped:
 		case <-t.C:
 			abandoned = true
-			modlog().Error().Int64("grace_ms", (opts.grace).Milliseconds()).Msg("shutdown_grace_exceeded")
+			modlog().Error().Int64("grace_ms", opts.grace.Milliseconds()).Msg("shutdown_grace_exceeded")
 		}
 	}
 	modlog().Info().Msg("service_stopped")
@@ -703,67 +703,105 @@ func serveMetrics(ctx context.Context, addr string, mux *http.ServeMux, grace ti
 	return nil
 }
 
+// bootstrapStore is what bootstrap needs of the tenant store.
+type bootstrapStore interface {
+	TenantNamed(ctx context.Context, name string) (bool, error)
+	EnsureTenant(ctx context.Context, name string) (tenant.Tenant, string, error)
+	SetAdmin(ctx context.Context, id uuid.UUID, admin bool) error
+}
+
 // bootstrap creates the OHS_BOOTSTRAP_TENANT tenant on first start and makes it an instance admin
-// at every start. The first API key is written to a file (mode 0600) and only a redacted form
-// reaches the log, with the file path.
-func bootstrap(ctx context.Context, cfg config.Config, store *tenant.Store) error {
+// at every start. The first API key goes to a file (mode 0600) and only a redacted form reaches
+// the log, with the file path. The file is opened before the tenant is created, so a path that
+// cannot be written, or a file that already exists, stops the start with no tenant created. A
+// tenant that already exists never touches the file.
+func bootstrap(ctx context.Context, cfg config.Config, store bootstrapStore) error {
+	exists, err := store.TenantNamed(ctx, cfg.BootstrapTenant)
+	if err != nil {
+		return fmt.Errorf("bootstrap tenant: %w", err)
+	}
+	var f *os.File
+	var path string
+	if !exists {
+		if f, path, err = openKeyFile(cfg); err != nil {
+			return fmt.Errorf("bootstrap tenant %s not created, its API key file cannot be opened: %w", cfg.BootstrapTenant, err)
+		}
+	}
+	discard := func() {
+		if f != nil {
+			_ = f.Close()
+			_ = os.Remove(path)
+		}
+	}
 	t, key, err := store.EnsureTenant(ctx, cfg.BootstrapTenant)
 	if err != nil {
+		discard()
 		return fmt.Errorf("bootstrap tenant: %w", err)
 	}
 	// The operator named it: it manages the instance from the console.
 	if !t.Admin {
 		if err := store.SetAdmin(ctx, t.ID, true); err != nil {
+			discard()
 			return fmt.Errorf("bootstrap tenant: %w", err)
 		}
 	}
 	if key == "" {
+		// Already there (or created by another process meanwhile): no key to keep.
+		discard()
 		modlog().Info().Stringer("tenant_id", t.ID).Str("name", t.Name).Msg("bootstrap_tenant_present")
 		return nil
 	}
-	path, err := writeKeyFile(cfg, key)
-	if err != nil {
+	if f == nil {
+		return fmt.Errorf("bootstrap tenant %s was created with no key file open", t.Name)
+	}
+	if _, err := f.WriteString(key + "\n"); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("bootstrap tenant %s created but its API key could not be written to %s: %w", t.Name, path, err)
 	}
-	modlog().Warn().Stringer("tenant_id", t.ID).Str("name", t.Name).Str("api_key", logging.Redact(key)).
-		Str("api_key_file", path).Msg("bootstrap_tenant_created_api_key_in_file")
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("bootstrap tenant %s created but its API key could not be written to %s: %w", t.Name, path, err)
+	}
+	modlog().Info().Stringer("tenant_id", t.ID).Str("name", t.Name).Str("api_key", logging.Redact(key)).
+		Str("api_key_file", path).Msg("bootstrap_tenant_created")
 	return nil
 }
 
-// writeKeyFile stores the key with mode 0600 and returns the path. A configured or derived path
-// is created with O_EXCL: an existing file (or a symlink planted there) is never overwritten or
-// followed. Without any path the key goes to a unique file in the temp directory.
-func writeKeyFile(cfg config.Config, key string) (string, error) {
-	path := cfg.BootstrapKeyFile
-	if path == "" {
-		if p, ok := strings.CutPrefix(cfg.RawStore, "file://"); ok && p != "" {
-			path = filepath.Join(filepath.Dir(filepath.Clean(p)), "bootstrap-api-key")
-		}
+// keyFilePath is where the first API key goes: OHS_BOOTSTRAP_KEY_FILE, else bootstrap-api-key in
+// the raw store directory (the directory the image chowns and the chart mounts), else, for a raw
+// store with no local directory, empty (a unique temporary file).
+func keyFilePath(cfg config.Config) string {
+	if cfg.BootstrapKeyFile != "" {
+		return cfg.BootstrapKeyFile
 	}
-	var f *os.File
-	var err error
+	if p, ok := strings.CutPrefix(cfg.RawStore, "file://"); ok && p != "" {
+		return filepath.Join(filepath.Clean(p), "bootstrap-api-key")
+	}
+	return ""
+}
+
+// openKeyFile creates the key file with mode 0600. A configured or derived path is created with
+// O_EXCL: an existing file, or a symlink planted there, is never overwritten or followed. Without
+// any path the key goes to a unique file in the temp directory.
+func openKeyFile(cfg config.Config) (*os.File, string, error) {
+	path := keyFilePath(cfg)
 	if path == "" {
-		f, err = os.CreateTemp("", "ohs-bootstrap-api-key-*")
-		if err == nil {
-			path = f.Name()
+		f, err := os.CreateTemp("", "ohs-bootstrap-api-key-*")
+		if err != nil {
+			return nil, "", err
 		}
-	} else {
-		if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return path, err
-		}
-		f, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if errors.Is(err, os.ErrExist) {
-			return path, fmt.Errorf("%s already exists and is not overwritten: remove it, or set OHS_BOOTSTRAP_KEY_FILE to another path", path)
-		}
+		return f, f.Name(), nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, path, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return nil, path, fmt.Errorf("%s already exists and is not overwritten: remove it, or set OHS_BOOTSTRAP_KEY_FILE to another path", path)
 	}
 	if err != nil {
-		return path, err
+		return nil, path, err
 	}
-	if _, err := f.WriteString(key + "\n"); err != nil {
-		f.Close()
-		return path, err
-	}
-	return path, f.Close()
+	return f, path, nil
 }
 
 // listenHint says what to change when the listen address is taken.

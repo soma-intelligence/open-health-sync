@@ -15,6 +15,7 @@ import (
 )
 
 func TestStartupLogLine(t *testing.T) {
+	t.Setenv("LOG_FORMAT", "json")
 	var buf bytes.Buffer
 	cfg := config.Config{LogLevel: "info", Listen: ":8080", Roles: map[string]bool{"api": true}}
 	_, err := startLogging(&buf, cfg)

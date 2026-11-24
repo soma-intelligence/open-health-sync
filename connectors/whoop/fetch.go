@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -104,7 +105,7 @@ func (c *Connector) FetchTypes(ctx context.Context, conn connector.Connection, f
 		case fatal(err):
 			return fmt.Errorf("whoop: fetch %s: %w", dt, err)
 		case errors.Is(err, errForbidden):
-			modlog().Warn().Str("data_type", dt).Str("scope", scopeOf[dt]).Msg("data_type_refused_http_403")
+			modlog().Warn().Str("data_type", dt).Str("scope", scopeOf[dt]).Int("status", http.StatusForbidden).Msg("data_type_refused")
 		default:
 			logutil.Err(*modlog(), err, zerolog.WarnLevel).Str("data_type", dt).Msg("data_type_failed")
 			failed = append(failed, fmt.Errorf("whoop: fetch %s: %w", dt, err))

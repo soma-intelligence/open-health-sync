@@ -76,7 +76,7 @@ func (v *Vault) Listen(ctx context.Context) error {
 		if listened {
 			backoff = time.Second
 		}
-		logutil.Err(*logging.Ctx(ctx), err, zerolog.WarnLevel).Int64("retry_in_ms", (backoff).Milliseconds()).Msg("vault_listening_failed_retrying")
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.WarnLevel).Int64("retry_in_ms", (backoff).Milliseconds()).Msg("vault_listening_failed_retrying")
 		select {
 		case <-ctx.Done():
 			return nil

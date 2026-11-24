@@ -170,7 +170,7 @@ func (s *Scheduler) subscribePass(ctx, jobCtx context.Context, n int) (int, erro
 		}
 		handled, err := s.subscribeOne(pctx, sub)
 		if err != nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", sub.tenant).Stringer("user_id", sub.user).Str("provider", sub.provider).Msg("subscribe_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", sub.tenant).Stringer("user_id", sub.user).Str("provider", sub.provider).Msg("subscribe_failed")
 			continue
 		}
 		if handled {
@@ -300,7 +300,7 @@ func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) 
 	}
 	if same {
 		if callErr != nil {
-			log.WithLevel(logutil.Level(callErr, zerolog.WarnLevel)).Int("attempts", attempts).Str("error", safeErr(callErr)).Msg("subscribe_failed_will_retry")
+			log.WithLevel(logutil.LevelCtx(ctx, callErr, zerolog.WarnLevel)).Int("attempts", attempts).Str("error", safeErr(callErr)).Msg("subscribe_failed_will_retry")
 		} else {
 			log.Info().Msg("subscribed_provider_notifications")
 		}
@@ -313,7 +313,7 @@ func (s *Scheduler) subscribeOne(ctx context.Context, sub subRef) (bool, error) 
 	if callErr == nil {
 		uctx, ucancel := context.WithTimeout(rctx, subscribeTimeout)
 		if err := sc.Unsubscribe(uctx, conn, sub.callback); err != nil {
-			log.WithLevel(logutil.Level(err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("undo_subscribe_raced_disconnect_failed")
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("undo_subscribe_raced_disconnect_failed")
 		}
 		ucancel()
 	}
@@ -431,7 +431,7 @@ func (d Deps) revokeLocked(ctx, pctx context.Context, tx pgx.Tx, c connRow) erro
 	if ok && c.accessEnc != nil {
 		conn, err := d.renewLocked(ctx, pctx, tx, c, "")
 		if err != nil {
-			log.WithLevel(logutil.Level(err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("token_refresh_before_revoke_failed")
+			log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("token_refresh_before_revoke_failed")
 			conn, err = d.open(c)
 		}
 		if err != nil {
@@ -445,13 +445,13 @@ func (d Deps) revokeLocked(ctx, pctx context.Context, tx pgx.Tx, c connRow) erro
 						continue
 					}
 					if err := sc.Unsubscribe(pctx, conn, s.callback); err != nil {
-						log.WithLevel(logutil.Level(err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("provider_unsubscribe_failed")
+						log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("provider_unsubscribe_failed")
 					}
 				}
 			}
 			if rv, ok := oc.(connector.Revoker); ok {
 				if err := rv.Revoke(pctx, conn.Tokens); err != nil {
-					log.WithLevel(logutil.Level(err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("provider_revoke_failed")
+					log.WithLevel(logutil.LevelCtx(ctx, err, zerolog.WarnLevel)).Str("error", safeErr(err)).Msg("provider_revoke_failed")
 				}
 			}
 		}

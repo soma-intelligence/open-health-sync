@@ -288,7 +288,7 @@ func (h *StreamHub) Run(ctx context.Context) error {
 		if listened {
 			backoff = time.Second
 		}
-		logutil.Err(*logging.Ctx(ctx), err, zerolog.WarnLevel).Int64("retry_in_ms", (backoff).Milliseconds()).Msg("event_stream_listening_failed_retrying")
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.WarnLevel).Int64("retry_in_ms", (backoff).Milliseconds()).Msg("event_stream_listening_failed_retrying")
 		select {
 		case <-ctx.Done():
 			return nil
@@ -330,7 +330,7 @@ func (h *StreamHub) listenOnce(ctx context.Context) (bool, error) {
 				return true, ctx.Err()
 			}
 			// The tenant's streams would miss it: they end and resume.
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.WarnLevel).Msg("event_stream_loading_event_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.WarnLevel).Msg("event_stream_loading_event_failed")
 			h.endTenant(tenant, "event not loaded")
 		default:
 			h.publish(tenant, ev)

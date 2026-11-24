@@ -93,7 +93,7 @@ func (s *server) mergePolicy(r *http.Request, tenantID, user uuid.UUID, q *read.
 	pol, err := fusion.Load(r.Context(), s.d.Pool, tenantID, user, s.d.Scorer)
 	switch {
 	case errors.Is(err, fusion.ErrScores):
-		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("source_scores_unavailable")
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("source_scores_unavailable")
 	case err != nil:
 		return // the read layer loads the orders again and reports it
 	}

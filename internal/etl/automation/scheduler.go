@@ -86,11 +86,11 @@ func runOnce(ctx context.Context, t task) {
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Ctx(ctx).Error().Str("task", t.name).Str("panic", fmt.Sprint(r)).Msg("automation_task_panicked")
+			logging.Ctx(ctx).Error().Str("task", t.name).Str("panic_type", fmt.Sprintf("%T", r)).Msg("automation_task_panicked")
 		}
 	}()
 	if err := t.fn(runCtx); err != nil && ctx.Err() == nil {
-		logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("task", t.name).Msg("automation_task_failed")
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("task", t.name).Msg("automation_task_failed")
 	}
 }
 

@@ -132,10 +132,10 @@ func bootstrapKeys(t *testing.T, cfg config.Config, logs string) []string {
 	for sc.Scan() {
 		var line map[string]any
 		require.NoError(t, json.Unmarshal(sc.Bytes(), &line), "every log line is JSON: %q", sc.Text())
-		if line["message"] != "bootstrap_tenant_created_api_key_in_file" {
+		if line["message"] != "bootstrap_tenant_created" {
 			continue
 		}
-		assert.Equal(t, "warn", line["level"])
+		assert.Equal(t, "info", line["level"])
 		assert.Equal(t, cfg.BootstrapKeyFile, line["api_key_file"])
 		raw, err := os.ReadFile(cfg.BootstrapKeyFile)
 		require.NoError(t, err)

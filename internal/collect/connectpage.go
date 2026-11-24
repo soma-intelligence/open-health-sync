@@ -210,7 +210,7 @@ func (h *Handlers) CreateConnectSession() http.Handler {
 		}
 		token, err := newState()
 		if err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("connect_session_token_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("connect_session_token_failed")
 			writeInternal(w)
 			return
 		}
@@ -220,7 +220,7 @@ func (h *Handlers) CreateConnectSession() http.Handler {
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			hashState(token), tenantID, userID, sess.providers, nullable(sess.redirect),
 			nullable(sess.appName), nullable(sess.logoURL), sess.expiresAt); err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("store_connect_session_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("store_connect_session_failed")
 			writeInternal(w)
 			return
 		}
@@ -284,7 +284,7 @@ func (h *Handlers) session(w http.ResponseWriter, r *http.Request, token string)
 	s, found, err := h.loadConnectSession(r.Context(), token)
 	switch {
 	case err != nil:
-		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("connect_page_failed")
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("connect_page_failed")
 		renderConnectProblem(w, http.StatusInternalServerError, "Something went wrong",
 			"Try again in a moment.")
 		return s, false
@@ -379,7 +379,7 @@ func (h *Handlers) ConnectPage() http.Handler {
 		}
 		status, err := h.connectionStatuses(r.Context(), s.tenant, s.user, slugs)
 		if err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", s.tenant).Stringer("user_id", s.user).Msg("connect_page_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", s.tenant).Stringer("user_id", s.user).Msg("connect_page_failed")
 			renderConnectProblem(w, http.StatusInternalServerError, "Something went wrong", "Try again in a moment.")
 			return
 		}
@@ -420,7 +420,7 @@ func (h *Handlers) ConnectPage() http.Handler {
 		setPageHeaders(w, h.pageCSP(s.tenant, slugs))
 		w.WriteHeader(http.StatusOK)
 		if err := connectPage.Execute(w, v); err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("render_connect_page_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Msg("render_connect_page_failed")
 		}
 	})
 }

@@ -52,7 +52,7 @@ func (p *Purger) Run(ctx context.Context) error {
 	for {
 		did, err := p.Once(ctx)
 		if err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("purge_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("purge_failed")
 		}
 		if did && err == nil {
 			continue

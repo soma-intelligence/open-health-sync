@@ -63,7 +63,7 @@ config:
   # later).
   webhookAllowPrivate: false
   # Creates this tenant at first start and writes its API key once to a file
-  # (OHS_BOOTSTRAP_KEY_FILE, default next to the raw store).
+  # (OHS_BOOTSTRAP_KEY_FILE, default inside the raw store directory).
   bootstrapTenant: ""
   # Any other non-secret variable, as NAME: value.
   extra: {}

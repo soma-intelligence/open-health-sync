@@ -228,7 +228,7 @@ and apply when each process next starts. **Bootstrap** settings are only read fr
 | `OHS_RAW_STORE` | `file:///var/lib/ohs/raw` | `file:///path` or `s3://bucket?endpoint=&region=&path_style=true&sse=` |
 | `OHS_ROLES` | `api,collect,etl` | Roles this process runs |
 | `OHS_BOOTSTRAP_TENANT` | none | Creates this tenant at first start and writes its API key once to `OHS_BOOTSTRAP_KEY_FILE` (the log shows only a redacted form and the path). It is an [instance admin](console.md#the-instance-admin) |
-| `OHS_BOOTSTRAP_KEY_FILE` | `bootstrap-api-key` next to the raw store directory | Where that key is written, mode 0600. A file that exists is never overwritten |
+| `OHS_BOOTSTRAP_KEY_FILE` | `bootstrap-api-key` inside the raw store directory (`/var/lib/ohs/raw` in the image) | Where that key is written, mode 0600. Opened before the tenant is created: an unwritable path or an existing file stops the start with no tenant created, and a file that exists is never overwritten |
 | `OHS_LISTEN` | `:8080` | Listen address |
 | `OHS_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON on stderr, one line per event, or a readable form on a terminal (`LOG_FORMAT=json` or `console` forces one) |
 | `OHS_CONSOLE` | `false` | `true` serves the [admin console](console.md) on `/console`, where you run the pipeline and turn providers on; `read-only` serves it without any action. It asks for a tenant API key and calls the API with it; off, the route is not mounted (404). The actions and `read-only` are 0.2.0 and later: 0.1.0 serves the read-only console |

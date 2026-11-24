@@ -56,8 +56,8 @@ nothing to open. Two ways in:
 
 - **`OHS_BOOTSTRAP_TENANT`.** Set it to a tenant name before the first start. ohs creates the
   tenant and writes its API key once to a file with mode 0600: `OHS_BOOTSTRAP_KEY_FILE`, or
-  `bootstrap-api-key` next to the raw store directory. A `WARN` line,
-  `bootstrap_tenant_created_api_key_in_file`, gives the path and a redacted form of the key, never
+  `bootstrap-api-key` inside the raw store directory. An `INFO` line,
+  `bootstrap_tenant_created`, gives the path and a redacted form of the key, never
   the key itself. On a platform with no shell, set `OHS_BOOTSTRAP_KEY_FILE` to a path on a
   volume you can read, or use `ohs admin` below. A file that already exists is never
   overwritten: the start fails and names it.

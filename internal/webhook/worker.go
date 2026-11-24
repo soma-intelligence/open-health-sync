@@ -274,7 +274,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		done := w.loop.Busy(pruneLimit)
 		if err := w.Prune(ctx); err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("prune_deliveries_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("prune_deliveries_failed")
 		}
 		done()
 		lastPrune = time.Now()
@@ -318,7 +318,7 @@ func (w *Worker) pump(ctx context.Context, each func()) error {
 
 		jobs, err := w.claimFn(ctx, n)
 		if err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("claim_deliveries_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("claim_deliveries_failed")
 		}
 		for range n - len(jobs) {
 			<-slots
@@ -332,7 +332,7 @@ func (w *Worker) pump(ctx context.Context, each func()) error {
 				defer wg.Done()
 				defer done()
 				if err := w.deliverFn(jobCtx, j); err != nil {
-					logutil.Err(*logging.Ctx(jobCtx), err, zerolog.ErrorLevel).Int64("delivery_id", j.id).Msg("settle_delivery_failed")
+					logutil.ErrCtx(jobCtx, *logging.Ctx(jobCtx), err, zerolog.ErrorLevel).Int64("delivery_id", j.id).Msg("settle_delivery_failed")
 				}
 				<-slots
 				select {
@@ -594,7 +594,7 @@ func (w *Worker) deliver(ctx context.Context, j job) (err error) {
 	if sendErr == nil {
 		return w.succeed(ctx, j, o)
 	}
-	logutil.Err(*logging.Ctx(ctx), sendErr, zerolog.InfoLevel).Int64("delivery_id", j.id).Stringer("endpoint_id", j.endpoint).Int("attempt", j.attempts+1).Int("status_code", o.code).Msg("delivery_attempt_failed")
+	logutil.ErrCtx(ctx, *logging.Ctx(ctx), sendErr, zerolog.InfoLevel).Int64("delivery_id", j.id).Stringer("endpoint_id", j.endpoint).Int("attempt", j.attempts+1).Int("status_code", o.code).Msg("delivery_attempt_failed")
 	return w.fail(ctx, j, o, sendErr)
 }
 

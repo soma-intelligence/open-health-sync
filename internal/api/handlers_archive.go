@@ -170,7 +170,7 @@ func (s *server) userArchive(w http.ResponseWriter, r *http.Request) {
 		// The status is sent: cut the response so the client sees a broken
 		// transfer, never an archive that looks complete.
 		if r.Context().Err() == nil { // not the client going away
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("archive_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("archive_failed")
 		}
 		panic(http.ErrAbortHandler)
 	}

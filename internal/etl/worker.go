@@ -144,7 +144,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 		jobs, err := w.q.Claim(ctx, w.tier, n)
 		if err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tier", w.tier).Msg("claim_etl_jobs_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tier", w.tier).Msg("claim_etl_jobs_failed")
 		}
 		for range n - len(jobs) {
 			<-slots
@@ -232,7 +232,7 @@ func (w *Worker) handle(ctx context.Context, job queue.ETLJob) {
 	outcome := ""
 	defer func() {
 		if r := recover(); r != nil {
-			log.Error().Str("panic", fmt.Sprint(r)).Msg("etl_job_panicked")
+			log.Error().Str("panic_type", fmt.Sprintf("%T", r)).Msg("etl_job_panicked")
 			outcome = w.settle(ctx, log, job, errors.New("etl job panicked"))
 		}
 		span.SetAttributes(attribute.String(tracing.AttrOutcome, outcome))
@@ -262,7 +262,7 @@ func (w *Worker) settle(ctx context.Context, log zerolog.Logger, job queue.ETLJo
 		err = w.q.Complete(ctx, job)
 	} else {
 		outcome = "failed"
-		logutil.Err(log, cause, zerolog.WarnLevel).Msg("etl_job_failed")
+		logutil.ErrCtx(ctx, log, cause, zerolog.WarnLevel).Msg("etl_job_failed")
 		err = w.q.Fail(ctx, job, cause)
 	}
 	switch {
@@ -270,7 +270,7 @@ func (w *Worker) settle(ctx context.Context, log zerolog.Logger, job queue.ETLJo
 		log.Info().Msg("etl_job_claim_lost_result_dropped")
 		return "claim_lost"
 	case err != nil:
-		logutil.Err(log, err, zerolog.ErrorLevel).Msg("settle_etl_job_failed")
+		logutil.ErrCtx(ctx, log, err, zerolog.ErrorLevel).Msg("settle_etl_job_failed")
 		return "settle_error"
 	}
 	return outcome

@@ -127,7 +127,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		w.loop.Tick()
 		n, err := w.pass(ctx, jobCtx)
 		if err != nil && ctx.Err() == nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("deletion_pass_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("deletion_pass_failed")
 		}
 		if n > 0 && err == nil {
 			continue // more may be waiting
@@ -155,7 +155,7 @@ func (w *Worker) pass(ctx, jobCtx context.Context) (int, error) {
 		j, ok, err := w.pick(ctx, skip)
 		if err != nil {
 			if ctx.Err() == nil {
-				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("deletion_pick_job_failed")
+				logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("deletion_pick_job_failed")
 			}
 			errs = append(errs, err)
 			break
@@ -175,7 +175,7 @@ func (w *Worker) pass(ctx, jobCtx context.Context) (int, error) {
 				errs = append(errs, fmt.Errorf("job %s: %w", j.id, err))
 				break
 			}
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("job_id", j.id).Stringer("tenant_id", j.tenant).Stringer("user_id", j.user).Msg("deletion_job_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("job_id", j.id).Stringer("tenant_id", j.tenant).Stringer("user_id", j.user).Msg("deletion_job_failed")
 			w.noteFailure(j.id)
 			errs = append(errs, fmt.Errorf("job %s: %w", j.id, err))
 			continue
@@ -266,7 +266,7 @@ func (w *Worker) run(ctx context.Context, j job) (bool, error) {
 		}
 		rctx, cancel := context.WithTimeout(ctx, revokeBudget(n))
 		if err := w.revoker.RevokeAll(rctx, j.tenant, j.user); err != nil {
-			logutil.Err(log, err, zerolog.WarnLevel).Msg("provider_connections_revoke_failed")
+			logutil.ErrCtx(ctx, log, err, zerolog.WarnLevel).Msg("provider_connections_revoke_failed")
 		}
 		cancel()
 	}

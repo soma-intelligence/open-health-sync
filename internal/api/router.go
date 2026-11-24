@@ -348,8 +348,9 @@ func (s *server) tenantRoute(mux *http.ServeMux, pattern string, h http.HandlerF
 }
 
 // instrument gives every request an id (X-Request-Id, kept from the caller
-// when well formed), counts it by its matched pattern, logs it at debug level
-// (route pattern, never the query string or a header), records an
+// when well formed), counts it by its matched pattern, writes its access line (matched
+// route pattern, never the query string or a header; the level follows the
+// status: 2xx and 3xx debug, 4xx info, 5xx error), records an
 // authenticated one in the audit log, and a refused credential within
 // bounds (authFailed), and turns a panic into a 500. It tells the auth
 // middleware which key scope each route needs (routeScope): a credential
@@ -386,7 +387,7 @@ func (s *server) instrument(next http.Handler) http.Handler {
 				panic(v)
 			}
 			if v != nil {
-				logging.Ctx(r.Context()).Error().Str("route", r.Pattern).Str("panic", fmt.Sprint(v)).
+				logging.Ctx(r.Context()).Error().Str("route", r.Pattern).Str("panic_type", fmt.Sprintf("%T", v)).
 					Bytes("stack", debug.Stack()).Msg("http_panic")
 				if sw.code == 0 {
 					problem(sw, http.StatusInternalServerError, "an internal error occurred")

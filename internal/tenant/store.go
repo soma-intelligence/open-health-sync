@@ -183,6 +183,15 @@ func (s *Store) CreateTenantAudited(ctx context.Context, name string, ev audit.E
 	return t, full, k, nil
 }
 
+// TenantNamed reports whether a tenant of that name exists.
+func (s *Store) TenantNamed(ctx context.Context, name string) (bool, error) {
+	var ok bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ohs_core.tenants WHERE name = $1)`, name).Scan(&ok); err != nil {
+		return false, fmt.Errorf("tenant: find tenant: %w", err)
+	}
+	return ok, nil
+}
+
 // EnsureTenant returns the oldest tenant named name, creating it with a first
 // API key when none exists. The plaintext key is non-empty only when the
 // tenant was created by this call. Concurrent callers (several instances
@@ -871,7 +880,7 @@ func (s *Store) Idempotent(ctx context.Context, tenantID uuid.UUID, key, request
 		if _, derr := s.pool.Exec(settle,
 			`DELETE FROM ohs_core.idempotency_keys WHERE tenant_id = $1 AND key = $2 AND status_code = 0 AND request_hash = $3`,
 			tenantID, key, requestHash); derr != nil {
-			logutil.Err(*logging.Ctx(ctx), derr, zerolog.ErrorLevel).Msg("release_idempotency_claim_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), derr, zerolog.ErrorLevel).Msg("release_idempotency_claim_failed")
 		}
 	}
 

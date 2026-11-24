@@ -142,7 +142,7 @@ func (s *server) record(r *http.Request, ev audit.Event) {
 	defer cancel()
 	if err := audit.Record(ctx, s.d.Pool, ev); err != nil {
 		s.metrics.auditFailures.Add(1)
-		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("audit_event_not_written")
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Str("route", r.Pattern).Msg("audit_event_not_written")
 	}
 }
 

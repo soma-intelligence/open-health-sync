@@ -283,14 +283,14 @@ func add[In any](s *sdk.Server, name, desc string, fn func(context.Context, In) 
 			if err != nil {
 				var te toolError
 				if !errors.As(err, &te) {
-					logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tool", name).Msg("tool_failed")
+					logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tool", name).Msg("tool_failed")
 					err = toolError("internal error, try again later")
 				}
 				return nil, nil, err
 			}
 			raw, err := json.Marshal(out)
 			if err != nil {
-				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tool", name).Msg("encode_result_failed")
+				logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("tool", name).Msg("encode_result_failed")
 				return nil, nil, toolError("internal error, try again later")
 			}
 			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: string(raw)}}}, nil, nil

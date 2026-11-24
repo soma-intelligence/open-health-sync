@@ -60,7 +60,7 @@ func (h *deleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	jobID, found, err := h.request(ctx, p.TenantID, userID)
 	if err != nil {
-		logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Stringer("user_id", userID).Msg("deletion_request_failed")
+		logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Stringer("user_id", userID).Msg("deletion_request_failed")
 		auth.WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "the deletion could not be started, retry later")
 		return
 	}

@@ -387,7 +387,7 @@ func (h *Handlers) caller(w http.ResponseWriter, r *http.Request) (uuid.UUID, uu
 		return uuid.Nil, uuid.Nil, false
 	}
 	if err != nil {
-		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Msg("look_up_user_failed")
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", p.TenantID).Msg("look_up_user_failed")
 		writeInternal(w)
 		return uuid.Nil, uuid.Nil, false
 	}
@@ -441,7 +441,7 @@ func (h *Handlers) ListConnections() http.Handler {
 			return
 		}
 		if err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("list_connections_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("list_connections_failed")
 			writeInternal(w)
 			return
 		}
@@ -495,7 +495,7 @@ func (h *Handlers) DeleteConnection() http.Handler {
 		// so a refresh or a reconnect cannot interleave.
 		tx, err := h.d.Pool.Begin(ctx)
 		if err != nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_begin_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_begin_failed")
 			writeInternal(w)
 			return
 		}
@@ -508,7 +508,7 @@ func (h *Handlers) DeleteConnection() http.Handler {
 			return
 		}
 		if err != nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Msg("load_connection_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Msg("load_connection_failed")
 			writeInternal(w)
 			return
 		}
@@ -522,7 +522,7 @@ func (h *Handlers) DeleteConnection() http.Handler {
 			err := h.d.revokeLocked(dctx, rctx, tx, c)
 			rcancel()
 			if err != nil {
-				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Msg("disconnect_failed")
+				logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Str("provider", provider).Msg("disconnect_failed")
 				writeInternal(w)
 				return
 			}
@@ -534,12 +534,12 @@ func (h *Handlers) DeleteConnection() http.Handler {
 				rate_limited_until = NULL, updated_at = now()
 			WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`,
 			tenantID, userID, provider); err != nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
 			writeInternal(w)
 			return
 		}
 		if err := parkPending(dctx, tx, tenantID, userID, provider, reasonDisconnected); err != nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
 			writeInternal(w)
 			return
 		}
@@ -549,18 +549,18 @@ func (h *Handlers) DeleteConnection() http.Handler {
 			// provider while (or after) its data is erased.
 			if _, err := tx.Exec(dctx, `DELETE FROM ohs_sync.oauth_states
 				WHERE tenant_id = $1 AND user_id = $2 AND provider = $3`, tenantID, userID, provider); err != nil {
-				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
+				logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_failed")
 				writeInternal(w)
 				return
 			}
 			if jobID, err = deletion.QueueProvider(dctx, tx, tenantID, userID, provider); err != nil {
-				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("queue_provider_data_deletion_failed")
+				logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("queue_provider_data_deletion_failed")
 				writeInternal(w)
 				return
 			}
 		}
 		if err := tx.Commit(dctx); err != nil {
-			logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_commit_failed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Msg("disconnect_commit_failed")
 			writeInternal(w)
 			return
 		}

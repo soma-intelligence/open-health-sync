@@ -272,7 +272,7 @@ func (h *Handlers) Freshness() http.Handler {
 			return
 		}
 		if err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("freshness_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", tenantID).Stringer("user_id", userID).Msg("freshness_failed")
 			writeInternal(w)
 			return
 		}

@@ -205,7 +205,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", req.tenant).Stringer("user_id", req.user).Str("provider", h.provider).Msg("upload_failed")
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.ErrorLevel).Stringer("tenant_id", req.tenant).Stringer("user_id", req.user).Str("provider", h.provider).Msg("upload_failed")
 		if db.Unavailable(err) {
 			// The raw store's network or the database's: say neither.
 			auth.WriteUnavailable(w, "storage is unavailable; retry in a few seconds")
@@ -436,7 +436,7 @@ func (h *uploadHandler) store(ctx context.Context, q uploadReq, body []byte) (Up
 		// between the check and the registration: the file just written is
 		// removed again.
 		if derr := h.d.Raw.DeletePrefix(context.WithoutCancel(ctx), key); derr != nil {
-			logutil.Err(*logging.Ctx(ctx), derr, zerolog.WarnLevel).Stringer("tenant_id", q.tenant).Stringer("user_id", q.user).Msg("refused_part_file_not_removed")
+			logutil.ErrCtx(ctx, *logging.Ctx(ctx), derr, zerolog.WarnLevel).Stringer("tenant_id", q.tenant).Stringer("user_id", q.user).Msg("refused_part_file_not_removed")
 		}
 		return UploadResponse{}, 0, err
 	}

@@ -131,7 +131,7 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	if err := s.d.Pool.Ping(ctx); err != nil {
-		logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_database_failed")
+		logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_database_failed")
 		problem(w, http.StatusServiceUnavailable, "the database is not reachable")
 		return
 	}
@@ -150,14 +150,14 @@ func (s *server) readyz(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.d.Raw != nil {
 		if err := rawstore.Ping(ctx, s.d.Raw); err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_raw_store_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_raw_store_failed")
 			problem(w, http.StatusServiceUnavailable, "the raw store is not reachable")
 			return
 		}
 	}
 	if s.d.Vault != nil {
 		if err := s.d.Vault.Ready(ctx); err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_vault_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("readyz_vault_failed")
 			problem(w, http.StatusServiceUnavailable, "the key provider does not open keys")
 			return
 		}
@@ -259,7 +259,7 @@ func (s *server) metricsHandler(w http.ResponseWriter, r *http.Request) {
 		sync, err = s.d.Collect.SyncMetrics(ctx)
 		cancel()
 		if err != nil {
-			logutil.Err(*logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("metrics_sync_state_failed")
+			logutil.ErrCtx(r.Context(), *logging.Ctx(r.Context()), err, zerolog.WarnLevel).Msg("metrics_sync_state_failed")
 			sync = nil
 		}
 	}

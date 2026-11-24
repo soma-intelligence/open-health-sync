@@ -174,12 +174,12 @@ func (h *Handlers) Inbound() http.Handler {
 				}
 			}
 			if err := h.storeInbound(ctx, provider, t, stores); err != nil {
-				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("inbound_store_failed")
+				logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("inbound_store_failed")
 				writeInternal(w)
 				return
 			}
 			if err := h.enqueueInbound(ctx, provider, t, pulls); err != nil {
-				logutil.Err(*logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("inbound_enqueue_failed")
+				logutil.ErrCtx(ctx, *logging.Ctx(ctx), err, zerolog.ErrorLevel).Str("provider", provider).Msg("inbound_enqueue_failed")
 				writeInternal(w)
 				return
 			}
